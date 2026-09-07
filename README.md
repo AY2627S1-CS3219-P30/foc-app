@@ -14,7 +14,7 @@ withdrawn, or exchanged for money, and only circulate within the platform.
 
 | Name | Role |
 | ----- | ----- |
-| Your Name | Your ownership |
+| Anselm Long | Developer |
 | Your Name | Your ownership |
 | Your Name | Your ownership |
 | Your Name | Your ownership |
