@@ -12,13 +12,13 @@ withdrawn, or exchanged for money, and only circulate within the platform.
 
 ## Team Members
 
-| Name | Role |
-| ----- | ----- |
-| Anselm Long | Developer |
-| Your Name | Your ownership |
-| Your Name | Your ownership |
-| Your Name | Your ownership |
-| Your Name | Your ownership |
+| Name           | Role                               |
+| -------------- | ---------------------------------- |
+| Anselm Long    | Developer/LinkedInfluencer         |
+| Zhang Yuan     | Developer/Hasn't showered in weeks |
+| Jonus Ho       | Developer/BTS 8th member           |
+| Isaac Chua     | Developer/Goat                     |
+| Patrick Thomas | Developer/Diversity hire           |
 
 ---
 
