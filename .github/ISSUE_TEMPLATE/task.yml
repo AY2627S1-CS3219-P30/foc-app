@@ -1,0 +1,59 @@
+name: Task / Chore
+description: Development work that is not a bug or a user-facing feature
+title: "[Task]: "
+labels: ["task"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What needs to be done, and why?
+      placeholder: Set up the Dockerfile and health-check endpoint for order-service.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: service
+    attributes:
+      label: Service(s) Involved
+      multiple: true
+      options:
+        - user-service
+        - supplier-service
+        - order-service
+        - credit-service
+        - Cross-service / integration
+        - Repo-level (docs, CI, compose, tooling)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Setup / scaffolding
+        - Refactor
+        - Documentation
+        - Testing
+        - CI / tooling
+        - Dependencies
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: done
+    attributes:
+      label: Definition of Done
+      value: |
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Blockers, dependencies on other issues, or reference links.
