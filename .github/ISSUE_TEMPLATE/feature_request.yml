@@ -1,0 +1,83 @@
+name: Feature Request
+description: Propose a new feature, user story, or enhancement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / Motivation
+      description: What need does this address? Who is it for?
+      placeholder: As a student fulfilling an errand, I want to ... so that ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Solution
+      description: What should be built? Include API shape, data changes, or UI sketches if you have them.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: service
+    attributes:
+      label: Service(s) Involved
+      multiple: true
+      options:
+        - user-service
+        - supplier-service
+        - order-service
+        - credit-service
+        - New N2H service
+        - Cross-service / integration
+        - Repo-level (docs, CI, compose, tooling)
+        - Not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Scope
+      description: Is this required for the project, or a nice-to-have?
+      options:
+        - Must-have (core requirement)
+        - Should-have
+        - Nice-to-have (N2H)
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: How do we know this is done?
+      value: |
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Other approaches you weighed, and why you did not pick them.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Links to the project brief, diagrams, dependencies, or related issues.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before Submitting
+      options:
+        - label: I searched existing issues and this is not a duplicate
+          required: true
+        - label: This fits the one-service-per-folder repository structure
+          required: false

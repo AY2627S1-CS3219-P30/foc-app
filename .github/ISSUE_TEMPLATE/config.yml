@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Project Brief & Milestone Instructions
+    url: https://github.com/AY2627S1-CS3219-P30/foc-app/tree/main/project-instructions
+    about: Check the CS3219 project description and milestone instructions before filing.

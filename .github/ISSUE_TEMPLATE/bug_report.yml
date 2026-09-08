@@ -1,0 +1,97 @@
+name: Bug Report
+description: Report something that is broken or behaving incorrectly
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please fill in as much as you can — a reproducible
+        report gets fixed much faster than a vague one.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: A clear, one-paragraph description of the bug.
+      placeholder: Creating an order with 0 credits returns 500 instead of 400.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: service
+    attributes:
+      label: Affected Service
+      description: Which service does this bug live in?
+      multiple: true
+      options:
+        - user-service
+        - supplier-service
+        - order-service
+        - credit-service
+        - Cross-service / integration
+        - Repo-level (docs, CI, compose, tooling)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Exact steps, commands, or requests that trigger the bug.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behaviour
+      description: Include status codes, error messages, or incorrect output.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Stack Trace
+      description: Paste relevant logs. This is automatically formatted as code.
+      render: shell
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: How were you running the service when this happened?
+      value: |
+        - OS:
+        - Runtime / version:
+        - Running via: (local / Docker Compose)
+        - Branch or commit:
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Screenshots, related issues, workarounds, or anything else useful.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before Submitting
+      options:
+        - label: I searched existing issues and this is not a duplicate
+          required: true
+        - label: I have not included any secrets or credentials in this report
+          required: true
