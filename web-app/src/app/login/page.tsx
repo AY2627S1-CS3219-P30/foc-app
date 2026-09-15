@@ -10,23 +10,40 @@ export default function LoginPage() {
   const { login } = useStore();
   const router = useRouter();
 
+  function signIn() {
+    login();
+    router.push("/feed");
+  }
+
   return (
-    <Screen>
-      <div className={styles.wrap}>
-        <div>
-          <p className={styles.logo}>NUQueSt</p>
-          <p className={styles.tagline}>Campus errands, run by students.</p>
-        </div>
-        <Button
-          full
-          onClick={() => {
-            login();
-            router.push("/feed");
-          }}
-        >
-          Sign in with Outlook
-        </Button>
+    <>
+      <div className="mobileOnly">
+        <Screen>
+          <div className={styles.wrap}>
+            <div>
+              <p className={styles.logo}>NUQueSt</p>
+              <p className={styles.tagline}>Campus errands, run by students.</p>
+            </div>
+            <Button full onClick={signIn}>
+              Sign in with Outlook
+            </Button>
+          </div>
+        </Screen>
       </div>
-    </Screen>
+
+      <div className="desktopOnly">
+        <div className={styles.desktopPage}>
+          <div className={styles.desktopCard}>
+            <div>
+              <p className={styles.desktopLogo}>NUQueSt</p>
+              <p className={styles.desktopTagline}>Campus errands, run by students.</p>
+            </div>
+            <Button full onClick={signIn}>
+              Sign in with Outlook
+            </Button>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
