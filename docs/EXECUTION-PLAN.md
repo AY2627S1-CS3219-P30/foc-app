@@ -165,7 +165,7 @@ API Gateway / edge routing ---- SSE/WebSocket ---- Browser
  health/readiness, CI, Docker Compose, seed/demo tooling.
 ```
 
-Use a monorepo with `apps/web`, `services/user`, `services/supplier`, `services/order`, `services/credit`, `services/chat`, `gateway`, `packages/contracts`, `packages/config`, `packages/testkit`, and `infra`. The extra Chat Service is justified by independent retention, WebSocket connections, and participant authorization; if capacity drops, its first release may be a module behind the gateway without changing the public contract.
+Follow the repository's one-service-per-folder convention: top-level `user-service/`, `supplier-service/`, `order-service/`, `credit-service/`, plus new top-level folders for `chat-service/`, `web/`, `gateway/`, and `contracts/` (shared OpenAPI/AsyncAPI schemas and generated types). This flat layout replaces any nested `apps/`, `services/`, `packages/`, or `infra/` grouping — every deployable unit and shared package sits directly at repo root, matching `README.md`'s stated structure. The extra Chat Service is justified by independent retention, WebSocket connections, and participant authorization; if capacity drops, its first release may be a module behind the gateway without changing the public contract.
 
 For local deployment, a single PostgreSQL server may host separate logical databases and users to save memory. Service credentials permit access only to their own database. No service reads another service's tables. RabbitMQ uses durable exchanges and queues. The gateway is thin: routing, request IDs, coarse rate limits, token verification, and streaming connection termination — not business logic.
 
@@ -766,7 +766,7 @@ Ownership does not mean exclusive authorship. Cross-owner changes require the co
 
 ### 8.1 Contract governance
 
-- OpenAPI and AsyncAPI live in `packages/contracts`; generated types are consumed by web/services.
+- OpenAPI and AsyncAPI live in the top-level `contracts/` folder; generated types are consumed by `web/` and every `*-service/`.
 - Contract changes require the producer owner, at least one consumer owner, and Dev 3 or Dev 4 review.
 - Within v1, changes are additive. Removing/renaming/changing meaning requires a new major schema and a migration window.
 - Each endpoint/event has positive, validation, authorization, conflict, duplicate, and dependency-failure examples.
