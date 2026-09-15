@@ -1,0 +1,16 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 160px;
+}
+
+.label {
+  font-size: 13px;
+  color: var(--color-text-subtle);
+}
+
+.value {
+  font-size: 28px;
+  font-weight: 700;
+}

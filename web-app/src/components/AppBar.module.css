@@ -1,0 +1,38 @@
+.bar {
+  height: 64px;
+  flex-shrink: 0;
+  background: var(--color-primary);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-3);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.iconBtn {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: #ffffff;
+  border-radius: var(--radius-sm);
+}
+
+.iconBtn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.spacer {
+  width: 40px;
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 500;
+  font-family: var(--font-display);
+}

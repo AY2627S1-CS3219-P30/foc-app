@@ -1,0 +1,55 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.expiry {
+  font-size: 12px;
+  color: var(--color-text-subtle);
+}
+
+.route {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.title {
+  font-size: 16px;
+  color: var(--color-text);
+}
+
+.dropoff {
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.reward {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.reward strong {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.reward span {
+  font-size: 12px;
+  color: var(--color-text-subtle);
+}

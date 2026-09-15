@@ -1,0 +1,42 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.4);
+  z-index: 100;
+  display: flex;
+  justify-content: center;
+}
+
+.panel {
+  width: 100%;
+  max-width: var(--phone-width);
+  background: var(--color-surface);
+  padding: var(--space-5) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  height: fit-content;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+.item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 14px var(--space-2);
+  font-size: 15px;
+  font-weight: 500;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+}
+
+.item:hover {
+  background: var(--color-page);
+}
+
+.logout {
+  color: var(--color-danger);
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-4);
+}

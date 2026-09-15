@@ -1,0 +1,28 @@
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.body {
+  flex: 1;
+  display: flex;
+}
+
+.main {
+  flex: 1;
+  padding: var(--space-5) 40px;
+  max-width: 1120px;
+}
+
+.headingRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.heading {
+  font-size: 22px;
+  font-weight: 700;
+}
