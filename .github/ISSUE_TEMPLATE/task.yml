@@ -1,7 +1,7 @@
 name: Task / Chore
 description: Development work that is not a bug or a user-facing feature
 title: "[Task]: "
-labels: ["task"]
+labels: ["type:task"]
 body:
   - type: textarea
     id: description
