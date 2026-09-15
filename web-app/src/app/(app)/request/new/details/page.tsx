@@ -23,8 +23,8 @@ function DetailsForm() {
 
   function submit() {
     if (!title.trim()) return;
-    createRequest({ title: title.trim(), supplier, dropoff, description, credits });
-    router.push("/feed");
+    const id = createRequest({ title: title.trim(), supplier, dropoff, description, credits });
+    router.push(`/request/${id}?posted=1`);
   }
 
   // Implicit <label> wrapping (no id/htmlFor): this form renders twice

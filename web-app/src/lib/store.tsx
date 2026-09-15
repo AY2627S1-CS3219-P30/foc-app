@@ -39,11 +39,12 @@ type Action =
   | { type: "LOGIN" }
   | { type: "LOGOUT" }
   | { type: "SET_MENU_OPEN"; open: boolean }
-  | { type: "CREATE_REQUEST"; input: NewRequestInput }
+  | { type: "CREATE_REQUEST"; id: string; input: NewRequestInput }
   | { type: "EDIT_REQUEST"; id: string; input: NewRequestInput }
   | { type: "ACCEPT_REQUEST"; id: string }
   | { type: "COMPLETE_REQUEST"; id: string }
-  | { type: "CANCEL_REQUEST"; id: string };
+  | { type: "CANCEL_REQUEST"; id: string }
+  | { type: "RELEASE_REQUEST"; id: string };
 
 const initialState: State = {
   isAuthenticated: false,
@@ -77,7 +78,7 @@ function reducer(state: State, action: Action): State {
     case "CREATE_REQUEST": {
       const { input } = action;
       const request: ErrandRequest = {
-        id: makeId("r"),
+        id: action.id,
         title: input.title,
         supplier: input.supplier,
         dropoff: input.dropoff,
@@ -162,7 +163,8 @@ function reducer(state: State, action: Action): State {
 
     case "CANCEL_REQUEST": {
       const existing = state.requests.find((r) => r.id === action.id);
-      if (!existing || existing.requesterId !== CURRENT_USER.id || existing.status !== "open") {
+      const cancellable = existing?.status === "open" || existing?.status === "in_transit";
+      if (!existing || existing.requesterId !== CURRENT_USER.id || !cancellable) {
         return state;
       }
       const ledgerEntry: LedgerEntry = {
@@ -184,6 +186,24 @@ function reducer(state: State, action: Action): State {
       };
     }
 
+    case "RELEASE_REQUEST": {
+      // Courier backs out before delivering — the errand goes back to
+      // open for someone else to accept. No credits move: the courier
+      // was never paid, and the requester's reservation is untouched.
+      const existing = state.requests.find((r) => r.id === action.id);
+      if (!existing || existing.status !== "in_transit" || existing.courierId !== CURRENT_USER.id) {
+        return state;
+      }
+      return {
+        ...state,
+        requests: state.requests.map((r) =>
+          r.id === action.id
+            ? { ...r, status: "open", courierId: undefined, courierName: undefined }
+            : r
+        ),
+      };
+    }
+
     default:
       return state;
   }
@@ -194,11 +214,12 @@ type Store = {
   login: () => void;
   logout: () => void;
   setMenuOpen: (open: boolean) => void;
-  createRequest: (input: NewRequestInput) => void;
+  createRequest: (input: NewRequestInput) => string;
   editRequest: (id: string, input: NewRequestInput) => void;
   acceptRequest: (id: string) => void;
   completeRequest: (id: string) => void;
   cancelRequest: (id: string) => void;
+  releaseRequest: (id: string) => void;
 };
 
 const StoreContext = createContext<Store | null>(null);
@@ -209,10 +230,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const login = useCallback(() => dispatch({ type: "LOGIN" }), []);
   const logout = useCallback(() => dispatch({ type: "LOGOUT" }), []);
   const setMenuOpen = useCallback((open: boolean) => dispatch({ type: "SET_MENU_OPEN", open }), []);
-  const createRequest = useCallback(
-    (input: NewRequestInput) => dispatch({ type: "CREATE_REQUEST", input }),
-    []
-  );
+  const createRequest = useCallback((input: NewRequestInput) => {
+    const id = makeId("r");
+    dispatch({ type: "CREATE_REQUEST", id, input });
+    return id;
+  }, []);
   const editRequest = useCallback(
     (id: string, input: NewRequestInput) => dispatch({ type: "EDIT_REQUEST", id, input }),
     []
@@ -220,10 +242,33 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const acceptRequest = useCallback((id: string) => dispatch({ type: "ACCEPT_REQUEST", id }), []);
   const completeRequest = useCallback((id: string) => dispatch({ type: "COMPLETE_REQUEST", id }), []);
   const cancelRequest = useCallback((id: string) => dispatch({ type: "CANCEL_REQUEST", id }), []);
+  const releaseRequest = useCallback((id: string) => dispatch({ type: "RELEASE_REQUEST", id }), []);
 
   const value = useMemo(
-    () => ({ state, login, logout, setMenuOpen, createRequest, editRequest, acceptRequest, completeRequest, cancelRequest }),
-    [state, login, logout, setMenuOpen, createRequest, editRequest, acceptRequest, completeRequest, cancelRequest]
+    () => ({
+      state,
+      login,
+      logout,
+      setMenuOpen,
+      createRequest,
+      editRequest,
+      acceptRequest,
+      completeRequest,
+      cancelRequest,
+      releaseRequest,
+    }),
+    [
+      state,
+      login,
+      logout,
+      setMenuOpen,
+      createRequest,
+      editRequest,
+      acceptRequest,
+      completeRequest,
+      cancelRequest,
+      releaseRequest,
+    ]
   );
 
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

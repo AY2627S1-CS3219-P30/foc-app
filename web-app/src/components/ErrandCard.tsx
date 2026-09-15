@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Badge } from "./Badge";
 import { Button } from "./Button";
@@ -15,10 +16,9 @@ export function ErrandCard({
 }) {
   const router = useRouter();
   return (
-    <div
-      className={`card ${styles.card}`}
-      onClick={() => router.push(`/request/${request.id}`)}
-    >
+    // A real <Link>, not a <div onClick>, so the card is reachable and
+    // activatable by keyboard and announced correctly by screen readers.
+    <Link href={`/request/${request.id}`} className={`card ${styles.card}`}>
       <div className={styles.meta}>
         <Badge status={request.status} />
         <span className={styles.expiry}>{request.expiryLabel}</span>
@@ -26,6 +26,7 @@ export function ErrandCard({
       <div className={styles.route}>
         <p className={styles.title}>{request.title}</p>
         <p className={styles.dropoff}>{request.dropoff}</p>
+        <p className={styles.requester}>Posted by {request.requesterName}</p>
       </div>
       <div className={styles.action}>
         <div className={styles.reward}>
@@ -36,6 +37,7 @@ export function ErrandCard({
           <Button
             variant="accent"
             onClick={(e) => {
+              e.preventDefault();
               e.stopPropagation();
               onAccept(request.id);
               router.push(`/request/${request.id}`);
@@ -45,6 +47,6 @@ export function ErrandCard({
           </Button>
         )}
       </div>
-    </div>
+    </Link>
   );
 }
