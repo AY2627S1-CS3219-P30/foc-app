@@ -189,7 +189,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/TokenResponse' }
         '401': { $ref: '#/components/responses/RefreshRejected' }
-        '403': { $ref: '#/components/responses/AccountNotLoginable' }
+        '403': { $ref: '#/components/responses/RefreshForbidden' }
 
   /auth/logout:
     post:
@@ -204,6 +204,39 @@ paths:
           headers:
             Set-Cookie:
               schema: { type: string }
+        '403': { $ref: '#/components/responses/CsrfRejected' }
+
+  /.well-known/jwks.json:
+    get:
+      tags: [Auth]
+      operationId: getJwks
+      summary: Public keys for verifying access tokens
+      description: |
+        Ed25519 public keys (`alg: EdDSA`). Other services verify the JWT signature with these and never
+        hold a secret. Cache with a periodic refresh; a `kid` that is not in the cached set means the key
+        rotated, so refetch once.
+      security: []
+      responses:
+        '200':
+          description: A JSON Web Key Set.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [keys]
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      type: object
+                      required: [kty, crv, x, kid, alg, use]
+                      properties:
+                        kty: { type: string, const: OKP }
+                        crv: { type: string, const: Ed25519 }
+                        x: { type: string }
+                        kid: { type: string }
+                        alg: { type: string, const: EdDSA }
+                        use: { type: string, const: sig }
 
   /users/me:
     get:
@@ -760,6 +793,20 @@ components:
           examples:
             invalid: { value: { error: { code: REFRESH_TOKEN_INVALID, message: Session expired. Log in again., correlationId: 5c1f2a9e } } }
             reused: { value: { error: { code: REFRESH_TOKEN_REUSED, message: Session revoked. Log in again., correlationId: 5c1f2a9e } } }
+    CsrfRejected:
+      description: The request origin is not allowed, or the content type is not `application/json`.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: CSRF_REJECTED, message: Request origin is not allowed., correlationId: 5c1f2a9e } }
+    RefreshForbidden:
+      description: CSRF check failed, or the account is no longer `ACTIVE` (its session family is revoked).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            csrf: { value: { error: { code: CSRF_REJECTED, message: Request origin is not allowed., correlationId: 5c1f2a9e } } }
+            suspended: { value: { error: { code: ACCOUNT_SUSPENDED, message: This account is suspended., correlationId: 5c1f2a9e } } }
     NotFound:
       description: No such resource.
       content:

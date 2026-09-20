@@ -8,6 +8,11 @@ export const registerSchema = z.strictObject({
   displayName: z.string().trim().min(1).max(50),
 });
 
+export const loginSchema = z.strictObject({
+  email: z.string().trim().min(1).max(254),
+  password: z.string().min(1).max(128),
+});
+
 export const activateSchema = z.strictObject({
   token: z.string().min(20).max(200),
 });

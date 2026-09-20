@@ -55,7 +55,7 @@ describe('migrations', () => {
 
   it('apply once and are a no-op the second time', async () => {
     db = await PgliteDb.create();
-    expect(await runMigrations(db)).toEqual(['001_identity']);
+    expect(await runMigrations(db)).toEqual(['001_identity', '002_refresh_sessions']);
     expect(await runMigrations(db)).toEqual([]);
   });
 

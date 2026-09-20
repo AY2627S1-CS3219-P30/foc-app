@@ -25,6 +25,13 @@ export const env = loadEnv({
     .string()
     .transform(csv)
     .pipe(z.array(z.string().min(16, 'each key must be at least 16 characters')).min(1)),
+  /**
+   * Base64 of an Ed25519 private key in PKCS#8 PEM form, used to sign access
+   * tokens. Required in production. Outside production, if unset, a throwaway
+   * key is generated at boot (tokens then stop verifying after a restart), so
+   * no signing key ever needs to be committed.
+   */
+  JWT_PRIVATE_KEY: z.string().min(1).optional(),
   ACTIVATION_TOKEN_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
 });
 

@@ -74,4 +74,25 @@ export const migrations: Migration[] = [
         WHERE published_at IS NULL;
     `,
   },
+  {
+    id: '002_refresh_sessions',
+    sql: `
+      -- Only the SHA-256 of a refresh token is stored. A login starts a family;
+      -- every rotation adds a row to it. Presenting an already-rotated token
+      -- revokes the whole family, so a stolen token cannot outlive its owner's
+      -- next refresh.
+      CREATE TABLE refresh_sessions (
+        id          uuid PRIMARY KEY,
+        family_id   uuid NOT NULL,
+        user_id     uuid NOT NULL REFERENCES users (id) ON DELETE RESTRICT,
+        token_hash  text NOT NULL UNIQUE,
+        issued_at   timestamptz NOT NULL DEFAULT now(),
+        expires_at  timestamptz NOT NULL,
+        rotated_at  timestamptz,
+        revoked_at  timestamptz
+      );
+      CREATE INDEX refresh_sessions_user_idx ON refresh_sessions (user_id);
+      CREATE INDEX refresh_sessions_family_idx ON refresh_sessions (family_id);
+    `,
+  },
 ];

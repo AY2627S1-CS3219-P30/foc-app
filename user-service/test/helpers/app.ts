@@ -2,6 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { DestinationStream } from 'pino';
 import { ErrorEnvelopeFilter, PlatformModule } from '@foc/platform';
+import { RATE_LIMITERS, RateLimiter, type AuthRateLimiters } from '../../src/auth/rate-limiter.js';
 import { DB, type Db } from '../../src/db/db.js';
 import { runMigrations } from '../../src/db/migrate.js';
 import { DevMailbox } from '../../src/mail/dev-mailbox.js';
@@ -19,7 +20,11 @@ export interface TestApp {
 
 /** Boots the real modules against an in-memory PostgreSQL with migrations applied. */
 export async function createTestApp(
-  options: { logLevel?: string; logDestination?: DestinationStream } = {},
+  options: {
+    logLevel?: string;
+    logDestination?: DestinationStream;
+    rateLimiters?: AuthRateLimiters;
+  } = {},
 ): Promise<TestApp> {
   const db = await PgliteDb.create();
   await runMigrations(db);
@@ -37,6 +42,9 @@ export async function createTestApp(
   })
     .overrideProvider(DB)
     .useValue(db)
+    // Generous by default: the suite shares one client IP and registers far more than a person would.
+    .overrideProvider(RATE_LIMITERS)
+    .useValue(options.rateLimiters ?? openLimiters())
     .compile();
 
   const app = moduleRef.createNestApplication();
@@ -60,4 +68,10 @@ export const validRegistration = (email = 'e0123456@u.nus.edu') => ({
   email,
   password: 'correct-horse-battery-staple',
   displayName: 'Alex Tan',
+});
+
+export const openLimiters = (): AuthRateLimiters => ({
+  loginPerEmail: new RateLimiter(1_000_000, 60_000),
+  loginPerIp: new RateLimiter(1_000_000, 60_000),
+  registerPerIp: new RateLimiter(1_000_000, 60_000),
 });
