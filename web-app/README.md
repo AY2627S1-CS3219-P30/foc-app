@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Web App
 
-## Getting Started
+The FoC front end — a responsive Next.js application covering the requester and
+courier journeys.
 
-First, run the development server:
+## Toolchain
+
+This package uses **Bun**, and is deliberately **outside** the repository's npm
+workspace so the two package managers never contend for one `node_modules`.
+Do not run `npm install` here.
+
+## Getting started
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
+cd web-app
+bun install
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open <http://localhost:3000>.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Command | What it does |
+| --- | --- |
+| `bun dev` | Development server with hot reload |
+| `bun run build` | Production build |
+| `bun start` | Serve the production build |
+| `bun run lint` | Lint |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Talking to the services
 
-## Learn More
+The app currently runs on an in-memory mock store (`src/lib/store.tsx`) and is
+not yet wired to the backend. Replacing that with a real API client is
+[WEB-01](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/146).
 
-To learn more about Next.js, take a look at the following resources:
+When you do wire it up, the services run on ports 3001–3004 — see the root
+[README](../README.md). Every service returns the same error envelope and echoes
+an `x-correlation-id` header, so send one and log it alongside the response to
+trace a failure across services.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+> **Note:** `src/lib/types.ts` defines `RequestStatus` with five values. That does
+> not match the order status model in
+> [`order-service/README.md`](../order-service/README.md). Reconciling the two is
+> part of WEB-01 — do not add screens against the current shape without reading
+> that first.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Structure
 
-## Deploy on Vercel
+```text
+src/
+├── app/           routes — (app) group for the authenticated shell
+├── components/    shared UI
+└── lib/           store, types, navigation, mock data
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Deployment
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Pushes to `main` that touch `web-app/**` deploy to Vercel via
+[`.github/workflows/deploy-web-app.yml`](../.github/workflows/deploy-web-app.yml).

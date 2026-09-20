@@ -1,4 +1,11 @@
+import { config as loadDotenv } from 'dotenv';
 import { z } from 'zod';
+
+// Read `.env` from the working directory if one exists, so a teammate who has
+// copied `.env.example` gets those values without exporting anything into
+// their shell. Real environment variables always win — dotenv never overwrites
+// what the container or CI already set.
+loadDotenv({ quiet: true });
 
 /**
  * Environment variables every service needs. A service extends this with its own
