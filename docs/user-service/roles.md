@@ -39,7 +39,9 @@ changes which screens the navigation shows and **never** changes a server author
    A role, header or display value supplied by the client is never an input.
 3. **Ownership.** "Own" means the token's `sub` equals the resource's owner id.
 4. **Suspension** takes effect for new sessions immediately and for existing access tokens within
-   10 s (services cache a lookup for at most 5 s; refresh sessions are revoked at suspension).
+   10 s (services cache a lookup for at most 5 s). The User Service's own guard checks the session in the
+   database on every request, so it blocks a suspended account immediately; USR-03 also revokes all of the
+   account's refresh sessions in the same transaction as the suspension.
 
 ## 3. Actor–resource–action matrix
 

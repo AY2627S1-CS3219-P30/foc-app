@@ -58,6 +58,39 @@ const logout = (cookie: string) =>
 const me = (accessToken: string) =>
   http().get('/users/me').set('Authorization', `Bearer ${accessToken}`);
 
+describe('login CSRF', () => {
+  it('refuses a login from a foreign origin and issues no session or cookie', async () => {
+    await activeUser();
+    const res = await http()
+      .post('/auth/login')
+      .set('Origin', 'https://evil.example')
+      .send({ email: EMAIL, password: PASSWORD })
+      .expect(403);
+    expect(res.body.error.code).toBe('CSRF_REJECTED');
+    expect(res.headers['set-cookie']).toBeUndefined();
+    expect((await t.db.query('SELECT 1 FROM refresh_sessions')).rows).toHaveLength(0);
+  });
+
+  it('refuses a form-encoded login post', async () => {
+    await activeUser();
+    await http()
+      .post('/auth/login')
+      .type('form')
+      .send({ email: EMAIL, password: PASSWORD })
+      .expect(403);
+  });
+
+  it('accepts the web origin, and a JSON request with no Origin (non-browser client)', async () => {
+    await activeUser();
+    await http()
+      .post('/auth/login')
+      .set('Origin', ORIGIN)
+      .send({ email: EMAIL, password: PASSWORD })
+      .expect(200);
+    await login().expect(200);
+  });
+});
+
 describe('POST /auth/login', () => {
   it('returns a 15-minute access token and sets a hardened refresh cookie', async () => {
     await activeUser();

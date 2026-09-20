@@ -38,6 +38,10 @@ export function clearRefreshCookie(res: Response, secure: boolean): void {
  * Extra CSRF defence for the two endpoints that accept the cookie. A browser
  * always sends `Origin` on a cross-site POST, so a foreign origin is refused;
  * and requiring a JSON content type rules out a plain HTML form post.
+ *
+ * A request with no `Origin` at all is allowed through to the content-type check:
+ * only a non-browser client omits it, and such a client has no victim's cookie to
+ * ride. The content-type requirement is the backstop for that case.
  */
 export function assertCsrfSafe(req: Request, allowedOrigins: readonly string[]): void {
   const origin = req.header('origin');

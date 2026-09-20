@@ -52,6 +52,8 @@ export class UsersModule {
           provide: AUTH_COOKIE_SETTINGS,
           useValue: {
             secure: isProduction,
+            // CORS_ORIGINS is load-bearing for CSRF: these origins may drive login, refresh and
+            // logout. Do not widen it (previews, dashboards) without weighing that.
             allowedOrigins: env.CORS_ORIGINS.split(',')
               .map((o) => o.trim())
               .filter(Boolean),

@@ -53,6 +53,10 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
+    // Login sets the refresh cookie, so it needs the same origin check as refresh: otherwise
+    // a hostile page could post the attacker's own credentials and silently sign the victim in
+    // as the attacker (login CSRF / session fixation).
+    assertCsrfSafe(req, this.cookies.allowedOrigins);
     const { email, password } = parseOrThrow(loginSchema, body);
     this.limit(res, this.limiters.loginPerIp, req.ip ?? 'unknown');
     this.limit(res, this.limiters.loginPerEmail, normalizeEmail(email));
