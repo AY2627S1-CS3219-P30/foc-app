@@ -6,7 +6,7 @@ export {
   resolveCorrelationId,
 } from './correlation.js';
 export { createLogger, PinoLoggerService, requestLogger } from './logging.js';
-export { ErrorEnvelopeFilter, type ErrorEnvelope } from './errors.js';
+export { ApiException, ErrorEnvelopeFilter, type ErrorEnvelope } from './errors.js';
 export {
   HealthController,
   SERVICE_INFO,

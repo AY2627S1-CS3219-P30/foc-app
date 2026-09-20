@@ -1,6 +1,6 @@
 import type { LoggerService } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
-import pino, { type Logger as PinoLogger } from 'pino';
+import pino, { type DestinationStream, type Logger as PinoLogger } from 'pino';
 import { CORRELATION_HEADER, echoCorrelationId, resolveCorrelationId } from './correlation.js';
 
 /** Header and body fields that must never reach a log line (US-NFR4.1.1). */
@@ -17,17 +17,24 @@ const REDACT_PATHS = [
   'passwordHash',
 ];
 
-export function createLogger(serviceName: string, level: string): PinoLogger {
-  return pino({
-    level,
-    base: { service: serviceName },
-    redact: { paths: REDACT_PATHS, censor: '[redacted]' },
-    formatters: {
-      // Emit `"level":"info"` rather than `"level":30` — an operator reads these.
-      level: (label) => ({ level: label }),
+export function createLogger(
+  serviceName: string,
+  level: string,
+  destination?: DestinationStream,
+): PinoLogger {
+  return pino(
+    {
+      level,
+      base: { service: serviceName },
+      redact: { paths: REDACT_PATHS, censor: '[redacted]' },
+      formatters: {
+        // Emit `"level":"info"` rather than `"level":30` — an operator reads these.
+        level: (label) => ({ level: label }),
+      },
+      timestamp: pino.stdTimeFunctions.isoTime,
     },
-    timestamp: pino.stdTimeFunctions.isoTime,
-  });
+    destination,
+  );
 }
 
 /**

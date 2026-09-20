@@ -75,6 +75,8 @@ services:
       SERVICE_NAME: user-service
       PORT: 3001
       DATABASE_URL: postgres://user_service:user_service_dev@postgres:5432/foc_user
+      ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-u.nus.edu,nus.edu.sg}
+      INTERNAL_SERVICE_KEYS: ${INTERNAL_SERVICE_KEYS:-dev-only-internal-service-key-change-me}
     ports: ['${USER_SERVICE_PORT:-3001}:3001']
 
   supplier-service:

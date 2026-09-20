@@ -1,0 +1,63 @@
+import type { INestApplication } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import type { DestinationStream } from 'pino';
+import { ErrorEnvelopeFilter, PlatformModule } from '@foc/platform';
+import { DB, type Db } from '../../src/db/db.js';
+import { runMigrations } from '../../src/db/migrate.js';
+import { DevMailbox } from '../../src/mail/dev-mailbox.js';
+import { UsersModule } from '../../src/users/users.module.js';
+import { PgliteDb } from './pglite-db.js';
+
+export const SERVICE_KEY = 'test-internal-key-0123456789';
+
+export interface TestApp {
+  app: INestApplication;
+  db: Db;
+  mailbox: DevMailbox;
+  close(): Promise<void>;
+}
+
+/** Boots the real modules against an in-memory PostgreSQL with migrations applied. */
+export async function createTestApp(
+  options: { logLevel?: string; logDestination?: DestinationStream } = {},
+): Promise<TestApp> {
+  const db = await PgliteDb.create();
+  await runMigrations(db);
+
+  const moduleRef = await Test.createTestingModule({
+    imports: [
+      PlatformModule.forRoot({
+        serviceName: 'user-service',
+        version: 'test',
+        logLevel: options.logLevel ?? 'silent',
+        logDestination: options.logDestination,
+      }),
+      UsersModule.forRoot(),
+    ],
+  })
+    .overrideProvider(DB)
+    .useValue(db)
+    .compile();
+
+  const app = moduleRef.createNestApplication();
+  app.useGlobalFilters(new ErrorEnvelopeFilter());
+  await app.init();
+  // Listen once so concurrent supertest requests share one server instead of racing to start it.
+  await app.listen(0);
+
+  return {
+    app,
+    db,
+    mailbox: app.get(DevMailbox),
+    close: async () => {
+      await app.close();
+      await db.close();
+    },
+  };
+}
+
+export const validRegistration = (email = 'e0123456@u.nus.edu') => ({
+  email,
+  password: 'correct-horse-battery-staple',
+  displayName: 'Alex Tan',
+});
