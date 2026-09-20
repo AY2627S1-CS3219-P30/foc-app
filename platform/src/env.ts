@@ -16,6 +16,12 @@ export const baseEnvSchema = z.object({
   SERVICE_NAME: z.string().min(1),
   PORT: z.coerce.number().int().min(1).max(65535),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  /**
+   * Comma-separated browser origins allowed to call this service. Defaults to
+   * the local web app. Never widen this to `*` — these endpoints carry
+   * credentials once USR-02 lands (US-NFR1.1.2).
+   */
+  CORS_ORIGINS: z.string().min(1).default('http://localhost:3000'),
 });
 
 export type BaseEnv = z.infer<typeof baseEnvSchema>;
@@ -27,10 +33,10 @@ export type BaseEnv = z.infer<typeof baseEnvSchema>;
  * offending variable named, so a misconfigured container stops at boot rather
  * than failing later under load. Never logs a value — only the variable name.
  */
-export function loadEnv<S extends z.ZodRawShape>(
+export function loadEnv<S extends z.ZodRawShape = Record<never, never>>(
   serviceSchema: S = {} as S,
   source: NodeJS.ProcessEnv = process.env,
-): BaseEnv & z.infer<z.ZodObject<S>> {
+): BaseEnv & { [K in keyof S]: z.output<S[K]> } {
   const schema = baseEnvSchema.extend(serviceSchema);
   const result = schema.safeParse(source);
 
@@ -48,5 +54,10 @@ export function loadEnv<S extends z.ZodRawShape>(
     );
   }
 
-  return result.data as BaseEnv & z.infer<z.ZodObject<S>>;
+  // A mapped type rather than `z.infer<z.ZodObject<S>>`: for an empty schema
+  // the latter widens to `Record<string, never>`, which makes every base key
+  // that TypeScript cannot see resolve to `never`. Cast through `unknown`
+  // because zod's inferred shape for the extended schema is structurally
+  // equivalent but not assignable.
+  return result.data as unknown as BaseEnv & { [K in keyof S]: z.output<S[K]> };
 }

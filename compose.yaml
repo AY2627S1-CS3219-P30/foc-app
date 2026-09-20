@@ -1,0 +1,134 @@
+# Friend on Campus — full local stack.
+#
+#   docker compose up -d --build     bring everything up
+#   docker compose ps                see health
+#   docker compose down              stop, keep data
+#   docker compose down -v           stop and delete data
+#
+# See the root README for the walkthrough.
+
+name: foc
+
+x-service-base: &service-base
+  restart: unless-stopped
+  environment: &service-env
+    NODE_ENV: ${NODE_ENV:-development}
+    LOG_LEVEL: ${LOG_LEVEL:-info}
+    CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    RABBITMQ_URL: amqp://${RABBITMQ_USER:-foc}:${RABBITMQ_PASSWORD:-foc_dev}@rabbitmq:5672
+  depends_on:
+    postgres:
+      condition: service_healthy
+  networks: [foc]
+
+services:
+  # ---- infrastructure -------------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_dev}
+      POSTGRES_DB: postgres
+    # One server, four databases, four roles — see postgres-init.sql for why.
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres-init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+    # Published on a non-default host port: a locally installed Postgres
+    # usually holds 5432 and would make `up` fail. Override with POSTGRES_PORT.
+    ports: ['${POSTGRES_PORT:-55432}:5432']
+    healthcheck:
+      # `-d postgres` so readiness means "accepting queries", not just listening.
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d postgres']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    networks: [foc]
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-foc}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-foc_dev}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    ports:
+      - '${RABBITMQ_PORT:-55672}:5672'
+      - '${RABBITMQ_MANAGEMENT_PORT:-15672}:15672' # http://localhost:15672
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'check_running']
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 15s
+    networks: [foc]
+
+  # ---- services -------------------------------------------------------------
+  # No service depends on rabbitmq yet — nothing consumes it until EVT-01, and
+  # waiting on it would add ~20s to every `up` for no benefit. Add the
+  # dependency in the ticket that starts using it.
+  user-service:
+    <<: *service-base
+    build: { context: ., dockerfile: user-service/Dockerfile }
+    environment:
+      <<: *service-env
+      SERVICE_NAME: user-service
+      PORT: 3001
+      DATABASE_URL: postgres://user_service:user_service_dev@postgres:5432/foc_user
+    ports: ['${USER_SERVICE_PORT:-3001}:3001']
+
+  supplier-service:
+    <<: *service-base
+    build: { context: ., dockerfile: supplier-service/Dockerfile }
+    environment:
+      <<: *service-env
+      SERVICE_NAME: supplier-service
+      PORT: 3002
+      DATABASE_URL: postgres://supplier_service:supplier_service_dev@postgres:5432/foc_supplier
+    ports: ['${SUPPLIER_SERVICE_PORT:-3002}:3002']
+
+  order-service:
+    <<: *service-base
+    build: { context: ., dockerfile: order-service/Dockerfile }
+    environment:
+      <<: *service-env
+      SERVICE_NAME: order-service
+      PORT: 3003
+      DATABASE_URL: postgres://order_service:order_service_dev@postgres:5432/foc_order
+    ports: ['${ORDER_SERVICE_PORT:-3003}:3003']
+
+  credit-service:
+    <<: *service-base
+    build: { context: ., dockerfile: credit-service/Dockerfile }
+    environment:
+      <<: *service-env
+      SERVICE_NAME: credit-service
+      PORT: 3004
+      DATABASE_URL: postgres://credit_service:credit_service_dev@postgres:5432/foc_credit
+    ports: ['${CREDIT_SERVICE_PORT:-3004}:3004']
+
+  # ---- web ------------------------------------------------------------------
+  web-app:
+    build: { context: ./web-app }
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      # The browser resolves these, not the container, so they are localhost
+      # URLs rather than compose service names.
+      NEXT_PUBLIC_USER_SERVICE_URL: http://localhost:${USER_SERVICE_PORT:-3001}
+      NEXT_PUBLIC_SUPPLIER_SERVICE_URL: http://localhost:${SUPPLIER_SERVICE_PORT:-3002}
+      NEXT_PUBLIC_ORDER_SERVICE_URL: http://localhost:${ORDER_SERVICE_PORT:-3003}
+      NEXT_PUBLIC_CREDIT_SERVICE_URL: http://localhost:${CREDIT_SERVICE_PORT:-3004}
+    depends_on:
+      user-service: { condition: service_healthy }
+      supplier-service: { condition: service_healthy }
+    ports: ['${WEB_APP_PORT:-3000}:3000']
+    networks: [foc]
+
+volumes:
+  postgres-data:
+  rabbitmq-data:
+
+networks:
+  foc:
+    driver: bridge

@@ -10,7 +10,11 @@ async function main(): Promise<void> {
 
   const logger = new PinoLoggerService(createLogger(SERVICE_NAME, env.LOG_LEVEL));
   const app = await NestFactory.create(AppModule, { logger });
-  await startService(app, { serviceName: SERVICE_NAME, port: env.PORT });
+  await startService(app, {
+    serviceName: SERVICE_NAME,
+    port: env.PORT,
+    corsOrigins: env.CORS_ORIGINS,
+  });
 }
 
 main().catch((err: unknown) => {
