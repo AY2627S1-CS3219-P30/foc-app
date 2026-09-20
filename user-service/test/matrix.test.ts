@@ -133,9 +133,12 @@ describe('actor–resource–action matrix', () => {
         else expect(res.status).toBe(403);
       });
 
-      it('administrator → never refused for lack of authority', async () => {
+      it('administrator → succeeds (a crash or a refusal both fail this)', async () => {
         const res = await call(e, admin);
-        expect([401, 403]).not.toContain(res.status);
+        expect(
+          res.status,
+          `${e.name} returned ${res.status}: ${res.text.slice(0, 120)}`,
+        ).toBeLessThan(400);
       });
     });
   }

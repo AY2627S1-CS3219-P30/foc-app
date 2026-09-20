@@ -208,6 +208,10 @@ export class AdminService {
           'Only a seeded administrator can downgrade an administrator.',
         );
       }
+      // Defence in depth. Unreachable today ONLY because (a) self-demotion is refused above and (b)
+      // the actor must be a different, still-current admin. If self-demotion is ever allowed, this
+      // check becomes the only thing keeping the last administrator in place — and has no test that
+      // reaches it. Add one before relaxing that rule.
       if (adminIds.length <= 1) {
         throw new ApiException(409, 'LAST_ADMIN', 'At least one administrator must remain.');
       }

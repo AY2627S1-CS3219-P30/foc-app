@@ -14,7 +14,10 @@ export class AdminGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<AuthedRequest>();
-    const identity = req.auth ? await usersRepository.findIdentity(this.db, req.auth.userId) : null;
+    // AccessTokenGuard must run first and set `req.auth`. If it did not, the guards are
+    // misordered — fail closed and say so, rather than let "no identity" happen to mean "refuse".
+    if (!req.auth) throw new ApiException(401, 'UNAUTHENTICATED', 'Authentication required.');
+    const identity = await usersRepository.findIdentity(this.db, req.auth.userId);
     if (!identity || identity.status !== 'ACTIVE' || !identity.roles.includes('ADMIN')) {
       throw new ApiException(403, 'FORBIDDEN', 'Administrator role required.');
     }

@@ -211,6 +211,9 @@ describe('roles (US-FR3.1.3, US-FR3.1.3.1)', () => {
     expect(results.filter((r) => r.status === 200)).toHaveLength(1);
     const admins = (await t.db.query("SELECT user_id FROM user_roles WHERE role = 'ADMIN'")).rows;
     expect(admins).toHaveLength(1);
+    // the loser rolled back completely: one demotion, one audit row, one event-free change
+    const rows = await audit();
+    expect(rows.filter((a) => a.action === 'ROLE_REVOKE')).toHaveLength(1);
   });
 
   it('validates the body', async () => {
