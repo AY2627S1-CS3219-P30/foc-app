@@ -1,0 +1,832 @@
+openapi: 3.1.0
+info:
+  title: FoC User Service API
+  version: 1.0.0-draft.1
+  summary: Identity, sessions, RBAC and account status for Friend on Campus.
+  description: |
+    **DRAFT — proposal for FND-03 (#117). Not frozen until the producer (Anselm) and one consumer
+    owner (Patrick for `web-app`, Jonus for platform) approve the PR.**
+
+    ## Conventions (cross-service proposals — see `contracts/README.md`)
+    - IDs are UUID strings. Timestamps are RFC 3339 UTC (`2026-09-21T08:30:00Z`).
+    - Every error uses the `Error` envelope. `401` = missing/invalid/expired access token,
+      `403` = authenticated but not allowed, `404` = absent, `409` = state conflict,
+      `422` = validation or business-rule rejection, `429` = rate limited.
+    - Every request may carry `X-Correlation-Id`; it is echoed on the response and in every log line.
+    - Paginated lists take `page` (1-based, default 1) and `pageSize` (default 20, 1–100).
+
+    ## Authentication model
+    - **Access token**: signed JWT, 15-minute lifetime, sent as `Authorization: Bearer <jwt>`.
+      Claims are `sub` (userId), `sid` (session id), `iat`, `exp`, `jti` **only**. Role and status are
+      deliberately **not** in the token: a service that needs them calls
+      `GET /internal/users/{userId}`. This keeps suspension effective within seconds instead of
+      waiting out the token lifetime, and means no client-visible value is an authorization input.
+    - **Refresh token**: opaque, 7-day lifetime, delivered and accepted **only** as an
+      `HttpOnly; Secure; SameSite=Strict; Path=/auth` cookie named `foc_refresh`. Rotated on every use;
+      reuse of a rotated token revokes the whole session family. The browser never sees the refresh token
+      in JavaScript, so XSS cannot steal it.
+    - **CSRF**: only `/auth/refresh` and `/auth/logout` accept the cookie. They are protected by
+      `SameSite=Strict`, an `Origin` header check against the configured web origin, and by requiring
+      `Content-Type: application/json`. All other endpoints use the bearer header, which browsers do not
+      attach automatically. The web app keeps the access token in memory (not `localStorage`).
+    - **Service-to-service**: `/internal/**` endpoints require the `X-Service-Key` header holding a
+      per-service credential. A user access token is never accepted there.
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: http://localhost:3001
+    description: Local Compose (host port from compose.yaml)
+tags:
+  - name: Auth
+  - name: Profile
+  - name: Admin
+  - name: Internal
+  - name: Health
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Liveness / readiness
+      security: []
+      responses:
+        '200':
+          description: Service is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [service, status]
+                properties:
+                  service: { type: string, const: user-service }
+                  status: { type: string, enum: [ok] }
+              example: { service: user-service, status: ok }
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      operationId: register
+      summary: Register a student account (US-FR1.1.1)
+      description: |
+        Normalizes the email, rejects addresses outside the configured NUS domain allowlist, rejects a
+        duplicate without creating anything, and sends a one-time activation link. The account is
+        `PENDING_ACTIVATION` until activated.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+            example:
+              email: e0123456@u.nus.edu
+              password: correct-horse-battery-staple
+              displayName: Alex Tan
+      responses:
+        '201':
+          description: Account created; activation email sent.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegisterResponse' }
+              example:
+                userId: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30
+                status: PENDING_ACTIVATION
+        '409': { $ref: '#/components/responses/EmailAlreadyRegistered' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/activate:
+    post:
+      tags: [Auth]
+      operationId: activate
+      summary: Activate an account with the emailed one-time token
+      description: |
+        Single-use and expiring. **Replay-idempotent**: presenting an already-consumed token for an account
+        that is already active returns `200` with `alreadyActivated: true` and publishes **no** second
+        `UserActivated` event. The first successful call publishes exactly one.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              additionalProperties: false
+              properties:
+                token: { type: string, minLength: 20, maxLength: 200 }
+      responses:
+        '200':
+          description: Account is active (first activation or idempotent replay).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActivateResponse' }
+              examples:
+                first:
+                  value: { userId: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30, status: ACTIVE, alreadyActivated: false }
+                replay:
+                  value: { userId: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30, status: ACTIVE, alreadyActivated: true }
+        '404': { $ref: '#/components/responses/TokenInvalid' }
+        '410': { $ref: '#/components/responses/TokenExpired' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Log in (US-FR1.1.2)
+      description: |
+        Only an `ACTIVE` account with valid credentials receives tokens. Sets the `foc_refresh` cookie and
+        returns the access token in the body. Rate limited per IP and per email.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Authenticated.
+          headers:
+            Set-Cookie:
+              description: '`foc_refresh=<opaque>; HttpOnly; Secure; SameSite=Strict; Path=/auth; Max-Age=604800`'
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+              example:
+                accessToken: eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiIwMTk4YTFjMi...
+                tokenType: Bearer
+                expiresIn: 900
+                user: { id: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30, displayName: Alex Tan, roles: [STUDENT], status: ACTIVE }
+        '401': { $ref: '#/components/responses/InvalidCredentials' }
+        '403': { $ref: '#/components/responses/AccountNotLoginable' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refresh
+      summary: Rotate the refresh token and issue a new access token
+      description: |
+        Reads the `foc_refresh` cookie. Issues a new access token and a new refresh cookie and invalidates the
+        old refresh token. Presenting an already-rotated token revokes the entire session family and returns
+        `401 REFRESH_TOKEN_REUSED`. Expired, revoked or unknown tokens return `401 REFRESH_TOKEN_INVALID`.
+        Fails if the account is no longer `ACTIVE`.
+      security: [{ refreshCookie: [] }]
+      responses:
+        '200':
+          description: New token pair.
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '401': { $ref: '#/components/responses/RefreshRejected' }
+        '403': { $ref: '#/components/responses/AccountNotLoginable' }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Revoke the current refresh session
+      description: Idempotent. The session is unusable within 10 seconds (US-NFR2.1.2). Clears the cookie.
+      security: [{ refreshCookie: [] }]
+      responses:
+        '204':
+          description: Logged out (also returned if the session was already gone).
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+
+  /users/me:
+    get:
+      tags: [Profile]
+      operationId: getMe
+      summary: Read the caller's own account and profile
+      responses:
+        '200':
+          description: The caller's account.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/AccountNotActive' }
+    patch:
+      tags: [Profile]
+      operationId: updateMe
+      summary: Edit the caller's own profile (US-FR3.1.1)
+      description: |
+        Only the fields in `ProfileUpdate` are accepted. The schema is closed
+        (`additionalProperties: false`), so `id`, `email`, `roles`, `status` and any unknown field are
+        rejected with `422 FIELD_NOT_EDITABLE` and nothing is changed. `preferredMode` is the
+        requester↔courier switch: it changes the UI only and is never read by an authorization decision.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProfileUpdate' }
+            examples:
+              ok:
+                value: { displayName: Alex T., preferredMode: COURIER }
+      responses:
+        '200':
+          description: Updated account.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/AccountNotActive' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /admin/users:
+    get:
+      tags: [Admin]
+      operationId: listUsers
+      summary: List accounts (ADMIN)
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/AccountStatus' }
+        - name: role
+          in: query
+          schema: { $ref: '#/components/schemas/Role' }
+        - name: q
+          in: query
+          description: Case-insensitive prefix match on email or display name.
+          schema: { type: string, maxLength: 100 }
+      responses:
+        '200':
+          description: A page of accounts.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminUserPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/users/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [Admin]
+      operationId: getUserAsAdmin
+      summary: Read any account (ADMIN)
+      responses:
+        '200':
+          description: The account.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminUser' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /admin/users/{userId}/suspend:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      tags: [Admin]
+      operationId: suspendUser
+      summary: Suspend an account (US-FR3.1.2)
+      description: |
+        Records an audit row, revokes all of the user's refresh sessions, and publishes `UserSuspended`.
+        New sessions are denied immediately; dependent services see the change within 10 seconds.
+        An admin cannot suspend themselves. Only a seeded admin may suspend another admin.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+            example: { reason: Repeated no-show on accepted errands }
+      responses:
+        '200':
+          description: Suspended (idempotent if already suspended — no second event).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminUser' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/RoleConflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /admin/users/{userId}/reactivate:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    post:
+      tags: [Admin]
+      operationId: reactivateUser
+      summary: Reactivate a suspended account
+      description: Audit row + `UserReactivated`. Idempotent if already active.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+      responses:
+        '200':
+          description: Reactivated.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminUser' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /admin/users/{userId}/role:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    put:
+      tags: [Admin]
+      operationId: setUserRole
+      summary: Appoint or downgrade an administrator (US-FR3.1.3, US-FR3.1.3.1)
+      description: |
+        `role: ADMIN` appoints (target must be `ACTIVE`). `role: STUDENT` downgrades an admin.
+        Rules, all enforced in one transaction with a row lock:
+        - Any admin may appoint.
+        - Only a **seeded** admin may downgrade an admin → otherwise `403 ADMIN_DOWNGRADE_NOT_PERMITTED`.
+        - No admin may downgrade themselves → `409 SELF_DEMOTION_FORBIDDEN`.
+        - The last admin cannot be removed → `409 LAST_ADMIN`.
+        Writes an audit row (`ROLE_GRANT` / `ROLE_REVOKE`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role, reason]
+              additionalProperties: false
+              properties:
+                role: { $ref: '#/components/schemas/Role' }
+                reason: { type: string, minLength: 1, maxLength: 500 }
+            example: { role: ADMIN, reason: Onboarding new operations lead }
+      responses:
+        '200':
+          description: Role changed (idempotent if already in that role).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminUser' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/RoleConflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /admin/audit-records:
+    get:
+      tags: [Admin]
+      operationId: listAuditRecords
+      summary: Read the append-only audit trail (ADMIN)
+      description: Read-only. There is no endpoint that creates, edits or deletes an audit record.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: targetUserId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: A page of audit records, newest first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditRecordPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /internal/users/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [Internal]
+      operationId: lookupUser
+      summary: Least-data identity lookup for other services (US-FR4.1.2)
+      description: |
+        Returns **only** existence, account status, authorization roles and display name. Never a
+        password hash, refresh token, verification token or email. Consumers may cache the answer for at
+        most 5 seconds. An unknown user is `200` with `exists: false` so callers can distinguish "no such
+        user" from "lookup failed".
+      security: [{ serviceKey: [] }]
+      responses:
+        '200':
+          description: The identity state.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IdentityLookup' }
+              examples:
+                active:
+                  value: { userId: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30, exists: true, status: ACTIVE, roles: [STUDENT], displayName: Alex Tan }
+                missing:
+                  value: { userId: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30, exists: false }
+        '401': { $ref: '#/components/responses/ServiceUnauthenticated' }
+        '503': { $ref: '#/components/responses/DependencyUnavailable' }
+
+  /internal/users/{userId}/permissions:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [Internal]
+      operationId: lookupPermissions
+      summary: Effective permissions for administrator authorization (US-FR4.1.3)
+      description: |
+        For services that must confirm administrator authority before acting (e.g. Supplier writes).
+        `isAdmin` is true only for an `ACTIVE` user holding `ADMIN`. A suspended admin has no effective permissions.
+      security: [{ serviceKey: [] }]
+      responses:
+        '200':
+          description: Effective permissions.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PermissionsLookup' }
+              example: { userId: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30, status: ACTIVE, isAdmin: false, canPlaceOrders: true, canAcceptOrders: true }
+        '401': { $ref: '#/components/responses/ServiceUnauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: foc_refresh
+    serviceKey:
+      type: apiKey
+      in: header
+      name: X-Service-Key
+
+  parameters:
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: pageSize
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+
+  schemas:
+    Role:
+      type: string
+      enum: [STUDENT, ADMIN]
+      description: Authorization roles. Requester and courier are capabilities of every active STUDENT, not roles.
+    AccountStatus:
+      type: string
+      enum: [PENDING_ACTIVATION, ACTIVE, SUSPENDED]
+    PreferredMode:
+      type: string
+      enum: [REQUESTER, COURIER]
+      description: UX preference only. Never used for authorization.
+    ContactPreference:
+      type: string
+      enum: [IN_APP, EMAIL]
+
+    RegisterRequest:
+      type: object
+      required: [email, password, displayName]
+      additionalProperties: false
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, minLength: 12, maxLength: 128, writeOnly: true }
+        displayName: { type: string, minLength: 1, maxLength: 50 }
+    RegisterResponse:
+      type: object
+      required: [userId, status]
+      properties:
+        userId: { type: string, format: uuid }
+        status: { type: string, enum: [PENDING_ACTIVATION] }
+    ActivateResponse:
+      type: object
+      required: [userId, status, alreadyActivated]
+      properties:
+        userId: { type: string, format: uuid }
+        status: { type: string, enum: [ACTIVE] }
+        alreadyActivated: { type: boolean }
+    LoginRequest:
+      type: object
+      required: [email, password]
+      additionalProperties: false
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, writeOnly: true }
+    TokenResponse:
+      type: object
+      required: [accessToken, tokenType, expiresIn, user]
+      properties:
+        accessToken: { type: string }
+        tokenType: { type: string, enum: [Bearer] }
+        expiresIn: { type: integer, description: Seconds until expiry., examples: [900] }
+        user: { $ref: '#/components/schemas/SessionUser' }
+    SessionUser:
+      type: object
+      required: [id, displayName, roles, status]
+      description: Convenience for the UI only. Not an authorization input for any service.
+      properties:
+        id: { type: string, format: uuid }
+        displayName: { type: string }
+        roles: { type: array, items: { $ref: '#/components/schemas/Role' } }
+        status: { $ref: '#/components/schemas/AccountStatus' }
+
+    Profile:
+      type: object
+      required: [displayName, contactPreference, preferredMode]
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 50 }
+        faculty: { type: [string, 'null'], maxLength: 100 }
+        avatarRef: { type: [string, 'null'], maxLength: 500 }
+        contactPreference: { $ref: '#/components/schemas/ContactPreference' }
+        preferredMode: { $ref: '#/components/schemas/PreferredMode' }
+    ProfileUpdate:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      description: The only student-editable fields. Everything else is admin-controlled or immutable.
+      properties:
+        displayName: { type: string, minLength: 1, maxLength: 50 }
+        faculty: { type: [string, 'null'], maxLength: 100 }
+        avatarRef: { type: [string, 'null'], maxLength: 500 }
+        contactPreference: { $ref: '#/components/schemas/ContactPreference' }
+        preferredMode: { $ref: '#/components/schemas/PreferredMode' }
+    Me:
+      type: object
+      required: [id, email, roles, status, profile, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        roles: { type: array, items: { $ref: '#/components/schemas/Role' } }
+        status: { $ref: '#/components/schemas/AccountStatus' }
+        profile: { $ref: '#/components/schemas/Profile' }
+        createdAt: { type: string, format: date-time }
+
+    AdminUser:
+      type: object
+      required: [id, email, roles, status, isSeededAdmin, profile, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        roles: { type: array, items: { $ref: '#/components/schemas/Role' } }
+        status: { $ref: '#/components/schemas/AccountStatus' }
+        isSeededAdmin: { type: boolean }
+        profile: { $ref: '#/components/schemas/Profile' }
+        createdAt: { type: string, format: date-time }
+        activatedAt: { type: [string, 'null'], format: date-time }
+    ReasonRequest:
+      type: object
+      required: [reason]
+      additionalProperties: false
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    Page:
+      type: object
+      required: [page, pageSize, total]
+      properties:
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total: { type: integer, minimum: 0 }
+    AdminUserPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/AdminUser' } }
+    AuditRecord:
+      type: object
+      required: [id, actorId, targetUserId, action, reason, occurredAt, correlationId]
+      properties:
+        id: { type: string, format: uuid }
+        actorId: { type: string, format: uuid }
+        targetUserId: { type: string, format: uuid }
+        action: { type: string, enum: [SUSPEND, REACTIVATE, ROLE_GRANT, ROLE_REVOKE] }
+        reason: { type: string }
+        occurredAt: { type: string, format: date-time }
+        correlationId: { type: string }
+    AuditRecordPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/AuditRecord' } }
+
+    IdentityLookup:
+      type: object
+      required: [userId, exists]
+      description: Least-data lookup. `status`, `roles` and `displayName` are present only when `exists` is true.
+      additionalProperties: false
+      properties:
+        userId: { type: string, format: uuid }
+        exists: { type: boolean }
+        status: { $ref: '#/components/schemas/AccountStatus' }
+        roles: { type: array, items: { $ref: '#/components/schemas/Role' } }
+        displayName: { type: string }
+    PermissionsLookup:
+      type: object
+      required: [userId, status, isAdmin, canPlaceOrders, canAcceptOrders]
+      additionalProperties: false
+      properties:
+        userId: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/AccountStatus' }
+        isAdmin: { type: boolean }
+        canPlaceOrders: { type: boolean, description: True for any ACTIVE user. }
+        canAcceptOrders: { type: boolean, description: True for any ACTIVE user. }
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, correlationId]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable code. Clients switch on this, never on `message`.
+              examples: [VALIDATION_FAILED]
+            message: { type: string, description: 'Human-readable and safe to display.' }
+            correlationId: { type: string }
+            details:
+              type: array
+              description: Field-level errors for `VALIDATION_FAILED`.
+              items:
+                type: object
+                required: [field, code, message]
+                properties:
+                  field: { type: string, description: 'JSON pointer-style path, e.g. `email`.' }
+                  code: { type: string }
+                  message: { type: string }
+
+    # ---- Events published by this service (payloads only; envelope is in contracts/README.md) ----
+    EventEnvelope:
+      type: object
+      description: Common envelope proposed for FND-03 / EVT-01. Every event carries these fields.
+      required: [eventId, eventType, schemaVersion, aggregateId, occurredAt, producer, correlationId, causationId, payload]
+      properties:
+        eventId: { type: string, format: uuid }
+        eventType: { type: string }
+        schemaVersion: { type: integer, minimum: 1 }
+        aggregateId: { type: string, format: uuid }
+        aggregateVersion: { type: integer, description: Optional; present when the aggregate is versioned. }
+        occurredAt: { type: string, format: date-time }
+        producer: { type: string, examples: [user-service] }
+        correlationId: { type: string }
+        causationId: { type: [string, 'null'] }
+        payload: { type: object }
+    UserActivatedPayload:
+      type: object
+      description: Published exactly once, on first activation (US-FR4.1.1). Credit Service issues the starting balance.
+      required: [userId]
+      properties:
+        userId: { type: string, format: uuid }
+    UserSuspendedPayload:
+      type: object
+      description: US-FR4.1.4. `reasonRef` is the audit record id, not the reason text.
+      required: [userId, status, reasonRef, occurredAt]
+      properties:
+        userId: { type: string, format: uuid }
+        status: { type: string, enum: [SUSPENDED] }
+        reasonRef: { type: string, format: uuid }
+        occurredAt: { type: string, format: date-time }
+    UserReactivatedPayload:
+      type: object
+      required: [userId, status, reasonRef, occurredAt]
+      properties:
+        userId: { type: string, format: uuid }
+        status: { type: string, enum: [ACTIVE] }
+        reasonRef: { type: string, format: uuid }
+        occurredAt: { type: string, format: date-time }
+
+  responses:
+    Unauthenticated:
+      description: Missing, malformed or expired access token.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: UNAUTHENTICATED, message: Authentication required., correlationId: 5c1f2a9e } }
+    ServiceUnauthenticated:
+      description: Missing or invalid `X-Service-Key`. A user access token is not accepted here.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: SERVICE_UNAUTHENTICATED, message: Invalid service credential., correlationId: 5c1f2a9e } }
+    Forbidden:
+      description: Authenticated but not permitted (wrong role, suspended, or a role-management rule).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            notAdmin: { value: { error: { code: FORBIDDEN, message: Administrator role required., correlationId: 5c1f2a9e } } }
+            downgrade: { value: { error: { code: ADMIN_DOWNGRADE_NOT_PERMITTED, message: Only a seeded administrator can downgrade an administrator., correlationId: 5c1f2a9e } } }
+    AccountNotActive:
+      description: The account is not `ACTIVE`.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: ACCOUNT_SUSPENDED, message: This account is suspended., correlationId: 5c1f2a9e } }
+    AccountNotLoginable:
+      description: Valid credentials but the account is `PENDING_ACTIVATION` or `SUSPENDED`.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            pending: { value: { error: { code: ACCOUNT_NOT_ACTIVATED, message: Activate your account from the email we sent., correlationId: 5c1f2a9e } } }
+            suspended: { value: { error: { code: ACCOUNT_SUSPENDED, message: This account is suspended., correlationId: 5c1f2a9e } } }
+    InvalidCredentials:
+      description: Unknown email or wrong password (the same response for both).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: INVALID_CREDENTIALS, message: Email or password is incorrect., correlationId: 5c1f2a9e } }
+    RefreshRejected:
+      description: Refresh token invalid, expired, revoked, or reused.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            invalid: { value: { error: { code: REFRESH_TOKEN_INVALID, message: Session expired. Log in again., correlationId: 5c1f2a9e } } }
+            reused: { value: { error: { code: REFRESH_TOKEN_REUSED, message: Session revoked. Log in again., correlationId: 5c1f2a9e } } }
+    NotFound:
+      description: No such resource.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: NOT_FOUND, message: User not found., correlationId: 5c1f2a9e } }
+    EmailAlreadyRegistered:
+      description: An account already exists for this email. No account is created.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: EMAIL_ALREADY_REGISTERED, message: An account with this email already exists., correlationId: 5c1f2a9e } }
+    RoleConflict:
+      description: The change violates a role-management rule.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            last: { value: { error: { code: LAST_ADMIN, message: At least one administrator must remain., correlationId: 5c1f2a9e } } }
+            self: { value: { error: { code: SELF_DEMOTION_FORBIDDEN, message: You cannot remove your own administrator role., correlationId: 5c1f2a9e } } }
+            selfSuspend: { value: { error: { code: SELF_SUSPENSION_FORBIDDEN, message: You cannot suspend yourself., correlationId: 5c1f2a9e } } }
+    TokenInvalid:
+      description: Unknown activation token.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: ACTIVATION_TOKEN_INVALID, message: This activation link is not valid., correlationId: 5c1f2a9e } }
+    TokenExpired:
+      description: Activation token has expired.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: ACTIVATION_TOKEN_EXPIRED, message: This activation link has expired., correlationId: 5c1f2a9e } }
+    ValidationFailed:
+      description: Request body or parameters failed validation, or a non-editable field was supplied.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            field:
+              value:
+                error:
+                  code: VALIDATION_FAILED
+                  message: One or more fields are invalid.
+                  correlationId: 5c1f2a9e
+                  details:
+                    - { field: email, code: EMAIL_DOMAIN_NOT_ALLOWED, message: Use your NUS email address. }
+            protectedField:
+              value:
+                error:
+                  code: VALIDATION_FAILED
+                  message: One or more fields are invalid.
+                  correlationId: 5c1f2a9e
+                  details:
+                    - { field: roles, code: FIELD_NOT_EDITABLE, message: This field cannot be changed. }
+    RateLimited:
+      description: Too many attempts.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: RATE_LIMITED, message: Too many attempts. Try again later., correlationId: 5c1f2a9e } }
+    DependencyUnavailable:
+      description: Database or another dependency is unavailable. Callers must fail closed.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: { code: DEPENDENCY_UNAVAILABLE, message: Try again shortly., correlationId: 5c1f2a9e } }
