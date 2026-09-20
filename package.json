@@ -1,0 +1,35 @@
+{
+  "name": "foc-app",
+  "private": true,
+  "description": "Friend on Campus \u2014 CS3219 AY2627S1 Group 30",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "workspaces": [
+    "platform",
+    "user-service",
+    "supplier-service",
+    "order-service",
+    "credit-service"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "eslint .",
+    "format": "prettier --write \"**/*.{ts,mjs,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,mjs,json,md}\"",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:user": "npm run dev -w user-service",
+    "dev:supplier": "npm run dev -w supplier-service",
+    "dev:order": "npm run dev -w order-service",
+    "dev:credit": "npm run dev -w credit-service"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.36.0",
+    "@types/node": "^20.17.0",
+    "eslint": "^9.36.0",
+    "prettier": "^3.9.0",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.70.0"
+  }
+}

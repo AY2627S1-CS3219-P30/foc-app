@@ -1,3 +1,6 @@
+# Dependencies
+node_modules/
+
 # Build output
 dist/
 build/
@@ -13,3 +16,7 @@ out/
 # OS
 .DS_Store
 Thumbs.db
+
+# Test output
+coverage/
+*.tsbuildinfo

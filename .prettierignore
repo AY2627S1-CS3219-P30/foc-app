@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+*.lock
+package-lock.json
+
+# web-app has its own toolchain and its own config.
+web-app/
+
+# Authored documents — reformatting these produces enormous cosmetic diffs
+# over other people's work. Keep Prettier to code and to docs it created.
+docs/
+order-service/README.md
