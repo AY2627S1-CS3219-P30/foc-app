@@ -99,3 +99,69 @@ describe('GET /internal/users/:userId/permissions (US-FR4.1.3)', () => {
     await http().get(`/internal/users/${userId}/permissions`).expect(401);
   });
 });
+
+describe('GET /internal/introspect (session liveness + identity)', () => {
+  const introspect = (sid: string, sub: string) =>
+    asService(`/internal/introspect?sid=${sid}&sub=${sub}`);
+
+  // Earlier tests in this file leave the account suspended and hold an admin role; start clean.
+  beforeAll(async () => {
+    await t.db.query("UPDATE users SET status = 'ACTIVE' WHERE id = $1", [userId]);
+    await t.db.query("DELETE FROM user_roles WHERE user_id = $1 AND role = 'ADMIN'", [userId]);
+    await t.db.exec('DELETE FROM refresh_sessions');
+  });
+
+  it('reports a live session with the caller’s identity', async () => {
+    const login = await http()
+      .post('/auth/login')
+      .set('Origin', 'http://localhost:3000')
+      .send({ email: 'e0123456@u.nus.edu', password: validRegistration().password })
+      .expect(200);
+    const sid = (await t.db.query('SELECT id FROM refresh_sessions WHERE user_id = $1', [userId]))
+      .rows[0]!.id as string;
+
+    const res = await introspect(sid, userId).expect(200);
+    expect(res.body).toEqual({
+      active: true,
+      userId,
+      status: 'ACTIVE',
+      roles: ['STUDENT'],
+      displayName: 'Alex Tan',
+    });
+    expect(login.body.user.id).toBe(userId);
+  });
+
+  it('is inactive — and reveals nothing else — for a revoked, unknown or mismatched session', async () => {
+    const sid = (await t.db.query('SELECT id FROM refresh_sessions WHERE user_id = $1', [userId]))
+      .rows[0]!.id as string;
+
+    expect((await introspect(randomUUID(), userId).expect(200)).body).toEqual({ active: false });
+    // right session, wrong user: must not be confirmed as that user's
+    expect((await introspect(sid, randomUUID()).expect(200)).body).toEqual({ active: false });
+
+    await t.db.exec('UPDATE refresh_sessions SET revoked_at = now()');
+    expect((await introspect(sid, userId).expect(200)).body).toEqual({ active: false });
+  });
+
+  it('still reports status for a live session whose account is suspended, so a caller can answer 403', async () => {
+    await t.db.exec('UPDATE refresh_sessions SET revoked_at = NULL');
+    const sid = (await t.db.query('SELECT id FROM refresh_sessions WHERE user_id = $1', [userId]))
+      .rows[0]!.id as string;
+    await t.db.query("UPDATE users SET status = 'SUSPENDED' WHERE id = $1", [userId]);
+    expect((await introspect(sid, userId).expect(200)).body).toMatchObject({
+      active: true,
+      status: 'SUSPENDED',
+    });
+    await t.db.query("UPDATE users SET status = 'ACTIVE' WHERE id = $1", [userId]);
+  });
+
+  it('validates its input and requires the service key', async () => {
+    await asService('/internal/introspect').expect(422);
+    await asService('/internal/introspect?sid=nope&sub=nope').expect(422);
+    await http().get(`/internal/introspect?sid=${randomUUID()}&sub=${userId}`).expect(401);
+    await http()
+      .get(`/internal/introspect?sid=${randomUUID()}&sub=${userId}`)
+      .set('authorization', 'Bearer eyJhbGciOiJFZERTQSJ9.e30.sig')
+      .expect(401);
+  });
+});

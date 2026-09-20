@@ -1,6 +1,6 @@
 # User Service — Decision Log and Trade-offs
 
-A record of what was decided while building the User Service (contract, USR-01, USR-02, USR-03), why, what
+A record of what was decided while building the User Service (contract, USR-01, USR-02, USR-03, USR-06), why, what
 was given up, and what is still open. It exists so that in the D2 "why?" questions, and in the final
 presentation, every answer is one someone already thought through — including the parts that went
 wrong.
@@ -270,6 +270,7 @@ Recorded because they are the honest answer to "what went wrong?" and each has a
 | 10 | The roles doc said seeded admins "activate and set a password through the normal flow". Nothing like that was built. | Writing the seed code. | Doc rewritten to what exists, including the no-change-password limitation. |
 | 11 | My first mutation test of the self-demotion rule "passed" — the mutation never applied because Prettier had reformatted the line. | The mutation script did not print a failure and the output showed a clean 153. | Re-ran against the real text; the test then failed as it should. Lesson: a mutation that changes nothing proves nothing. |
 | 12 | My first race check said "exactly one demotion wins" both with and without the lock, which made the lock look pointless. | Suspicion that a mutation changed nothing. | The metric counted only successes, so a Postgres deadlock looked the same as a clean refusal. Breaking losers down by reason showed the lock converts 39/40 deadlocks into clean 403s (M2). |
+| 13 | My first mutation of "roles read from a client header" changed a global nobody sets, so it could never fail — a vacuous "pass". | Reading the mutation list critically: nine of ten failed, one did not. | Redone so an `x-role: ADMIN` header really grants admin; the test then failed as it should. Same lesson as #11. |
 | 8 | The `ON CONFLICT` clause could have been a bare `DO NOTHING`, hiding any constraint failure. | Advisor question, then checked directly. | Verified the inference is real; a test pins that a primary-key collision still errors. |
 
 ---
@@ -284,7 +285,7 @@ Recorded because they are the honest answer to "what went wrong?" and each has a
 **Deferred, with an owner**
 - ~~USR-03~~ — built: admin endpoints, suspension revoking sessions, audit table, seeded admins, profile edits (see §9).
 - USR-05 — single-flight refresh across tabs.
-- USR-06 — shared middleware must check session state, not just the JWT signature.
+- ~~USR-06~~ — built (see §10). Consuming services must still add the dependency, the two env vars and the Dockerfile lines.
 - PLT-06 — remove the dev default `INTERNAL_SERVICE_KEYS`.
 - EVT-02 — drain `outbox_events`.
 - Gateway work — configure `trust proxy` so per-IP limits mean per client.
@@ -358,3 +359,68 @@ An admin route is refused before the id is looked up, so a student learns nothin
 ### M11. List endpoints use offset pagination and prefix search — ✅
 `page`/`pageSize` (default 20, max 101 rejected), status/role filters, and a case-insensitive **prefix** match on email or display name with `LIKE` wildcards escaped (searching `%` matches the text, not everything).
 - **Trade-off:** offset pagination drifts if rows change between pages and slows on deep pages — fine at ~10⁴ users.
+
+---
+
+## 10. Shared auth middleware (USR-06)
+
+### K1. A separate workspace, `auth-client/`, not part of `platform` — ✅
+`platform` is imported by *every* service for logging, health and the error envelope. Auth is opt-in and pulls in `jose` and a
+network client; the User Service (the issuer) has no use for it. A separate package keeps `platform` small and lets each service
+opt in.
+- **Trade-off:** one more workspace, and every consuming service's Dockerfile must copy it (documented in the README).
+
+### K2. Verify the signature locally, then ask the User Service about the session — ✅
+Two steps: (1) check signature, issuer and expiry against the cached public JWKS — no network, no secret; (2) `GET /internal/introspect` for session
+liveness, roles and status.
+- **Why not trust the JWT alone:** it would keep a suspended or logged-out user working for up to 15 minutes (A1, A6).
+- **Why not call the User Service to verify everything:** it would put a network round-trip on every request's signature check for no gain.
+
+### K3. One new endpoint, `GET /internal/introspect?sid&sub` — ✅ (contract change)
+"Revoked" must be a distinct failure, and only the User Service knows whether a session ended. The existing lookups answer *who* a user is, not *whether a
+session is live*, so a second call would have been needed. One call returns both.
+- **Privacy:** an ended, unknown or mismatched session returns just `{active:false}` — a caller cannot use it to learn whether a user exists.
+- **Trade-off:** the User Service now has a fourth internal endpoint, and it is on the critical path of every other service (K4).
+
+### K4. A bounded, documented staleness window: 5 s default — ✅
+Identity answers are cached per session for at most `cacheTtlMs` (default 5 000 ms; `0` = every request).
+- **What it costs:** for up to 5 s after a suspension, logout or role change, another service may still honour the old token. That is inside
+  USR-07's 10 s requirement, and it is tested at the edges (4 999 ms stale, 5 001 ms enforced).
+- **Also:** concurrent requests for one session share one call (single-flight); an "ended" answer is cached too; **failures are never cached**, so a recovered
+  User Service is used at once; the cache is bounded (oldest evicted).
+- USR-07 will add event-driven invalidation to shrink the window for suspensions.
+
+### K5. Fail closed, and as 503 rather than 401 — ✅
+Timeout, network error, non-200, or a malformed reply → `IDENTITY_UNAVAILABLE`. A wrong service key or unreachable JWKS does the same.
+- **Why 503:** a healthy user with a good token must not be told "your token is bad" during a User Service blip; the client should retry, not sign out.
+- **Trade-off:** a User Service outage makes every protected route in every service unavailable. That is the correct direction for an auth failure, but it makes
+  the User Service a single point of failure for the platform — worth stating in the D2 discussion.
+- The introspection reply is validated before use; an unexpected shape is refused, not trusted.
+
+### K6. Nine distinct, typed failure codes — ✅
+`TOKEN_MISSING`, `TOKEN_MALFORMED`, `TOKEN_INVALID`, `TOKEN_EXPIRED`, `TOKEN_REVOKED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_NOT_ACTIVATED`, `FORBIDDEN`, `IDENTITY_UNAVAILABLE`.
+"Malformed" is decided structurally *before* any cryptography, so it can never be confused with a bad signature. A test asserts all six of the
+token-side outcomes are pairwise distinct.
+- **Why `TOKEN_EXPIRED` is separate:** it is the one failure where the client should silently refresh and retry (A3), so it must be recognisable.
+
+### K7. The User Service keeps its own guard — ❓ (accepted inconsistency)
+The User Service verifies tokens with `JwtService` and checks the session in its own database, using the error code `UNAUTHENTICATED`; consuming services use
+this package and the `TOKEN_*` codes. So there are **two verification paths and two vocabularies**.
+- **Why:** the issuer holds the private key and the database — a direct check is stronger and needs no network hop, and the ticket's "no service needs its own
+  token-parsing code" is about the *consuming* services.
+- **Trade-off:** a client sees `UNAUTHENTICATED` from the User Service but `TOKEN_EXPIRED` from Supplier for the same condition.
+  **Open:** map the User Service's guard onto the same codes so the web app has one vocabulary (small change, but it alters USR-02/03's contract, so it needs a reviewer's say).
+
+### K8. Not yet wired into Supplier, Order or Credit — 🟡
+Those are other people's services and tickets (SUP-01 needs it). The package is proven three ways: a fake User Service speaking the real wire protocol, a Supplier-style Nest
+controller, and the **real User Service over real HTTP**. Wiring it into Supplier is four steps in `auth-client/README.md`.
+- **Effect on D2 point 4:** until SUP-01 lands, the Supplier integration demo is the sample controller in `auth-client/test`, not Supplier itself.
+
+### K9. The integration test imports the User Service's test helpers by relative path — 🟡
+It lets `auth-client` boot the real service in-process without publishing or duplicating it.
+- **Trade-off:** `auth-client`'s tests are coupled to `user-service`'s test layout, and the vitest env for `auth-client` carries the User Service's config variables.
+  Acceptable for a test; not something production code should do.
+
+### K10. Verification — ✅
+46 tests; ten deliberate breakages, each caught (revoked treated as active, suspended allowed, admin guard open, expired reported as invalid, issuer unchecked,
+cache that never expires, no single-flight, a failure treated as "session ended", an `x-role` header granting admin, key-fetch failure reported as a bad token).
