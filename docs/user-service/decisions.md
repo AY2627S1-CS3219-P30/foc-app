@@ -1,6 +1,6 @@
 # User Service — Decision Log and Trade-offs
 
-A record of what was decided while building the User Service (contract, USR-01, USR-02), why, what
+A record of what was decided while building the User Service (contract, USR-01, USR-02, USR-03), why, what
 was given up, and what is still open. It exists so that in the D2 "why?" questions, and in the final
 presentation, every answer is one someone already thought through — including the parts that went
 wrong.
@@ -49,7 +49,7 @@ in CI. The service itself uses `pg` against the Compose Postgres 17.
 
 ## 2. Roles and authorization
 
-### R1. Two roles, `STUDENT` and `ADMIN`; requester and courier are capabilities — ✅ (design) / 📝 (RBAC enforcement, USR-03)
+### R1. Two roles, `STUDENT` and `ADMIN`; requester and courier are capabilities — ✅
 Every active student may both request and fulfil errands.
 - **Why:** one person alternates between asking and delivering. Making them roles would force a role
   change or a second account for a routine action, and a permission check on something with no
@@ -64,7 +64,7 @@ It is UX only and is never read by an authorization decision.
   navigation on first load.
 - **Open:** confirm with Patrick that he wants it on the profile.
 
-### R3. Admin lifecycle rules — 📝 (documented in roles.md; implemented in USR-03)
+### R3. Admin lifecycle rules — ✅ (designed in roles.md, built and verified in USR-03)
 - Admins are **seeded** from configuration, never self-registered; there is no endpoint that creates the first admin.
 - Any admin may appoint an admin; **only a seeded admin may downgrade** an admin (US-FR3.1.3.1).
 - **No admin may demote or suspend themselves**; the last admin can never be removed (row-locked check).
@@ -269,6 +269,7 @@ Recorded because they are the honest answer to "what went wrong?" and each has a
 | 9 | An oh-my-claudecode state file (`user-service/.omc/…`) was committed into #177 by a broad `git add`. | `git status` after a test run showed it as modified. | Untracked it, and gitignored `.omc/`. It only held a throttle timestamp; it stays in #177's history. |
 | 10 | The roles doc said seeded admins "activate and set a password through the normal flow". Nothing like that was built. | Writing the seed code. | Doc rewritten to what exists, including the no-change-password limitation. |
 | 11 | My first mutation test of the self-demotion rule "passed" — the mutation never applied because Prettier had reformatted the line. | The mutation script did not print a failure and the output showed a clean 153. | Re-ran against the real text; the test then failed as it should. Lesson: a mutation that changes nothing proves nothing. |
+| 12 | My first race check said "exactly one demotion wins" both with and without the lock, which made the lock look pointless. | Suspicion that a mutation changed nothing. | The metric counted only successes, so a Postgres deadlock looked the same as a clean refusal. Breaking losers down by reason showed the lock converts 39/40 deadlocks into clean 403s (M2). |
 | 8 | The `ON CONFLICT` clause could have been a bare `DO NOTHING`, hiding any constraint failure. | Advisor question, then checked directly. | Verified the inference is real; a test pins that a primary-key collision still errors. |
 
 ---
@@ -289,7 +290,7 @@ Recorded because they are the honest answer to "what went wrong?" and each has a
 - Gateway work — configure `trust proxy` so per-IP limits mean per client.
 
 **Not yet automated**
-- The real-Postgres concurrency checks (O4) were run by hand.
+- The real-Postgres concurrency checks (O4, and the demotion race in M2) were run by hand.
 - The full `docker compose up` (all services and web-app) has not been run; only Postgres and the User Service.
 
 ---
@@ -305,7 +306,9 @@ Recorded because they are the honest answer to "what went wrong?" and each has a
 Anything that could reduce the number of admins first locks every `ADMIN` role row, so simultaneous
 demotions queue. After the lock the actor's own authority is checked *again*: a demotion that landed a
 moment earlier must not let its victim demote someone else.
-- **Verified:** two seeded admins demoting each other at the same instant → exactly one succeeds, one admin remains.
+- **Verified on real Postgres, with real parallel connections** (service method called directly, so the HTTP guard cannot help): 40 rounds of two seeded admins demoting each other at once → never both, never zero admins, and **all 40 losers received a clean `FORBIDDEN`** from the post-lock re-check.
+- **The lock is doing real work.** With the `FOR UPDATE` removed, 39 of 40 losers instead died with a Postgres **deadlock (`40P01`)** — the invariant still held, but only because the database's deadlock detector stepped in via the audit table's foreign-key locks, and the caller would have seen a `500`. The lock turns an accident into a deliberate refusal.
+- **Limit:** PGlite is single-connection, so this is not an automated test; it was run by hand (script not committed).
 - **Why the order matters:** a fixed lock order (admin rows, then the target) is what prevents two such transactions from deadlocking.
 
 ### M3. `LAST_ADMIN` is a safety net, and it is structurally unreachable — 🟡
