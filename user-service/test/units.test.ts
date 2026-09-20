@@ -3,6 +3,7 @@ import { hashPassword, verifyPassword } from '../src/auth/passwords.js';
 import { newOpaqueToken, sha256Hex } from '../src/auth/tokens.js';
 import { runMigrations } from '../src/db/migrate.js';
 import { isAllowedDomain, normalizeEmail } from '../src/users/email.js';
+import { usersRepository } from '../src/users/users.repository.js';
 import { PgliteDb } from './helpers/pglite-db.js';
 
 describe('email', () => {
@@ -81,5 +82,31 @@ describe('migrations', () => {
         `INSERT INTO user_roles (user_id, role) VALUES ('00000000-0000-4000-8000-000000000001', 'COURIER')`,
       ),
     ).rejects.toThrow();
+  });
+});
+
+describe('insertUser conflict handling', () => {
+  it('skips only a duplicate email; any other constraint violation still surfaces', async () => {
+    const db = await PgliteDb.create();
+    await runMigrations(db);
+    const base = { passwordHash: 'h', displayName: 'A' };
+    const id1 = '00000000-0000-4000-8000-0000000000a1';
+
+    expect(await usersRepository.insertUser(db, { ...base, id: id1, email: 'a@u.nus.edu' })).toBe(
+      true,
+    );
+    // duplicate email (different case, different id) is skipped, not an error
+    expect(
+      await usersRepository.insertUser(db, {
+        ...base,
+        id: '00000000-0000-4000-8000-0000000000a2',
+        email: 'A@U.NUS.EDU',
+      }),
+    ).toBe(false);
+    // a primary-key collision is a real error and must not be swallowed as "duplicate email"
+    await expect(
+      usersRepository.insertUser(db, { ...base, id: id1, email: 'other@u.nus.edu' }),
+    ).rejects.toThrow(/duplicate key/);
+    await db.close();
   });
 });

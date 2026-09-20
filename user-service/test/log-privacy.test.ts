@@ -1,6 +1,8 @@
 import request from 'supertest';
 import { Writable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { env } from '../src/config.js';
+import { UsersModule } from '../src/users/users.module.js';
 import { createTestApp, SERVICE_KEY, validRegistration, type TestApp } from './helpers/app.js';
 
 const lines: string[] = [];
@@ -54,5 +56,18 @@ describe('log privacy (US-NFR2.1.1)', () => {
     expect(output).not.toContain(hash);
     expect(output).not.toContain(SERVICE_KEY);
     expect(output).not.toMatch(/argon2/i);
+  });
+});
+
+describe('development mailbox guard', () => {
+  it('refuses to start in production, so activation tokens are never exposed there', () => {
+    const mutable = env as { NODE_ENV: string };
+    const original = mutable.NODE_ENV;
+    mutable.NODE_ENV = 'production';
+    try {
+      expect(() => UsersModule.forRoot()).toThrow(/No production mail adapter/);
+    } finally {
+      mutable.NODE_ENV = original;
+    }
   });
 });

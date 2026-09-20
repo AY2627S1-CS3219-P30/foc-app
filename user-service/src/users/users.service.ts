@@ -108,7 +108,9 @@ export class UsersService {
 
       if (userId) {
         const activated = await repo.markActivated(tx, userId);
-        if (!activated) throw invalidToken(); // account was suspended before activating
+        // Not pending any more (e.g. suspended before it activated). Throwing rolls the
+        // transaction back, so the token is not left consumed by a failed activation.
+        if (!activated) throw invalidToken();
         await repo.insertOutboxEvent(tx, {
           id: randomUUID(),
           eventType: 'UserActivated',

@@ -167,6 +167,18 @@ describe('POST /auth/activate', () => {
     expect(await events()).toHaveLength(0);
   });
 
+  it('does not activate a suspended account, and leaves the token unconsumed', async () => {
+    const token = await register();
+    await t.db.exec("UPDATE users SET status = 'SUSPENDED'");
+    const res = await http().post('/auth/activate').send({ token }).expect(404);
+    expect(res.body.error.code).toBe('ACTIVATION_TOKEN_INVALID');
+    expect((await t.db.query('SELECT status FROM users')).rows[0]!.status).toBe('SUSPENDED');
+    expect(
+      (await t.db.query('SELECT consumed_at FROM activation_tokens')).rows[0]!.consumed_at,
+    ).toBeNull();
+    expect(await events()).toHaveLength(0);
+  });
+
   it('rejects an unknown token', async () => {
     const res = await http()
       .post('/auth/activate')

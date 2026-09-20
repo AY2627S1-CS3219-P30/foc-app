@@ -115,9 +115,9 @@ export const usersRepository = {
   /** Deliberately selects only what the least-data lookup may return — never a hash or token. */
   async findIdentity(q: Queryable, userId: string): Promise<IdentityRow | null> {
     const { rows } = await q.query<{ status: AccountStatus; display_name: string; roles: Role[] }>(
-      `SELECT u.status, p.display_name,
+      `SELECT u.status, coalesce(p.display_name, '') AS display_name,
               array(SELECT r.role FROM user_roles r WHERE r.user_id = u.id ORDER BY r.role) AS roles
-       FROM users u JOIN profiles p ON p.user_id = u.id
+       FROM users u LEFT JOIN profiles p ON p.user_id = u.id
        WHERE u.id = $1`,
       [userId],
     );
