@@ -76,7 +76,7 @@ user and declares a `HEALTHCHECK`. `compose.yaml` wiring arrives with PLT-02.
 | `GET /dev/mailbox?to=`                | **Development only.** Reads the activation token that would be emailed. Refused in production                                            |
 
 The contract is `contracts/user-service.openapi.yaml`; role and schema design are in
-`docs/user-service/`. Migrations run at boot and are forward-only (`src/db/migrations.ts`).
+`docs/user-service/`, and every decision with its trade-offs is in `docs/user-service/decisions.md`. Migrations run at boot and are forward-only (`src/db/migrations.ts`).
 
 **Tests run on PGlite** (PostgreSQL compiled to WASM), so `npm test -w @foc/user-service` needs no
 database server or Docker. Runtime uses `pg` against the Compose Postgres.
