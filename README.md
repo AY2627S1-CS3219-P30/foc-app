@@ -97,21 +97,49 @@ bun install
 bun dev        # http://localhost:3000
 ```
 
-### 6. Run a service in Docker
+### 6. Run the whole stack in Docker
 
-The build context is the repository root, not the service folder, because the
-image needs the workspace manifests and `@foc/platform`:
+One command brings up the web app, all four services, PostgreSQL and RabbitMQ:
 
 ```bash
-docker build -f user-service/Dockerfile -t foc/user-service .
-docker run --rm -p 3001:3001 \
-  -e SERVICE_NAME=user-service -e PORT=3001 \
-  foc/user-service
+cp .env.example .env     # if you have not already
+docker compose up -d --build
+docker compose ps        # every row should read healthy
 ```
 
-Images run as a non-root user and declare a `HEALTHCHECK`. A one-command
-`docker compose up` for the whole stack arrives with
-[PLT-02](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/116).
+Then open <http://localhost:3000>.
+
+| Command                               | What it does                                 |
+| ------------------------------------- | -------------------------------------------- |
+| `docker compose up -d --build`        | Build and start everything                   |
+| `docker compose ps`                   | Show health of each container                |
+| `docker compose logs -f user-service` | Follow one service's logs                    |
+| `docker compose restart`              | Restart everything, **keeping** data         |
+| `docker compose down`                 | Stop and remove containers, **keeping** data |
+| `docker compose down -v`              | Stop and **delete the databases too**        |
+| `./scripts-smoke.sh`                  | Verify a running stack (16 checks)           |
+| `./scripts-smoke.sh --up`             | Bring it up, verify, tear it down            |
+
+`docker compose down` keeps your data. Use `-v` only when you want a clean
+database — it is also the only way to re-run `postgres-init.sql`, which runs
+once when the data volume is empty.
+
+**Data isolation.** One PostgreSQL server hosts four databases with four roles,
+one per service. Each role can connect only to its own database — a service
+cannot read another service's tables even by accident. A single server rather
+than four keeps a laptop usable during the demo; production can split the
+instances with no application change, because each service already connects with
+its own credentials. See [`postgres-init.sql`](postgres-init.sql).
+
+**Ports.** PostgreSQL is published on **55432** and RabbitMQ on **55672**, not
+their defaults, because a locally installed copy usually holds 5432 and 5672 and
+`up` would fail to bind. Override any port in `.env`. RabbitMQ's management UI is
+at <http://localhost:15672> (`foc` / `foc_dev`).
+
+**Not yet wired.** No service reads `DATABASE_URL` or `RABBITMQ_URL` yet — the
+connections are provisioned and injected, ready for USR-01, SUP-01 and EVT-01 to
+consume. Services currently talk to the browser directly with CORS; a thin
+gateway is a later ticket.
 
 ### 7. Check your setup
 
@@ -123,7 +151,13 @@ npm run typecheck
 npm run format      # apply Prettier
 ```
 
-All four should pass on a fresh clone. If they do, you are set up correctly.
+All four should pass on a fresh clone. For the containerized stack:
+
+```bash
+./scripts-smoke.sh --up
+```
+
+If that prints `All smoke checks passed`, you are set up correctly.
 
 ---
 
