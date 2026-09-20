@@ -22,6 +22,50 @@ withdrawn, or exchanged for money, and only circulate within the platform.
 
 ---
 
+## Getting Started
+
+**Prerequisites:** Node 22.12+ (`nvm use` reads `.nvmrc`) and Docker.
+
+```bash
+npm install          # once, from the repository root — this is an npm workspace
+npm run build        # compile every service
+npm test             # run every service's tests
+npm run lint         # lint every service
+npm run typecheck    # type-check without emitting
+```
+
+Run a single service:
+
+```bash
+SERVICE_NAME=user-service PORT=3001 npm run dev:user
+curl -i http://localhost:3001/health
+```
+
+| Service            | Port | Owner      |
+| ------------------ | ---- | ---------- |
+| `user-service`     | 3001 | Anselm     |
+| `supplier-service` | 3002 | Patrick    |
+| `order-service`    | 3003 | Zhang Yuan |
+| `credit-service`   | 3004 | Isaac      |
+| `web-app`          | 3000 | Patrick    |
+
+`web-app` uses Bun and its own commands — see [web-app/README.md](web-app/README.md).
+It is deliberately outside the npm workspace so the two package managers never
+contend for the same `node_modules`.
+
+Every service shares `platform/`, which supplies `GET /health`, structured JSON
+logging with a correlation ID on every line, a common error envelope, boot-time
+environment validation, and graceful shutdown. Extend that package rather than
+re-implementing any of it per service.
+
+Copy `.env.example` to `.env` before running anything. A missing required
+variable stops a service at boot and names the variable.
+
+See [docs/adr/0001-runtime-and-service-framework.md](docs/adr/0001-runtime-and-service-framework.md)
+for why the stack is what it is.
+
+---
+
 ## Repository Structure
 
 This repository follows a **one-service-per-folder** structure: each

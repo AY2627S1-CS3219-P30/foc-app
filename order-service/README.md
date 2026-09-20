@@ -84,3 +84,70 @@ stateDiagram-v2
   class PENDING_CREDIT,COMPLETION_PENDING_CREDIT,RELEASE_PENDING_CREDIT credit
   class REJECTED,COMPLETED,CANCELLED,EXPIRED final
 ```
+
+---
+
+## Running this service
+
+Owned by **Zhang Yuan**. Implements the errand lifecycle from creation to a terminal state.
+
+### Prerequisites
+
+Node 22.12 or later (`nvm use` picks it up from `.nvmrc`). Install dependencies
+once from the repository root — this is an npm workspace, so a per-service
+`npm install` is neither needed nor correct:
+
+```bash
+npm install
+```
+
+### Commands
+
+Run these from the repository root.
+
+| Command                                   | What it does                  |
+| ----------------------------------------- | ----------------------------- |
+| `npm run dev:order`                       | Start with reload on change   |
+| `npm run build -w @foc/order-service`     | Compile TypeScript to `dist/` |
+| `npm test -w @foc/order-service`          | Run this service's tests      |
+| `npm run typecheck -w @foc/order-service` | Type-check without emitting   |
+| `npm run lint`                            | Lint every service            |
+
+### Required environment
+
+| Variable       | Example         | Notes                                   |
+| -------------- | --------------- | --------------------------------------- |
+| `SERVICE_NAME` | `order-service` | Tags every log line                     |
+| `PORT`         | `3003`          | Bind port                               |
+| `NODE_ENV`     | `development`   | `development` \| `test` \| `production` |
+| `LOG_LEVEL`    | `info`          | Defaults to `info`                      |
+
+A missing required variable stops the service at boot and names the variable.
+Nothing falls back to an insecure default.
+
+```bash
+SERVICE_NAME=order-service PORT=3003 npm run dev:order
+curl -i http://localhost:3003/health
+```
+
+### What you get from `@foc/platform`
+
+Importing `PlatformModule.forRoot(...)` gives this service a `GET /health`
+endpoint, structured JSON logging where every line carries a correlation ID,
+request logging, a shared error envelope, and graceful shutdown on `SIGTERM`.
+Do not re-implement these per service — extend the shared package instead, so a
+change lands once rather than four times.
+
+### Docker
+
+```bash
+docker build -f order-service/Dockerfile -t foc/order-service .
+```
+
+The build context is the **repository root**, not this folder, because the image
+needs the workspace manifests and `@foc/platform`. The image runs as a non-root
+user and declares a `HEALTHCHECK`. `compose.yaml` wiring arrives with PLT-02.
+
+### Next tickets
+
+ORD-01, ORD-02, ORD-03
