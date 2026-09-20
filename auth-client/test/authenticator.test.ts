@@ -263,6 +263,22 @@ describe('fail closed when the User Service cannot answer', () => {
     },
   );
 
+  it('a status added later is denied as not-active (403), not reported as an outage (503)', async () => {
+    const u = await fake.login({ status: 'DEACTIVATED' });
+    const auth = make();
+    expect(await outcome(auth.authenticate(`Bearer ${u.token}`))).toBe('ACCOUNT_NOT_ACTIVATED');
+    expect(await statusOf(auth.authenticate(`Bearer ${u.token}`))).toBe(403);
+  });
+
+  it('a role added later is ignored, and the roles that are known still work', async () => {
+    const u = await fake.login({ roles: ['MODERATOR', 'ADMIN', 'STUDENT'] });
+    const ctx = await make().authenticate(`Bearer ${u.token}`);
+    expect(ctx.roles).toEqual(['ADMIN', 'STUDENT']);
+    expect(ctx.isAdmin).toBe(true);
+    const only = await fake.login({ roles: ['MODERATOR'] });
+    expect((await make().authenticate(`Bearer ${only.token}`)).isAdmin).toBe(false);
+  });
+
   it('a malformed introspection reply is refused, not trusted', async () => {
     fake.behaviour.garbageBody = true;
     const u = await fake.login();

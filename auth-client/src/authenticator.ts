@@ -34,6 +34,7 @@ export function createAuthenticator(config: AuthConfig): Authenticator {
       const who = await identity.introspect(sid, sub);
       if (!who.active) throw authFailure('TOKEN_REVOKED');
       if (who.status === 'SUSPENDED') throw authFailure('ACCOUNT_SUSPENDED');
+      // Anything that is not exactly ACTIVE is denied — including a status added after this was written.
       if (who.status !== 'ACTIVE') throw authFailure('ACCOUNT_NOT_ACTIVATED');
 
       return {
@@ -41,7 +42,7 @@ export function createAuthenticator(config: AuthConfig): Authenticator {
         sessionId: sid,
         displayName: who.displayName,
         roles: who.roles,
-        status: who.status,
+        status: 'ACTIVE',
         isAdmin: who.roles.includes('ADMIN'),
       };
     },

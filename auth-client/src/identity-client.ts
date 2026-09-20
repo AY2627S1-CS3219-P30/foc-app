@@ -1,9 +1,20 @@
 import { authFailure } from './errors.js';
-import type { AccountStatus, AuthConfig, Role } from './types.js';
+import type { AuthConfig, Role } from './types.js';
 
 export type Introspection =
   | { active: false }
-  | { active: true; userId: string; status: AccountStatus; roles: Role[]; displayName: string };
+  | {
+      active: true;
+      userId: string;
+      /**
+       * Deliberately a plain string: the User Service may add a status later (additive
+       * changes are expected in v1). Anything other than `ACTIVE` or `SUSPENDED` is denied
+       * as not-active by the authenticator rather than treated as an outage.
+       */
+      status: string;
+      roles: Role[];
+      displayName: string;
+    };
 
 interface Entry {
   value: Introspection;
@@ -88,10 +99,13 @@ export class IdentityClient {
   }
 }
 
-const STATUSES = new Set<string>(['PENDING_ACTIVATION', 'ACTIVE', 'SUSPENDED']);
 const ROLES = new Set<string>(['STUDENT', 'ADMIN']);
 
-/** Trust nothing about the shape of the reply: an unexpected body fails closed rather than granting access. */
+/**
+ * Trust nothing about the *shape* of the reply: a body that is not an introspection at all fails
+ * closed as unavailable. But a new status or role is an expected, additive change and is handled as
+ * an authorization outcome (deny / ignore), never as an outage.
+ */
 function parse(body: unknown): Introspection {
   const b = body as Record<string, unknown> | null;
   if (!b || typeof b !== 'object' || typeof b.active !== 'boolean') {
@@ -102,17 +116,16 @@ function parse(body: unknown): Introspection {
     typeof b.userId !== 'string' ||
     typeof b.displayName !== 'string' ||
     typeof b.status !== 'string' ||
-    !STATUSES.has(b.status) ||
-    !Array.isArray(b.roles) ||
-    !b.roles.every((r) => typeof r === 'string' && ROLES.has(r))
+    !Array.isArray(b.roles)
   ) {
     throw authFailure('IDENTITY_UNAVAILABLE');
   }
   return {
     active: true,
     userId: b.userId,
-    status: b.status as AccountStatus,
-    roles: b.roles as Role[],
+    status: b.status,
+    // A role this package does not know grants nothing here; drop it rather than reject the whole reply.
+    roles: b.roles.filter((r): r is Role => typeof r === 'string' && ROLES.has(r)),
     displayName: b.displayName,
   };
 }

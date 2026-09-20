@@ -103,6 +103,10 @@ interface AuthContext {
 | `FORBIDDEN`             |   403   | Signed in, but not an admin                                       | —                       |
 | `IDENTITY_UNAVAILABLE`  | **503** | Could not verify: the User Service or its keys are unreachable    | Retry shortly           |
 
+**Forward compatible.** If the User Service later adds an account status or a role, consumers do not break: any status
+other than exactly `ACTIVE` is denied as `ACCOUNT_NOT_ACTIVATED` (403), and an unknown role is ignored (it grants
+nothing). Only a reply that is not an introspection at all is treated as an outage.
+
 `IDENTITY_UNAVAILABLE` is deliberately **503, not 401**: a healthy user with a good token must not be told their
 token is bad because the User Service had a bad moment. The package **fails closed** — it never grants access
 it could not verify — so a User Service outage makes protected routes unavailable, not open.
@@ -140,7 +144,7 @@ Keys come from `GET /.well-known/jwks.json` and are cached. A token naming an un
 
 ## Tests
 
-`npm test -w @foc/auth-client` — 46 tests, three layers:
+`npm test -w @foc/auth-client` — 48 tests, three layers:
 
 - `authenticator.test.ts` — every failure code, the cache and its window, fail-closed behaviour, key rotation, against a fake User Service that speaks the real wire protocol.
 - `nest-guards.test.ts` — a Supplier-style controller: student refused / admin accepted, the error envelope, header-claimed roles ignored.

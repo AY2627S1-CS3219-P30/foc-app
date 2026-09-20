@@ -395,7 +395,10 @@ Timeout, network error, non-200, or a malformed reply → `IDENTITY_UNAVAILABLE`
 - **Why 503:** a healthy user with a good token must not be told "your token is bad" during a User Service blip; the client should retry, not sign out.
 - **Trade-off:** a User Service outage makes every protected route in every service unavailable. That is the correct direction for an auth failure, but it makes
   the User Service a single point of failure for the platform — worth stating in the D2 discussion.
-- The introspection reply is validated before use; an unexpected shape is refused, not trusted.
+- The introspection reply's *shape* is validated before use; a body that is not an introspection at all is refused, not trusted.
+- **New statuses and roles are an authorization outcome, not an outage.** Additive change is expected in v1, so an unknown status is denied as
+  `ACCOUNT_NOT_ACTIVATED` (403) and an unknown role is ignored. (First draft rejected them as `503`, which would have made every consumer report an outage
+  the day the User Service added a status — caught in review.)
 
 ### K6. Nine distinct, typed failure codes — ✅
 `TOKEN_MISSING`, `TOKEN_MALFORMED`, `TOKEN_INVALID`, `TOKEN_EXPIRED`, `TOKEN_REVOKED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_NOT_ACTIVATED`, `FORBIDDEN`, `IDENTITY_UNAVAILABLE`.
@@ -422,5 +425,5 @@ It lets `auth-client` boot the real service in-process without publishing or dup
   Acceptable for a test; not something production code should do.
 
 ### K10. Verification — ✅
-46 tests; ten deliberate breakages, each caught (revoked treated as active, suspended allowed, admin guard open, expired reported as invalid, issuer unchecked,
+48 tests; ten deliberate breakages, each caught (revoked treated as active, suspended allowed, admin guard open, expired reported as invalid, issuer unchecked,
 cache that never expires, no single-flight, a failure treated as "session ended", an `x-role` header granting admin, key-fetch failure reported as a bad token).

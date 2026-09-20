@@ -8,7 +8,7 @@ export const SERVICE_KEY = 'fake-service-key-0123456789';
 export interface FakeSession {
   userId: string;
   active: boolean;
-  status: 'PENDING_ACTIVATION' | 'ACTIVE' | 'SUSPENDED';
+  status: string;
   roles: string[];
   displayName: string;
 }
