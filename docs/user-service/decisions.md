@@ -266,6 +266,9 @@ Recorded because they are the honest answer to "what went wrong?" and each has a
 | 5 | The new registration rate limit made the test suite fail (one IP, dozens of registrations). | Test run. | Test app defaults to generous limiters; dedicated tests use strict ones. |
 | 6 | The docs said `citext` and port `8081`; the merged scaffold uses plain `text` and port `3001`. | Reading the merged scaffold. | Docs and contract corrected. |
 | 7 | The docs claimed suspension revokes refresh sessions. Nothing calls that yet. | Advisor review. | Docs now say USR-03 wires it; the guard already blocks a suspended user on the next request. |
+| 9 | An oh-my-claudecode state file (`user-service/.omc/…`) was committed into #177 by a broad `git add`. | `git status` after a test run showed it as modified. | Untracked it, and gitignored `.omc/`. It only held a throttle timestamp; it stays in #177's history. |
+| 10 | The roles doc said seeded admins "activate and set a password through the normal flow". Nothing like that was built. | Writing the seed code. | Doc rewritten to what exists, including the no-change-password limitation. |
+| 11 | My first mutation test of the self-demotion rule "passed" — the mutation never applied because Prettier had reformatted the line. | The mutation script did not print a failure and the output showed a clean 153. | Re-ran against the real text; the test then failed as it should. Lesson: a mutation that changes nothing proves nothing. |
 | 8 | The `ON CONFLICT` clause could have been a bare `DO NOTHING`, hiding any constraint failure. | Advisor question, then checked directly. | Verified the inference is real; a test pins that a primary-key collision still errors. |
 
 ---
@@ -278,7 +281,7 @@ Recorded because they are the honest answer to "what went wrong?" and each has a
 - ❓ Everyone: how do other services get and cache the JWKS, and who owns key rotation?
 
 **Deferred, with an owner**
-- USR-03 — admin endpoints, suspension revoking sessions, the audit table, seeded admins, profile edits.
+- ~~USR-03~~ — built: admin endpoints, suspension revoking sessions, audit table, seeded admins, profile edits (see §9).
 - USR-05 — single-flight refresh across tabs.
 - USR-06 — shared middleware must check session state, not just the JWT signature.
 - PLT-06 — remove the dev default `INTERNAL_SERVICE_KEYS`.
@@ -288,3 +291,67 @@ Recorded because they are the honest answer to "what went wrong?" and each has a
 **Not yet automated**
 - The real-Postgres concurrency checks (O4) were run by hand.
 - The full `docker compose up` (all services and web-app) has not been run; only Postgres and the User Service.
+
+---
+
+## 9. Administration and profile (USR-03)
+
+### M1. Admin authority is read from the database on every request — ✅
+`AdminGuard` looks up the caller's roles and status live. Nothing in the token, a header, or the body is consulted.
+- **Consequence:** a demoted admin loses access on their very next request, with the same token. A test pins this.
+- **Trade-off:** one extra indexed read per admin request.
+
+### M2. Concurrency: lock the admin rows first, then the target, then re-check the actor — ✅
+Anything that could reduce the number of admins first locks every `ADMIN` role row, so simultaneous
+demotions queue. After the lock the actor's own authority is checked *again*: a demotion that landed a
+moment earlier must not let its victim demote someone else.
+- **Verified:** two seeded admins demoting each other at the same instant → exactly one succeeds, one admin remains.
+- **Why the order matters:** a fixed lock order (admin rows, then the target) is what prevents two such transactions from deadlocking.
+
+### M3. `LAST_ADMIN` is a safety net, and it is structurally unreachable — 🟡
+A demoter must themselves be a *different* admin, so at least two admins always exist at that moment.
+The real guarantees are (a) self-demotion is forbidden, and (b) demotions are serialised (M2). The
+`adminIds.length <= 1` check is kept as an explicit invariant, but no test can reach the branch — the
+tests prove the invariant (mutual demotion, self-demotion) rather than that line.
+- **Trade-off:** a branch that reads as dead code. Kept because it fails loudly if a future change (a bulk
+  endpoint, a new role source) ever breaks the reasoning above.
+- Suspended admins are counted as admins for this purpose.
+
+### M4. Only an `ACTIVE` account can be suspended — ✅
+So reactivation always restores a state the account already had, and can never skip email activation.
+- **Trade-off:** an admin cannot pre-emptively block an account that has registered but not yet activated;
+  it can still activate later. Acceptable for v1; it can be suspended straight after.
+
+### M5. Suspension is one transaction: status, all refresh sessions, audit row, event — ✅
+The audit row's id is the `reasonRef` carried in `UserSuspended`, so a consumer can trace an event back to who did it and why.
+Suspending an already-suspended account is idempotent and adds no second audit row or event.
+
+### M6. Seeded admins come from configuration with a bootstrap password — 🟡
+See roles.md. **Never promotes** an existing account; **fails loudly** on bad config; idempotent; emits `UserActivated`.
+- **Trade-offs / limits:** no change-password endpoint exists, so the bootstrap password is the admin's password;
+  and `compose.yaml` carries a dev-only default (`admin@u.nus.edu`) — another committed credential for PLT-06 to remove.
+- **Rejected:** a first-registered-user-becomes-admin rule (racy, and a takeover risk), and a setup endpoint (an unauthenticated privilege grant).
+
+### M7. Profile edits use a closed schema and are all-or-nothing — ✅
+`PATCH /users/me` accepts five fields. `id`, `email`, `roles`, `role`, `status` or any unknown key → `422 FIELD_NOT_EDITABLE`
+with **nothing changed** (not even the valid fields sent alongside). The target is always the token's subject; no route takes another user's id.
+- **Why reject rather than ignore:** silently dropping `role: "ADMIN"` would hide an attack and make the client think it worked.
+
+### M8. The audit trail is append-only by trigger *and* by revoked privilege — 🟡
+A `BEFORE UPDATE OR DELETE` trigger raises, and the service's own role has `UPDATE, DELETE, TRUNCATE` revoked. No API route writes it, and it is read-only over HTTP.
+- **Honest limit:** the service role *owns* the table, so it could re-grant itself or drop the trigger. True
+  immutability needs a separate owner role that the service does not hold (PLT-06). Today it stops bugs and
+  API abuse, not a compromised service.
+
+### M9. Non-admins get `403`, not `404`, for a user id that may not exist — ✅
+An admin route is refused before the id is looked up, so a student learns nothing about which accounts exist. A test pins it.
+
+### M10. Deny-by-default is enforced by tests, not just by convention — ✅
+- An actor–resource–action matrix runs every protected endpoint as four actors (unauthenticated, active student, suspended student, administrator) and fails on any unauthorised success.
+- A **route-coverage meta-test** enumerates the live routes and fails if any is neither in the matrix nor on an explicit public list — so a new endpoint cannot ship without a matrix row.
+- I deliberately broke seven rules (drop the admin guard, allow any admin to downgrade, allow self-demotion, skip session revocation, loosen the profile schema, remove the audit trigger, drop the seeded-only suspend rule) and confirmed a test fails for each.
+- **Limit:** mutation testing was done by hand, once; it is not a CI job.
+
+### M11. List endpoints use offset pagination and prefix search — ✅
+`page`/`pageSize` (default 20, max 101 rejected), status/role filters, and a case-insensitive **prefix** match on email or display name with `LIKE` wildcards escaped (searching `%` matches the text, not everything).
+- **Trade-off:** offset pagination drifts if rows change between pages and slows on deep pages — fine at ~10⁴ users.

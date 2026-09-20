@@ -332,7 +332,9 @@ paths:
       description: |
         Records an audit row, revokes all of the user's refresh sessions, and publishes `UserSuspended`.
         New sessions are denied immediately; dependent services see the change within 10 seconds.
-        An admin cannot suspend themselves. Only a seeded admin may suspend another admin.
+        Only an `ACTIVE` account can be suspended (`409 ACCOUNT_NOT_ACTIVE` otherwise). An admin cannot suspend
+        themselves (`409 SELF_SUSPENSION_FORBIDDEN`). Only a seeded admin may suspend another admin
+        (`403 ADMIN_ACTION_NOT_PERMITTED`).
       requestBody:
         required: true
         content:
@@ -358,7 +360,9 @@ paths:
       tags: [Admin]
       operationId: reactivateUser
       summary: Reactivate a suspended account
-      description: Audit row + `UserReactivated`. Idempotent if already active.
+      description: |
+        Audit row + `UserReactivated`. Idempotent if already active. An account that never activated
+        (`PENDING_ACTIVATION`) is refused with `409 ACCOUNT_NOT_ACTIVE`, so reactivation cannot skip activation.
       requestBody:
         required: true
         content:
@@ -373,6 +377,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/RoleConflict' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /admin/users/{userId}/role:
@@ -765,6 +770,7 @@ components:
           examples:
             notAdmin: { value: { error: { code: FORBIDDEN, message: Administrator role required., correlationId: 5c1f2a9e } } }
             downgrade: { value: { error: { code: ADMIN_DOWNGRADE_NOT_PERMITTED, message: Only a seeded administrator can downgrade an administrator., correlationId: 5c1f2a9e } } }
+            suspendAdmin: { value: { error: { code: ADMIN_ACTION_NOT_PERMITTED, message: Only a seeded administrator can suspend an administrator., correlationId: 5c1f2a9e } } }
     AccountNotActive:
       description: The account is not `ACTIVE`.
       content:
@@ -828,6 +834,7 @@ components:
             last: { value: { error: { code: LAST_ADMIN, message: At least one administrator must remain., correlationId: 5c1f2a9e } } }
             self: { value: { error: { code: SELF_DEMOTION_FORBIDDEN, message: You cannot remove your own administrator role., correlationId: 5c1f2a9e } } }
             selfSuspend: { value: { error: { code: SELF_SUSPENSION_FORBIDDEN, message: You cannot suspend yourself., correlationId: 5c1f2a9e } } }
+            notActive: { value: { error: { code: ACCOUNT_NOT_ACTIVE, message: Only an active account can be suspended., correlationId: 5c1f2a9e } } }
     TokenInvalid:
       description: Unknown activation token.
       content:

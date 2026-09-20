@@ -79,12 +79,19 @@ unauthenticated, active student, suspended student, administrator — and fails 
 
 ## 4. Role lifecycle (D2 §6)
 
-**First administrator.** Admins are *seeded*, never self-registered. On first boot the service reads
-`ADMIN_SEED_EMAILS` (comma-separated, validated against the NUS allowlist) and a bootstrap secret from
-the environment / secret store, and creates those accounts idempotently as `ADMIN` with
-`is_seeded_admin = true`. The seed is a no-op if the account already exists, it never logs the secret,
-and there is **no HTTP endpoint that creates the first admin**. Seeded admins must still activate and set a
-password through the normal flow.
+**First administrator.** Admins are *seeded*, never self-registered. At boot the service reads
+`ADMIN_SEED_EMAILS` (comma-separated, each checked against the NUS allowlist) and `ADMIN_SEED_PASSWORD`
+(a bootstrap secret from the environment or secret store) and creates those accounts as `ACTIVE`, `ADMIN`
+and `STUDENT`, with `is_seeded_admin = true` and a unique Argon2id salt each. Properties:
+- **Idempotent** — an address that already exists is skipped.
+- **Never escalates** — an address that already has an ordinary account is *skipped, not promoted*; a
+  config line must not be able to grant privilege to an existing student.
+- **Fails loudly** — an off-allowlist address, or emails without a password, stops the service at boot.
+- **No endpoint** creates the first admin, and the password is never logged.
+- A seeded admin also gets a `UserActivated` event, so Credit Service issues a wallet like any student.
+
+Limitation: there is no change-password endpoint yet, so the bootstrap password *is* the admin's
+password until one exists. In production it must come from the secret store and be treated as sensitive.
 
 **Promotion (no developer involved).** An `ADMIN` calls `PUT /admin/users/{id}/role` with `ADMIN`
 and a reason. The target must be `ACTIVE`. The change is written with an audit record in the same
@@ -99,7 +106,9 @@ transaction. Any admin, seeded or appointed, may appoint further admins (US-FR3.
 | Any admin demotes **themselves**                                      | `409 SELF_DEMOTION_FORBIDDEN` — another seeded admin must do it |
 | Demotion would leave zero admins                                      | `409 LAST_ADMIN` — checked inside the same transaction with a row lock so two simultaneous demotions cannot both succeed |
 | Admin suspends themselves                                             | `409 SELF_SUSPENSION_FORBIDDEN`                     |
-| Suspending another admin                                              | Allowed only for a seeded admin; an appointed admin gets `403` |
+| Suspending an account that is not `ACTIVE`                            | `409 ACCOUNT_NOT_ACTIVE` — so a never-activated account can never be "reactivated" past activation |
+| Reactivating an account that is not `SUSPENDED`                        | `200` if already `ACTIVE` (idempotent), `409 ACCOUNT_NOT_ACTIVE` if pending |
+| Suspending another admin                                              | Allowed only for a seeded admin; an appointed admin gets `403 ADMIN_ACTION_NOT_PERMITTED` |
 
 **Only admin tries to demote or delete their account.** Demotion → `409 LAST_ADMIN` (and self-demotion is
 already refused). There is **no account-deletion endpoint in v1**; accounts are suspended, not deleted, so

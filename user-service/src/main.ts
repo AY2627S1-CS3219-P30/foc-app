@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { createLogger, PinoLoggerService, startService } from '@foc/platform';
 import { DB, type Db } from './db/db.js';
 import { runMigrations } from './db/migrate.js';
+import { seedAdmins } from './admin/seed.js';
 
 async function main(): Promise<void> {
   // Imported dynamically so a configuration error surfaces as the clean message
@@ -16,6 +17,19 @@ async function main(): Promise<void> {
   // Schema first, then traffic: a request must never reach a database that is behind.
   const applied = await runMigrations(app.get<Db>(DB));
   if (applied.length > 0) logger.log(`Applied migrations: ${applied.join(', ')}`);
+
+  const seeded = await seedAdmins(app.get<Db>(DB), {
+    emails: env.ADMIN_SEED_EMAILS,
+    password: env.ADMIN_SEED_PASSWORD,
+    allowedDomains: env.ALLOWED_EMAIL_DOMAINS,
+  });
+  if (seeded.created.length > 0) logger.log(`Seeded administrators: ${seeded.created.join(', ')}`);
+  if (seeded.skipped.length > 0) {
+    logger.warn(
+      `Seed skipped (account already exists, not promoted): ${seeded.skipped.join(', ')}`,
+    );
+  }
+  if (!env.ADMIN_SEED_EMAILS?.length) logger.warn('No seeded administrators configured.');
 
   await startService(app, {
     serviceName: SERVICE_NAME,
