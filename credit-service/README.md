@@ -64,3 +64,15 @@ user and declares a `HEALTHCHECK`. `compose.yaml` wiring arrives with PLT-02.
 ### Next tickets
 
 CRD-01, CRD-02, CRD-03
+
+### Events consumed
+
+| Queue                            | Event            | Handler              | Status                                            |
+| -------------------------------- | ---------------- | -------------------- | ------------------------------------------------- |
+| `foc.credit.wallet-provisioning` | `user.activated` | `WalletProvisioning` | Subscription complete; issuance lands with CRD-01 |
+
+The subscription, retry and dead-letter behaviour are done. The handler only
+logs — [CRD-01](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/133)
+replaces it with real wallet issuance, which **must be idempotent on `userId`**:
+`CS-FR1.1.2` requires a repeated activation to return the existing wallet rather
+than issue more credits, and this message can legitimately arrive more than once.
