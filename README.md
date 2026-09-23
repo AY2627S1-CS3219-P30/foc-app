@@ -222,6 +222,59 @@ Start Docker Desktop and wait for the whale icon to settle.
 
 ---
 
+## Continuous integration
+
+Every pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+It is **path-aware**: a change to one service does not rebuild and retest the
+other three. Shared code — `platform/`, the root configs, the lockfile — fans out
+to all four, because it can break any of them.
+
+| Job               | Runs when                                       | What it does                                           |
+| ----------------- | ----------------------------------------------- | ------------------------------------------------------ |
+| `Detect changes`  | always                                          | Works out what is affected                             |
+| `Lint and format` | any Node code changed                           | `eslint` and `prettier --check` across the repo        |
+| `platform`        | any Node code changed                           | Typecheck and test the shared runtime                  |
+| `<service>`       | that service or shared code changed             | Typecheck, test, and build its image                   |
+| `web-app`         | `web-app/**` changed                            | `bun install`, lint, build                             |
+| `Compose smoke`   | container wiring changed, or any push to `main` | Brings the whole stack up and runs the 16 smoke checks |
+| **`CI`**          | **always**                                      | The gate — fails if anything above failed              |
+
+### Why there is a separate `CI` job
+
+A **skipped** job never reports a status. If the per-service jobs were marked
+required, a documentation-only PR would skip them, the required checks would
+never arrive, and the PR would be blocked forever. The `CI` job always runs and
+fails if any job it depends on failed, so it is the only check that needs to be
+required on `main`.
+
+### Checking the path filter without pushing
+
+The filter lives in [`scripts-ci-detect.sh`](scripts-ci-detect.sh) rather than
+inline in the workflow, so it can be tested locally:
+
+```bash
+./scripts-ci-detect.sh --self-test              # 24 cases
+echo "supplier-service/src/app.module.ts" | ./scripts-ci-detect.sh
+# services=["supplier-service"]
+# web=false
+# node=true
+# stack=false
+```
+
+If you add a top-level folder, add it to that script and to its self-test — CI
+will otherwise silently skip it.
+
+### Running what CI runs, locally
+
+```bash
+npm ci                       # exactly what CI installs
+npm run lint
+npm run format:check
+npm run typecheck
+npm test
+./scripts-smoke.sh --up      # the Compose smoke job
+```
+
 ## Repository Structure
 
 This repository follows a **one-service-per-folder** structure: each
