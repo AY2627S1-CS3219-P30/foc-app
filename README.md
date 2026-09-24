@@ -225,9 +225,10 @@ Start Docker Desktop and wait for the whale icon to settle.
 ## Asynchronous workflows
 
 Services exchange domain events through RabbitMQ rather than calling each other
-and waiting. `EI-FR1.1.1` names five such workflows; the first — create a wallet
-after a student's first activation — runs today, and the rest land with their
-own tickets.
+and waiting. [`catalogue.ts`](platform/src/events/catalogue.ts) declares every
+message, grouped by the six workflows in `EI-FR1.1.1`. The first — create a
+wallet after a student's first activation — runs today, and the rest land with
+their own tickets.
 
 ### What a service gets
 
@@ -250,6 +251,12 @@ EventsModule.forRoot({
 `RABBITMQ_URL` is **optional**. A service without it boots and simply does not
 publish or consume, so `npm run dev:user` works with no broker running. Compose
 always supplies it.
+
+A routing key is prefixed by the service that **publishes** it, not the one that
+consumes it: the Order Service asks for a reservation with
+`order.reservation-requested`, and the Credit Service answers with
+`credit.reserved`. Add a message to the catalogue, with its payload schema,
+before anything publishes it.
 
 ### The envelope
 
