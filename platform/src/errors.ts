@@ -52,8 +52,9 @@ export class ErrorEnvelopeFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const res = ctx.getResponse<Response>();
-    const req = ctx.getRequest<Request & { id?: string }>();
-    const correlationId = req.id ?? 'unknown';
+    const req = ctx.getRequest<Request & { id?: string; correlationId?: string }>();
+    // The request-logger middleware sets `correlationId`; `id` is kept as a fallback.
+    const correlationId = req.correlationId ?? req.id ?? 'unknown';
 
     const status =
       exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;

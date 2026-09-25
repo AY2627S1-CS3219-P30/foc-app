@@ -117,8 +117,8 @@ Then open <http://localhost:3000>.
 | `docker compose restart`              | Restart everything, **keeping** data         |
 | `docker compose down`                 | Stop and remove containers, **keeping** data |
 | `docker compose down -v`              | Stop and **delete the databases too**        |
-| `./scripts-smoke.sh`                  | Verify a running stack (16 checks)           |
-| `./scripts-smoke.sh --up`             | Bring it up, verify, tear it down            |
+| `./scripts-smoke.sh`                  | Verify the running stack                     |
+| `./scripts-smoke.sh --up`             | Verify a separate copy, then delete it       |
 
 `docker compose down` keeps your data. Use `-v` only when you want a clean
 database — it is also the only way to re-run `postgres-init.sql`, which runs
@@ -136,16 +136,16 @@ their defaults, because a locally installed copy usually holds 5432 and 5672 and
 `up` would fail to bind. Override any port in `.env`. RabbitMQ's management UI is
 at <http://localhost:15672> (`foc` / `foc_dev`).
 
-**Not yet wired.** No service reads `DATABASE_URL` or `RABBITMQ_URL` yet — the
-connections are provisioned and injected, ready for USR-01, SUP-01 and EVT-01 to
-consume. Services currently talk to the browser directly with CORS; a thin
-gateway is a later ticket.
+**Connections.** Compose gives each service its own `DATABASE_URL` and the shared
+`RABBITMQ_URL`, whether or not it uses them yet, so a service that starts using
+one needs no Compose change. Services talk to the browser directly with CORS; a
+thin gateway is a later ticket.
 
 ### 7. Check your setup
 
 ```bash
 npm run build       # compile every service
-npm test            # 26 tests, no env vars needed
+npm test            # no env vars needed
 npm run lint
 npm run typecheck
 npm run format      # apply Prettier
@@ -329,17 +329,19 @@ committed transaction.
 Every pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 It is **path-aware**: a change to one service does not rebuild and retest the
 other three. Shared code — `platform/`, the root configs, the lockfile — fans out
-to all four, because it can break any of them.
+to all four, because it can break any of them. So does any path the filter does
+not recognise, such as a new package: it fails closed, running everything rather
+than nothing.
 
-| Job               | Runs when                                       | What it does                                           |
-| ----------------- | ----------------------------------------------- | ------------------------------------------------------ |
-| `Detect changes`  | always                                          | Works out what is affected                             |
-| `Lint and format` | any Node code changed                           | `eslint` and `prettier --check` across the repo        |
-| `platform`        | any Node code changed                           | Typecheck and test the shared runtime                  |
-| `<service>`       | that service or shared code changed             | Typecheck, test, and build its image                   |
-| `web-app`         | `web-app/**` changed                            | `bun install`, lint, build                             |
-| `Compose smoke`   | container wiring changed, or any push to `main` | Brings the whole stack up and runs the 16 smoke checks |
-| **`CI`**          | **always**                                      | The gate — fails if anything above failed              |
+| Job               | Runs when                                       | What it does                                                                    |
+| ----------------- | ----------------------------------------------- | ------------------------------------------------------------------------------- |
+| `Detect changes`  | always                                          | Works out what is affected                                                      |
+| `Lint and format` | any Node code changed                           | `eslint` and `prettier --check` across the repo                                 |
+| `Shared packages` | any Node code changed                           | Build and test `platform/` and every other shared package, with a real RabbitMQ |
+| `<service>`       | that service or shared code changed             | Typecheck, test, and build its image                                            |
+| `web-app`         | `web-app/**` changed                            | `bun install`, lint, build                                                      |
+| `Compose smoke`   | container wiring changed, or any push to `main` | Brings the whole stack up and runs the smoke checks                             |
+| **`CI`**          | **always**                                      | The gate — fails if anything above failed                                       |
 
 ### Why there is a separate `CI` job
 
@@ -355,7 +357,7 @@ The filter lives in [`scripts-ci-detect.sh`](scripts-ci-detect.sh) rather than
 inline in the workflow, so it can be tested locally:
 
 ```bash
-./scripts-ci-detect.sh --self-test              # 24 cases
+./scripts-ci-detect.sh --self-test              # CI runs this first, too
 echo "supplier-service/src/app.module.ts" | ./scripts-ci-detect.sh
 # services=["supplier-service"]
 # web=false

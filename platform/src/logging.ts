@@ -3,11 +3,13 @@ import type { NextFunction, Request, Response } from 'express';
 import pino, { type Logger as PinoLogger } from 'pino';
 import { CORRELATION_HEADER, echoCorrelationId, resolveCorrelationId } from './correlation.js';
 
-/** Header and body fields that must never reach a log line (US-NFR4.1.1). */
-const REDACT_PATHS = [
-  'req.headers.authorization',
-  'req.headers.cookie',
-  'res.headers["set-cookie"]',
+/**
+ * Credentials (US-NFR2.1.1) and email addresses (US-NFR4.1.1), wherever they
+ * appear in a logged object. pino matches redaction paths exactly, so each key
+ * is also listed one and two levels down: `password` alone would miss a logged
+ * `{ dto: { password } }`.
+ */
+const SENSITIVE_KEYS = [
   'password',
   'currentPassword',
   'newPassword',
@@ -15,6 +17,16 @@ const REDACT_PATHS = [
   'accessToken',
   'refreshToken',
   'passwordHash',
+  'email',
+];
+
+/** Header and body fields that must never reach a log line (US-NFR4.1.1). */
+export const REDACT_PATHS = [
+  'req.headers.authorization',
+  'req.headers.cookie',
+  'req.headers["x-service-key"]',
+  'res.headers["set-cookie"]',
+  ...SENSITIVE_KEYS.flatMap((key) => [key, `*.${key}`, `*.*.${key}`]),
 ];
 
 export function createLogger(serviceName: string, level: string): PinoLogger {
