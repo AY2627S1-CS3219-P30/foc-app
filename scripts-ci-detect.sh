@@ -12,17 +12,33 @@ set -euo pipefail
 # of these fans out to all four.
 SHARED_RE='^(platform/|package\.json|package-lock\.json|tsconfig\.base\.json|eslint\.config\.mjs|\.prettierrc|\.prettierignore|\.github/workflows/ci\.yml|\.nvmrc)'
 SERVICE_RE='^(user|supplier|order|credit)-service/'
-# Wiring between containers, as opposed to code inside one.
-STACK_RE='^(compose\.yaml|postgres-init\.sql|scripts-smoke\.sh|scripts-ci-detect\.sh|platform/)|Dockerfile|\.dockerignore'
+# Wiring between containers, as opposed to code inside one. `.env.example`
+# belongs here because the smoke job copies it to `.env`.
+STACK_RE='^(compose\.yaml|postgres-init\.sql|scripts-smoke\.sh|scripts-ci-detect\.sh|platform/|\.env\.example)|Dockerfile|\.dockerignore'
+# Paths that cannot affect a build, a test or a container.
+IGNORED_RE='^docs/|\.md$|^\.github/|^LICENSE$|^\.gitignore$|^\.(vscode|idea|claude)/'
+
+# Everything else fails closed. A path none of the patterns above recognises — a
+# new package such as auth-client/, seed data, a contract — is treated as
+# shared and runs everything, rather than nothing. Otherwise a whole new package
+# could merge with no job ever running its tests.
+KNOWN_RE="$SHARED_RE|$SERVICE_RE|^web-app/|$STACK_RE|$IGNORED_RE"
 
 detect() {
   local changed="$1" force_stack="${2:-false}"
-  local matches services=() svc
+  local matches services=() svc shared=false unrecognised=false
 
   matches() { printf '%s\n' "$changed" | grep -qE "$1"; }
 
+  if printf '%s\n' "$changed" | grep -vE "$KNOWN_RE" | grep -q .; then
+    unrecognised=true
+  fi
+  if [[ "$unrecognised" == "true" ]] || matches "$SHARED_RE"; then
+    shared=true
+  fi
+
   for svc in user-service supplier-service order-service credit-service; do
-    if matches "$SHARED_RE" || matches "^${svc}/"; then
+    if [[ "$shared" == "true" ]] || matches "^${svc}/"; then
       services+=("\"${svc}\"")
     fi
   done
@@ -38,13 +54,13 @@ detect() {
 
   matches '^web-app/' && echo 'web=true' || echo 'web=false'
 
-  if matches "$SHARED_RE" || matches "$SERVICE_RE"; then
+  if [[ "$shared" == "true" ]] || matches "$SERVICE_RE"; then
     echo 'node=true'
   else
     echo 'node=false'
   fi
 
-  if [[ "$force_stack" == "true" ]] || matches "$STACK_RE"; then
+  if [[ "$force_stack" == "true" || "$unrecognised" == "true" ]] || matches "$STACK_RE"; then
     echo 'stack=true'
   else
     echo 'stack=false'
@@ -90,6 +106,17 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "mixed web + service"                   "$(printf 'web-app/x.tsx\norder-service/src/y.ts')" 'services=["order-service"]'
   check "this workflow -> all four"             ".github/workflows/ci.yml" 'services=["user-service","supplier-service","order-service","credit-service"]'
   check "deploy workflow -> nothing"            ".github/workflows/deploy-web-app.yml" 'services=[]'
+  check "issue template -> nothing"             ".github/ISSUE_TEMPLATE/config.yml" 'node=false'
+  check "docs PDF -> nothing"                   "docs/CS3219-Instructions-MilestoneD2.pdf" 'node=false'
+  check "gitignore -> nothing"                  ".gitignore" 'node=false'
+  check "env example -> stack runs"             ".env.example" 'stack=true'
+  check "env example -> no services"            ".env.example" 'services=[]'
+  check "new package -> all four services"      "auth-client/src/token-verifier.ts" 'services=["user-service","supplier-service","order-service","credit-service"]'
+  check "new package -> node runs"              "auth-client/src/token-verifier.ts" 'node=true'
+  check "new package -> stack runs"             "auth-client/src/token-verifier.ts" 'stack=true'
+  check "seed data -> all four services"        "data/csv/supplier-seed-data.csv" 'services=["user-service","supplier-service","order-service","credit-service"]'
+  check "unrecognised + service -> all four"    "$(printf 'supplier-service/src/a.ts\ncontracts/x.yaml')" 'services=["user-service","supplier-service","order-service","credit-service"]'
+  check "docs + service -> only that service"   "$(printf 'docs/notes.md\norder-service/src/y.ts')" 'services=["order-service"]'
 
   echo
   [[ $FAILURES -eq 0 ]] && echo "All detection checks passed." || {

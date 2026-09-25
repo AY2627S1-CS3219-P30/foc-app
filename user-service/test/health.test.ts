@@ -40,8 +40,11 @@ describe('user-service', () => {
   });
 
   it('returns the shared error envelope on an unknown route', async () => {
-    const res = await request(app.getHttpServer()).get('/does-not-exist').expect(404);
+    const res = await request(app.getHttpServer())
+      .get('/does-not-exist')
+      .set(CORRELATION_HEADER, 'test-correlation-2')
+      .expect(404);
     expect(res.body.error.code).toBe('NOT_FOUND');
-    expect(res.body.error.correlationId).toBeTruthy();
+    expect(res.body.error.correlationId).toBe('test-correlation-2');
   });
 });

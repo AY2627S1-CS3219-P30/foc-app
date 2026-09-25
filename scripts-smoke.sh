@@ -2,7 +2,7 @@
 # Smoke test for the containerized stack (PLT-02).
 #
 #   ./scripts-smoke.sh            assume the stack is already up
-#   ./scripts-smoke.sh --up       bring it up first, tear it down after
+#   ./scripts-smoke.sh --up       bring up a separate copy, delete it after
 #
 # Fails loudly with a non-zero exit code, so CI can gate on it.
 set -euo pipefail
@@ -20,13 +20,30 @@ FAILURES=0
 TEARDOWN=0
 
 if [[ "${1:-}" == "--up" ]]; then
+  # A Compose project of its own. The teardown below deletes volumes, and under
+  # the default project name ('foc', from compose.yaml) that would be the
+  # developer's own databases.
+  if [[ -n "$(docker compose -p foc ps -q 2>/dev/null)" ]]; then
+    echo "Your own stack (project 'foc') is running and holds the ports this needs."
+    echo "Stop it with 'docker compose stop' (your data is kept), or run without"
+    echo "--up to check the running stack as it is."
+    exit 1
+  fi
+  export COMPOSE_PROJECT_NAME=foc-smoke
   TEARDOWN=1
-  echo "Bringing the stack up..."
+  echo "Bringing up a separate copy of the stack (project 'foc-smoke')..."
   docker compose up -d --build >/dev/null
 fi
 
 cleanup() {
+  local status=$?
   if [[ $TEARDOWN -eq 1 ]]; then
+    # Logs before teardown: once the containers are removed there is nothing
+    # left to read, which is why CI could never show why a smoke run failed.
+    if [[ $status -ne 0 ]]; then
+      echo "Smoke run failed. Last 100 log lines from each container:"
+      docker compose logs --no-color --tail=100 || true
+    fi
     echo "Tearing down..."
     docker compose down -v >/dev/null 2>&1 || true
   fi
