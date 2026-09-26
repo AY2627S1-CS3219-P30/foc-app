@@ -1,6 +1,6 @@
 # ADR 0001 — Runtime, framework and repository layout
 
-- **Status:** Accepted
+- **Status:** Accepted; amended 2026-09-24 by EVT-01 (see [Amendment](#amendment--evt-01-2026-09-24))
 - **Date:** 2026-09-20
 - **Deciders:** Group 30
 - **Ticket:** [PLT-01 #115](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/115)
@@ -91,3 +91,20 @@ is imported and run; the other is generated from and validated against.
 A teammate is blocked on NestJS for more than a day, or `@nestjs/microservices`
 turns out not to fit the workflows in EI-FR1.1.1. Both would be grounds to
 reopen this before contracts freeze — not after.
+
+## Amendment — EVT-01, 2026-09-24
+
+The second revisit condition was met. [EVT-01](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/119)
+uses `amqplib` directly rather than `@nestjs/microservices`, so the reason above
+that cites its RabbitMQ transport no longer holds.
+
+The workflows need four things: an envelope of our own, validated on send and on
+receive; an attempt count carried on each message; delayed retry through queues
+we declare; and dead-lettering with the failure reason attached. By default the
+transport owns the message format and the acknowledgement path, which is where
+all four live. Replacing both would leave it doing little beyond holding the
+connection.
+
+NestJS itself stands. The other three reasons are unaffected, and the events
+module in `platform/src/events/` is an ordinary Nest module that each service
+imports.

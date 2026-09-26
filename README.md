@@ -117,8 +117,8 @@ Then open <http://localhost:3000>.
 | `docker compose restart`              | Restart everything, **keeping** data         |
 | `docker compose down`                 | Stop and remove containers, **keeping** data |
 | `docker compose down -v`              | Stop and **delete the databases too**        |
-| `./scripts-smoke.sh`                  | Verify a running stack (16 checks)           |
-| `./scripts-smoke.sh --up`             | Bring it up, verify, tear it down            |
+| `./scripts-smoke.sh`                  | Verify the running stack                     |
+| `./scripts-smoke.sh --up`             | Verify a separate copy, then delete it       |
 
 `docker compose down` keeps your data. Use `-v` only when you want a clean
 database — it is also the only way to re-run `postgres-init.sql`, which runs
@@ -136,16 +136,16 @@ their defaults, because a locally installed copy usually holds 5432 and 5672 and
 `up` would fail to bind. Override any port in `.env`. RabbitMQ's management UI is
 at <http://localhost:15672> (`foc` / `foc_dev`).
 
-**Not yet wired.** No service reads `DATABASE_URL` or `RABBITMQ_URL` yet — the
-connections are provisioned and injected, ready for USR-01, SUP-01 and EVT-01 to
-consume. Services currently talk to the browser directly with CORS; a thin
-gateway is a later ticket.
+**Connections.** Compose gives each service its own `DATABASE_URL` and the shared
+`RABBITMQ_URL`, whether or not it uses them yet, so a service that starts using
+one needs no Compose change. Services talk to the browser directly with CORS; a
+thin gateway is a later ticket.
 
 ### 7. Check your setup
 
 ```bash
 npm run build       # compile every service
-npm test            # 26 tests, no env vars needed
+npm test            # no env vars needed
 npm run lint
 npm run typecheck
 npm run format      # apply Prettier
@@ -222,22 +222,126 @@ Start Docker Desktop and wait for the whale icon to settle.
 
 ---
 
+## Asynchronous workflows
+
+Services exchange domain events through RabbitMQ rather than calling each other
+and waiting. [`catalogue.ts`](platform/src/events/catalogue.ts) declares every
+message, grouped by the six workflows in `EI-FR1.1.1`. The first — create a
+wallet after a student's first activation — runs today, and the rest land with
+their own tickets.
+
+### What a service gets
+
+```ts
+import { EventsModule, EVENTS, EVENT_PUBLISHER, EVENT_CONSUMER } from '@foc/platform';
+
+// Publishing
+EventsModule.forRoot({ url: env.RABBITMQ_URL, producer: 'user-service' });
+
+// Consuming — declare the queue up front so the topology is reproducible
+EventsModule.forRoot({
+  url: env.RABBITMQ_URL,
+  producer: 'credit-service',
+  subscriptions: [
+    { queue: 'foc.credit.wallet-provisioning', routingKeys: [EVENTS.USER_ACTIVATED] },
+  ],
+});
+```
+
+`RABBITMQ_URL` is **optional**. A service without it boots and simply does not
+publish or consume, so `npm run dev:user` works with no broker running. Compose
+always supplies it.
+
+A routing key is prefixed by the service that **publishes** it, not the one that
+consumes it: the Order Service asks for a reservation with
+`order.reservation-requested`, and the Credit Service answers with
+`credit.reserved`. Add a message to the catalogue, with its payload schema,
+before anything publishes it.
+
+### The envelope
+
+Every message carries the same envelope. Two fields matter most:
+
+- **`correlationId`** — minted at the HTTP edge and copied onto every message
+  the request causes, and every message those cause in turn. This is the thread
+  an operator follows to reconstruct one order (`EI-NFR4.1.1`).
+- **`causationId`** — the immediate parent. Where `correlationId` says _which
+  request_, `causationId` says _which event directly produced this one_.
+
+The rest — `eventId`, `eventType`, `schemaVersion`, `aggregateId`, `occurredAt`,
+`producer` — is validated on send **and** on receive. A handler never sees a
+payload that failed its schema.
+
+### What happens when a handler fails
+
+| Outcome                 | Behaviour                                                                  |
+| ----------------------- | -------------------------------------------------------------------------- |
+| Handled                 | Acknowledged                                                               |
+| **Transient failure**   | Retried up to 5 times with growing delay — 1s, 5s, 15s, 60s                |
+| **Attempts exhausted**  | Dead-lettered with the failure reason attached                             |
+| **Unparseable message** | Dead-lettered immediately — retrying malformed input only burns the budget |
+
+Retry uses delay queues rather than requeueing: a nack-and-requeue loop spins
+hot and starves every other message. A failed message goes to a queue whose only
+job is to hold it for a TTL and then route it back.
+
+Two details that are easy to get wrong, and are commented in the code:
+
+- Each delay level has a **fanout** exchange, not a topic one. A message
+  dead-lettered out of a retry queue keeps whatever routing key it carries, so
+  that key must stay the original event type the whole way round.
+- Retry queues are **namespaced per service** (`foc.<service>.retry.N`). A
+  queue's TTL is fixed at declaration, so globally named retry queues would
+  force every service onto one backoff forever and require deleting queues to
+  change it.
+
+### Inspecting it
+
+RabbitMQ's management UI is at <http://localhost:15672> (`foc` / `foc_dev`).
+
+```bash
+docker compose exec rabbitmq rabbitmqctl list_exchanges name type
+docker compose exec rabbitmq rabbitmqctl list_queues name messages
+```
+
+A queue ending `.dlq` holds messages a consumer could not process. Each carries
+an `x-foc-failure-reason` header, so you can see why without reading logs.
+
+### Testing against a real broker
+
+The unit tests need no broker and skip the integration suite. To run it:
+
+```bash
+docker compose up -d rabbitmq
+RABBITMQ_URL=amqp://foc:foc_dev@localhost:55672 npm test -w @foc/platform
+```
+
+### Not done here
+
+Publishing is **not yet atomic with a database write**. A crash between commit
+and publish loses the event — which is exactly the gap the transactional outbox
+in [EVT-02](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/135) closes.
+Until then, do not treat a published event as a durable consequence of a
+committed transaction.
+
 ## Continuous integration
 
 Every pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 It is **path-aware**: a change to one service does not rebuild and retest the
 other three. Shared code — `platform/`, the root configs, the lockfile — fans out
-to all four, because it can break any of them.
+to all four, because it can break any of them. So does any path the filter does
+not recognise, such as a new package: it fails closed, running everything rather
+than nothing.
 
-| Job               | Runs when                                       | What it does                                           |
-| ----------------- | ----------------------------------------------- | ------------------------------------------------------ |
-| `Detect changes`  | always                                          | Works out what is affected                             |
-| `Lint and format` | any Node code changed                           | `eslint` and `prettier --check` across the repo        |
-| `platform`        | any Node code changed                           | Typecheck and test the shared runtime                  |
-| `<service>`       | that service or shared code changed             | Typecheck, test, and build its image                   |
-| `web-app`         | `web-app/**` changed                            | `bun install`, lint, build                             |
-| `Compose smoke`   | container wiring changed, or any push to `main` | Brings the whole stack up and runs the 16 smoke checks |
-| **`CI`**          | **always**                                      | The gate — fails if anything above failed              |
+| Job               | Runs when                                       | What it does                                                                    |
+| ----------------- | ----------------------------------------------- | ------------------------------------------------------------------------------- |
+| `Detect changes`  | always                                          | Works out what is affected                                                      |
+| `Lint and format` | any Node code changed                           | `eslint` and `prettier --check` across the repo                                 |
+| `Shared packages` | any Node code changed                           | Build and test `platform/` and every other shared package, with a real RabbitMQ |
+| `<service>`       | that service or shared code changed             | Typecheck, test, and build its image                                            |
+| `web-app`         | `web-app/**` changed                            | `bun install`, lint, build                                                      |
+| `Compose smoke`   | container wiring changed, or any push to `main` | Brings the whole stack up and runs the smoke checks                             |
+| **`CI`**          | **always**                                      | The gate — fails if anything above failed                                       |
 
 ### Why there is a separate `CI` job
 
@@ -253,7 +357,7 @@ The filter lives in [`scripts-ci-detect.sh`](scripts-ci-detect.sh) rather than
 inline in the workflow, so it can be tested locally:
 
 ```bash
-./scripts-ci-detect.sh --self-test              # 24 cases
+./scripts-ci-detect.sh --self-test              # CI runs this first, too
 echo "supplier-service/src/app.module.ts" | ./scripts-ci-detect.sh
 # services=["supplier-service"]
 # web=false
