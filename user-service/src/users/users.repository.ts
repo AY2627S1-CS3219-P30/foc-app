@@ -112,6 +112,98 @@ export const usersRepository = {
     );
   },
 
+  /** Login lookup. The only place a password hash is read, and it never leaves the auth service. */
+  async findCredentials(
+    q: Queryable,
+    normalizedEmail: string,
+  ): Promise<{
+    id: string;
+    passwordHash: string;
+    status: AccountStatus;
+    displayName: string;
+    roles: Role[];
+  } | null> {
+    const { rows } = await q.query<{
+      id: string;
+      password_hash: string;
+      status: AccountStatus;
+      display_name: string;
+      roles: Role[];
+    }>(
+      `SELECT u.id, u.password_hash, u.status, coalesce(p.display_name, '') AS display_name,
+              array(SELECT r.role FROM user_roles r WHERE r.user_id = u.id ORDER BY r.role) AS roles
+       FROM users u LEFT JOIN profiles p ON p.user_id = u.id
+       WHERE lower(u.email) = lower($1)`,
+      [normalizedEmail],
+    );
+    const r = rows[0];
+    return r
+      ? {
+          id: r.id,
+          passwordHash: r.password_hash,
+          status: r.status,
+          displayName: r.display_name,
+          roles: r.roles,
+        }
+      : null;
+  },
+
+  /** The caller's own account for `GET /users/me`. */
+  async findMe(q: Queryable, userId: string) {
+    const { rows } = await q.query<{
+      id: string;
+      email: string;
+      status: AccountStatus;
+      created_at: Date;
+      display_name: string;
+      faculty: string | null;
+      avatar_ref: string | null;
+      contact_preference: string;
+      preferred_mode: string;
+      roles: Role[];
+    }>(
+      `SELECT u.id, u.email, u.status, u.created_at, p.display_name, p.faculty, p.avatar_ref,
+              p.contact_preference, p.preferred_mode,
+              array(SELECT r.role FROM user_roles r WHERE r.user_id = u.id ORDER BY r.role) AS roles
+       FROM users u JOIN profiles p ON p.user_id = u.id
+       WHERE u.id = $1`,
+      [userId],
+    );
+    return rows[0] ?? null;
+  },
+
+  /** Applies only the fields present. Column names come from a fixed map, never from input. */
+  async updateProfile(
+    q: Queryable,
+    userId: string,
+    changes: Partial<{
+      displayName: string;
+      faculty: string | null;
+      avatarRef: string | null;
+      contactPreference: string;
+      preferredMode: string;
+    }>,
+  ): Promise<void> {
+    const columns = {
+      displayName: 'display_name',
+      faculty: 'faculty',
+      avatarRef: 'avatar_ref',
+      contactPreference: 'contact_preference',
+      preferredMode: 'preferred_mode',
+    } as const;
+    const sets: string[] = [];
+    const params: unknown[] = [userId];
+    for (const [key, column] of Object.entries(columns)) {
+      const value = changes[key as keyof typeof columns];
+      if (value !== undefined) {
+        params.push(value);
+        sets.push(`${column} = $${params.length}`);
+      }
+    }
+    if (sets.length === 0) return;
+    await q.query(`UPDATE profiles SET ${sets.join(', ')} WHERE user_id = $1`, params);
+  },
+
   /** Deliberately selects only what the least-data lookup may return — never a hash or token. */
   async findIdentity(q: Queryable, userId: string): Promise<IdentityRow | null> {
     const { rows } = await q.query<{ status: AccountStatus; display_name: string; roles: Role[] }>(

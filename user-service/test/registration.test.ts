@@ -15,7 +15,7 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   await t.db.exec(
-    'TRUNCATE outbox_events, activation_tokens, profiles, user_roles, users RESTART IDENTITY CASCADE',
+    'TRUNCATE outbox_events, activation_tokens, refresh_sessions, profiles, user_roles, users RESTART IDENTITY CASCADE',
   );
 });
 

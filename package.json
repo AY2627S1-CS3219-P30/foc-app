@@ -8,6 +8,7 @@
   "workspaces": [
     "platform",
     "user-service",
+    "auth-client",
     "supplier-service",
     "order-service",
     "credit-service"
