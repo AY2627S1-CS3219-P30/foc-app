@@ -43,6 +43,8 @@ export const userListQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),
 });
 
+export const introspectQuerySchema = z.strictObject({ sid: z.uuid(), sub: z.uuid() });
+
 export const auditQuerySchema = z.object({
   page,
   pageSize,

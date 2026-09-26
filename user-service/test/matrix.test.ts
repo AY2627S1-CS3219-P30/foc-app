@@ -75,6 +75,7 @@ const ENDPOINTS: Endpoint[] = [
 const INTERNAL = [
   (id: string) => `/internal/users/${id}`,
   (id: string) => `/internal/users/${id}/permissions`,
+  (id: string) => `/internal/introspect?sid=${id}&sub=${id}`,
 ];
 
 /** Routes that are intentionally public, or that authenticate by their own credential (cookie, service key). */
@@ -198,7 +199,7 @@ describe('actor–resource–action matrix', () => {
     const normalise = (p: string) => p.replace(/:[A-Za-z]+/g, ':id');
     const covered = new Set([
       ...ENDPOINTS.map((e) => `${e.method.toUpperCase()} ${e.path({ target: ':id' })}`),
-      ...INTERNAL.map((p) => `GET ${p(':id')}`),
+      ...INTERNAL.map((p) => `GET ${p(':id').split('?')[0]}`),
       ...PUBLIC,
     ]);
     const uncovered = routes.filter((r) => !covered.has(normalise(r)));
