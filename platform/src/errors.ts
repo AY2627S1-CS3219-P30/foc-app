@@ -21,6 +21,23 @@ export interface ErrorEnvelope {
   };
 }
 
+/**
+ * An HTTP error that carries its own stable machine code and structured
+ * details, for failures a client must tell apart beyond the status alone
+ * (`EMAIL_ALREADY_REGISTERED` vs a generic 409). Additive: exceptions that do
+ * not use it still get the status-derived code below.
+ */
+export class ApiException extends HttpException {
+  constructor(
+    status: number,
+    readonly code: string,
+    message: string,
+    readonly details?: unknown,
+  ) {
+    super({ message, code }, status);
+  }
+}
+
 /** Maps an HTTP status to the stable machine-readable code clients switch on. */
 function codeFor(status: number): string {
   switch (status) {
@@ -61,6 +78,7 @@ export class ErrorEnvelopeFilter implements ExceptionFilter {
 
     let message = 'The request could not be completed.';
     let details: unknown;
+    let code = codeFor(status);
 
     if (exception instanceof HttpException) {
       const body = exception.getResponse();
@@ -74,13 +92,17 @@ export class ErrorEnvelopeFilter implements ExceptionFilter {
           details = record.message;
         }
       }
+      if (exception instanceof ApiException) {
+        code = exception.code;
+        details = exception.details;
+      }
     } else {
       // Never surface an internal error's text to a caller; log it instead.
       this.logger.error({ correlationId, err: exception }, 'Unhandled exception');
     }
 
     const envelope: ErrorEnvelope = {
-      error: { code: codeFor(status), message, correlationId, ...(details ? { details } : {}) },
+      error: { code, message, correlationId, ...(details ? { details } : {}) },
     };
 
     res.status(status).json(envelope);

@@ -75,7 +75,7 @@ transaction that first checks the remaining admin count under `SELECT … FOR UP
 | ------------- | ----------- | ----------------------------------------------------------- |
 | `id`          | uuid PK     |                                                             |
 | `user_id`     | uuid FK     |                                                             |
-| `token_hash`  | bytea UNIQUE | SHA-256 of a 256-bit random token; the raw token exists only in the email |
+| `token_hash`  | text UNIQUE | Hex SHA-256 of a 256-bit random token; the raw token exists only in the email |
 | `expires_at`  | timestamptz | e.g. 24 h                                                   |
 | `consumed_at` | timestamptz NULL | Set in the same transaction that activates the user   |
 
@@ -85,7 +85,7 @@ transaction that first checks the remaining admin count under `SELECT … FOR UP
 | `id`          | uuid PK     | Also the token's session id (`sid` claim in the access token)          |
 | `family_id`   | uuid        | Shared by every token descended from one login                         |
 | `user_id`     | uuid FK     | Index on (`user_id`)                                                   |
-| `token_hash`  | bytea UNIQUE | SHA-256 of the opaque refresh token                                   |
+| `token_hash`  | text UNIQUE | Hex SHA-256 of the opaque refresh token                                |
 | `issued_at`, `expires_at` | timestamptz | `expires_at` = issue + 7 days                          |
 | `rotated_at`  | timestamptz NULL | Set when this token is exchanged for a new one                    |
 | `revoked_at`  | timestamptz NULL | Logout, suspension, or family kill                                |
@@ -107,8 +107,19 @@ transaction that first checks the remaining admin count under `SELECT … FOR UP
 Append-only is enforced twice: the service's DB role has `INSERT, SELECT` only (no `UPDATE`/`DELETE`),
 and a trigger raises on any `UPDATE` or `DELETE`. No API edits or deletes an audit row.
 
-Events (`UserActivated`, `UserSuspended`, `UserReactivated`) are written to the transactional outbox owned by
-EVT-02; the outbox table is not defined here.
+### `outbox_events`
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | uuid PK | |
+| `event_type` | text | `UserActivated`, later `UserSuspended` / `UserReactivated` |
+| `aggregate_id` | uuid | the user |
+| `payload` | jsonb | |
+| `correlation_id` | text | |
+| `occurred_at` | timestamptz | |
+| `published_at` | timestamptz NULL | set by the publisher once the broker has confirmed |
+
+Events are inserted in the same transaction as the change that caused them, so an activation can never
+commit without its event. EVT-02 (Jonus) owns the publisher that drains this table and may reshape it.
 
 ## 3. How credentials are stored (D2 §2)
 

@@ -5,7 +5,7 @@ import {
   type MiddlewareConsumer,
   type NestModule,
 } from '@nestjs/common';
-import type { Logger as PinoLogger } from 'pino';
+import type { DestinationStream, Logger as PinoLogger } from 'pino';
 import { HealthController, SERVICE_INFO, type ServiceInfo } from './health.controller.js';
 import { createLogger, requestLogger } from './logging.js';
 
@@ -15,6 +15,8 @@ export interface PlatformModuleOptions {
   serviceName: string;
   version: string;
   logLevel: string;
+  /** Where log lines go. Defaults to stdout; a test passes a stream to inspect them. */
+  logDestination?: DestinationStream;
 }
 
 /**
@@ -28,7 +30,7 @@ export class PlatformModule implements NestModule {
 
   static forRoot(options: PlatformModuleOptions): DynamicModule {
     const info: ServiceInfo = { name: options.serviceName, version: options.version };
-    const logger = createLogger(options.serviceName, options.logLevel);
+    const logger = createLogger(options.serviceName, options.logLevel, options.logDestination);
     return {
       module: PlatformModule,
       controllers: [HealthController],
