@@ -133,6 +133,25 @@ else
   pass "user_service is denied another service's database"
 fi
 
+# ---- the broker topology exists ---------------------------------------------
+# Retry exchanges are namespaced per service, so two services can tune their
+# own backoff without colliding on a queue's fixed TTL.
+for ex in foc.events foc.events.dlx foc.credit-service.retry.1 foc.user-service.retry.1; do
+  # `docker compose exec` leaves carriage returns behind, which defeat grep -x.
+  if docker compose exec -T rabbitmq rabbitmqctl -q list_exchanges name 2>/dev/null |
+    tr -d '\r' | grep -qx "$ex"; then
+    pass "exchange $ex declared"
+  else
+    fail "exchange $ex missing"
+  fi
+done
+if docker compose exec -T rabbitmq rabbitmqctl -q list_queues name 2>/dev/null |
+  tr -d '\r' | grep -qx 'foc.credit.wallet-provisioning.dlq'; then
+  pass "wallet provisioning queue has a dead-letter queue"
+else
+  fail "wallet provisioning dead-letter queue missing"
+fi
+
 # ---- the web app serves ------------------------------------------------------
 code=$(curl -fsS -o /dev/null -w '%{http_code}' "http://localhost:${WEB_PORT}/" 2>/dev/null || echo 000)
 [[ "$code" == "200" ]] && pass "web app responds 200" || fail "web app returned $code"

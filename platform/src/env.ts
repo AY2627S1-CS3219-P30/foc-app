@@ -22,6 +22,12 @@ export const baseEnvSchema = z.object({
    * credentials once USR-02 lands (US-NFR1.1.2).
    */
   CORS_ORIGINS: z.string().min(1).default('http://localhost:3000'),
+  /**
+   * Broker connection string. Optional: a service that publishes or consumes
+   * nothing yet still boots without it, so this ticket does not break the
+   * services that have no workflow of their own until Sprint 2.
+   */
+  RABBITMQ_URL: z.string().min(1).optional(),
 });
 
 export type BaseEnv = z.infer<typeof baseEnvSchema>;
