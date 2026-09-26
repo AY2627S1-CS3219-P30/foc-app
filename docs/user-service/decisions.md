@@ -1,6 +1,6 @@
 # User Service — Decision Log and Trade-offs
 
-A record of what was decided while building the User Service (contract, USR-01, USR-02), why, what
+A record of what was decided while building the User Service (contract, USR-01, USR-02, USR-03, USR-06), why, what
 was given up, and what is still open. It exists so that in the D2 "why?" questions, and in the final
 presentation, every answer is one someone already thought through — including the parts that went
 wrong.
@@ -49,7 +49,7 @@ in CI. The service itself uses `pg` against the Compose Postgres 17.
 
 ## 2. Roles and authorization
 
-### R1. Two roles, `STUDENT` and `ADMIN`; requester and courier are capabilities — ✅ (design) / 📝 (RBAC enforcement, USR-03)
+### R1. Two roles, `STUDENT` and `ADMIN`; requester and courier are capabilities — ✅
 Every active student may both request and fulfil errands.
 - **Why:** one person alternates between asking and delivering. Making them roles would force a role
   change or a second account for a routine action, and a permission check on something with no
@@ -64,7 +64,7 @@ It is UX only and is never read by an authorization decision.
   navigation on first load.
 - **Open:** confirm with Patrick that he wants it on the profile.
 
-### R3. Admin lifecycle rules — 📝 (documented in roles.md; implemented in USR-03)
+### R3. Admin lifecycle rules — ✅ (designed in roles.md, built and verified in USR-03)
 - Admins are **seeded** from configuration, never self-registered; there is no endpoint that creates the first admin.
 - Any admin may appoint an admin; **only a seeded admin may downgrade** an admin (US-FR3.1.3.1).
 - **No admin may demote or suspend themselves**; the last admin can never be removed (row-locked check).
@@ -266,6 +266,11 @@ Recorded because they are the honest answer to "what went wrong?" and each has a
 | 5 | The new registration rate limit made the test suite fail (one IP, dozens of registrations). | Test run. | Test app defaults to generous limiters; dedicated tests use strict ones. |
 | 6 | The docs said `citext` and port `8081`; the merged scaffold uses plain `text` and port `3001`. | Reading the merged scaffold. | Docs and contract corrected. |
 | 7 | The docs claimed suspension revokes refresh sessions. Nothing calls that yet. | Advisor review. | Docs now say USR-03 wires it; the guard already blocks a suspended user on the next request. |
+| 9 | An oh-my-claudecode state file (`user-service/.omc/…`) was committed into #177 by a broad `git add`. | `git status` after a test run showed it as modified. | Untracked it, and gitignored `.omc/`. It only held a throttle timestamp; it stays in #177's history. |
+| 10 | The roles doc said seeded admins "activate and set a password through the normal flow". Nothing like that was built. | Writing the seed code. | Doc rewritten to what exists, including the no-change-password limitation. |
+| 11 | My first mutation test of the self-demotion rule "passed" — the mutation never applied because Prettier had reformatted the line. | The mutation script did not print a failure and the output showed a clean 153. | Re-ran against the real text; the test then failed as it should. Lesson: a mutation that changes nothing proves nothing. |
+| 12 | My first race check said "exactly one demotion wins" both with and without the lock, which made the lock look pointless. | Suspicion that a mutation changed nothing. | The metric counted only successes, so a Postgres deadlock looked the same as a clean refusal. Breaking losers down by reason showed the lock converts 39/40 deadlocks into clean 403s (M2). |
+| 13 | My first mutation of "roles read from a client header" changed a global nobody sets, so it could never fail — a vacuous "pass". | Reading the mutation list critically: nine of ten failed, one did not. | Redone so an `x-role: ADMIN` header really grants admin; the test then failed as it should. Same lesson as #11. |
 | 8 | The `ON CONFLICT` clause could have been a bare `DO NOTHING`, hiding any constraint failure. | Advisor question, then checked directly. | Verified the inference is real; a test pins that a primary-key collision still errors. |
 
 ---
@@ -278,13 +283,147 @@ Recorded because they are the honest answer to "what went wrong?" and each has a
 - ❓ Everyone: how do other services get and cache the JWKS, and who owns key rotation?
 
 **Deferred, with an owner**
-- USR-03 — admin endpoints, suspension revoking sessions, the audit table, seeded admins, profile edits.
+- ~~USR-03~~ — built: admin endpoints, suspension revoking sessions, audit table, seeded admins, profile edits (see §9).
 - USR-05 — single-flight refresh across tabs.
-- USR-06 — shared middleware must check session state, not just the JWT signature.
+- ~~USR-06~~ — built (see §10). Consuming services must still add the dependency, the two env vars and the Dockerfile lines.
 - PLT-06 — remove the dev default `INTERNAL_SERVICE_KEYS`.
 - EVT-02 — drain `outbox_events`.
 - Gateway work — configure `trust proxy` so per-IP limits mean per client.
 
 **Not yet automated**
-- The real-Postgres concurrency checks (O4) were run by hand.
+- The real-Postgres concurrency checks (O4, and the demotion race in M2) were run by hand.
 - The full `docker compose up` (all services and web-app) has not been run; only Postgres and the User Service.
+
+---
+
+## 9. Administration and profile (USR-03)
+
+### M1. Admin authority is read from the database on every request — ✅
+`AdminGuard` looks up the caller's roles and status live. Nothing in the token, a header, or the body is consulted.
+- **Consequence:** a demoted admin loses access on their very next request, with the same token. A test pins this.
+- **Trade-off:** one extra indexed read per admin request.
+
+### M2. Concurrency: lock the admin rows first, then the target, then re-check the actor — ✅
+Anything that could reduce the number of admins first locks every `ADMIN` role row, so simultaneous
+demotions queue. After the lock the actor's own authority is checked *again*: a demotion that landed a
+moment earlier must not let its victim demote someone else.
+- **Verified on real Postgres, with real parallel connections** (service method called directly, so the HTTP guard cannot help): 40 rounds of two seeded admins demoting each other at once → never both, never zero admins, and **all 40 losers received a clean `FORBIDDEN`** from the post-lock re-check.
+- **The lock is doing real work.** With the `FOR UPDATE` removed, 39 of 40 losers instead died with a Postgres **deadlock (`40P01`)** — the invariant still held, but only because the database's deadlock detector stepped in via the audit table's foreign-key locks, and the caller would have seen a `500`. The lock turns an accident into a deliberate refusal.
+- **Limit:** PGlite is single-connection, so this is not an automated test; it was run by hand (script not committed).
+- **Why the order matters:** a fixed lock order (admin rows, then the target) is what prevents two such transactions from deadlocking.
+
+### M3. `LAST_ADMIN` is a safety net, and it is structurally unreachable — 🟡
+A demoter must themselves be a *different* admin, so at least two admins always exist at that moment.
+The real guarantees are (a) self-demotion is forbidden, and (b) demotions are serialised (M2). The
+`adminIds.length <= 1` check is kept as an explicit invariant, but no test can reach the branch — the
+tests prove the invariant (mutual demotion, self-demotion) rather than that line.
+- **Trade-off:** a branch that reads as dead code. Kept because it fails loudly if a future change (a bulk
+  endpoint, a new role source) ever breaks the reasoning above.
+- Suspended admins are counted as admins for this purpose.
+
+### M4. Only an `ACTIVE` account can be suspended — ✅
+So reactivation always restores a state the account already had, and can never skip email activation.
+- **Trade-off:** an admin cannot pre-emptively block an account that has registered but not yet activated;
+  it can still activate later. Acceptable for v1; it can be suspended straight after.
+
+### M5. Suspension is one transaction: status, all refresh sessions, audit row, event — ✅
+The audit row's id is the `reasonRef` carried in `UserSuspended`, so a consumer can trace an event back to who did it and why.
+Suspending an already-suspended account is idempotent and adds no second audit row or event.
+
+### M6. Seeded admins come from configuration with a bootstrap password — 🟡
+See roles.md. **Never promotes** an existing account; **fails loudly** on bad config; idempotent; emits `UserActivated`.
+- **Trade-offs / limits:** no change-password endpoint exists, so the bootstrap password is the admin's password;
+  and `compose.yaml` carries a dev-only default (`admin@u.nus.edu`) — another committed credential for PLT-06 to remove.
+- **Rejected:** a first-registered-user-becomes-admin rule (racy, and a takeover risk), and a setup endpoint (an unauthenticated privilege grant).
+
+### M7. Profile edits use a closed schema and are all-or-nothing — ✅
+`PATCH /users/me` accepts five fields. `id`, `email`, `roles`, `role`, `status` or any unknown key → `422 FIELD_NOT_EDITABLE`
+with **nothing changed** (not even the valid fields sent alongside). The target is always the token's subject; no route takes another user's id.
+- **Why reject rather than ignore:** silently dropping `role: "ADMIN"` would hide an attack and make the client think it worked.
+
+### M8. The audit trail is append-only by trigger *and* by revoked privilege — 🟡
+A `BEFORE UPDATE OR DELETE` trigger raises, and the service's own role has `UPDATE, DELETE, TRUNCATE` revoked. No API route writes it, and it is read-only over HTTP.
+- **Honest limit:** the service role *owns* the table, so it could re-grant itself or drop the trigger. True
+  immutability needs a separate owner role that the service does not hold (PLT-06). Today it stops bugs and
+  API abuse, not a compromised service.
+
+### M9. Non-admins get `403`, not `404`, for a user id that may not exist — ✅
+An admin route is refused before the id is looked up, so a student learns nothing about which accounts exist. A test pins it.
+
+### M10. Deny-by-default is enforced by tests, not just by convention — ✅
+- An actor–resource–action matrix runs every protected endpoint as four actors (unauthenticated, active student, suspended student, administrator) and fails on any unauthorised success.
+- A **route-coverage meta-test** enumerates the live routes and fails if any is neither in the matrix nor on an explicit public list — so a new endpoint cannot ship without a matrix row.
+- I deliberately broke seven rules (drop the admin guard, allow any admin to downgrade, allow self-demotion, skip session revocation, loosen the profile schema, remove the audit trigger, drop the seeded-only suspend rule) and confirmed a test fails for each.
+- **Limit:** mutation testing was done by hand, once; it is not a CI job.
+
+### M11. List endpoints use offset pagination and prefix search — ✅
+`page`/`pageSize` (default 20, max 101 rejected), status/role filters, and a case-insensitive **prefix** match on email or display name with `LIKE` wildcards escaped (searching `%` matches the text, not everything).
+- **Trade-off:** offset pagination drifts if rows change between pages and slows on deep pages — fine at ~10⁴ users.
+
+---
+
+## 10. Shared auth middleware (USR-06)
+
+### K1. A separate workspace, `auth-client/`, not part of `platform` — ✅
+`platform` is imported by *every* service for logging, health and the error envelope. Auth is opt-in and pulls in `jose` and a
+network client; the User Service (the issuer) has no use for it. A separate package keeps `platform` small and lets each service
+opt in.
+- **Trade-off:** one more workspace, and every consuming service's Dockerfile must copy it (documented in the README).
+
+### K2. Verify the signature locally, then ask the User Service about the session — ✅
+Two steps: (1) check signature, issuer and expiry against the cached public JWKS — no network, no secret; (2) `GET /internal/introspect` for session
+liveness, roles and status.
+- **Why not trust the JWT alone:** it would keep a suspended or logged-out user working for up to 15 minutes (A1, A6).
+- **Why not call the User Service to verify everything:** it would put a network round-trip on every request's signature check for no gain.
+
+### K3. One new endpoint, `GET /internal/introspect?sid&sub` — ✅ (contract change)
+"Revoked" must be a distinct failure, and only the User Service knows whether a session ended. The existing lookups answer *who* a user is, not *whether a
+session is live*, so a second call would have been needed. One call returns both.
+- **Privacy:** an ended, unknown or mismatched session returns just `{active:false}` — a caller cannot use it to learn whether a user exists.
+- **Trade-off:** the User Service now has a fourth internal endpoint, and it is on the critical path of every other service (K4).
+
+### K4. A bounded, documented staleness window: 5 s default — ✅
+Identity answers are cached per session for at most `cacheTtlMs` (default 5 000 ms; `0` = every request).
+- **What it costs:** for up to 5 s after a suspension, logout or role change, another service may still honour the old token. That is inside
+  USR-07's 10 s requirement, and it is tested at the edges (4 999 ms stale, 5 001 ms enforced).
+- **Also:** concurrent requests for one session share one call (single-flight); an "ended" answer is cached too; **failures are never cached**, so a recovered
+  User Service is used at once; the cache is bounded (oldest evicted).
+- USR-07 will add event-driven invalidation to shrink the window for suspensions.
+
+### K5. Fail closed, and as 503 rather than 401 — ✅
+Timeout, network error, non-200, or a malformed reply → `IDENTITY_UNAVAILABLE`. A wrong service key or unreachable JWKS does the same.
+- **Why 503:** a healthy user with a good token must not be told "your token is bad" during a User Service blip; the client should retry, not sign out.
+- **Trade-off:** a User Service outage makes every protected route in every service unavailable. That is the correct direction for an auth failure, but it makes
+  the User Service a single point of failure for the platform — worth stating in the D2 discussion.
+- The introspection reply's *shape* is validated before use; a body that is not an introspection at all is refused, not trusted.
+- **New statuses and roles are an authorization outcome, not an outage.** Additive change is expected in v1, so an unknown status is denied as
+  `ACCOUNT_NOT_ACTIVATED` (403) and an unknown role is ignored. (First draft rejected them as `503`, which would have made every consumer report an outage
+  the day the User Service added a status — caught in review.)
+
+### K6. Nine distinct, typed failure codes — ✅
+`TOKEN_MISSING`, `TOKEN_MALFORMED`, `TOKEN_INVALID`, `TOKEN_EXPIRED`, `TOKEN_REVOKED`, `ACCOUNT_SUSPENDED`, `ACCOUNT_NOT_ACTIVATED`, `FORBIDDEN`, `IDENTITY_UNAVAILABLE`.
+"Malformed" is decided structurally *before* any cryptography, so it can never be confused with a bad signature. A test asserts all six of the
+token-side outcomes are pairwise distinct.
+- **Why `TOKEN_EXPIRED` is separate:** it is the one failure where the client should silently refresh and retry (A3), so it must be recognisable.
+
+### K7. The User Service keeps its own guard — ❓ (accepted inconsistency)
+The User Service verifies tokens with `JwtService` and checks the session in its own database, using the error code `UNAUTHENTICATED`; consuming services use
+this package and the `TOKEN_*` codes. So there are **two verification paths and two vocabularies**.
+- **Why:** the issuer holds the private key and the database — a direct check is stronger and needs no network hop, and the ticket's "no service needs its own
+  token-parsing code" is about the *consuming* services.
+- **Trade-off:** a client sees `UNAUTHENTICATED` from the User Service but `TOKEN_EXPIRED` from Supplier for the same condition.
+  **Open:** map the User Service's guard onto the same codes so the web app has one vocabulary (small change, but it alters USR-02/03's contract, so it needs a reviewer's say).
+
+### K8. Not yet wired into Supplier, Order or Credit — 🟡
+Those are other people's services and tickets (SUP-01 needs it). The package is proven three ways: a fake User Service speaking the real wire protocol, a Supplier-style Nest
+controller, and the **real User Service over real HTTP**. Wiring it into Supplier is four steps in `auth-client/README.md`.
+- **Effect on D2 point 4:** until SUP-01 lands, the Supplier integration demo is the sample controller in `auth-client/test`, not Supplier itself.
+
+### K9. The integration test imports the User Service's test helpers by relative path — 🟡
+It lets `auth-client` boot the real service in-process without publishing or duplicating it.
+- **Trade-off:** `auth-client`'s tests are coupled to `user-service`'s test layout, and the vitest env for `auth-client` carries the User Service's config variables.
+  Acceptable for a test; not something production code should do.
+
+### K10. Verification — ✅
+48 tests; ten deliberate breakages, each caught (revoked treated as active, suspended allowed, admin guard open, expired reported as invalid, issuer unchecked,
+cache that never expires, no single-flight, a failure treated as "session ended", an `x-role` header granting admin, key-fetch failure reported as a bad token).

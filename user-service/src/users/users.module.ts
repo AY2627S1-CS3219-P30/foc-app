@@ -1,5 +1,8 @@
 import { Module, type DynamicModule } from '@nestjs/common';
+import { AdminController } from '../admin/admin.controller.js';
+import { AdminService } from '../admin/admin.service.js';
 import { AccessTokenGuard } from '../auth/access-token.guard.js';
+import { AdminGuard } from '../auth/admin.guard.js';
 import { JwksController } from '../auth/jwks.controller.js';
 import { JWT, JwtService } from '../auth/jwt.service.js';
 import { defaultRateLimiters, RATE_LIMITERS } from '../auth/rate-limiter.js';
@@ -35,12 +38,15 @@ export class UsersModule {
         AuthController,
         InternalController,
         MeController,
+        AdminController,
         JwksController,
         DevMailboxController,
       ],
       providers: [
         UsersService,
         SessionsService,
+        AdminService,
+        AdminGuard,
         ServiceKeyGuard,
         AccessTokenGuard,
         {

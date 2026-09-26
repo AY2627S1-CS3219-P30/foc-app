@@ -32,6 +32,16 @@ export const env = loadEnv({
    * no signing key ever needs to be committed.
    */
   JWT_PRIVATE_KEY: z.string().min(1).optional(),
+  /**
+   * Bootstrap administrators, created on first boot. Both must be set together.
+   * The password is a bootstrap secret: put it in the secret store in production.
+   */
+  ADMIN_SEED_EMAILS: z
+    .string()
+    .transform(csv)
+    .pipe(z.array(z.string().min(3)))
+    .optional(),
+  ADMIN_SEED_PASSWORD: z.string().min(12).max(128).optional(),
   ACTIVATION_TOKEN_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
 });
 

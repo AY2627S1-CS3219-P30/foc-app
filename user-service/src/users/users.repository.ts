@@ -172,6 +172,38 @@ export const usersRepository = {
     return rows[0] ?? null;
   },
 
+  /** Applies only the fields present. Column names come from a fixed map, never from input. */
+  async updateProfile(
+    q: Queryable,
+    userId: string,
+    changes: Partial<{
+      displayName: string;
+      faculty: string | null;
+      avatarRef: string | null;
+      contactPreference: string;
+      preferredMode: string;
+    }>,
+  ): Promise<void> {
+    const columns = {
+      displayName: 'display_name',
+      faculty: 'faculty',
+      avatarRef: 'avatar_ref',
+      contactPreference: 'contact_preference',
+      preferredMode: 'preferred_mode',
+    } as const;
+    const sets: string[] = [];
+    const params: unknown[] = [userId];
+    for (const [key, column] of Object.entries(columns)) {
+      const value = changes[key as keyof typeof columns];
+      if (value !== undefined) {
+        params.push(value);
+        sets.push(`${column} = $${params.length}`);
+      }
+    }
+    if (sets.length === 0) return;
+    await q.query(`UPDATE profiles SET ${sets.join(', ')} WHERE user_id = $1`, params);
+  },
+
   /** Deliberately selects only what the least-data lookup may return — never a hash or token. */
   async findIdentity(q: Queryable, userId: string): Promise<IdentityRow | null> {
     const { rows } = await q.query<{ status: AccountStatus; display_name: string; roles: Role[] }>(

@@ -20,3 +20,6 @@ Thumbs.db
 # Test output
 coverage/
 *.tsbuildinfo
+
+# oh-my-claudecode plugin state (local, per-session)
+.omc/

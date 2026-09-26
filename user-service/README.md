@@ -139,6 +139,24 @@ guard checks the session in the database on every request. Other services will g
 the shared middleware (USR-06), which must check session state rather than trust the JWT alone. Rate
 limiting is in memory, so it is per instance. Refresh lifetime is sliding: each rotation issues a fresh 7 days.
 
+### Roles, profile and administration (USR-03)
+
+| Endpoint                                        | Who                                                                                                       |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `PATCH /users/me`                               | The caller. Five editable fields; `id`, `email`, `roles`, `status` are refused (`422 FIELD_NOT_EDITABLE`) |
+| `GET /admin/users`, `GET /admin/users/:id`      | ADMIN                                                                                                     |
+| `POST /admin/users/:id/suspend`, `…/reactivate` | ADMIN. Reason required; audit row + event; suspension revokes all sessions                                |
+| `PUT /admin/users/:id/role`                     | ADMIN. Appoint or downgrade; only a seeded admin may downgrade; never yourself; never the last admin      |
+| `GET /admin/audit-records`                      | ADMIN. Read-only, append-only                                                                             |
+
+**First admin.** Set `ADMIN_SEED_EMAILS` and `ADMIN_SEED_PASSWORD`; the accounts are created at boot. An
+address that already has an account is skipped, never promoted. In Compose the dev default is
+`admin@u.nus.edu` / `dev-only-admin-password-change-me` — change it for anything beyond a laptop.
+
+Authorisation reads the caller's role from the database on every request, never from the token or a header.
+`test/matrix.test.ts` runs every protected endpoint as four actors and fails if a route is added without a
+row. Role design: `docs/user-service/roles.md`.
+
 ### Next tickets
 
-USR-03 (RBAC, profile edits, admin suspend/reactivate/roles), USR-06 (shared middleware for other services)
+USR-06 (shared middleware for other services), USR-07 (cross-service status enforcement), USR-05 (account screens)

@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { ApiException } from '@foc/platform';
 import { hashPassword } from '../auth/passwords.js';
+import { sessionsRepository as sessions } from '../auth/sessions.repository.js';
 import { newOpaqueToken, sha256Hex } from '../auth/tokens.js';
 import { DB, type Db } from '../db/db.js';
 import { MAILER, type Mailer } from '../mail/mailer.js';
@@ -23,6 +24,16 @@ export interface IdentityLookup {
   roles?: Role[];
   displayName?: string;
 }
+
+export type IntrospectionResult =
+  | { active: false }
+  | {
+      active: true;
+      userId: string;
+      status: AccountStatus;
+      roles: Role[];
+      displayName: string;
+    };
 
 export interface PermissionsLookup {
   userId: string;
@@ -138,6 +149,27 @@ export class UsersService {
     const row = await repo.findIdentity(this.db, userId);
     if (!row) return { userId, exists: false };
     return { userId, exists: true, ...row };
+  }
+
+  /**
+   * Introspection for other services' auth middleware: is this session still live, and who is
+   * behind it? One call answers both, so a service does not need a second lookup per request.
+   * `active` is false — with nothing else revealed — when the session is revoked, expired,
+   * unknown, or does not belong to `userId`. A live session for a suspended or pending
+   * account is still `active`, with its `status`, so the caller can answer 403 rather than 401.
+   */
+  async introspect(sessionId: string, userId: string): Promise<IntrospectionResult> {
+    const session = await sessions.liveness(this.db, sessionId, userId);
+    if (!session?.live) return { active: false };
+    const identity = await repo.findIdentity(this.db, userId);
+    if (!identity) return { active: false };
+    return {
+      active: true,
+      userId,
+      status: identity.status,
+      roles: identity.roles,
+      displayName: identity.displayName,
+    };
   }
 
   /** US-FR4.1.3 — a suspended or pending admin has no effective permissions. */

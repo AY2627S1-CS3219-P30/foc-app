@@ -127,9 +127,19 @@ paths:
               schema: { $ref: '#/components/schemas/ActivateResponse' }
               examples:
                 first:
-                  value: { userId: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30, status: ACTIVE, alreadyActivated: false }
+                  value:
+                    {
+                      userId: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30,
+                      status: ACTIVE,
+                      alreadyActivated: false,
+                    }
                 replay:
-                  value: { userId: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30, status: ACTIVE, alreadyActivated: true }
+                  value:
+                    {
+                      userId: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30,
+                      status: ACTIVE,
+                      alreadyActivated: true,
+                    }
         '404': { $ref: '#/components/responses/TokenInvalid' }
         '410': { $ref: '#/components/responses/TokenExpired' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
@@ -162,7 +172,13 @@ paths:
                 accessToken: eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiIwMTk4YTFjMi...
                 tokenType: Bearer
                 expiresIn: 900
-                user: { id: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30, displayName: Alex Tan, roles: [STUDENT], status: ACTIVE }
+                user:
+                  {
+                    id: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30,
+                    displayName: Alex Tan,
+                    roles: [STUDENT],
+                    status: ACTIVE,
+                  }
         '401': { $ref: '#/components/responses/InvalidCredentials' }
         '403': { $ref: '#/components/responses/AccountNotLoginable' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
@@ -332,7 +348,9 @@ paths:
       description: |
         Records an audit row, revokes all of the user's refresh sessions, and publishes `UserSuspended`.
         New sessions are denied immediately; dependent services see the change within 10 seconds.
-        An admin cannot suspend themselves. Only a seeded admin may suspend another admin.
+        Only an `ACTIVE` account can be suspended (`409 ACCOUNT_NOT_ACTIVE` otherwise). An admin cannot suspend
+        themselves (`409 SELF_SUSPENSION_FORBIDDEN`). Only a seeded admin may suspend another admin
+        (`403 ADMIN_ACTION_NOT_PERMITTED`).
       requestBody:
         required: true
         content:
@@ -358,7 +376,9 @@ paths:
       tags: [Admin]
       operationId: reactivateUser
       summary: Reactivate a suspended account
-      description: Audit row + `UserReactivated`. Idempotent if already active.
+      description: |
+        Audit row + `UserReactivated`. Idempotent if already active. An account that never activated
+        (`PENDING_ACTIVATION`) is refused with `409 ACCOUNT_NOT_ACTIVE`, so reactivation cannot skip activation.
       requestBody:
         required: true
         content:
@@ -373,6 +393,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/RoleConflict' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /admin/users/{userId}/role:
@@ -456,11 +477,80 @@ paths:
               schema: { $ref: '#/components/schemas/IdentityLookup' }
               examples:
                 active:
-                  value: { userId: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30, exists: true, status: ACTIVE, roles: [STUDENT], displayName: Alex Tan }
+                  value:
+                    {
+                      userId: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30,
+                      exists: true,
+                      status: ACTIVE,
+                      roles: [STUDENT],
+                      displayName: Alex Tan,
+                    }
                 missing:
                   value: { userId: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30, exists: false }
         '401': { $ref: '#/components/responses/ServiceUnauthenticated' }
         '503': { $ref: '#/components/responses/DependencyUnavailable' }
+
+  /internal/introspect:
+    get:
+      tags: [Internal]
+      operationId: introspectSession
+      summary: Session liveness plus identity, for the shared auth middleware
+      description: |
+        One call answers what an auth middleware needs after it has verified a token's signature:
+        is this session still live, and who is behind it? `sid` and `sub` are the token's claims.
+
+        `active: false` — with nothing else revealed — when the session is revoked, expired, unknown,
+        or does not belong to `sub`. A **live** session for a suspended or pending account is still
+        `active: true` with its `status`, so the caller can answer 403 rather than 401.
+
+        Consumers may cache the answer for at most 5 seconds (the documented staleness window) and must
+        **fail closed** (`503`) if this endpoint is unreachable. See `auth-client/README.md`.
+      security: [{ serviceKey: [] }]
+      parameters:
+        - name: sid
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: sub
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The session's state.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    required: [active]
+                    additionalProperties: false
+                    properties:
+                      active: { type: boolean, const: false }
+                  - type: object
+                    required: [active, userId, status, roles, displayName]
+                    additionalProperties: false
+                    properties:
+                      active: { type: boolean, const: true }
+                      userId: { type: string, format: uuid }
+                      status: { $ref: '#/components/schemas/AccountStatus' }
+                      roles: { type: array, items: { $ref: '#/components/schemas/Role' } }
+                      displayName: { type: string }
+              examples:
+                live:
+                  {
+                    value:
+                      {
+                        active: true,
+                        userId: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30,
+                        status: ACTIVE,
+                        roles: [STUDENT],
+                        displayName: Alex Tan,
+                      },
+                  }
+                ended: { value: { active: false } }
+        '401': { $ref: '#/components/responses/ServiceUnauthenticated' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /internal/users/{userId}/permissions:
     parameters:
@@ -479,7 +569,14 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PermissionsLookup' }
-              example: { userId: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30, status: ACTIVE, isAdmin: false, canPlaceOrders: true, canAcceptOrders: true }
+              example:
+                {
+                  userId: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30,
+                  status: ACTIVE,
+                  isAdmin: false,
+                  canPlaceOrders: true,
+                  canAcceptOrders: true,
+                }
         '401': { $ref: '#/components/responses/ServiceUnauthenticated' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -708,13 +805,25 @@ components:
     EventEnvelope:
       type: object
       description: Common envelope proposed for FND-03 / EVT-01. Every event carries these fields.
-      required: [eventId, eventType, schemaVersion, aggregateId, occurredAt, producer, correlationId, causationId, payload]
+      required:
+        [
+          eventId,
+          eventType,
+          schemaVersion,
+          aggregateId,
+          occurredAt,
+          producer,
+          correlationId,
+          causationId,
+          payload,
+        ]
       properties:
         eventId: { type: string, format: uuid }
         eventType: { type: string }
         schemaVersion: { type: integer, minimum: 1 }
         aggregateId: { type: string, format: uuid }
-        aggregateVersion: { type: integer, description: Optional; present when the aggregate is versioned. }
+        aggregateVersion:
+          { type: integer, description: Optional; present when the aggregate is versioned. }
         occurredAt: { type: string, format: date-time }
         producer: { type: string, examples: [user-service] }
         correlationId: { type: string }
@@ -750,63 +859,203 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-          example: { error: { code: UNAUTHENTICATED, message: Authentication required., correlationId: 5c1f2a9e } }
+          example:
+            {
+              error:
+                {
+                  code: UNAUTHENTICATED,
+                  message: Authentication required.,
+                  correlationId: 5c1f2a9e,
+                },
+            }
     ServiceUnauthenticated:
       description: Missing or invalid `X-Service-Key`. A user access token is not accepted here.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-          example: { error: { code: SERVICE_UNAUTHENTICATED, message: Invalid service credential., correlationId: 5c1f2a9e } }
+          example:
+            {
+              error:
+                {
+                  code: SERVICE_UNAUTHENTICATED,
+                  message: Invalid service credential.,
+                  correlationId: 5c1f2a9e,
+                },
+            }
     Forbidden:
       description: Authenticated but not permitted (wrong role, suspended, or a role-management rule).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           examples:
-            notAdmin: { value: { error: { code: FORBIDDEN, message: Administrator role required., correlationId: 5c1f2a9e } } }
-            downgrade: { value: { error: { code: ADMIN_DOWNGRADE_NOT_PERMITTED, message: Only a seeded administrator can downgrade an administrator., correlationId: 5c1f2a9e } } }
+            notAdmin:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: FORBIDDEN,
+                        message: Administrator role required.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
+            downgrade:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: ADMIN_DOWNGRADE_NOT_PERMITTED,
+                        message: Only a seeded administrator can downgrade an administrator.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
+            suspendAdmin:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: ADMIN_ACTION_NOT_PERMITTED,
+                        message: Only a seeded administrator can suspend an administrator.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
     AccountNotActive:
       description: The account is not `ACTIVE`.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-          example: { error: { code: ACCOUNT_SUSPENDED, message: This account is suspended., correlationId: 5c1f2a9e } }
+          example:
+            {
+              error:
+                {
+                  code: ACCOUNT_SUSPENDED,
+                  message: This account is suspended.,
+                  correlationId: 5c1f2a9e,
+                },
+            }
     AccountNotLoginable:
       description: Valid credentials but the account is `PENDING_ACTIVATION` or `SUSPENDED`.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           examples:
-            pending: { value: { error: { code: ACCOUNT_NOT_ACTIVATED, message: Activate your account from the email we sent., correlationId: 5c1f2a9e } } }
-            suspended: { value: { error: { code: ACCOUNT_SUSPENDED, message: This account is suspended., correlationId: 5c1f2a9e } } }
+            pending:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: ACCOUNT_NOT_ACTIVATED,
+                        message: Activate your account from the email we sent.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
+            suspended:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: ACCOUNT_SUSPENDED,
+                        message: This account is suspended.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
     InvalidCredentials:
       description: Unknown email or wrong password (the same response for both).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-          example: { error: { code: INVALID_CREDENTIALS, message: Email or password is incorrect., correlationId: 5c1f2a9e } }
+          example:
+            {
+              error:
+                {
+                  code: INVALID_CREDENTIALS,
+                  message: Email or password is incorrect.,
+                  correlationId: 5c1f2a9e,
+                },
+            }
     RefreshRejected:
       description: Refresh token invalid, expired, revoked, or reused.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           examples:
-            invalid: { value: { error: { code: REFRESH_TOKEN_INVALID, message: Session expired. Log in again., correlationId: 5c1f2a9e } } }
-            reused: { value: { error: { code: REFRESH_TOKEN_REUSED, message: Session revoked. Log in again., correlationId: 5c1f2a9e } } }
+            invalid:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: REFRESH_TOKEN_INVALID,
+                        message: Session expired. Log in again.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
+            reused:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: REFRESH_TOKEN_REUSED,
+                        message: Session revoked. Log in again.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
     CsrfRejected:
       description: The request origin is not allowed, or the content type is not `application/json`.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-          example: { error: { code: CSRF_REJECTED, message: Request origin is not allowed., correlationId: 5c1f2a9e } }
+          example:
+            {
+              error:
+                {
+                  code: CSRF_REJECTED,
+                  message: Request origin is not allowed.,
+                  correlationId: 5c1f2a9e,
+                },
+            }
     RefreshForbidden:
       description: CSRF check failed, or the account is no longer `ACTIVE` (its session family is revoked).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           examples:
-            csrf: { value: { error: { code: CSRF_REJECTED, message: Request origin is not allowed., correlationId: 5c1f2a9e } } }
-            suspended: { value: { error: { code: ACCOUNT_SUSPENDED, message: This account is suspended., correlationId: 5c1f2a9e } } }
+            csrf:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: CSRF_REJECTED,
+                        message: Request origin is not allowed.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
+            suspended:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: ACCOUNT_SUSPENDED,
+                        message: This account is suspended.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
     NotFound:
       description: No such resource.
       content:
@@ -818,28 +1067,97 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-          example: { error: { code: EMAIL_ALREADY_REGISTERED, message: An account with this email already exists., correlationId: 5c1f2a9e } }
+          example:
+            {
+              error:
+                {
+                  code: EMAIL_ALREADY_REGISTERED,
+                  message: An account with this email already exists.,
+                  correlationId: 5c1f2a9e,
+                },
+            }
     RoleConflict:
       description: The change violates a role-management rule.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           examples:
-            last: { value: { error: { code: LAST_ADMIN, message: At least one administrator must remain., correlationId: 5c1f2a9e } } }
-            self: { value: { error: { code: SELF_DEMOTION_FORBIDDEN, message: You cannot remove your own administrator role., correlationId: 5c1f2a9e } } }
-            selfSuspend: { value: { error: { code: SELF_SUSPENSION_FORBIDDEN, message: You cannot suspend yourself., correlationId: 5c1f2a9e } } }
+            last:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: LAST_ADMIN,
+                        message: At least one administrator must remain.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
+            self:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: SELF_DEMOTION_FORBIDDEN,
+                        message: You cannot remove your own administrator role.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
+            selfSuspend:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: SELF_SUSPENSION_FORBIDDEN,
+                        message: You cannot suspend yourself.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
+            notActive:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: ACCOUNT_NOT_ACTIVE,
+                        message: Only an active account can be suspended.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
     TokenInvalid:
       description: Unknown activation token.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-          example: { error: { code: ACTIVATION_TOKEN_INVALID, message: This activation link is not valid., correlationId: 5c1f2a9e } }
+          example:
+            {
+              error:
+                {
+                  code: ACTIVATION_TOKEN_INVALID,
+                  message: This activation link is not valid.,
+                  correlationId: 5c1f2a9e,
+                },
+            }
     TokenExpired:
       description: Activation token has expired.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-          example: { error: { code: ACTIVATION_TOKEN_EXPIRED, message: This activation link has expired., correlationId: 5c1f2a9e } }
+          example:
+            {
+              error:
+                {
+                  code: ACTIVATION_TOKEN_EXPIRED,
+                  message: This activation link has expired.,
+                  correlationId: 5c1f2a9e,
+                },
+            }
     ValidationFailed:
       description: Request body or parameters failed validation, or a non-editable field was supplied.
       content:
@@ -853,7 +1171,11 @@ components:
                   message: One or more fields are invalid.
                   correlationId: 5c1f2a9e
                   details:
-                    - { field: email, code: EMAIL_DOMAIN_NOT_ALLOWED, message: Use your NUS email address. }
+                    - {
+                        field: email,
+                        code: EMAIL_DOMAIN_NOT_ALLOWED,
+                        message: Use your NUS email address.,
+                      }
             protectedField:
               value:
                 error:
@@ -861,7 +1183,11 @@ components:
                   message: One or more fields are invalid.
                   correlationId: 5c1f2a9e
                   details:
-                    - { field: roles, code: FIELD_NOT_EDITABLE, message: This field cannot be changed. }
+                    - {
+                        field: roles,
+                        code: FIELD_NOT_EDITABLE,
+                        message: This field cannot be changed.,
+                      }
     RateLimited:
       description: Too many attempts.
       headers:
@@ -870,10 +1196,26 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-          example: { error: { code: RATE_LIMITED, message: Too many attempts. Try again later., correlationId: 5c1f2a9e } }
+          example:
+            {
+              error:
+                {
+                  code: RATE_LIMITED,
+                  message: Too many attempts. Try again later.,
+                  correlationId: 5c1f2a9e,
+                },
+            }
     DependencyUnavailable:
       description: Database or another dependency is unavailable. Callers must fail closed.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
-          example: { error: { code: DEPENDENCY_UNAVAILABLE, message: Try again shortly., correlationId: 5c1f2a9e } }
+          example:
+            {
+              error:
+                {
+                  code: DEPENDENCY_UNAVAILABLE,
+                  message: Try again shortly.,
+                  correlationId: 5c1f2a9e,
+                },
+            }
