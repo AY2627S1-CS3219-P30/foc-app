@@ -1,10 +1,10 @@
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { DestinationStream } from 'pino';
-import { ErrorEnvelopeFilter, PlatformModule } from '@foc/platform';
+import { ErrorEnvelopeFilter, PlatformModule, runMigrations } from '@foc/platform';
 import { RATE_LIMITERS, RateLimiter, type AuthRateLimiters } from '../../src/auth/rate-limiter.js';
 import { DB, type Db } from '../../src/db/db.js';
-import { runMigrations } from '../../src/db/migrate.js';
+import { migrations } from '../../src/db/migrations.js';
 import { DevMailbox } from '../../src/mail/dev-mailbox.js';
 import { UsersModule } from '../../src/users/users.module.js';
 import { PgliteDb } from './pglite-db.js';
@@ -27,7 +27,7 @@ export async function createTestApp(
   } = {},
 ): Promise<TestApp> {
   const db = await PgliteDb.create();
-  await runMigrations(db);
+  await runMigrations(db, migrations);
 
   const moduleRef = await Test.createTestingModule({
     imports: [

@@ -1,4 +1,5 @@
 import { Module, type DynamicModule } from '@nestjs/common';
+import { PgDb } from '@foc/platform';
 import { AdminController } from '../admin/admin.controller.js';
 import { AdminService } from '../admin/admin.service.js';
 import { AccessTokenGuard } from '../auth/access-token.guard.js';
@@ -10,7 +11,6 @@ import { SessionsService } from '../auth/sessions.service.js';
 import { SERVICE_KEYS, ServiceKeyGuard } from '../auth/service-key.guard.js';
 import { env } from '../config.js';
 import { DB } from '../db/db.js';
-import { PgDb } from '../db/pg-db.js';
 import { DevMailbox, DevMailboxController } from '../mail/dev-mailbox.js';
 import { MAILER } from '../mail/mailer.js';
 import { AUTH_COOKIE_SETTINGS, AuthController } from './auth.controller.js';

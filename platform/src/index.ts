@@ -15,4 +15,5 @@ export {
 } from './health.controller.js';
 export { LOGGER, PlatformModule, type PlatformModuleOptions } from './platform.module.js';
 export { startService } from './bootstrap.js';
+export { PgDb, runMigrations, type Db, type Queryable, type Row, type Migration } from './db.js';
 export * from './events/index.js';

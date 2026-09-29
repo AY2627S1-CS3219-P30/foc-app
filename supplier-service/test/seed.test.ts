@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { runMigrations } from '../src/db/migrate.js';
+import { runMigrations } from '@foc/platform';
+import { migrations } from '../src/db/migrations.js';
 import { loadSeedSuppliers } from '../src/admin/seed-data.js';
 import { seedSuppliers } from '../src/admin/seed.js';
 import { suppliersRepository as repo } from '../src/suppliers/suppliers.repository.js';
@@ -14,7 +15,7 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
   db = await PgliteDb.create();
-  await runMigrations(db);
+  await runMigrations(db, migrations);
 });
 afterAll(async () => {
   await db?.close();

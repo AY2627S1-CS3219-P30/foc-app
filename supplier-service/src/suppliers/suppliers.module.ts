@@ -1,7 +1,7 @@
 import { Module, type DynamicModule } from '@nestjs/common';
+import { PgDb } from '@foc/platform';
 import { env } from '../config.js';
 import { DB } from '../db/db.js';
-import { PgDb } from '../db/pg-db.js';
 import { SuppliersController } from './suppliers.controller.js';
 import { SuppliersService } from './suppliers.service.js';
 
