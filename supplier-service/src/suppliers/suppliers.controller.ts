@@ -40,8 +40,15 @@ export class SuppliersController {
 
   @Get(':id')
   @Authenticated()
-  get(@Param('id') id: string) {
-    return this.suppliers.getById(parseOrThrow(supplierIdSchema, id));
+  async get(@Param('id') id: string, @Res({ passthrough: true }) res: Response) {
+    const supplier = await this.suppliers.getById(
+      parseOrThrow(supplierIdSchema, id, { fieldName: 'id' }),
+    );
+    // Set the version ETag explicitly. Without it Express derives a weak
+    // content-hash ETag, which the read → If-Match → save flow can't use as a
+    // version; POST/PUT set the same header so the shapes match.
+    res.setHeader('ETag', `"${supplier.version}"`);
+    return supplier;
   }
 
   @Post()
@@ -68,7 +75,7 @@ export class SuppliersController {
     @Headers('if-match') ifMatch: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const supplierId = parseOrThrow(supplierIdSchema, id);
+    const supplierId = parseOrThrow(supplierIdSchema, id, { fieldName: 'id' });
     const version = parseIfMatch(ifMatch);
     const changes = parseOrThrow(supplierUpdateSchema, body);
     const supplier = await this.suppliers.update(supplierId, version, changes);
@@ -78,7 +85,17 @@ export class SuppliersController {
 
   @Delete(':id')
   @AdminOnly()
-  deactivate(@Param('id') id: string) {
-    return this.suppliers.deactivate(parseOrThrow(supplierIdSchema, id));
+  async deactivate(
+    @Param('id') id: string,
+    @Headers('if-match') ifMatch: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    // Deactivation is a versioned write like update: it requires If-Match so a
+    // stale view cannot delete a supplier someone else has since changed.
+    const supplierId = parseOrThrow(supplierIdSchema, id, { fieldName: 'id' });
+    const version = parseIfMatch(ifMatch);
+    const supplier = await this.suppliers.deactivate(supplierId, version);
+    res.setHeader('ETag', `"${supplier.version}"`);
+    return supplier;
   }
 }

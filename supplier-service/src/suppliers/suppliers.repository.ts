@@ -132,33 +132,52 @@ export const suppliersRepository = {
     return rows[0] ?? null;
   },
 
-  /** Soft-deactivates an active supplier. Returns the row, or null if it was not active. */
-  async deactivate(q: Queryable, id: string): Promise<SupplierRow | null> {
+  /**
+   * Soft-deactivates an active supplier at `expectedVersion`, bumping the
+   * version. Returns the row, or null if it did not match — i.e. the row is
+   * missing, already inactive, or at a different version. The service reads the
+   * row back to tell those cases apart (idempotent no-op vs. 404 vs. 412).
+   */
+  async deactivate(q: Queryable, id: string, expectedVersion: number): Promise<SupplierRow | null> {
     const { rows } = await q.query<SupplierRow>(
       `UPDATE suppliers SET active = false, version = version + 1, updated_at = now()
-       WHERE supplier_id = $1 AND active
+       WHERE supplier_id = $1 AND version = $2 AND active
        RETURNING *`,
-      [id],
+      [id, expectedVersion],
     );
     return rows[0] ?? null;
   },
 
-  async findIdempotent(q: Queryable, key: string): Promise<string | null> {
-    const { rows } = await q.query<{ supplier_id: string }>(
-      `SELECT supplier_id FROM supplier_idempotency_keys WHERE idempotency_key = $1`,
+  /**
+   * The prior result for an Idempotency-Key: the supplier it produced and the
+   * hash of the request body that claimed it, so the service can replay a
+   * matching request but reject a reused key carrying a different body.
+   */
+  async findIdempotent(
+    q: Queryable,
+    key: string,
+  ): Promise<{ supplierId: string; requestHash: string } | null> {
+    const { rows } = await q.query<{ supplier_id: string; request_hash: string }>(
+      `SELECT supplier_id, request_hash FROM supplier_idempotency_keys WHERE idempotency_key = $1`,
       [key],
     );
-    return rows[0]?.supplier_id ?? null;
+    const row = rows[0];
+    return row ? { supplierId: row.supplier_id, requestHash: row.request_hash } : null;
   },
 
-  /** Claims a key for a supplier. Returns false if another request already claimed it. */
-  async claimIdempotencyKey(q: Queryable, key: string, supplierId: string): Promise<boolean> {
+  /** Claims a key for a supplier, storing the request hash. Returns false if another request already claimed it. */
+  async claimIdempotencyKey(
+    q: Queryable,
+    key: string,
+    supplierId: string,
+    requestHash: string,
+  ): Promise<boolean> {
     const { rows } = await q.query(
-      `INSERT INTO supplier_idempotency_keys (idempotency_key, supplier_id)
-       VALUES ($1, $2)
+      `INSERT INTO supplier_idempotency_keys (idempotency_key, supplier_id, request_hash)
+       VALUES ($1, $2, $3)
        ON CONFLICT (idempotency_key) DO NOTHING
        RETURNING idempotency_key`,
-      [key, supplierId],
+      [key, supplierId, requestHash],
     );
     return rows.length > 0;
   },

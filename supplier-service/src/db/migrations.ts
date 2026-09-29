@@ -69,4 +69,26 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    id: '002_building_ci_index_and_idempotency_hash',
+    sql: `
+      -- The building filter and the name+building duplicate rule must compare
+      -- buildings case-insensitively. The API now canonicalizes building on the
+      -- way in (matching the seed), but recreate the unique index on
+      -- lower(building) as a backstop so two casings can never both go active.
+      -- Reuse the same index name so the service's NAME_BUILDING_INDEX constant
+      -- still matches the violated-constraint name. Keep the WHERE active scope.
+      DROP INDEX suppliers_name_building_active_key;
+      CREATE UNIQUE INDEX suppliers_name_building_active_key
+        ON suppliers (lower(name), lower(building))
+        WHERE active;
+
+      -- Bind each Idempotency-Key to the body that first used it. A replay with
+      -- the same body returns the original supplier; a reused key with a
+      -- different body is rejected (422) instead of silently replaying. Existing
+      -- rows predate the check; backfill with '' so the NOT NULL can be added.
+      ALTER TABLE supplier_idempotency_keys ADD COLUMN request_hash text NOT NULL DEFAULT '';
+      ALTER TABLE supplier_idempotency_keys ALTER COLUMN request_hash DROP DEFAULT;
+    `,
+  },
 ];

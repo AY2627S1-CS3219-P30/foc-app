@@ -110,7 +110,8 @@ describe('seedSuppliers (idempotent, stable)', () => {
   it('leaves a supplier the admin deactivated deactivated on re-run', async () => {
     await seedSuppliers(db, seeds);
     const target = seeds[0]!;
-    await repo.deactivate(db, target.supplierId);
+    const seeded = await repo.findById(db, target.supplierId);
+    await repo.deactivate(db, target.supplierId, seeded!.version);
 
     await seedSuppliers(db, seeds);
     const row = await repo.findById(db, target.supplierId);

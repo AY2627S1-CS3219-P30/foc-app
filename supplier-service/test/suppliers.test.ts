@@ -193,6 +193,7 @@ describe('soft deactivation', () => {
     await http(t)
       .delete(`/suppliers/${created.supplierId}`)
       .set('Authorization', asAdmin)
+      .set('If-Match', String(created.version))
       .expect(200);
 
     const list = (await http(t).get('/suppliers').set('Authorization', asAdmin).expect(200)).body;
@@ -212,16 +213,44 @@ describe('soft deactivation', () => {
   it('frees the name+building for reuse once deactivated, and is idempotent', async () => {
     const created = (await create(validSupplier({ name: 'Kopi', building: 'COM1' })).expect(201))
       .body;
+    const deactivated = (
+      await http(t)
+        .delete(`/suppliers/${created.supplierId}`)
+        .set('Authorization', asAdmin)
+        .set('If-Match', String(created.version))
+        .expect(200)
+    ).body;
+    // deactivating again at the now-current version is a no-op, not an error
     await http(t)
       .delete(`/suppliers/${created.supplierId}`)
       .set('Authorization', asAdmin)
-      .expect(200);
-    // deactivating again is a no-op, not an error
-    await http(t)
-      .delete(`/suppliers/${created.supplierId}`)
-      .set('Authorization', asAdmin)
+      .set('If-Match', String(deactivated.version))
       .expect(200);
     // the freed name can be created again while the old row remains fetchable
     await create(validSupplier({ name: 'Kopi', building: 'COM1' })).expect(201);
+  });
+
+  it('requires If-Match and refuses a stale version', async () => {
+    const created = (await create(validSupplier({ name: 'Locked', building: 'COM1' })).expect(201))
+      .body;
+    // No If-Match: a deactivation must carry the version it last saw.
+    await http(t)
+      .delete(`/suppliers/${created.supplierId}`)
+      .set('Authorization', asAdmin)
+      .expect(428);
+    // A stale version is refused rather than silently deleting a newer supplier.
+    await http(t)
+      .delete(`/suppliers/${created.supplierId}`)
+      .set('Authorization', asAdmin)
+      .set('If-Match', String(created.version + 1))
+      .expect(412);
+    // The supplier is untouched: still active and listable.
+    const byId = (
+      await http(t)
+        .get(`/suppliers/${created.supplierId}`)
+        .set('Authorization', asAdmin)
+        .expect(200)
+    ).body;
+    expect(byId).toMatchObject({ active: true, version: created.version });
   });
 });
