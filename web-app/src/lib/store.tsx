@@ -17,8 +17,8 @@ import {
 } from "./mock-data";
 import { CURRENT_USER, type ErrandRequest, type LedgerEntry, type Supplier } from "./types";
 
+/** Errand and wallet state, still mock data until WEB-01+. Sessions live in auth.tsx. */
 type State = {
-  isAuthenticated: boolean;
   isMenuOpen: boolean;
   requests: ErrandRequest[];
   ledger: LedgerEntry[];
@@ -36,8 +36,6 @@ type NewRequestInput = {
 };
 
 type Action =
-  | { type: "LOGIN" }
-  | { type: "LOGOUT" }
   | { type: "SET_MENU_OPEN"; open: boolean }
   | { type: "CREATE_REQUEST"; id: string; input: NewRequestInput }
   | { type: "EDIT_REQUEST"; id: string; input: NewRequestInput }
@@ -47,7 +45,6 @@ type Action =
   | { type: "RELEASE_REQUEST"; id: string };
 
 const initialState: State = {
-  isAuthenticated: false,
   isMenuOpen: false,
   requests: INITIAL_REQUESTS,
   ledger: INITIAL_LEDGER,
@@ -66,12 +63,6 @@ function makeId(prefix: string) {
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
-    case "LOGIN":
-      return { ...state, isAuthenticated: true };
-
-    case "LOGOUT":
-      return { ...state, isAuthenticated: false, isMenuOpen: false };
-
     case "SET_MENU_OPEN":
       return { ...state, isMenuOpen: action.open };
 
@@ -211,8 +202,6 @@ function reducer(state: State, action: Action): State {
 
 type Store = {
   state: State;
-  login: () => void;
-  logout: () => void;
   setMenuOpen: (open: boolean) => void;
   createRequest: (input: NewRequestInput) => string;
   editRequest: (id: string, input: NewRequestInput) => void;
@@ -227,8 +216,6 @@ const StoreContext = createContext<Store | null>(null);
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  const login = useCallback(() => dispatch({ type: "LOGIN" }), []);
-  const logout = useCallback(() => dispatch({ type: "LOGOUT" }), []);
   const setMenuOpen = useCallback((open: boolean) => dispatch({ type: "SET_MENU_OPEN", open }), []);
   const createRequest = useCallback((input: NewRequestInput) => {
     const id = makeId("r");
@@ -247,8 +234,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       state,
-      login,
-      logout,
       setMenuOpen,
       createRequest,
       editRequest,
@@ -259,8 +244,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }),
     [
       state,
-      login,
-      logout,
       setMenuOpen,
       createRequest,
       editRequest,

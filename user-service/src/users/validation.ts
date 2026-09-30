@@ -13,6 +13,13 @@ export const loginSchema = z.strictObject({
   password: z.string().min(1).max(128),
 });
 
+/** The new password follows the registration policy: 12–128 characters, no composition rules. */
+export const changePasswordSchema = z.strictObject({
+  email: z.string().trim().min(1).max(254),
+  currentPassword: z.string().min(1).max(128),
+  newPassword: z.string().min(12).max(128),
+});
+
 /** The only fields a student may edit. Everything else — id, email, roles, status — is not editable by anyone through this endpoint. */
 export const profileUpdateSchema = z
   .strictObject({

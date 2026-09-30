@@ -1,0 +1,86 @@
+/* Phone first: the same frame as Screen + AppBar + ScreenContent. */
+.shell {
+  max-width: var(--phone-width);
+  margin: 0 auto;
+  min-height: 100vh;
+  background: var(--color-surface);
+  box-shadow: 0 0 0 1px var(--color-border);
+  display: flex;
+  flex-direction: column;
+}
+
+.appBar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.topBar,
+.sidebar {
+  display: none;
+}
+
+.body {
+  flex: 1;
+  display: flex;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* The app bar already names the screen on a phone, so the heading is for assistive technology only. */
+.heading {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* From 1024 px: the same frame as DesktopShell. */
+@media (min-width: 1024px) {
+  .shell {
+    max-width: none;
+    margin: 0;
+    background: none;
+    box-shadow: none;
+  }
+
+  .appBar {
+    display: none;
+  }
+
+  .topBar {
+    display: block;
+  }
+
+  /* A flex wrapper, so the sidebar still stretches to the full height. */
+  .sidebar {
+    display: flex;
+  }
+
+  .main {
+    display: block;
+    padding: var(--space-5) 40px;
+    max-width: 1120px;
+  }
+
+  .heading {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+    margin-bottom: var(--space-4);
+    font-size: 22px;
+    font-weight: 700;
+  }
+}

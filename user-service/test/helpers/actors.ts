@@ -38,9 +38,33 @@ export async function activeStudent(t: TestApp, email: string): Promise<Actor> {
   return login(t, email);
 }
 
-/** Creates a seeded administrator through the real seeding path, then logs in. */
+/** The shared bootstrap secret (`ADMIN_SEED_PASSWORD` in vitest.config.mts); never usable to sign in. */
+export const BOOTSTRAP_PASSWORD = 'bootstrap-secret-from-config';
+
+/** Replaces a password through the real endpoint. */
+export function changePassword(
+  t: TestApp,
+  email: string,
+  currentPassword: string,
+  newPassword: string,
+) {
+  return http(t)
+    .post('/auth/password')
+    .set('Origin', ORIGIN)
+    .send({ email, currentPassword, newPassword });
+}
+
+/**
+ * Creates a seeded administrator through the real seeding path, replaces the bootstrap password
+ * as the first sign-in requires, then logs in with {@link PASSWORD}.
+ */
 export async function seededAdmin(t: TestApp, email: string): Promise<Actor> {
-  await seedAdmins(t.db, { emails: [email], password: PASSWORD, allowedDomains: ['u.nus.edu'] });
+  await seedAdmins(t.db, {
+    emails: [email],
+    password: BOOTSTRAP_PASSWORD,
+    allowedDomains: ['u.nus.edu'],
+  });
+  await changePassword(t, email, BOOTSTRAP_PASSWORD, PASSWORD).expect(204);
   return login(t, email);
 }
 

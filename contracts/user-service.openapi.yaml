@@ -27,8 +27,10 @@ info:
       in JavaScript, so XSS cannot steal it.
     - **CSRF**: only `/auth/refresh` and `/auth/logout` accept the cookie. They are protected by
       `SameSite=Strict`, an `Origin` header check against the configured web origin, and by requiring
-      `Content-Type: application/json`. All other endpoints use the bearer header, which browsers do not
-      attach automatically. The web app keeps the access token in memory (not `localStorage`).
+      `Content-Type: application/json`. `/auth/login` (it sets the cookie) and `/auth/password` (a password
+      oracle) apply the same `Origin` and content-type checks. A failed check is `403 CSRF_REJECTED`.
+      All other endpoints use the bearer header, which browsers do not attach automatically. The web
+      app keeps the access token in memory (not `localStorage`).
     - **Service-to-service**: `/internal/**` endpoints require the `X-Service-Key` header holding a
       per-service credential. A user access token is never accepted there.
   license:
@@ -152,6 +154,9 @@ paths:
       description: |
         Only an `ACTIVE` account with valid credentials receives tokens. Sets the `foc_refresh` cookie and
         returns the access token in the body. Rate limited per IP and per email.
+
+        A bootstrap administrator signing in with the configured bootstrap password gets
+        `403 PASSWORD_CHANGE_REQUIRED` and no session; call `POST /auth/password` first (US-FR3.1.3.2).
       security: []
       requestBody:
         required: true
@@ -184,6 +189,39 @@ paths:
         '422': { $ref: '#/components/responses/ValidationFailed' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
+  /auth/password:
+    post:
+      tags: [Auth]
+      operationId: changePassword
+      summary: Change a password by proving the current one (US-FR3.1.3.2)
+      description: |
+        Proof is the current password, not an access token, so a bootstrap administrator who cannot yet
+        start a session can retire the bootstrap secret, and any active user can change theirs.
+        Every session of the account is revoked. Failure responses match login's, it shares login's
+        rate limits, and it requires an allowed `Origin` (if sent) and `Content-Type: application/json`
+        (`403 CSRF_REJECTED` otherwise).
+
+        It proves the password, not the mailbox: until a bootstrap administrator has replaced the shared
+        bootstrap password, anyone who knows that password can. Claim each seeded account at once.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangePasswordRequest' }
+      responses:
+        '204': { description: Password changed; every existing session of the account is revoked. }
+        '401': { $ref: '#/components/responses/InvalidCredentials' }
+        '403': { $ref: '#/components/responses/AccountNotLoginable' }
+        '422':
+          description: |
+            `VALIDATION_FAILED`. `newPassword` outside 12–128 characters, or `PASSWORD_UNCHANGED` when it
+            equals the current password or, for a bootstrap administrator, the configured bootstrap password.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
   /auth/refresh:
     post:
       tags: [Auth]
@@ -193,7 +231,8 @@ paths:
         Reads the `foc_refresh` cookie. Issues a new access token and a new refresh cookie and invalidates the
         old refresh token. Presenting an already-rotated token revokes the entire session family and returns
         `401 REFRESH_TOKEN_REUSED`. Expired, revoked or unknown tokens return `401 REFRESH_TOKEN_INVALID`.
-        Fails if the account is no longer `ACTIVE`.
+        Fails if the account is no longer `ACTIVE`, or must replace a bootstrap password first
+        (`403 PASSWORD_CHANGE_REQUIRED`); either way the session family is revoked.
       security: [{ refreshCookie: [] }]
       responses:
         '200':
@@ -500,7 +539,8 @@ paths:
         is this session still live, and who is behind it? `sid` and `sub` are the token's claims.
 
         `active: false` — with nothing else revealed — when the session is revoked, expired, unknown,
-        or does not belong to `sub`. A **live** session for a suspended or pending account is still
+        or does not belong to `sub`, or its account must still replace a bootstrap password (login never
+        starts such a session). A **live** session for a suspended or pending account is still
         `active: true` with its `status`, so the caller can answer 403 rather than 401.
 
         Consumers may cache the answer for at most 5 seconds (the documented staleness window) and must
@@ -654,6 +694,14 @@ components:
       properties:
         email: { type: string, format: email }
         password: { type: string, writeOnly: true }
+    ChangePasswordRequest:
+      type: object
+      required: [email, currentPassword, newPassword]
+      additionalProperties: false
+      properties:
+        email: { type: string, format: email }
+        currentPassword: { type: string, writeOnly: true }
+        newPassword: { type: string, minLength: 12, maxLength: 128, writeOnly: true }
     TokenResponse:
       type: object
       required: [accessToken, tokenType, expiresIn, user]
@@ -737,12 +785,20 @@ components:
             items: { type: array, items: { $ref: '#/components/schemas/AdminUser' } }
     AuditRecord:
       type: object
-      required: [id, actorId, targetUserId, action, reason, occurredAt, correlationId]
+      required: [id, actorId, actorType, targetUserId, action, reason, occurredAt, correlationId]
       properties:
         id: { type: string, format: uuid }
-        actorId: { type: string, format: uuid }
+        actorId:
+          type: [string, 'null']
+          format: uuid
+          description: The administrator who acted; `null` exactly when `actorType` is `SYSTEM`.
+        actorType:
+          type: string
+          enum: [USER, SYSTEM]
+          description: '`SYSTEM` only for `ADMIN_BOOTSTRAP`, written at boot from deployment configuration.'
         targetUserId: { type: string, format: uuid }
-        action: { type: string, enum: [SUSPEND, REACTIVATE, ROLE_GRANT, ROLE_REVOKE] }
+        action:
+          { type: string, enum: [SUSPEND, REACTIVATE, ROLE_GRANT, ROLE_REVOKE, ADMIN_BOOTSTRAP] }
         reason: { type: string }
         occurredAt: { type: string, format: date-time }
         correlationId: { type: string }
@@ -939,11 +995,38 @@ components:
                 },
             }
     AccountNotLoginable:
-      description: Valid credentials but the account is `PENDING_ACTIVATION` or `SUSPENDED`.
+      description: |
+        Valid credentials but the account is `PENDING_ACTIVATION` or `SUSPENDED`, or (login only) it must
+        replace a bootstrap password first (`PASSWORD_CHANGE_REQUIRED`). Or `CSRF_REJECTED`: the `Origin`
+        is not allowed or the body is not JSON — checked before the credentials.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           examples:
+            passwordChangeRequired:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: PASSWORD_CHANGE_REQUIRED,
+                        message: Choose a new password before signing in.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
+            csrf:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: CSRF_REJECTED,
+                        message: Request origin is not allowed.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
             pending:
               {
                 value:
@@ -1027,7 +1110,9 @@ components:
                 },
             }
     RefreshForbidden:
-      description: CSRF check failed, or the account is no longer `ACTIVE` (its session family is revoked).
+      description: |
+        CSRF check failed, or the account is no longer `ACTIVE` or must replace a bootstrap password
+        (`PASSWORD_CHANGE_REQUIRED`); in those two cases its session family is revoked.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -1052,6 +1137,18 @@ components:
                       {
                         code: ACCOUNT_SUSPENDED,
                         message: This account is suspended.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
+            passwordChangeRequired:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: PASSWORD_CHANGE_REQUIRED,
+                        message: Choose a new password before signing in.,
                         correlationId: 5c1f2a9e,
                       },
                   },

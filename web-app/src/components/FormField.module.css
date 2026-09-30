@@ -1,0 +1,60 @@
+.field {
+  display: flex;
+  flex-direction: column;
+}
+
+.invalid {
+  border-color: var(--color-danger);
+}
+
+.hint {
+  margin-top: var(--space-1);
+  font-size: 12px;
+  color: var(--color-text-subtle);
+}
+
+.error {
+  margin-top: var(--space-1);
+  font-size: 13px;
+  color: var(--color-danger);
+}
+
+.alert {
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Empty, the live region stays in the accessibility tree but out of the layout (and out of a flex
+   container's gaps), so a message added later is announced without shifting anything until then. */
+.alert:empty {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.alert a,
+.alert button {
+  font-weight: 600;
+  text-decoration: underline;
+  color: inherit;
+}
+
+.toneError {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.toneInfo {
+  background: #dbeafe;
+  color: #1e3a8a;
+}
+
+.toneSuccess {
+  background: #dcfce7;
+  color: #14532d;
+}

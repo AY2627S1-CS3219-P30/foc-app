@@ -9,6 +9,7 @@ export interface LockedSession {
   rotated: boolean;
   revoked: boolean;
   userStatus: AccountStatus;
+  mustChangePassword: boolean;
 }
 
 /** All SQL for refresh sessions. Every function takes a {@link Queryable} so callers control the transaction. */
@@ -25,6 +26,31 @@ export const sessionsRepository = {
   },
 
   /**
+   * Starts a login's session only if the account is still what the caller verified: the same
+   * password hash, `ACTIVE`, and not flagged. Returns false otherwise. `FOR SHARE` waits out a
+   * password change or suspension in flight and then re-reads the row, so a login that verified the
+   * old password cannot add a session after that change revoked the account's others.
+   */
+  async insertIfLoginable(
+    q: Queryable,
+    s: { id: string; familyId: string; userId: string; tokenHash: string; ttlDays: number },
+    verifiedPasswordHash: string,
+  ): Promise<boolean> {
+    const { rows } = await q.query(
+      `INSERT INTO refresh_sessions (id, family_id, user_id, token_hash, expires_at)
+       SELECT $1, $2, $3, $4, now() + make_interval(days => $5)
+       WHERE EXISTS (
+         SELECT 1 FROM users
+         WHERE id = $3 AND password_hash = $6 AND status = 'ACTIVE' AND NOT must_change_password
+         FOR SHARE
+       )
+       RETURNING id`,
+      [s.id, s.familyId, s.userId, s.tokenHash, s.ttlDays, verifiedPasswordHash],
+    );
+    return rows.length > 0;
+  },
+
+  /**
    * Reads a session by token hash and locks its row for the transaction, so two
    * simultaneous refreshes with the same token are serialised: the second sees
    * the first's rotation and is treated as reuse.
@@ -38,12 +64,13 @@ export const sessionsRepository = {
       rotated: boolean;
       revoked: boolean;
       status: AccountStatus;
+      must_change_password: boolean;
     }>(
       `SELECT s.id, s.family_id, s.user_id,
               s.expires_at <= now() AS expired,
               s.rotated_at IS NOT NULL AS rotated,
               s.revoked_at IS NOT NULL AS revoked,
-              u.status
+              u.status, u.must_change_password
        FROM refresh_sessions s JOIN users u ON u.id = s.user_id
        WHERE s.token_hash = $1
        FOR UPDATE OF s`,
@@ -59,6 +86,7 @@ export const sessionsRepository = {
           rotated: r.rotated,
           revoked: r.revoked,
           userStatus: r.status,
+          mustChangePassword: r.must_change_password,
         }
       : null;
   },
@@ -92,14 +120,19 @@ export const sessionsRepository = {
     );
   },
 
-  /** For the access-token guard: is this session still usable, and what state is its account in? */
+  /**
+   * For the access-token guard and introspection: is this session still usable, and what state is
+   * its account in? An account that must replace a bootstrap password has no live session: login
+   * never starts one, so any it has predates migration 004 or came from an instance on older code.
+   */
   async liveness(
     q: Queryable,
     sessionId: string,
     userId: string,
   ): Promise<{ live: boolean; status: AccountStatus } | null> {
     const { rows } = await q.query<{ live: boolean; status: AccountStatus }>(
-      `SELECT (s.revoked_at IS NULL AND s.expires_at > now()) AS live, u.status
+      `SELECT (s.revoked_at IS NULL AND s.expires_at > now() AND NOT u.must_change_password) AS live,
+              u.status
        FROM refresh_sessions s JOIN users u ON u.id = s.user_id
        WHERE s.id = $1 AND s.user_id = $2`,
       [sessionId, userId],

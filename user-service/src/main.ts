@@ -3,7 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { createLogger, PinoLoggerService, runMigrations, startService } from '@foc/platform';
 import { DB, type Db } from './db/db.js';
 import { migrations } from './db/migrations.js';
-import { seedAdmins } from './admin/seed.js';
+import { reportSeed, seedAdmins } from './admin/seed.js';
 
 async function main(): Promise<void> {
   // Imported dynamically so a configuration error surfaces as the clean message
@@ -23,13 +23,7 @@ async function main(): Promise<void> {
     password: env.ADMIN_SEED_PASSWORD,
     allowedDomains: env.ALLOWED_EMAIL_DOMAINS,
   });
-  if (seeded.created.length > 0) logger.log(`Seeded administrators: ${seeded.created.join(', ')}`);
-  if (seeded.skipped.length > 0) {
-    logger.warn(
-      `Seed skipped (account already exists, not promoted): ${seeded.skipped.join(', ')}`,
-    );
-  }
-  if (!env.ADMIN_SEED_EMAILS?.length) logger.warn('No seeded administrators configured.');
+  reportSeed(logger, seeded);
 
   await startService(app, {
     serviceName: SERVICE_NAME,

@@ -1,3 +1,4 @@
+import { userRoleChangedPayload, userStatusChangedPayload } from '@foc/platform';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestApp, type TestApp } from './helpers/app.js';
 import {
@@ -27,8 +28,10 @@ const as = (a: Actor) => ({
 });
 const events = async (type: string) =>
   (await t.db.query('SELECT * FROM outbox_events WHERE event_type = $1', [type])).rows;
+/** Human-initiated audit rows. The bootstrap of `root`/`root2` writes SYSTEM rows, covered in seed.test.ts. */
 const audit = async () =>
-  (await t.db.query('SELECT * FROM audit_records ORDER BY occurred_at')).rows;
+  (await t.db.query("SELECT * FROM audit_records WHERE actor_type = 'USER' ORDER BY occurred_at"))
+    .rows;
 
 beforeAll(async () => {
   t = await createTestApp();
@@ -70,15 +73,22 @@ describe('suspend / reactivate (US-FR3.1.2, US-FR4.1.4)', () => {
       action: 'SUSPEND',
       reason: 'Repeated no-shows',
     });
-    const [event] = await events('UserSuspended');
-    expect(event!.payload).toEqual({ userId: student.id, status: 'SUSPENDED', reasonRef: row!.id });
+    const [event] = await events('user.suspended');
+    expect(event!.payload).toEqual({
+      userId: student.id,
+      status: 'SUSPENDED',
+      reasonRef: row!.id,
+      occurredAt: expect.any(String),
+    });
+    // The shape the consumers subscribe with — anything else would be dead-lettered.
+    expect(userStatusChangedPayload.safeParse(event!.payload).success).toBe(true);
   });
 
   it('is idempotent: a second suspend adds no audit row and no event', async () => {
     await as(root).suspend(student.id).expect(200);
     await as(root).suspend(student.id).expect(200);
     expect(await audit()).toHaveLength(1);
-    expect(await events('UserSuspended')).toHaveLength(1);
+    expect(await events('user.suspended')).toHaveLength(1);
   });
 
   it('reactivates, allows login again, and records event and audit', async () => {
@@ -87,10 +97,10 @@ describe('suspend / reactivate (US-FR3.1.2, US-FR4.1.4)', () => {
     expect(res.body.status).toBe('ACTIVE');
     await login(t, student.email);
     expect((await audit()).map((a) => a.action)).toEqual(['SUSPEND', 'REACTIVATE']);
-    const [event] = await events('UserReactivated');
+    const [event] = await events('user.reactivated');
     expect(event!.payload).toMatchObject({ userId: student.id, status: 'ACTIVE' });
     await as(root).reactivate(student.id).expect(200); // idempotent
-    expect(await events('UserReactivated')).toHaveLength(1);
+    expect(await events('user.reactivated')).toHaveLength(1);
   });
 
   it('cannot suspend an account that never activated, so reactivation can never skip activation', async () => {
@@ -129,6 +139,25 @@ describe('suspend / reactivate (US-FR3.1.2, US-FR4.1.4)', () => {
     expect(res.body.error.code).toBe('SELF_SUSPENSION_FORBIDDEN');
   });
 
+  it('will not let an admin suspend themselves by changing the case of the id', async () => {
+    const res = await as(root).suspend(root.id.toUpperCase()).expect(409);
+    expect(res.body.error.code).toBe('SELF_SUSPENSION_FORBIDDEN');
+  });
+
+  it('names the user in its events as their tokens do, whatever the case of the URL (USR-07)', async () => {
+    // A UUID is case-insensitive, so the upper-case URL finds the account; but the event must carry
+    // the stored id, or no service's cache (keyed on the token's `sub`) would match it.
+    await as(root).suspend(student.id.toUpperCase()).expect(200);
+    await as(root).reactivate(student.id.toUpperCase()).expect(200);
+    const emitted = [...(await events('user.suspended')), ...(await events('user.reactivated'))];
+    expect(emitted).toHaveLength(2);
+    for (const e of emitted) {
+      expect(e.aggregate_id).toBe(student.id);
+      expect(e.payload).toMatchObject({ userId: student.id });
+    }
+    expect((await audit()).map((a) => a.target_user_id)).toEqual([student.id, student.id]);
+  });
+
   it('lets only a seeded admin suspend another admin', async () => {
     await as(root).role(student.id, 'ADMIN').expect(200); // student becomes an appointed admin
     const appointed = await login(t, student.email);
@@ -162,6 +191,31 @@ describe('roles (US-FR3.1.3, US-FR3.1.3.1)', () => {
     await as(root).role(student.id, 'ADMIN').expect(200);
     await as(root).role(student.id, 'ADMIN').expect(200);
     expect((await audit()).filter((a) => a.action === 'ROLE_GRANT')).toHaveLength(1);
+    expect(await events('user.role-changed')).toHaveLength(1);
+  });
+
+  it('announces each grant and revoke, so other services drop cached roles at once (USR-07)', async () => {
+    await as(root).role(student.id.toUpperCase(), 'ADMIN').expect(200);
+    await as(root).role(student.id, 'STUDENT').expect(200);
+
+    const emitted = await events('user.role-changed');
+    const [grant, revoke] = await audit();
+    expect(emitted.map((e) => e.payload)).toEqual([
+      {
+        userId: student.id,
+        roles: ['ADMIN', 'STUDENT'],
+        reasonRef: grant!.id,
+        occurredAt: expect.any(String),
+      },
+      {
+        userId: student.id,
+        roles: ['STUDENT'],
+        reasonRef: revoke!.id,
+        occurredAt: expect.any(String),
+      },
+    ]);
+    expect(emitted.map((e) => e.aggregate_id)).toEqual([student.id, student.id]);
+    for (const e of emitted) expect(userRoleChangedPayload.safeParse(e.payload).success).toBe(true);
   });
 
   it('refuses to appoint an account that is not active', async () => {
@@ -197,6 +251,8 @@ describe('roles (US-FR3.1.3, US-FR3.1.3.1)', () => {
   it('forbids demoting yourself, seeded or appointed', async () => {
     const seeded = await as(root).role(root.id, 'STUDENT').expect(409);
     expect(seeded.body.error.code).toBe('SELF_DEMOTION_FORBIDDEN');
+    const recased = await as(root).role(root.id.toUpperCase(), 'STUDENT').expect(409);
+    expect(recased.body.error.code).toBe('SELF_DEMOTION_FORBIDDEN');
     await as(root).role(student.id, 'ADMIN').expect(200);
     const appointed = await login(t, student.email);
     const own = await as(appointed).role(appointed.id, 'STUDENT').expect(409);
@@ -211,9 +267,10 @@ describe('roles (US-FR3.1.3, US-FR3.1.3.1)', () => {
     expect(results.filter((r) => r.status === 200)).toHaveLength(1);
     const admins = (await t.db.query("SELECT user_id FROM user_roles WHERE role = 'ADMIN'")).rows;
     expect(admins).toHaveLength(1);
-    // the loser rolled back completely: one demotion, one audit row, one event-free change
+    // the loser rolled back completely: one demotion, one audit row, one event
     const rows = await audit();
     expect(rows.filter((a) => a.action === 'ROLE_REVOKE')).toHaveLength(1);
+    expect(await events('user.role-changed')).toHaveLength(1);
   });
 
   it('validates the body', async () => {
@@ -230,21 +287,24 @@ describe('audit trail (US-NFR4.1.2)', () => {
   it('lists records newest first and filters by target', async () => {
     await as(root).suspend(student.id, 'one').expect(200);
     await as(root).reactivate(student.id, 'two').expect(200);
-    const all = (await as(root).get('/admin/audit-records').expect(200)).body;
+    const all = (await as(root).get(`/admin/audit-records?targetUserId=${student.id}`).expect(200))
+      .body;
     expect(all.total).toBe(2);
     expect(all.items.map((i: { action: string }) => i.action)).toEqual(['REACTIVATE', 'SUSPEND']);
     expect(all.items[0]).toEqual({
       id: expect.any(String),
       actorId: root.id,
+      actorType: 'USER',
       targetUserId: student.id,
       action: 'REACTIVATE',
       reason: 'two',
       occurredAt: expect.any(String),
       correlationId: expect.any(String),
     });
-    const none = (await as(root).get(`/admin/audit-records?targetUserId=${root.id}`).expect(200))
+    // The filter is exact: root's own history is only its bootstrap.
+    const own = (await as(root).get(`/admin/audit-records?targetUserId=${root.id}`).expect(200))
       .body;
-    expect(none.total).toBe(0);
+    expect(own.items.map((i: { action: string }) => i.action)).toEqual(['ADMIN_BOOTSTRAP']);
   });
 
   it('is append-only: the database rejects UPDATE and DELETE', async () => {
@@ -254,6 +314,10 @@ describe('audit trail (US-NFR4.1.2)', () => {
     );
     await expect(t.db.query('DELETE FROM audit_records')).rejects.toThrow(/append-only/);
     expect(await audit()).toHaveLength(1);
+    // The bootstrap's SYSTEM rows are protected by the same trigger.
+    await expect(
+      t.db.query("DELETE FROM audit_records WHERE actor_type = 'SYSTEM'"),
+    ).rejects.toThrow(/append-only/);
   });
 
   it('has no API route that creates, edits or deletes a record', async () => {

@@ -134,9 +134,9 @@ else
 fi
 
 # ---- the broker topology exists ---------------------------------------------
-# Retry exchanges are namespaced per service, so two services can tune their
-# own backoff without colliding on a queue's fixed TTL.
-for ex in foc.events foc.events.dlx foc.credit-service.retry.1 foc.user-service.retry.1; do
+# Delay (retry) exchanges are namespaced per service, so two services can tune
+# their own backoff without colliding on a queue's fixed TTL.
+for ex in foc.events foc.events.dlx foc.credit-service.delay.1 foc.user-service.delay.1; do
   # `docker compose exec` leaves carriage returns behind, which defeat grep -x.
   if docker compose exec -T rabbitmq rabbitmqctl -q list_exchanges name 2>/dev/null |
     tr -d '\r' | grep -qx "$ex"; then
