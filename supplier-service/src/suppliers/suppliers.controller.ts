@@ -8,6 +8,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   Res,
 } from '@nestjs/common';
 import type { Response } from 'express';
@@ -18,6 +19,7 @@ import {
   parseOrThrow,
   supplierCreateSchema,
   supplierIdSchema,
+  supplierListQuerySchema,
   supplierUpdateSchema,
 } from './validation.js';
 
@@ -34,8 +36,8 @@ export class SuppliersController {
 
   @Get()
   @Authenticated()
-  list() {
-    return this.suppliers.list();
+  list(@Query() query: unknown) {
+    return this.suppliers.list(parseOrThrow(supplierListQuerySchema, query));
   }
 
   @Get(':id')

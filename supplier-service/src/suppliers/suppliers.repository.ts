@@ -1,5 +1,6 @@
 import type { Queryable } from '../db/db.js';
-import type { SupplierInput, SupplierRow } from './types.js';
+import type { SupplierInput, SupplierListRow, SupplierRow } from './types.js';
+import type { SupplierSort } from './validation.js';
 
 /** Postgres error code for a unique-constraint violation, shared by `pg` and PGlite. */
 export const UNIQUE_VIOLATION = '23505';
@@ -31,6 +32,31 @@ const UPDATABLE = {
 
 const jsonParam = (value: unknown): string | null =>
   value === null || value === undefined ? null : JSON.stringify(value);
+
+/** Sort field → column. The key set is closed (validated), so the column is never caller-derived. */
+const SORT_COLUMN: Record<SupplierSort, string> = {
+  name: 'name',
+  type: 'type',
+  building: 'building',
+  updatedAt: 'updated_at',
+};
+
+/** The lean columns a listing needs; the detail view reads the full row instead. */
+const LIST_COLUMNS = 'supplier_id, name, type, building, image_url';
+
+/** Escapes LIKE wildcards so a search for `50%` matches that text, not everything. */
+const likeContains = (q: string): string => `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+
+/** A validated `GET /suppliers` query, as the repository consumes it. */
+export interface ListFilters {
+  page: number;
+  pageSize: number;
+  type?: string;
+  building?: string;
+  q?: string;
+  sort: SupplierSort;
+  order: 'asc' | 'desc';
+}
 
 /**
  * All SQL for the suppliers tables. Every function takes a {@link Queryable} so
@@ -96,12 +122,53 @@ export const suppliersRepository = {
     return rows[0] ?? null;
   },
 
-  /** Active suppliers only, for listings (SUP-02 adds filter/sort/pagination on top). */
-  async listActive(q: Queryable): Promise<SupplierRow[]> {
-    const { rows } = await q.query<SupplierRow>(
-      `SELECT * FROM suppliers WHERE active ORDER BY name, building`,
+  /**
+   * A page of active suppliers, filtered, searched and sorted (SUP-02). Ordering
+   * always ends in `supplier_id` so paging the full set returns every row
+   * exactly once. Returns the page's lean rows and the unpaged `total`, so the
+   * caller can report how many matched an empty page included.
+   */
+  async list(q: Queryable, f: ListFilters): Promise<{ rows: SupplierListRow[]; total: number }> {
+    const where = ['active'];
+    const params: unknown[] = [];
+    const bind = (value: unknown): string => {
+      params.push(value);
+      return `$${params.length}`;
+    };
+
+    if (f.type) where.push(`type = ${bind(f.type)}`);
+    if (f.building) where.push(`lower(building) = lower(${bind(f.building)})`);
+    if (f.q) {
+      const term = bind(likeContains(f.q));
+      where.push(
+        `(name ILIKE ${term} ESCAPE '\\'
+          OR building ILIKE ${term} ESCAPE '\\'
+          OR location_description ILIKE ${term} ESCAPE '\\'
+          OR (tags IS NOT NULL AND EXISTS (
+                SELECT 1 FROM jsonb_array_elements_text(tags) AS tag
+                WHERE tag ILIKE ${term} ESCAPE '\\')))`,
+      );
+    }
+    const clause = `WHERE ${where.join(' AND ')}`;
+
+    const totalResult = await q.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM suppliers ${clause}`,
+      params,
     );
-    return rows;
+    const total = totalResult.rows[0]?.n ?? 0;
+
+    // `order` is validated to asc|desc and the sort column comes from a fixed map,
+    // so neither reaches SQL from raw input. Apply the direction to the tie-break
+    // too so each sort has one deterministic total order.
+    const dir = f.order === 'desc' ? 'DESC' : 'ASC';
+    const orderBy = `ORDER BY ${SORT_COLUMN[f.sort]} ${dir}, supplier_id ${dir}`;
+    const { rows } = await q.query<SupplierListRow>(
+      `SELECT ${LIST_COLUMNS} FROM suppliers ${clause}
+       ${orderBy}
+       LIMIT ${bind(f.pageSize)} OFFSET ${bind((f.page - 1) * f.pageSize)}`,
+      params,
+    );
+    return { rows, total };
   },
 
   /**

@@ -1,10 +1,11 @@
-# Supplier Service (SUP-01)
+# Supplier Service (SUP-01, SUP-02)
 
 Owned by **Patrick** (Catalogue & Frontend). The campus supplier **catalogue**:
 the stores, cafés, printing points, shops and landmarks a student can request an
-errand from. This ticket delivers the data layer, the admin CRUD API, and an
-idempotent seed. Search / filter / sort / pagination (SUP-02), the listing UI
-(SUP-03), and the deletion-hold against live errands (SUP-04) are out of scope.
+errand from. SUP-01 delivered the data layer, the admin CRUD API, and an
+idempotent seed. **SUP-02** adds search, filtering, sorting and pagination to the
+listing (see [below](#listing-search-filtering--sorting-sup-02)). The listing UI
+(SUP-03) and the deletion-hold against live errands (SUP-04) are out of scope.
 
 Built on the shared runtime: `@foc/platform` (config, logging, correlation,
 health, the `{ error: { code, message, correlationId, details } }` envelope) and
@@ -34,7 +35,7 @@ Base path `/suppliers`. All errors use the shared envelope.
 
 | Method   | Path             | Who           | Notes                                                           |
 | -------- | ---------------- | ------------- | --------------------------------------------------------------- |
-| `GET`    | `/suppliers`     | any signed-in | Active suppliers only.                                          |
+| `GET`    | `/suppliers`     | any signed-in | Active suppliers only. Paged, filterable, searchable, sortable. |
 | `GET`    | `/suppliers/:id` | any signed-in | Resolves any supplier by id, **including deactivated** ones.    |
 | `POST`   | `/suppliers`     | **admin**     | Create. Honors `Idempotency-Key`. `201` created / `200` replay. |
 | `PUT`    | `/suppliers/:id` | **admin**     | Partial update. Requires `If-Match: <version>`.                 |
@@ -74,6 +75,58 @@ suppliers (`DUPLICATE_NAME_BUILDING`).
 - **Atomicity**: every mutation runs in one transaction — it commits fully or not
   at all, and a failure surfaces through the error envelope with nothing
   half-written.
+
+## Listing, search, filtering & sorting (SUP-02)
+
+`GET /suppliers` returns a **page of active suppliers**. All parameters are
+optional; an unmatched query is a `200` empty page (`total: 0`), never a `404`, so
+"no results" is always distinguishable from a failure.
+
+### Query parameters
+
+| Parameter  | Default | Notes                                                                                    |
+| ---------- | ------- | ---------------------------------------------------------------------------------------- |
+| `page`     | `1`     | 1-based. Clamped up to `1`, never rejected.                                              |
+| `pageSize` | `20`    | **Clamped to 1–100** (not rejected); an unparseable value falls back to `20`.            |
+| `type`     | —       | Exact match on the type enum (`FOOD \| CAFE \| PRINTING \| SHOPPING \| LANDMARK`).       |
+| `building` | —       | Case-insensitive; canonicalized the same way create is, so `com2` matches stored `COM2`. |
+| `q`        | —       | Case-insensitive substring search across **name, building, location description, tags**. |
+| `sort`     | `name`  | One of `name`, `type`, `building`, `updatedAt` (last-updated). Unknown → default.        |
+| `order`    | `asc`   | `asc` or `desc`. Unknown → default.                                                      |
+
+Every sort is **tie-broken by `supplierId`**, so paging the full set returns each
+record exactly once and the order is stable across requests.
+
+### Response
+
+```jsonc
+{ "page": 1, "pageSize": 20, "total": 42, "items": [/* … */] }
+```
+
+A **list item is lean** — `supplierId`, `name`, `type`, `building`, `imageUrl` —
+enough to render a card and open the detail view. Floor, location description,
+opening hours and coordinates are returned only by `GET /suppliers/:id`.
+
+> **Response shape.** The list/sort/search contract is owned by FND-03 (#117);
+> `contracts/supplier-service.openapi.yaml` does not exist yet. This endpoint
+> mirrors the User Service's `{ page, pageSize, total, items }` page shape as the
+> house convention; realign here if the published contract differs.
+
+### Location-query decision
+
+The **building filter is how a supplier is found "by location"**. Buildings come
+from a fixed, canonicalized list (the seed normalizes spellings onto one name per
+building), so filtering by building has no duplicates and needs no proximity or
+coordinate search. Coordinates remain stored for map pins but are **not** a query
+axis; there is deliberately no radius/nearest search in this service.
+
+### Indexes (migration `003`)
+
+Backing the filter, sort and search paths over active rows: `lower(building)` for
+the building filter; `(name, supplier_id)`, `(type, name, supplier_id)` and
+`(updated_at, supplier_id)` for the sorts and their id tie-break; and **pg_trgm
+GIN** indexes on `name`, `building` and `location_description` so the
+case-insensitive substring search is index-backed rather than a scan.
 
 ## Seed
 
@@ -158,7 +211,13 @@ needs the workspace manifests, `@foc/platform`, `@foc/auth-client`, and the seed
 CSVs under `data/csv/`. The image runs as a non-root user and declares a
 `HEALTHCHECK`; `compose.yaml` wires it into the stack.
 
+### `requests.http`
+
+`supplier-service/requests.http` exercises **list, filter, sort, search,
+get-by-ID, create, update and deactivate** with both a student and an admin
+token, end to end against the Compose stack with no UI running (D2 §3). See the
+header of that file for how to obtain the two bearer tokens.
+
 ### Next tickets
 
-SUP-02 (search / filter / sort / pagination), SUP-03 (listing UI), SUP-04
-(deletion-hold against live errands).
+SUP-03 (listing UI), SUP-04 (deletion-hold against live errands).

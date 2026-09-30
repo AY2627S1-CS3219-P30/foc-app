@@ -73,6 +73,32 @@ export interface SupplierView {
   updatedAt: string;
 }
 
+/**
+ * The lean shape a listing returns per supplier (SUP-02): enough to render a
+ * card and to open the detail view, no more. Floor, location description,
+ * opening hours and coordinates belong to `GET /suppliers/:id`.
+ */
+export interface SupplierListItem {
+  supplierId: string;
+  name: string;
+  type: SupplierType;
+  building: string;
+  imageUrl: string | null;
+}
+
+export type SupplierListRow = Pick<
+  SupplierRow,
+  'supplier_id' | 'name' | 'type' | 'building' | 'image_url'
+>;
+
+export const toSupplierListItem = (r: SupplierListRow): SupplierListItem => ({
+  supplierId: r.supplier_id,
+  name: r.name,
+  type: r.type,
+  building: r.building,
+  imageUrl: r.image_url,
+});
+
 const num = (v: number | string | null): number | null =>
   v === null ? null : typeof v === 'number' ? v : Number(v);
 

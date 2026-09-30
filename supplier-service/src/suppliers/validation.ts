@@ -143,6 +143,46 @@ export const supplierUpdateSchema = z
 
 export const supplierIdSchema = z.uuid();
 
+/** The fields a caller may sort by; each is tie-broken by `supplierId` for stable paging. */
+export const SUPPLIER_SORTS = ['name', 'type', 'building', 'updatedAt'] as const;
+export type SupplierSort = (typeof SUPPLIER_SORTS)[number];
+
+// Page and page size are clamped, never rejected: an out-of-range or unparseable
+// value falls back to a sane bound so a listing request always returns a page.
+const page = z.coerce
+  .number()
+  .int()
+  .transform((v) => Math.max(1, v))
+  .catch(1);
+const pageSize = z.coerce
+  .number()
+  .int()
+  .transform((v) => Math.min(100, Math.max(1, v)))
+  .catch(20);
+
+/**
+ * The `GET /suppliers` query. Filters (`type`, `building`) and the search term
+ * are optional; `building` is canonicalized the same way create is, so `com2`
+ * matches the stored `COM2`. `sort`/`order` fall back to the stable default
+ * rather than erroring on a cosmetic typo.
+ */
+export const supplierListQuerySchema = z.object({
+  page,
+  pageSize,
+  type: z.enum(SUPPLIER_TYPES).optional(),
+  building: z
+    .string()
+    .trim()
+    .min(1)
+    .transform((v) => normalizeBuilding(v))
+    .optional(),
+  q: z.string().trim().min(1).max(200).optional(),
+  sort: z.enum(SUPPLIER_SORTS).catch('name'),
+  order: z.enum(['asc', 'desc']).catch('asc'),
+});
+
+export type SupplierListQuery = z.output<typeof supplierListQuerySchema>;
+
 /** Options for {@link parseOrThrow}. */
 export interface ParseOptions {
   /** The `code` used for unrecognized (strict-mode) keys. */

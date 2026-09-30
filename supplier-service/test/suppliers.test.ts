@@ -217,7 +217,7 @@ describe('soft deactivation', () => {
 
     const list = (await http(t).get('/suppliers').set('Authorization', asAdmin).expect(200)).body;
     expect(
-      list.find((s: { supplierId: string }) => s.supplierId === created.supplierId),
+      list.items.find((s: { supplierId: string }) => s.supplierId === created.supplierId),
     ).toBeUndefined();
 
     const byId = (

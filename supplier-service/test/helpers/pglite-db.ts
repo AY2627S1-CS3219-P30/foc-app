@@ -1,4 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
+import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import type { Db, Queryable, Row } from '../../src/db/db.js';
 
 /**
@@ -11,7 +12,9 @@ export class PgliteDb implements Db {
   private constructor(private readonly pg: PGlite) {}
 
   static async create(): Promise<PgliteDb> {
-    return new PgliteDb(await PGlite.create());
+    // Load pg_trgm so the search-index migration runs on PGlite exactly as it
+    // does on Postgres — the trigram indexes are part of what the suite proves.
+    return new PgliteDb(await PGlite.create({ extensions: { pg_trgm } }));
   }
 
   async query<T extends Row = Row>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> {
