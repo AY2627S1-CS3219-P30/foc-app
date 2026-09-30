@@ -1,7 +1,8 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { hashPassword, verifyPassword } from '../src/auth/passwords.js';
 import { newOpaqueToken, sha256Hex } from '../src/auth/tokens.js';
-import { runMigrations } from '../src/db/migrate.js';
+import { runMigrations } from '@foc/platform';
+import { migrations } from '../src/db/migrations.js';
 import { isAllowedDomain, normalizeEmail } from '../src/users/email.js';
 import { usersRepository } from '../src/users/users.repository.js';
 import { PgliteDb } from './helpers/pglite-db.js';
@@ -55,12 +56,12 @@ describe('migrations', () => {
 
   it('apply once and are a no-op the second time', async () => {
     db = await PgliteDb.create();
-    expect(await runMigrations(db)).toEqual([
+    expect(await runMigrations(db, migrations)).toEqual([
       '001_identity',
       '002_refresh_sessions',
       '003_audit_records',
     ]);
-    expect(await runMigrations(db)).toEqual([]);
+    expect(await runMigrations(db, migrations)).toEqual([]);
   });
 
   it('enforce the schema constraints in the database itself', async () => {
@@ -92,7 +93,7 @@ describe('migrations', () => {
 describe('insertUser conflict handling', () => {
   it('skips only a duplicate email; any other constraint violation still surfaces', async () => {
     const db = await PgliteDb.create();
-    await runMigrations(db);
+    await runMigrations(db, migrations);
     const base = { passwordHash: 'h', displayName: 'A' };
     const id1 = '00000000-0000-4000-8000-0000000000a1';
 

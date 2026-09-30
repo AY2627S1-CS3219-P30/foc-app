@@ -1,3 +1,5 @@
+import type { Migration } from '@foc/platform';
+
 /**
  * Forward-only migrations, applied in order at boot and never edited once
  * merged: a change is a new entry. Kept as TypeScript strings rather than .sql
@@ -5,11 +7,6 @@
  *
  * Schema rationale: docs/user-service/schema.md.
  */
-export interface Migration {
-  id: string;
-  sql: string;
-}
-
 export const migrations: Migration[] = [
   {
     id: '001_identity',

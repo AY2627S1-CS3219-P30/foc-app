@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { createLogger, PinoLoggerService, startService } from '@foc/platform';
+import { createLogger, PinoLoggerService, runMigrations, startService } from '@foc/platform';
 import { DB, type Db } from './db/db.js';
-import { runMigrations } from './db/migrate.js';
+import { migrations } from './db/migrations.js';
 import { loadSeedSuppliers } from './admin/seed-data.js';
 import { seedSuppliers } from './admin/seed.js';
 
@@ -16,7 +16,7 @@ async function main(): Promise<void> {
   const app = await NestFactory.create(AppModule, { logger });
 
   // Schema first, then traffic: a request must never reach a database that is behind.
-  const applied = await runMigrations(app.get<Db>(DB));
+  const applied = await runMigrations(app.get<Db>(DB), migrations);
   if (applied.length > 0) logger.log(`Applied migrations: ${applied.join(', ')}`);
 
   // Idempotent: safe to run on every boot, never overwrites an admin's edits.
