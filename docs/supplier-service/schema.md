@@ -1,7 +1,7 @@
 # Supplier Service — Database Choice and Schema
 
 D2 §1–§2. Backlog refs: SS-FR4.1.1, and the SUP-01 acceptance criteria.
-Ticket: SUP-01 (#125); the listing indexes in §2 are SUP-02 (#126). Out of scope
+Ticket: SUP-01 (#125); the catalogue listing is SUP-02 (#126). Out of scope
 here: the listing UI (SUP-03) and the deletion-hold against live errands (SUP-04).
 
 ## 1. Database: PostgreSQL
@@ -56,7 +56,7 @@ are `timestamptz` (UTC).
 | `latitude`             | double precision NULL           | Paired with `longitude`; range-checked.                                                   |
 | `longitude`            | double precision NULL           | Paired with `latitude`; range-checked.                                                    |
 | `image_url`            | text NULL                       | Missing for ~15 of the 21 template rows, so optional.                                     |
-| `tags`                 | jsonb NULL                      | Array of strings.                                                                         |
+| `tags`                 | jsonb NULL                      | Array of strings; the array shape is database checked.                                   |
 | `active`               | boolean NOT NULL DEFAULT true   | Soft-deactivation flag. A deactivated supplier leaves listings but stays resolvable by id. |
 | `version`              | integer NOT NULL DEFAULT 1      | Optimistic-lock counter; every update bumps it.                                           |
 | `created_at`, `updated_at` | timestamptz NOT NULL        | `updated_at` bumped on every mutation.                                                    |
@@ -67,27 +67,21 @@ are `timestamptz` (UTC).
   coordinate travels as a pair or not at all.
 - `suppliers_latitude_range` / `suppliers_longitude_range` — a malformed
   coordinate is refused by the database as well as the API.
-- `suppliers_name_building_active_key` — `UNIQUE (lower(name), building) WHERE active`:
+- `suppliers_name_building_active_key` — `UNIQUE (lower(name), lower(building)) WHERE active`:
   the case-insensitive name+building duplicate rule, scoped to active rows.
   "Starbucks @ YIH" and "Starbucks @ UTown" both live (different buildings); two
   active same-name suppliers in one building are refused; deactivating a supplier
   frees its name for reuse.
 
-**Listing indexes (SUP-02, migration `003`)**
+**Listing (SUP-02)**
 
-All are partial (`WHERE active`), since only active rows are listed.
-
-- **Sorts** — `(lower(name), supplier_id)`, `(type, lower(name), supplier_id)`,
-  `(lower(building), lower(name), supplier_id)`, `(updated_at, lower(name), supplier_id)`.
-  Each matches its `ORDER BY` exactly (a backward scan serves `DESC`). Text keys
-  are lower-cased so order does not depend on the database collation (musl's is
-  byte order), and every sort tie-breaks by name then id. The building index also
-  serves the building filter; the type index replaces 001's `(type)` index.
-- **Search** — `pg_trgm` GIN indexes on `name`, `building`, `location_description`
-  and `supplier_tags_text(tags)`, an immutable function joining tag values with
-  newlines. Every arm of the `ILIKE '%q%'` search is indexable, so the planner
-  can `BitmapOr` them. This adds the `pg_trgm` extension, a standard contrib
-  module that PGlite also ships.
+At the current catalogue size, listing scans the active rows. The type index
+from migration `001` remains available for filtering; migration `003` removes
+the superseded sort and search indexes from databases that applied an earlier
+SUP-02 draft. A listing uses one SQL statement for its count and page, so both
+come from the same snapshot. Only the selected sort key follows `order`; ties
+sort by name, building, then supplier ID ascending. Search checks name, building,
+location description, and each tag value separately.
 
 ### `supplier_idempotency_keys`
 

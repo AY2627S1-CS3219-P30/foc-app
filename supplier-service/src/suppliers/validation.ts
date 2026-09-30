@@ -144,7 +144,7 @@ export const supplierUpdateSchema = z
 
 export const supplierIdSchema = z.uuid();
 
-/** The fields a caller may sort by; ties are broken by name, then `supplierId`, for stable paging. */
+/** The fields a caller may sort by; ties are broken by name, building, then `supplierId`, for stable paging. */
 export const SUPPLIER_SORTS = ['name', 'type', 'building', 'updatedAt'] as const;
 export type SupplierSort = (typeof SUPPLIER_SORTS)[number];
 
@@ -169,8 +169,9 @@ const optionalFilter = <T extends z.ZodType>(schema: T) =>
 /**
  * The `GET /suppliers` query. Filters (`type`, `building`) and the search term
  * are optional; `type` is case-insensitive and `building` is canonicalized the
- * same way create is, so `com2` matches the stored `COM2`. `sort`/`order` fall
- * back to the stable default rather than erroring on a cosmetic typo.
+ * same way create is, so `com2` matches the stored `COM2`. `sort`/`order` are
+ * trimmed and case-insensitive, and fall back to the stable default rather than
+ * erroring on a cosmetic typo.
  */
 export const supplierListQuerySchema = z.object({
   page: count(1, (v) => Math.max(1, v)),
@@ -178,9 +179,15 @@ export const supplierListQuerySchema = z.object({
   type: optionalFilter(z.string().trim().toUpperCase().pipe(z.enum(SUPPLIER_TYPES))),
   building: optionalFilter(text().trim().transform(normalizeBuilding)),
   q: optionalFilter(text().trim().max(200)),
-  sort: z.enum(SUPPLIER_SORTS).catch('name'),
+  sort: z
+    .string()
+    .trim()
+    .transform((v) => SUPPLIER_SORTS.find((s) => s.toLowerCase() === v.toLowerCase()))
+    .pipe(z.enum(SUPPLIER_SORTS))
+    .catch('name'),
   order: z
     .string()
+    .trim()
     .toLowerCase()
     .pipe(z.enum(['asc', 'desc']))
     .catch('asc'),

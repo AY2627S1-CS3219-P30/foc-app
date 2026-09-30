@@ -86,10 +86,16 @@ export interface SupplierListItem {
   imageUrl: string | null;
 }
 
-export type SupplierListRow = Pick<
-  SupplierRow,
-  'supplier_id' | 'name' | 'type' | 'building' | 'image_url'
->;
+/** The columns a listing reads, backing both {@link SupplierListRow} and the repository's SELECT. */
+export const SUPPLIER_LIST_COLUMNS = [
+  'supplier_id',
+  'name',
+  'type',
+  'building',
+  'image_url',
+] as const satisfies readonly (keyof SupplierRow)[];
+
+export type SupplierListRow = Pick<SupplierRow, (typeof SUPPLIER_LIST_COLUMNS)[number]>;
 
 export const toSupplierListItem = (r: SupplierListRow): SupplierListItem => ({
   supplierId: r.supplier_id,

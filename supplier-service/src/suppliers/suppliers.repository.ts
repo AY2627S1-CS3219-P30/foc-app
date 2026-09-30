@@ -1,6 +1,12 @@
+import { escapeLike } from '@foc/platform';
 import type { Queryable } from '../db/db.js';
-import type { SupplierInput, SupplierListRow, SupplierRow } from './types.js';
-import type { SupplierSort } from './validation.js';
+import {
+  SUPPLIER_LIST_COLUMNS,
+  type SupplierInput,
+  type SupplierListRow,
+  type SupplierRow,
+} from './types.js';
+import type { SupplierListQuery, SupplierSort } from './validation.js';
 
 /** Postgres error code for a unique-constraint violation, shared by `pg` and PGlite. */
 export const UNIQUE_VIOLATION = '23505';
@@ -45,22 +51,11 @@ const SORT_KEY: Record<SupplierSort, string> = {
   updatedAt: 'updated_at',
 };
 
+/** Tie-breaks after the requested sort key, always ascending, so equal keys keep a stable A→Z order. */
+const TIE_BREAKS = ['lower(name)', 'lower(building)', 'supplier_id'];
+
 /** The lean columns a listing needs; the detail view reads the full row instead. */
-const LIST_COLUMNS = 'supplier_id, name, type, building, image_url';
-
-/** Escapes LIKE wildcards so a search for `50%` matches that text, not everything. */
-const likeContains = (q: string): string => `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-
-/** A validated `GET /suppliers` query, as the repository consumes it. */
-export interface ListFilters {
-  page: number;
-  pageSize: number;
-  type?: string;
-  building?: string;
-  q?: string;
-  sort: SupplierSort;
-  order: 'asc' | 'desc';
-}
+const LIST_COLUMNS = SUPPLIER_LIST_COLUMNS.join(', ');
 
 /**
  * All SQL for the suppliers tables. Every function takes a {@link Queryable} so
@@ -127,12 +122,14 @@ export const suppliersRepository = {
   },
 
   /**
-   * A page of active suppliers, filtered, searched and sorted (SUP-02). Every
-   * sort tie-breaks by name then `supplier_id`, so paging the full set returns
-   * every row exactly once. Returns the page's lean rows and the unpaged
-   * `total`; run it in one snapshot so the two agree.
+   * A page of active suppliers, filtered, searched and sorted (SUP-02), with
+   * the unpaged `total`. One statement, so both come from one snapshot, and an
+   * out-of-range page still reports the total.
    */
-  async list(q: Queryable, f: ListFilters): Promise<{ rows: SupplierListRow[]; total: number }> {
+  async list(
+    q: Queryable,
+    f: SupplierListQuery,
+  ): Promise<{ rows: SupplierListRow[]; total: number }> {
     const where = ['active'];
     const params: unknown[] = [];
     const bind = (value: unknown): string => {
@@ -143,35 +140,39 @@ export const suppliersRepository = {
     if (f.type) where.push(`type = ${bind(f.type)}`);
     if (f.building) where.push(`lower(building) = lower(${bind(f.building)})`);
     if (f.q) {
-      const term = bind(likeContains(f.q));
+      const term = bind(`%${escapeLike(f.q)}%`);
       where.push(
         `(name ILIKE ${term} ESCAPE '\\'
           OR building ILIKE ${term} ESCAPE '\\'
           OR location_description ILIKE ${term} ESCAPE '\\'
-          OR supplier_tags_text(tags) ILIKE ${term} ESCAPE '\\')`,
+          OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(tags) AS tag
+                     WHERE tag ILIKE ${term} ESCAPE '\\'))`,
       );
     }
-    const clause = `WHERE ${where.join(' AND ')}`;
 
-    const totalResult = await q.query<{ n: number }>(
-      `SELECT count(*)::int AS n FROM suppliers ${clause}`,
+    // `order` is validated to asc|desc and every key comes from a fixed map, so
+    // neither reaches SQL from raw input. Only the primary key takes `order`.
+    const primary = SORT_KEY[f.sort];
+    const orderBy = [
+      `${primary} ${f.order === 'desc' ? 'DESC' : 'ASC'}`,
+      ...TIE_BREAKS.filter((k) => k !== primary),
+    ].join(', ');
+
+    // The count is the driving row, so an empty page still yields one row
+    // carrying the total (with null supplier columns). The join does not promise
+    // to keep the page's order, so the outer query restates it.
+    const { rows } = await q.query<SupplierListRow & { total: number }>(
+      `WITH matched AS (SELECT * FROM suppliers WHERE ${where.join(' AND ')})
+       SELECT total, ${LIST_COLUMNS}
+       FROM (SELECT count(*)::int AS total FROM matched) AS counted
+       LEFT JOIN (
+         SELECT * FROM matched ORDER BY ${orderBy}
+         LIMIT ${bind(f.pageSize)} OFFSET ${bind((f.page - 1) * f.pageSize)}
+       ) AS page ON true
+       ORDER BY ${orderBy}`,
       params,
     );
-    const total = totalResult.rows[0]?.n ?? 0;
-
-    // `order` is validated to asc|desc and the sort key comes from a fixed map,
-    // so neither reaches SQL from raw input. Apply the direction to the
-    // tie-breaks too so each sort is one total order an index can walk.
-    const dir = f.order === 'desc' ? 'DESC' : 'ASC';
-    const keys = [...new Set([SORT_KEY[f.sort], 'lower(name)', 'supplier_id'])];
-    const orderBy = `ORDER BY ${keys.map((k) => `${k} ${dir}`).join(', ')}`;
-    const { rows } = await q.query<SupplierListRow>(
-      `SELECT ${LIST_COLUMNS} FROM suppliers ${clause}
-       ${orderBy}
-       LIMIT ${bind(f.pageSize)} OFFSET ${bind((f.page - 1) * f.pageSize)}`,
-      params,
-    );
-    return { rows, total };
+    return { total: rows[0]!.total, rows: rows.filter((r) => r.supplier_id !== null) };
   },
 
   /**

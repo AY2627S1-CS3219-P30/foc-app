@@ -41,6 +41,21 @@ describe('ErrorEnvelopeFilter', () => {
     expect(body.error.code).toBe('CONFLICT');
   });
 
+  it.each(['22021', '22P05'])('maps a Postgres %s (text it cannot store) to a 422', (sqlState) => {
+    const err = Object.assign(new Error('invalid byte sequence for encoding "UTF8": 0x00'), {
+      code: sqlState,
+    });
+    const { status, body } = run(err);
+    expect(status).toBe(422);
+    expect(body.error.code).toBe('VALIDATION_FAILED');
+    expect(JSON.stringify(body)).not.toContain('0x00');
+  });
+
+  it('still treats other Postgres errors as internal', () => {
+    const { status } = run(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
+    expect(status).toBe(500);
+  });
+
   it('never leaks an unexpected error message', () => {
     const { status, body } = run(new Error('secret db password'));
     expect(status).toBe(500);

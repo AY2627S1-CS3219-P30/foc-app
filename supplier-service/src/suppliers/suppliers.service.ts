@@ -72,12 +72,7 @@ export class SuppliersService {
   constructor(@Inject(DB) private readonly db: Db) {}
 
   async list(query: SupplierListQuery): Promise<SupplierPage> {
-    // One snapshot for the count and the page, so `total` agrees with `items`
-    // even while a concurrent write commits between the two statements.
-    const { rows, total } = await this.db.transaction(async (tx) => {
-      await tx.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY');
-      return repo.list(tx, query);
-    });
+    const { rows, total } = await repo.list(this.db, query);
     return {
       page: query.page,
       pageSize: query.pageSize,

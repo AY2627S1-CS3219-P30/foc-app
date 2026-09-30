@@ -15,6 +15,9 @@ export interface Queryable {
   exec(sql: string): Promise<void>;
 }
 
+/** Escapes LIKE metacharacters so user input matches literally (pair with `ESCAPE '\\'`). */
+export const escapeLike = (s: string): string => s.replace(/[\\%_]/g, (c) => `\\${c}`);
+
 export interface Db extends Queryable {
   /** Runs `fn` in one transaction: commits if it resolves, rolls back if it throws. */
   transaction<T>(fn: (tx: Queryable) => Promise<T>): Promise<T>;

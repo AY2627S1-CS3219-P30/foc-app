@@ -69,6 +69,23 @@ describe('NUL bytes are a 422, not a 500', () => {
   });
 });
 
+describe('database tag shape', () => {
+  it('rejects a non-array tags value', async () => {
+    const created = await http(t)
+      .post('/suppliers')
+      .set('Authorization', asAdmin)
+      .send(validSupplier())
+      .expect(201);
+
+    await expect(
+      t.db.query('UPDATE suppliers SET tags = $1::jsonb WHERE supplier_id = $2', [
+        '{}',
+        created.body.supplierId,
+      ]),
+    ).rejects.toMatchObject({ code: '23514', constraint: 'suppliers_tags_array' });
+  });
+});
+
 describe('page and page size accept only plain decimal integers', () => {
   it('falls back to the default for an empty or non-decimal value', () => {
     expect(parse({ pageSize: '' }).pageSize).toBe(20);
@@ -93,9 +110,12 @@ describe('repeated query keys never 500', () => {
   });
 });
 
-describe('order and type are case-insensitive', () => {
-  it('accepts any casing', () => {
-    expect(parse({ order: 'DESC' }).order).toBe('desc');
+describe('sort, order and type are case-insensitive', () => {
+  it('accepts any casing and trims sort and order', () => {
+    expect(parse({ sort: ' UPDATEDAT ', order: ' DESC ' })).toMatchObject({
+      sort: 'updatedAt',
+      order: 'desc',
+    });
     expect(parse({ type: 'food' }).type).toBe('FOOD');
   });
 });

@@ -89,39 +89,25 @@ export const migrations: Migration[] = [
     `,
   },
   {
-    id: '003_supplier_search_indexes',
+    id: '003_suppliers_tags_array',
     sql: `
-      -- Trigram matching backs the case-insensitive substring search (SUP-02).
-      -- pg_trgm is a standard contrib extension; the test DB (PGlite) loads it too.
-      CREATE EXTENSION IF NOT EXISTS pg_trgm;
+      -- Some development databases applied the earlier SUP-02 migration. Remove
+      -- its indexes and function while preserving the type index from 001.
+      DROP INDEX IF EXISTS suppliers_active_name_idx;
+      DROP INDEX IF EXISTS suppliers_active_type_name_idx;
+      DROP INDEX IF EXISTS suppliers_active_building_name_idx;
+      DROP INDEX IF EXISTS suppliers_active_updated_idx;
+      DROP INDEX IF EXISTS suppliers_name_trgm_idx;
+      DROP INDEX IF EXISTS suppliers_building_trgm_idx;
+      DROP INDEX IF EXISTS suppliers_location_trgm_idx;
+      DROP INDEX IF EXISTS suppliers_tags_trgm_idx;
+      DROP FUNCTION IF EXISTS supplier_tags_text(jsonb);
+      CREATE INDEX IF NOT EXISTS suppliers_active_type_idx ON suppliers (type) WHERE active;
 
-      -- The sort paths, matching each ORDER BY exactly (a backward scan serves
-      -- DESC). Text keys are lower-cased and every sort tie-breaks by lower(name)
-      -- then supplier_id. The building index also serves the building filter,
-      -- and the type index supersedes 001's (type) index.
-      DROP INDEX suppliers_active_type_idx;
-      CREATE INDEX suppliers_active_name_idx
-        ON suppliers (lower(name), supplier_id) WHERE active;
-      CREATE INDEX suppliers_active_type_name_idx
-        ON suppliers (type, lower(name), supplier_id) WHERE active;
-      CREATE INDEX suppliers_active_building_name_idx
-        ON suppliers (lower(building), lower(name), supplier_id) WHERE active;
-      CREATE INDEX suppliers_active_updated_idx
-        ON suppliers (updated_at, lower(name), supplier_id) WHERE active;
-
-      -- Tag values as one newline-joined string, so tag search matches values,
-      -- never JSON syntax, and can use a trigram index like the other fields.
-      CREATE FUNCTION supplier_tags_text(tags jsonb) RETURNS text
-        LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
-        AS $$ SELECT string_agg(tag, E'\\n') FROM jsonb_array_elements_text(tags) AS tag $$;
-
-      -- Every search arm is trigram-indexed, so the planner can BitmapOr them
-      -- rather than scanning.
-      CREATE INDEX suppliers_name_trgm_idx ON suppliers USING gin (name gin_trgm_ops) WHERE active;
-      CREATE INDEX suppliers_building_trgm_idx ON suppliers USING gin (building gin_trgm_ops) WHERE active;
-      CREATE INDEX suppliers_location_trgm_idx ON suppliers USING gin (location_description gin_trgm_ops) WHERE active;
-      CREATE INDEX suppliers_tags_trgm_idx
-        ON suppliers USING gin (supplier_tags_text(tags) gin_trgm_ops) WHERE active;
+      -- Tag search expands each tag, so the database enforces the array shape.
+      ALTER TABLE suppliers
+        ADD CONSTRAINT suppliers_tags_array
+        CHECK (tags IS NULL OR jsonb_typeof(tags) = 'array');
     `,
   },
 ];

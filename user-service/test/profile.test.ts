@@ -79,6 +79,11 @@ describe('PATCH /users/me (US-FR3.1.1)', () => {
     await patch(alex, { preferredMode: 'ADMIN' }).expect(422);
   });
 
+  it('rejects text Postgres cannot store as a 422, not a 500', async () => {
+    const res = await patch(alex, { displayName: 'Al\0ex' }).expect(422);
+    expect(res.body.error.code).toBe('VALIDATION_FAILED');
+  });
+
   it('cannot touch another user: the target is always the token’s subject', async () => {
     await patch(alex, { displayName: 'Only Alex' }).expect(200);
     expect((await row(sam.id)).display_name).toBe('Alex Tan'); // sam's default from registration, unchanged

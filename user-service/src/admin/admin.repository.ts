@@ -1,3 +1,4 @@
+import { escapeLike } from '@foc/platform';
 import type { Queryable } from '../db/db.js';
 import type { AccountStatus, Role } from '../users/users.repository.js';
 
@@ -15,9 +16,6 @@ export interface LockedUser {
 }
 
 const ROLES = `array(SELECT r.role FROM user_roles r WHERE r.user_id = u.id ORDER BY r.role)`;
-
-/** Escapes LIKE wildcards so a search for `50%` matches the text, not everything. */
-const likePrefix = (q: string) => q.replace(/[\\%_]/g, (c) => `\\${c}`).toLowerCase() + '%';
 
 /** SQL for administration. Every function takes a {@link Queryable} so a whole action shares one transaction. */
 export const adminRepository = {
@@ -124,7 +122,7 @@ export const adminRepository = {
     if (f.role)
       add('EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = u.id AND r.role = ?)', f.role);
     if (f.q) {
-      params.push(likePrefix(f.q));
+      params.push(escapeLike(f.q).toLowerCase() + '%');
       const n = params.length;
       where.push(
         `(lower(u.email) LIKE $${n} ESCAPE '\\' OR lower(p.display_name) LIKE $${n} ESCAPE '\\')`,
