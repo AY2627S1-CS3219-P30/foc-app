@@ -75,7 +75,7 @@ describe('seedAdmins (US-FR3.1.3)', () => {
 
   it('issues a wallet event for the seeded admin like any other student', async () => {
     await seed(['root@u.nus.edu']);
-    const ev = (await t.db.query("SELECT * FROM outbox_events WHERE event_type = 'UserActivated'"))
+    const ev = (await t.db.query("SELECT * FROM outbox_events WHERE event_type = 'user.activated'"))
       .rows;
     expect(ev).toHaveLength(1);
   });

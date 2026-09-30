@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { ApiException } from '@foc/platform';
+import { ApiException, EVENTS } from '@foc/platform';
 import { hashPassword } from '../auth/passwords.js';
 import { sessionsRepository as sessions } from '../auth/sessions.repository.js';
 import { newOpaqueToken, sha256Hex } from '../auth/tokens.js';
@@ -124,9 +124,9 @@ export class UsersService {
         if (!activated) throw invalidToken();
         await repo.insertOutboxEvent(tx, {
           id: randomUUID(),
-          eventType: 'UserActivated',
+          eventType: EVENTS.USER_ACTIVATED,
           aggregateId: userId,
-          payload: { userId },
+          payload: { userId, activatedAt: new Date().toISOString() },
           correlationId,
         });
         return { userId, status: 'ACTIVE' as const, alreadyActivated: false };

@@ -53,15 +53,16 @@ instead of a workshop. The User Service spec is written against them.
 
 ### Events published by the User Service
 
-| `eventType`       | When                              | Payload (see `components.schemas` in the OpenAPI) |
-| ----------------- | --------------------------------- | ------------------------------------------------- |
-| `UserActivated`   | Exactly once, on first activation | `{ userId }`                                      |
-| `UserSuspended`   | Each transition into `SUSPENDED`  | `{ userId, status, reasonRef, occurredAt }`       |
-| `UserReactivated` | Each transition back to `ACTIVE`  | `{ userId, status, reasonRef, occurredAt }`       |
+| `eventType`         | When                                  | Payload (schemas: `platform/src/events/catalogue.ts`) |
+| ------------------- | ------------------------------------- | ----------------------------------------------------- |
+| `user.activated`    | Exactly once, on first activation     | `{ userId, activatedAt }`                             |
+| `user.suspended`    | Each transition into `SUSPENDED`      | `{ userId, status, reasonRef, occurredAt }`           |
+| `user.reactivated`  | Each transition back to `ACTIVE`      | `{ userId, status, reasonRef, occurredAt }`           |
+| `user.role-changed` | Each `ADMIN` grant or revoke (USR-07) | `{ userId, roles, reasonRef, occurredAt }`            |
 
-> **Conflict to resolve.** Execution plan §3.2 names `UserActivated` and `UserStatusChanged`. The
-> submitted backlog (US-FR4.1.4) and USR-03 (#122) name `UserSuspended` and `UserReactivated`. This draft
-> follows the backlog, which is the frozen document.
+> The names are the shared catalogue's routing keys (EVT-01), which settled the earlier conflict between the
+> execution plan's `UserStatusChanged` and the backlog's `UserSuspended` / `UserReactivated`: the backlog's two events,
+> named by the catalogue's convention.
 
 ## Open questions for Jonus / Patrick
 
