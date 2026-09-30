@@ -12,9 +12,11 @@ export default defineConfig({
       SERVICE_NAME: 'supplier-service',
       PORT: '3002',
       LOG_LEVEL: 'silent',
-      // The integration suite overrides DB and the authenticator with test
-      // doubles; these satisfy config validation at import time. Nothing here
-      // is a real endpoint — no test opens a connection to them.
+      // The integration suites override DB and the authenticator with test
+      // doubles (auth-integration.test.ts instead points the real authenticator
+      // at a fake User Service it starts itself); these satisfy config
+      // validation at import time. Nothing here is a real endpoint — no test
+      // opens a connection to them.
       DATABASE_URL: 'postgres://supplier_service:test@localhost:5432/foc_supplier_test',
       USER_SERVICE_URL: 'http://user-service.test',
       INTERNAL_SERVICE_KEY: 'test-internal-key-0123456789',

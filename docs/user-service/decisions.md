@@ -427,15 +427,23 @@ this package and the `TOKEN_*` codes. So there are **two verification paths and 
 - **Trade-off:** a client sees `UNAUTHENTICATED` from the User Service but `TOKEN_EXPIRED` from Supplier for the same condition.
   **Open:** map the User Service's guard onto the same codes so the web app has one vocabulary (small change, but it alters USR-02/03's contract, so it needs a reviewer's say).
 
-### K8. Not yet wired into Supplier, Order or Credit — 🟡
-Those are other people's services and tickets (SUP-01 needs it). The package is proven three ways: a fake User Service speaking the real wire protocol, a Supplier-style Nest
-controller, and the **real User Service over real HTTP**. Wiring it into Supplier is four steps in `auth-client/README.md`.
-- **Effect on D2 point 4:** until SUP-01 lands, the Supplier integration demo is the sample controller in `auth-client/test`, not Supplier itself.
+### K8. Wired into Supplier; Order and Credit next — ✅ (Supplier)
+SUP-01 wired Supplier to the package (`@Authenticated` reads, `@AdminOnly` writes). `supplier-service/test/auth-integration.test.ts`
+now drives Supplier's **real** routes through the **real** authenticator against the wire-level fake User Service: a student token is
+refused on create/update/deactivate (and nothing is written) and an admin token accepted; expired and malformed tokens return distinct
+codes in the shared envelope; a forged signature or a foreign issuer is `TOKEN_INVALID`; a suspended admin and a revoked session are
+refused, including an admin suspended, demoted or logged out after a successful write (with `cacheTtlMs: 0`; production allows the
+5 s staleness window); client role headers and body fields change nothing. Supplier's other tests keep the lightweight stand-in
+authenticator, so they stay focused on catalogue logic.
+- Order and Credit adopt it with their first mutating endpoints (USR-07).
 
 ### K9. The integration test imports the User Service's test helpers by relative path — 🟡
 It lets `auth-client` boot the real service in-process without publishing or duplicating it.
 - **Trade-off:** `auth-client`'s tests are coupled to `user-service`'s test layout, and the vitest env for `auth-client` carries the User Service's config variables.
   Acceptable for a test; not something production code should do.
+- **Same pattern one level down:** `supplier-service/test/auth-integration.test.ts` imports `auth-client/test/helpers/fake-user-service.ts` by relative
+  path (K8), so Supplier's tests are coupled to `auth-client`'s test layout too. That helper signs tokens with `jose`, so `supplier-service` declares
+  `jose` as a devDependency rather than relying on it being hoisted.
 
 ### K10. Verification — ✅
 48 tests; ten deliberate breakages, each caught (revoked treated as active, suspended allowed, admin guard open, expired reported as invalid, issuer unchecked,
