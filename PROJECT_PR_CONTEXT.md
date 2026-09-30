@@ -23,8 +23,8 @@ This context file was produced with Codex by summarizing the repository, live Gi
 ## GitHub inventory
 
 - **11 open issues** are assigned to `isaacchua0309`.
-- **0 open pull requests** are assigned to `isaacchua0309`.
-- All 11 assigned issues have no issue comments and no directly linked closing PR at this snapshot.
+- **PR [#201](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/201)** is open from `feat/183-132-133-140-143-credit-foundation` to `main`; CI and requested human reviews are pending.
+- #133, #140 and #143 are linked to close on merge. #132 and #183 link the implementation but remain open for their required human approvals; #183 also awaits #186's backlog revision.
 - Three assigned Sprint 1 issues (#132, #133, #183) have a milestone due date of 2026-09-25 and remain open.
 - Implementation for #183, #132, #133, #140 and #143 is on branch `feat/183-132-133-140-143-credit-foundation`; review, CI and merge remain pending.
 
@@ -668,11 +668,11 @@ This must precede reservation and the full read API because both depend on the p
 # 7. Progress Tracker
 
 ```ini
-[ ] #183 — FND-02 Decision records and domain glossary — implementation complete; approvals/backlog update pending
-[ ] #132 — CRD-00 Credit invariant and double-entry ledger decision record — implementation complete; approvals pending
-[ ] #133 — CRD-01 Wallet creation and initial credit allocation — implementation complete; review/CI/merge pending
-[ ] #140 — CRD-02 Asynchronous credit reservation — implementation complete; Order integration/review/CI/merge pending
-[ ] #143 — CRD-05 Wallet balance and ledger API — implementation complete; review/CI/merge pending
+[ ] #183 — FND-02 Decision records and domain glossary — PR #201; approvals/#186 backlog update pending
+[ ] #132 — CRD-00 Credit invariant and double-entry ledger decision record — PR #201; approvals pending
+[ ] #133 — CRD-01 Wallet creation and initial credit allocation — PR #201; review/CI/merge pending
+[ ] #140 — CRD-02 Asynchronous credit reservation — PR #201; Order integration/review/CI/merge pending
+[ ] #143 — CRD-05 Wallet balance and ledger API — PR #201; review/CI/merge pending
 [ ] #141 — CRD-03 Atomic completion transfer
 [ ] #142 — CRD-04 Reservation release
 [ ] #151 — CRD-06 Transaction status query and closed-economy guard
