@@ -2,23 +2,42 @@
 
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { Button } from "@/components/Button";
 import { Menu } from "@/components/Menu";
 import { useAuth } from "@/lib/auth";
 import styles from "./layout.module.css";
 
 /**
  * Every screen in this group needs a session. While the cold-load refresh is in flight a status is
- * shown (never a blank flash); a signed-out visitor, or one whose session just ended, goes to sign in
- * and comes back here afterwards.
+ * shown (never a blank flash). A signed-out visitor, or one whose session just ended, goes to sign in
+ * and comes back here afterwards; someone who signed out on purpose just goes to sign in. This is the
+ * only place that navigates on sign-out, so logging out is a single navigation.
+ *
+ * If the service could not be asked at all (offline, down, misconfigured), that is not a sign-out:
+ * the problem is shown with a retry.
  */
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  const { status } = useAuth();
+  const { status, endedBy, problem, retry } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
-    if (status === "signedOut") router.replace(`/login?next=${encodeURIComponent(pathname)}`);
-  }, [status, pathname, router]);
+    if (status !== "signedOut") return;
+    // The query string is part of where they were (`/request/new/details?…`).
+    const here = `${pathname}${window.location.search}`;
+    router.replace(endedBy === "loggedOut" ? "/login" : `/login?next=${encodeURIComponent(here)}`);
+  }, [status, endedBy, pathname, router]);
+
+  if (status === "unavailable") {
+    return (
+      <div className={styles.pending}>
+        <p role="alert">{problem}</p>
+        <Button variant="outline" onClick={() => void retry()}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
 
   if (status !== "signedIn") {
     return (

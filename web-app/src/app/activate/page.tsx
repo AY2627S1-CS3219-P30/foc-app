@@ -5,12 +5,14 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AuthCard } from "@/components/AuthCard";
 import { Button } from "@/components/Button";
 import { FormAlert, FormField } from "@/components/FormField";
+import { useHydrated } from "@/lib/use-hydrated";
 import { useQueryParam } from "@/lib/use-query-param";
 import { ApiError, userApi } from "@/lib/user-api";
 
 type State = "idle" | "working" | "done" | "error";
 
 export default function ActivatePage() {
+  const hydrated = useHydrated();
   const linkToken = useQueryParam("token");
   const [token, setToken] = useState("");
   const [state, setState] = useState<State>("idle");
@@ -30,7 +32,12 @@ export default function ActivatePage() {
     } catch (err) {
       setState("error");
       if (err instanceof ApiError && err.code === "ACTIVATION_TOKEN_EXPIRED") {
-        setMessage("This activation link has expired. Register again to get a new one.");
+        // There is no way to send a fresh link yet, and registering again is refused (the email is
+        // taken), so say so plainly. See "Waiting on the User Service" in the web-app README.
+        setMessage(
+          "This activation link has expired, and the app can't send a new one yet. " +
+            "Contact support to activate your account.",
+        );
       } else if (err instanceof ApiError && err.code === "ACTIVATION_TOKEN_INVALID") {
         setMessage("This activation link isn't valid. Check you copied all of it.");
       } else if (err instanceof ApiError && err.details.length > 0) {
@@ -61,42 +68,41 @@ export default function ActivatePage() {
     void activate(value);
   }
 
-  if (state === "done") {
-    return (
-      <AuthCard title="Account activated">
-        <FormAlert tone="success">{message}</FormAlert>
+  const done = state === "done";
+
+  // One card for every step, so each message lands in a live region that was already there.
+  return (
+    <AuthCard
+      title={done ? "Account activated" : "Activate your account"}
+      intro={done ? undefined : "Open the link in the email we sent, or paste its code here."}
+      footer={done ? undefined : <Link href="/login">Back to sign in</Link>}
+    >
+      <FormAlert tone="success">{done && message}</FormAlert>
+      {done ? (
         <Link className="btn btn--primary btn--full" href="/login">
           Sign in
         </Link>
-      </AuthCard>
-    );
-  }
-
-  return (
-    <AuthCard
-      title="Activate your account"
-      intro="Open the link in the email we sent, or paste its code here."
-      footer={<Link href="/login">Back to sign in</Link>}
-    >
-      <form onSubmit={onSubmit} noValidate aria-busy={state === "working"}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {state === "working" && <FormAlert tone="info">Activating…</FormAlert>}
-          {state === "error" && message && <FormAlert>{message}</FormAlert>}
-          <FormField
-            label="Activation code"
-            name="token"
-            autoComplete="one-time-code"
-            spellCheck={false}
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            error={fieldError}
-            required
-          />
-          <Button type="submit" full disabled={state === "working"}>
-            Activate
-          </Button>
-        </div>
-      </form>
+      ) : (
+        <form method="post" onSubmit={onSubmit} noValidate aria-busy={state === "working"}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <FormAlert tone="info">{state === "working" && "Activating…"}</FormAlert>
+            <FormAlert>{state === "error" && message}</FormAlert>
+            <FormField
+              label="Activation code"
+              name="token"
+              autoComplete="one-time-code"
+              spellCheck={false}
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              error={fieldError}
+              required
+            />
+            <Button type="submit" full disabled={!hydrated || state === "working"}>
+              Activate
+            </Button>
+          </div>
+        </form>
+      )}
     </AuthCard>
   );
 }

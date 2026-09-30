@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { orderForMode } from "@/lib/nav";
 import { useStore } from "@/lib/store";
@@ -20,7 +19,6 @@ const ITEMS = [
 export function Menu() {
   const { state, setMenuOpen } = useStore();
   const { logout, user } = useAuth();
-  const router = useRouter();
   const panelRef = useRef<HTMLElement>(null);
 
   const isOpen = state.isMenuOpen;
@@ -90,7 +88,8 @@ export function Menu() {
           className={`${styles.item} ${styles.logout}`}
           onClick={() => {
             setMenuOpen(false);
-            void logout().then(() => router.push("/login"));
+            // The (app) layout takes a signed-out visitor to sign in.
+            void logout();
           }}
         >
           Log out

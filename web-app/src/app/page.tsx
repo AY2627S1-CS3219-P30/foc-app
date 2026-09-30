@@ -10,7 +10,8 @@ export default function Home() {
 
   useEffect(() => {
     if (status === "loading") return;
-    router.replace(status === "signedIn" ? "/feed" : "/login");
+    // `unavailable` goes to the app too, whose layout explains the problem and offers a retry.
+    router.replace(status === "signedOut" ? "/login" : "/feed");
   }, [status, router]);
 
   return null;

@@ -118,16 +118,25 @@ services:
 
   # ---- web ------------------------------------------------------------------
   web-app:
-    build: { context: ./web-app }
+    build:
+      context: ./web-app
+      # Build args, not runtime environment: `next build` inlines NEXT_PUBLIC_*
+      # into the browser bundle, so a value set on the running container is
+      # ignored. Change one and rebuild (`up --build`).
+      #
+      # The browser resolves these, not the container, so they are localhost
+      # URLs rather than compose service names.
+      args:
+        NEXT_PUBLIC_USER_SERVICE_URL: http://localhost:${USER_SERVICE_PORT:-3001}
+        NEXT_PUBLIC_SUPPLIER_SERVICE_URL: http://localhost:${SUPPLIER_SERVICE_PORT:-3002}
+        NEXT_PUBLIC_ORDER_SERVICE_URL: http://localhost:${ORDER_SERVICE_PORT:-3003}
+        NEXT_PUBLIC_CREDIT_SERVICE_URL: http://localhost:${CREDIT_SERVICE_PORT:-3004}
+        # The stack's User Service runs in development mode, which mounts the
+        # dev mailbox, so the sign-up screen may link straight to activation.
+        NEXT_PUBLIC_DEV_MAILBOX: 'true'
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      # The browser resolves these, not the container, so they are localhost
-      # URLs rather than compose service names.
-      NEXT_PUBLIC_USER_SERVICE_URL: http://localhost:${USER_SERVICE_PORT:-3001}
-      NEXT_PUBLIC_SUPPLIER_SERVICE_URL: http://localhost:${SUPPLIER_SERVICE_PORT:-3002}
-      NEXT_PUBLIC_ORDER_SERVICE_URL: http://localhost:${ORDER_SERVICE_PORT:-3003}
-      NEXT_PUBLIC_CREDIT_SERVICE_URL: http://localhost:${CREDIT_SERVICE_PORT:-3004}
     depends_on:
       user-service: { condition: service_healthy }
       supplier-service: { condition: service_healthy }

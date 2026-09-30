@@ -7,6 +7,7 @@ import { AuthCard } from "@/components/AuthCard";
 import { Button } from "@/components/Button";
 import { FormAlert, FormField } from "@/components/FormField";
 import { useAuth } from "@/lib/auth";
+import { useHydrated } from "@/lib/use-hydrated";
 import { useQueryParam } from "@/lib/use-query-param";
 import { ApiError, userApi } from "@/lib/user-api";
 import { PASSWORD_MIN, validatePasswordChange, type Errors } from "@/lib/validation";
@@ -14,11 +15,13 @@ import { PASSWORD_MIN, validatePasswordChange, type Errors } from "@/lib/validat
 /**
  * Changes a password by proving the current one (`POST /auth/password`). Also the first stop for a
  * bootstrap administrator: their configured password cannot start a session, only replace itself.
- * On success every session of the account ends, so we sign in again with the new password.
+ * On success every session of the account ends, so we sign in again with the new password. That
+ * sign-in is a separate step: if it fails, the password has still changed and we say so.
  */
 export default function ChangePasswordPage() {
   const { login } = useAuth();
   const router = useRouter();
+  const hydrated = useHydrated();
   const emailParam = useQueryParam("email");
   const required = useQueryParam("required") === "1";
   const [form, setForm] = useState({ email: "", currentPassword: "", newPassword: "", confirm: "" });
@@ -26,6 +29,8 @@ export default function ChangePasswordPage() {
   const [alert, setAlert] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [emailTouched, setEmailTouched] = useState(false);
+  // The password changed but signing in with it did not: the form has done its job.
+  const [changed, setChanged] = useState(false);
   // Prefilled from ?email= (the sign-in page sends it) until the user edits the field.
   const email = emailTouched ? form.email : (emailParam ?? "");
 
@@ -48,8 +53,6 @@ export default function ChangePasswordPage() {
         currentPassword: form.currentPassword,
         newPassword: form.newPassword,
       });
-      await login(email.trim(), form.newPassword);
-      router.replace("/feed");
     } catch (err) {
       if (!(err instanceof ApiError)) setAlert("Something went wrong. Please try again.");
       else if (err.code === "INVALID_CREDENTIALS") {
@@ -60,6 +63,14 @@ export default function ChangePasswordPage() {
         setAlert("Check the highlighted fields.");
       } else if (err.code === "RATE_LIMITED") setAlert("Too many attempts. Wait a few minutes.");
       else setAlert(err.message);
+      setSubmitting(false);
+      return;
+    }
+    try {
+      await login(email.trim(), form.newPassword);
+      router.replace("/feed");
+    } catch {
+      setChanged(true);
     } finally {
       setSubmitting(false);
     }
@@ -75,9 +86,17 @@ export default function ChangePasswordPage() {
       }
       footer={<Link href="/login">Back to sign in</Link>}
     >
-      <form onSubmit={onSubmit} noValidate aria-busy={submitting}>
+      <FormAlert tone="success">
+        {changed && (
+          <>
+            Password changed — <Link href="/login">sign in with your new password</Link>.
+          </>
+        )}
+      </FormAlert>
+      {/* method="post": if it were ever submitted natively, the passwords must not end up in a URL. */}
+      <form method="post" onSubmit={onSubmit} noValidate aria-busy={submitting} hidden={changed}>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {alert && <FormAlert>{alert}</FormAlert>}
+          <FormAlert>{alert}</FormAlert>
           <FormField
             label="NUS email"
             type="email"
@@ -119,7 +138,7 @@ export default function ChangePasswordPage() {
             error={errors.confirm}
             required
           />
-          <Button type="submit" full disabled={submitting}>
+          <Button type="submit" full disabled={!hydrated || submitting}>
             {submitting ? "Saving…" : "Save and sign in"}
           </Button>
         </div>

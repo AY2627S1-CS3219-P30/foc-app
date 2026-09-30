@@ -16,14 +16,16 @@ const OPTIONS: { value: PreferredMode; label: string }[] = [
  * active student may request and deliver, and no server decision ever reads it.
  */
 export function ModeSwitch() {
-  const { user, setMode } = useAuth();
+  const { user, setMode, modeSaving } = useAuth();
   const name = useId();
   const [error, setError] = useState<string | null>(null);
   if (!user) return null;
   const current = user.profile.preferredMode;
 
   async function choose(mode: PreferredMode) {
-    if (mode === current) return;
+    // While a save is in flight a further choice is ignored (every copy of the switch shares it).
+    // The inputs stay enabled rather than `disabled`, which would drop a keyboard user's focus.
+    if (mode === current || modeSaving) return;
     setError(null);
     try {
       await setMode(mode);
@@ -33,7 +35,7 @@ export function ModeSwitch() {
   }
 
   return (
-    <fieldset className={styles.switch}>
+    <fieldset className={styles.switch} aria-busy={modeSaving}>
       <legend className={styles.legend}>Mode</legend>
       <div className={styles.options}>
         {OPTIONS.map((o) => {
@@ -56,11 +58,10 @@ export function ModeSwitch() {
           );
         })}
       </div>
-      {error && (
-        <p role="alert" className={styles.error}>
-          {error}
-        </p>
-      )}
+      {/* Always mounted, so the message is announced when it arrives. */}
+      <p role="alert" className={styles.error}>
+        {error}
+      </p>
     </fieldset>
   );
 }

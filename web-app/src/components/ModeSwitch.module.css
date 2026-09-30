@@ -43,6 +43,11 @@
   cursor: pointer;
 }
 
+.switch[aria-busy="true"] .label {
+  cursor: progress;
+  opacity: 0.7;
+}
+
 .input:checked + .label {
   background: var(--color-surface);
   color: var(--color-primary);
@@ -53,4 +58,8 @@
   margin-top: var(--space-1);
   font-size: 12px;
   color: var(--color-danger);
+}
+
+.error:empty {
+  margin: 0;
 }

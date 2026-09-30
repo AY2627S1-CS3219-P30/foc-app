@@ -26,7 +26,19 @@
   line-height: 1.5;
 }
 
-.alert a {
+/* Empty, the live region stays in the accessibility tree but out of the layout (and out of a flex
+   container's gaps), so a message added later is announced without shifting anything until then. */
+.alert:empty {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.alert a,
+.alert button {
   font-weight: 600;
   text-decoration: underline;
   color: inherit;

@@ -10,15 +10,36 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import {
+  browserChannel,
+  browserLocks,
+  createSession,
+  storedFlag,
+  type EndReason,
+  type RefreshResult,
+} from "./session";
 import { ApiError, userApi, type Me, type PreferredMode, type Profile } from "./user-api";
 
-type Status = "loading" | "signedIn" | "signedOut";
+/** `unavailable`: the service could not be asked whether there is a session (offline, down, misconfigured). */
+type Status = "loading" | "signedIn" | "signedOut" | "unavailable";
 
 type Auth = {
   status: Status;
   user: Me | null;
+  /** Why the last session ended. A deliberate sign-out does not send the user back where they were. */
+  endedBy: EndReason | null;
+  /** When `unavailable`, what went wrong. */
+  problem: string | null;
+  /** A sign-out the service has not confirmed yet; the next load finishes it. */
+  logoutPending: boolean;
+  /** True while the mode switch is saving; further switches wait for it. */
+  modeSaving: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Tries a pending sign-out again; true once the service has confirmed it. */
+  retryLogout: () => Promise<boolean>;
+  /** Asks the service about the session again, after `unavailable`. */
+  retry: () => Promise<void>;
   /** Runs a call with the current access token, refreshing once and retrying if it has expired. */
   authed: <T>(fn: (token: string) => Promise<T>) => Promise<T>;
   updateProfile: (changes: Partial<Profile>) => Promise<Me>;
@@ -27,136 +48,120 @@ type Auth = {
 
 const AuthContext = createContext<Auth | null>(null);
 const CHANNEL = "foc-auth";
-const REFRESH_LOCK = "foc-auth-refresh";
+const LOGOUT_PENDING_KEY = "foc-logout-pending";
 
-/**
- * Sessions (USR-02's design, decisions.md A3/A5):
- *
- * - The access token lives in this component's memory only — never localStorage or a cookie — so an
- *   XSS bug cannot lift a long-lived credential. A reload loses it, so every cold load calls
- *   `/auth/refresh`, which uses the HttpOnly `foc_refresh` cookie the page cannot read.
- * - Refresh **rotates** the cookie, and presenting an already-rotated cookie revokes the whole session.
- *   Two tabs restored together would both present the same cookie and sign each other out. So refresh
- *   is single-flight within a tab (one shared promise) and across tabs (a Web Lock): the second tab
- *   waits, then presents the cookie the first one just received.
- * - Signing out in one tab signs out the others (BroadcastChannel).
- */
+const withMode = (user: Me, preferredMode: PreferredMode): Me => ({
+  ...user,
+  profile: { ...user.profile, preferredMode },
+});
+
+/** React state around the session rules in session.ts, which is where the reasoning lives. */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<Status>("loading");
   const [user, setUser] = useState<Me | null>(null);
-  const token = useRef<string | null>(null);
-  const inflight = useRef<Promise<string | null> | null>(null);
-  const channel = useRef<BroadcastChannel | null>(null);
+  const [endedBy, setEndedBy] = useState<EndReason | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [logoutPending, setLogoutPending] = useState(false);
+  const [modeSaving, setModeSaving] = useState(false);
+  const modeBusy = useRef(false);
 
-  const signedOut = useCallback(() => {
-    token.current = null;
-    setUser(null);
-    setStatus("signedOut");
-  }, []);
-
-  /** Returns a fresh access token, or null when there is no live session. */
-  const refresh = useCallback((): Promise<string | null> => {
-    if (inflight.current) return inflight.current;
-    const run = async () => {
-      try {
-        const res = await userApi.refresh();
-        token.current = res.accessToken;
-        return res.accessToken;
-      } catch (err) {
-        // 401/403: the session is over. Anything else (offline, 5xx) also leaves us without a token.
-        if (err instanceof ApiError && err.status !== 0 && err.status < 500) token.current = null;
-        return null;
-      }
-    };
-    const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
-    // The Web Lock resolves with the callback's result; `.then` flattens lib.dom's nested typing.
-    const locked = locks ? locks.request(REFRESH_LOCK, run).then((token) => token) : run();
-    const p = locked.finally(() => {
-      inflight.current = null;
+  const [session] = useState(() => {
+    const pending = storedFlag(LOGOUT_PENDING_KEY);
+    return createSession({
+      api: userApi,
+      locks: browserLocks(),
+      logoutPending: pending,
+      onEnded: (reason) => {
+        setUser(null);
+        setStatus("signedOut");
+        setEndedBy(reason);
+        setLogoutPending(pending.get());
+      },
+      onUserChanged: (token) => {
+        // Another tab signed in as someone else: never show one account's data under another's token.
+        setUser(null);
+        setStatus("loading");
+        userApi.me(token).then(
+          (me) => {
+            setUser(me);
+            setStatus("signedIn");
+          },
+          (err: unknown) => {
+            setProblem(messageOf(err));
+            setStatus("unavailable");
+          },
+        );
+      },
     });
-    inflight.current = p;
-    return p;
-  }, []);
+  });
 
-  const loadMe = useCallback(
-    async (accessToken: string) => {
-      const me = await userApi.me(accessToken);
-      setUser(me);
-      setStatus("signedIn");
-      return me;
+  /** Takes a cold-load refresh to a signed-in user, or to why there is none. */
+  const settle = useCallback(
+    async (result: RefreshResult) => {
+      if (result.kind === "ended") return; // onEnded has signed out
+      if (result.kind === "unavailable") {
+        setProblem(result.error.message);
+        setStatus("unavailable");
+        return;
+      }
+      try {
+        const me = await session.authed((t) => userApi.me(t));
+        setUser(me);
+        setStatus("signedIn");
+      } catch (err) {
+        if (session.token() === null) return; // the session ended on the way
+        setProblem(messageOf(err));
+        setStatus("unavailable");
+      }
     },
-    [],
+    [session],
   );
 
   // Cold load: is there a session behind the cookie?
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const t = await refresh();
-      if (cancelled) return;
-      if (!t) return signedOut();
-      try {
-        await loadMe(t);
-      } catch {
-        if (!cancelled) signedOut();
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [refresh, loadMe, signedOut]);
+    void (async () => settle(await session.refresh()))();
+  }, [session, settle]);
 
   useEffect(() => {
-    if (typeof BroadcastChannel === "undefined") return;
-    const bc = new BroadcastChannel(CHANNEL);
-    bc.onmessage = (e: MessageEvent) => {
-      if (e.data === "logout") signedOut();
-    };
-    channel.current = bc;
-    return () => bc.close();
-  }, [signedOut]);
+    const channel = browserChannel(CHANNEL);
+    return channel ? session.connect(channel) : undefined;
+  }, [session]);
+
+  const retry = useCallback(async () => {
+    setProblem(null);
+    setStatus("loading");
+    await settle(await session.refresh());
+  }, [session, settle]);
 
   const authed = useCallback(
-    async <T,>(fn: (accessToken: string) => Promise<T>): Promise<T> => {
-      const current = token.current ?? (await refresh());
-      if (!current) {
-        signedOut();
-        throw new ApiError(401, "UNAUTHENTICATED", "Your session has ended. Please sign in again.");
-      }
-      try {
-        return await fn(current);
-      } catch (err) {
-        if (!(err instanceof ApiError) || err.status !== 401) throw err;
-        // The access token expired (15 min) or the session was revoked: try one refresh.
-        const next = await refresh();
-        if (!next) {
-          signedOut();
-          throw err;
-        }
-        return fn(next);
-      }
-    },
-    [refresh, signedOut],
+    <T,>(fn: (accessToken: string) => Promise<T>): Promise<T> => session.authed(fn),
+    [session],
   );
 
   const login = useCallback(
     async (email: string, password: string) => {
       const res = await userApi.login(email, password);
-      token.current = res.accessToken;
-      await loadMe(res.accessToken);
+      session.signedIn(res.accessToken, res.user.id);
+      setLogoutPending(false);
+      setEndedBy(null);
+      const me = await session.authed((t) => userApi.me(t));
+      setUser(me);
+      setProblem(null);
+      setStatus("signedIn");
     },
-    [loadMe],
+    [session],
   );
 
+  // No navigation here: the (app) layout sends a signed-out visitor to sign in, exactly once.
   const logout = useCallback(async () => {
-    try {
-      await userApi.logout();
-    } catch {
-      // Sign out locally regardless: the in-memory token goes, and the cookie dies at its expiry.
-    }
-    signedOut();
-    channel.current?.postMessage("logout");
-  }, [signedOut]);
+    await session.logout();
+  }, [session]);
+
+  const retryLogout = useCallback(async () => {
+    const done = await session.retryLogout();
+    setLogoutPending(session.logoutPending());
+    return done;
+  }, [session]);
 
   const updateProfile = useCallback(
     async (changes: Partial<Profile>) => {
@@ -169,22 +174,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const setMode = useCallback(
     async (mode: PreferredMode) => {
-      const previous = user;
-      // Optimistic: the switch responds at once, and reverts if the server refuses.
-      if (previous) setUser({ ...previous, profile: { ...previous.profile, preferredMode: mode } });
+      const previous = user?.profile.preferredMode;
+      // One save at a time, so an older response can never land after a newer choice.
+      if (!previous || previous === mode || modeBusy.current) return;
+      modeBusy.current = true;
+      setModeSaving(true);
+      // Optimistic: the switch responds at once. Only preferredMode is touched, here and on revert,
+      // so a profile edit saved meanwhile is never overwritten with a stale copy of the user.
+      setUser((u) => (u ? withMode(u, mode) : u));
       try {
-        await updateProfile({ preferredMode: mode });
+        await authed((t) => userApi.updateMe(t, { preferredMode: mode }));
       } catch (err) {
-        setUser(previous);
+        setUser((u) => (u && u.profile.preferredMode === mode ? withMode(u, previous) : u));
         throw err;
+      } finally {
+        modeBusy.current = false;
+        setModeSaving(false);
       }
     },
-    [user, updateProfile],
+    [user, authed],
   );
 
   const value = useMemo(
-    () => ({ status, user, login, logout, authed, updateProfile, setMode }),
-    [status, user, login, logout, authed, updateProfile, setMode],
+    () => ({
+      status,
+      user,
+      endedBy,
+      problem,
+      logoutPending,
+      modeSaving,
+      login,
+      logout,
+      retryLogout,
+      retry,
+      authed,
+      updateProfile,
+      setMode,
+    }),
+    [
+      status,
+      user,
+      endedBy,
+      problem,
+      logoutPending,
+      modeSaving,
+      login,
+      logout,
+      retryLogout,
+      retry,
+      authed,
+      updateProfile,
+      setMode,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -194,4 +235,8 @@ export function useAuth(): Auth {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
+}
+
+function messageOf(err: unknown): string {
+  return err instanceof ApiError ? err.message : "Something went wrong. Please try again.";
 }

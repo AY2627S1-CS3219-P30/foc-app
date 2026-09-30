@@ -60,7 +60,9 @@ export function ProfileForm({ user }: { user: Me }) {
     <form onSubmit={onSubmit} noValidate aria-busy={saving} className="card">
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <h2 style={{ fontSize: 16, fontWeight: 700 }}>Your details</h2>
-        {alert && <FormAlert tone={alert.tone}>{alert.text}</FormAlert>}
+        {/* One mounted region per tone, so each message is announced. */}
+        <FormAlert>{alert?.tone === "error" && alert.text}</FormAlert>
+        <FormAlert tone="success">{alert?.tone === "success" && alert.text}</FormAlert>
         <dl style={{ display: "grid", gap: 4, fontSize: 14 }}>
           <dt style={{ color: "var(--color-text-subtle)", fontSize: 12 }}>Email</dt>
           <dd>{user.email}</dd>

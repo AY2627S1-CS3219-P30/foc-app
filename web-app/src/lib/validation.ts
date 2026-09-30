@@ -75,13 +75,26 @@ function compact(errors: Errors): Errors {
   return Object.fromEntries(Object.entries(errors).filter(([, v]) => v !== undefined));
 }
 
+/** A stand-in origin to resolve `next` against; `.invalid` can never be a real host. */
+const HERE = "https://here.invalid";
+
 /**
  * Where to go after signing in. Only a same-site path is accepted, so a crafted `?next=` link cannot
  * bounce a freshly signed-in user to another site (open redirect).
+ *
+ * The value is resolved the way the browser will resolve it, not string-matched: the URL parser drops
+ * tabs and newlines and reads `\` as `/`, so `/\t/evil.example` is really `//evil.example`.
  */
 export function safeNext(next: string | null | undefined, fallback = "/feed"): string {
-  if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) {
+  if (!next || !next.startsWith("/")) return fallback;
+  let url: URL;
+  try {
+    url = new URL(next, HERE);
+  } catch {
     return fallback;
   }
-  return next;
+  if (url.origin !== HERE) return fallback;
+  const path = url.pathname + url.search + url.hash;
+  // Dot segments can leave a path that is itself protocol-relative: `/.//evil.example` → `//evil.example`.
+  return path.startsWith("//") ? fallback : path;
 }

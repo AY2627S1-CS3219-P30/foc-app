@@ -50,14 +50,32 @@ describe("safeNext never redirects off-site", () => {
   it.each([
     ["/profile", "/profile"],
     ["/request/abc?x=1", "/request/abc?x=1"],
+    ["/request/abc?x=1#top", "/request/abc?x=1#top"],
     ["//evil.example", "/feed"],
     ["/\\evil.example", "/feed"],
+    ["\\\\evil.example", "/feed"],
+    // The URL parser drops tabs and newlines, so these become `//evil.example/…` in the browser.
+    ["/\t/evil.example/phish", "/feed"],
+    ["/\n/evil.example/phish", "/feed"],
+    ["/\r/evil.example/phish", "/feed"],
+    ["/\t\\evil.example", "/feed"],
+    // Dot segments can also collapse into a protocol-relative path.
+    ["/.//evil.example", "/feed"],
     ["https://evil.example", "/feed"],
+    ["http:evil.example", "/feed"],
     ["javascript:alert(1)", "/feed"],
+    ["", "/feed"],
     [null, "/feed"],
     [undefined, "/feed"],
-  ])("%p → %p", (input, expected) => {
+  ])("%j → %j", (input, expected) => {
     expect(safeNext(input as string | null | undefined)).toBe(expected);
+  });
+
+  it("returns a path that stays on this site when resolved", () => {
+    for (const input of ["/profile", "/a/../b?x=1", "/%2F/evil.example"]) {
+      const out = safeNext(input);
+      expect(new URL(out, "https://app.example").origin).toBe("https://app.example");
+    }
   });
 });
 

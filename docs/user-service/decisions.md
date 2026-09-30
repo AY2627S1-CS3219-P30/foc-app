@@ -481,8 +481,13 @@ Order, Credit and the web app, not just the User Service).
 ## 14. Account screens (USR-05, #123)
 
 ### W1. The session lives in a React context; the access token never leaves memory — ✅
-`web-app/src/lib/auth.tsx` holds the access token in a ref, loads `/users/me` after sign-in or refresh, and exposes `authed(fn)`,
-which retries once through `/auth/refresh` on a `401`. Nothing is written to `localStorage` (A3).
+`web-app/src/lib/session.ts` (plain TypeScript, unit-tested with a fake `fetch` and fake locks) holds the access token in memory
+and exposes `authed(fn)`, which retries once through `/auth/refresh` on a `401`; `web-app/src/lib/auth.tsx` wraps it in a React
+context and loads `/users/me`. No credential is written to `localStorage` (A3). The one thing that is: a non-secret
+`foc-logout-pending` flag, set when a sign-out could not reach the service, so the next load revokes the still-live cookie instead
+of refreshing it (otherwise the next person at a shared computer is signed in).
+- Only a refused refresh (`401`/`403`) signs the user out. A network error, a timeout (10 s per call) or a `5xx` is shown with a
+  retry: a blip must not end a session.
 
 ### W2. Refresh is single-flight across tabs with the Web Locks API — ✅ (the A5 follow-up)
 Rotation plus reuse detection means two tabs refreshing with the same cookie end the session for both. Verified in Chromium against
@@ -494,11 +499,13 @@ got `401`, and both tabs were signed out; **with** it, B waited, presented A's n
 ### W3. One responsive tree for account screens — ✅
 The existing screens render a mobile tree and a desktop tree and let CSS pick one. A form must not: two copies would duplicate ids,
 split typed input between hidden and visible copies, and confuse assistive technology. `AuthCard` is one tree, full-bleed at 360 px
-and a centred card from 768 px.
+and a centred card from 768 px. The profile screen holds a form too, so it uses `ResponsiveShell`: one tree whose app bar, top
+bar and sidebar CSS shows or hides by width.
 
 ### W4. Errors stay beside the field; input is never cleared — ✅
-Controlled inputs, `aria-invalid` + `aria-describedby`, and a `role="alert"` summary. The server's `details[]` map onto fields, so
-`EMAIL_DOMAIN_NOT_ALLOWED` and `EMAIL_ALREADY_REGISTERED` appear on the email field. Client checks mirror the server's rules
+Controlled inputs, `aria-invalid` + `aria-describedby`, and a `role="alert"` summary that stays mounted (empty until needed), so
+a message is announced when it arrives. The server's `details[]` map onto fields, so `EMAIL_DOMAIN_NOT_ALLOWED` and
+`EMAIL_ALREADY_REGISTERED` appear on the email field. Client checks mirror the server's rules
 (12–128 characters, no composition rules) but the server stays authoritative.
 
 ### W5. Bootstrap admins land on "Choose your password" — ✅

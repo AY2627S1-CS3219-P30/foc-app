@@ -12,6 +12,16 @@ RUN bun install --frozen-lockfile
 FROM base AS build
 COPY --from=deps /app/node_modules node_modules
 COPY . .
+# NEXT_PUBLIC_* values are inlined into the browser bundle by `next build`, so
+# they are build args (visible to RUN below); setting them on the running
+# container does nothing. A production build without
+# NEXT_PUBLIC_USER_SERVICE_URL shows a configuration error on the account
+# screens rather than calling localhost.
+ARG NEXT_PUBLIC_USER_SERVICE_URL
+ARG NEXT_PUBLIC_SUPPLIER_SERVICE_URL
+ARG NEXT_PUBLIC_ORDER_SERVICE_URL
+ARG NEXT_PUBLIC_CREDIT_SERVICE_URL
+ARG NEXT_PUBLIC_DEV_MAILBOX
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN bun run build
 
