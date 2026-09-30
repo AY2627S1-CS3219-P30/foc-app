@@ -74,6 +74,15 @@ It is UX only and is never read by an authorization decision.
 - **Trade-off:** a lone seeded admin cannot step down without first appointing and seeding a successor.
 - ❓ Suspending *another* admin is restricted to seeded admins here; the backlog only says "an administrator".
 
+### R4. Administrators may act on other people's errands — ✅ decided (product owner)
+Previously left open in roles.md ("deferred to the admin console"). Decision: **yes** — an administrator may
+resolve a dispute or cancel an errand on the requester's behalf, with a reason, and the Order Service
+enforces it server-side.
+- **Why:** disputes need an administrator decision; `order-service/README.md`'s `DISPUTED → … (Administrator)`
+  transitions depend on it.
+- **Limits:** only the transitions the Order Service lists with *Administrator* as actor; never a wallet edit
+  (credits still move only through reservation, transfer and release). The console that drives it is NTH-01.
+
 ---
 
 ## 3. API contract
@@ -335,7 +344,7 @@ Suspending an already-suspended account is idempotent and adds no second audit r
 See roles.md. **Never promotes** an existing account; **fails loudly** on bad config; idempotent; emits `UserActivated`.
 - ~~No change-password endpoint, so the bootstrap password is the admin's password~~ — fixed: see B1.
 - **Limit:** `compose.yaml` carries a dev-only default (`admin@u.nus.edu`) — a committed credential for PLT-06 to remove.
-  It is now only usable once, to set a real password.
+  It no longer starts a session; it only sets a real password — for whoever uses it first (see B1).
 - **Rejected:** a first-registered-user-becomes-admin rule (racy, and a takeover risk), and a setup endpoint (an unauthenticated privilege grant).
 
 ### M7. Profile edits use a closed schema and are all-or-nothing — ✅
@@ -448,7 +457,19 @@ bootstrap admin's permanent password.
 - **Compare-and-swap** on the stored hash, so two simultaneous changes cannot both win. ❗ PGlite is single-connection, so this
   race is not exercised by an automated test (same limit as P4); the SQL is a single conditional `UPDATE`.
 - **Rate limited** with login's per-IP and per-email limiters, and the same Origin/JSON CSRF checks: it is as much a password oracle as login.
-- **Migration 004** flags every *existing* bootstrap admin, since none could have changed their password before.
+- **Migration 004** flags every *existing* bootstrap admin, since none could have changed their password before,
+  and revokes their live sessions. ❗ Found in review: the first version only set the flag, which only login read, so an
+  admin already signed in kept working. Refresh, the access-token guard and introspection now also treat a flagged
+  account's session as ended — the backstop for a session an instance still on older code starts during a rolling deploy.
+- **A login in flight cannot outlive a change.** Its session is inserted only if the account still has the hash it
+  verified, is `ACTIVE` and is not flagged (`INSERT … SELECT … WHERE EXISTS … FOR SHARE`); otherwise `401`. A test
+  replays the stale read; the lock ordering itself, like the compare-and-swap, needs two connections PGlite lacks.
+- **A seeded admin cannot choose the configured secret** as their new password (`422 PASSWORD_UNCHANGED`). Only a
+  seeded admin is checked: for anyone else the answer would confirm a guess of the secret.
+- **Limit — the secret is shared and proves no mailbox.** One `ADMIN_SEED_PASSWORD` covers every seeded address, and
+  `POST /auth/password` proves the password, not the mailbox, so until a seeded account is claimed, anyone who knows
+  the secret can claim it. Operating rule (roles.md §4): claim each seeded account as soon as it exists, and rotate the
+  secret whenever `ADMIN_SEED_EMAILS` changes.
 - **Trade-off:** one extra step at first sign-in (the web app must handle `PASSWORD_CHANGE_REQUIRED` — USR-05).
 
 ### B2. The bootstrap is audited, with the SYSTEM as actor — ✅
@@ -458,14 +479,19 @@ bootstrap admin's permanent password.
 - **Rejected:** a sentinel "system" user row (it would be a real account someone could try to log in as, and would appear in user
   lists), and a sentinel UUID without an FK (loses referential integrity for every other row).
 - **Not audited:** a restart that creates nothing, and a skipped address (nothing was granted). The secret is never recorded.
+- **Backfilled:** migration 004 writes the row for every bootstrap admin created before it (actor `SYSTEM`, dated at the
+  account's creation, correlation id `migration-004`), so every seeded admin has one.
 - The API exposes `actorType`; `actorId` is `null` for SYSTEM rows (a contract change — additive for readers that ignore unknown fields,
   but `actorId` is now nullable).
 
 ### B3. Keep the seeded-vs-appointed tier (US-FR3.1.3.1) — ✅ decided
 The feedback's worry: once the bootstrap admin graduates, a misbehaving appointed admin can never be removed.
-- **Chosen:** keep it. The recovery path is to add a new address to `ADMIN_SEED_EMAILS` and redeploy; that bootstraps a fresh seeded
-  admin who can demote the appointed one. A test walks through it. Recovery requires deployment access — the same authority that
-  created the first admin — and no database edit.
+- **Chosen:** keep it. The recovery path is to add a new address to `ADMIN_SEED_EMAILS`, rotate `ADMIN_SEED_PASSWORD` and redeploy;
+  that bootstraps a fresh seeded admin who can demote the appointed one. A test walks through it. Recovery requires deployment
+  access — the same authority that created the first admin — and no database edit.
+- **Limit:** the address must be a dedicated mailbox that has **never been registered**. The seed skips any existing row,
+  `PENDING_ACTIVATION` included, and registering an NUS address needs no access to its mailbox. If the boot log reports the
+  address as skipped, it was squatted: use another never-registered address and redeploy.
 - **Rejected:** dropping the tier. Then any appointed admin could demote every other admin but one, including the operators; the
   last-admin rule does not prevent that takeover.
 - **Trade-off:** if no seeded admin is reachable, removing an admin takes a redeploy rather than a click.
