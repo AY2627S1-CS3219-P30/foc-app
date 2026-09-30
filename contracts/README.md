@@ -65,6 +65,25 @@ instead of a workshop. The User Service spec is written against them.
 > execution plan's `UserStatusChanged` and the backlog's `UserSuspended` / `UserReactivated`: the backlog's two events,
 > named by the catalogue's convention.
 
+### Order/Credit terminal-operation events
+
+The executable Zod schemas live in `platform/src/events/catalogue.ts`. All request facts are restated
+in the reply so Order can compare the response to the command it recorded. Resulting balances are
+snapshots captured in the same transaction as the movement and are replayed unchanged when a reply
+is lost.
+
+| `eventType`                  | Producer         | Payload                                                                                                      |
+| ---------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------ |
+| `order.completion-requested` | `order-service`  | `{ orderId, requesterId, courierId, amount }`                                                                |
+| `credit.transferred`         | `credit-service` | Request facts plus `{ transactionId, requesterBalance, courierBalance }`                                    |
+| `order.release-requested`    | `order-service`  | `{ orderId, requesterId, amount }`                                                                           |
+| `credit.released`            | `credit-service` | Request facts plus `{ transactionId, requesterBalance }`                                                     |
+
+Each balance is `{ available, reserved, total }`, with non-negative whole numbers and
+`total = available + reserved`. Credit accepts both commands only from an envelope claiming
+`order-service`; deployments must pair that check with producer-specific RabbitMQ credentials/ACLs,
+as described in ADR 0004.
+
 ## Open questions for Jonus / Patrick
 
 0. The platform's `ErrorEnvelopeFilter` derives `code` from the HTTP status only. This spec uses domain codes (`EMAIL_ALREADY_REGISTERED`, `LAST_ADMIN`, …) and structured `details`. USR-01 extends the filter additively so an exception can carry its own `code` and `details`; status-derived codes remain the fallback. Affects every service, so Jonus reviews.

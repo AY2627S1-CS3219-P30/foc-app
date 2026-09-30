@@ -83,17 +83,19 @@ While an order is in any `*_PENDING_CREDIT` state, no participant action, admini
 
 ## Messages
 
-Routing keys are in `platform/src/events/catalogue.ts`. Only the reservation messages have payload schemas today; the rest are proposed here and join the catalogue with ORD-04 and ORD-05, once the Credit Service owner agrees.
+Routing keys and executable payload schemas are in `platform/src/events/catalogue.ts`. Reservation,
+completion/transfer and release messages are catalogued; order-status payloads remain proposed until
+the Order lifecycle implementation adds them.
 
 | Message | Direction | Carries | Schema |
 | ----- | ----- | ----- | ----- |
 | `order.reservation-requested` | Sent | order, requester, amount | In catalogue |
 | `credit.reserved` | Received | order, requester, amount, restated so the reply can be checked against the request | In catalogue |
 | `credit.reservation-rejected` | Received | the same, plus the reason: insufficient credits (with the available balance) or amount out of range | In catalogue |
-| `order.completion-requested` | Sent | order, requester, courier, amount | Proposed |
-| `credit.transferred` | Received | order, courier, amount, and a transfer reference for the receipt (D1 OS-FR5.1.3) | Proposed |
-| `order.release-requested` | Sent | order, requester, amount | Proposed |
-| `credit.released` | Received | order, requester, amount | Proposed |
+| `order.completion-requested` | Sent | order, requester, courier, amount | In catalogue |
+| `credit.transferred` | Received | request facts, transfer reference, and both resulting wallet balances (D1 OS-FR5.1.3) | In catalogue |
+| `order.release-requested` | Sent | order, requester, amount | In catalogue |
+| `credit.released` | Received | request facts, release reference, and requester resulting balance | In catalogue |
 | `order.status-changed` | Sent | order, previous status, new status, when | Proposed |
 | `user.suspended` | Received | user | In catalogue |
 
