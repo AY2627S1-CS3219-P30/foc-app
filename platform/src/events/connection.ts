@@ -210,11 +210,9 @@ export class BrokerConnection {
     const { channel, connection } = this;
     this.channel = undefined;
     this.connection = undefined;
-    try {
-      await channel?.close();
-      await connection?.close();
-    } catch {
-      // Already gone; nothing useful to do during shutdown.
-    }
+    // Each on its own: a channel already closing (a recycled consumer, a server close) must not
+    // stop the connection from being closed too. Already gone is fine during shutdown.
+    await channel?.close().catch(() => undefined);
+    await connection?.close().catch(() => undefined);
   }
 }

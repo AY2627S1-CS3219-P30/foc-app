@@ -1,4 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
+import amqp from 'amqplib';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Db, Queryable, Row } from '../db.js';
 import { EVENTS, userStatusChangedPayload, type UserStatusChangedPayload } from './catalogue.js';
@@ -50,6 +51,25 @@ async function pgliteDb(): Promise<Db> {
   };
 }
 
+/**
+ * Deletes queues (and their dead-letter queues) over a throwaway connection. Call it only after the
+ * connection consuming them is closed: deleting a queue that still has a consumer makes the broker
+ * cancel it, and the consumer then recycles its channel, so a cleanup sharing that channel would
+ * fail with "Channel closing".
+ */
+async function deleteQueues(queues: string[]): Promise<void> {
+  const conn = await amqp.connect(URL as string);
+  try {
+    const ch = await conn.createChannel();
+    for (const q of queues) {
+      await ch.deleteQueue(q);
+      await ch.deleteQueue(deadLetterQueueName(q));
+    }
+  } finally {
+    await conn.close();
+  }
+}
+
 suite('outbox and inbox through the broker', () => {
   let broker: BrokerConnection;
   let db: Db;
@@ -69,14 +89,8 @@ suite('outbox and inbox through the broker', () => {
   }, 30_000);
 
   afterAll(async () => {
-    try {
-      const ch = broker.getChannel();
-      await ch.deleteQueue(QUEUE);
-      await ch.deleteQueue(deadLetterQueueName(QUEUE));
-    } catch {
-      /* already gone */
-    }
     await broker?.close();
+    if (URL) await deleteQueues([QUEUE]);
     await db?.close();
   });
 
