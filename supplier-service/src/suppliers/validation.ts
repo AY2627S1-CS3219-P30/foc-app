@@ -144,7 +144,7 @@ export const supplierUpdateSchema = z
 
 export const supplierIdSchema = z.uuid();
 
-/** The fields a caller may sort by; ties are broken by name, building, then `supplierId`, for stable paging. */
+/** The fields a caller may sort by; ties are broken by name, then `supplierId`, for stable paging. */
 export const SUPPLIER_SORTS = ['name', 'type', 'building', 'updatedAt'] as const;
 export type SupplierSort = (typeof SUPPLIER_SORTS)[number];
 

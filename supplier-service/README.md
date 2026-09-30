@@ -103,7 +103,7 @@ search box lists everything. An unknown `type`, a repeated `type`/`building`/`q`
 or a NUL character is a `422 VALIDATION_FAILED`. Unknown parameters are ignored.
 
 Name and building sort case-insensitively, and every sort is **tie-broken by name,
-building, then `supplierId`**, so paging the full set returns each record exactly once and
+then `supplierId`**, so paging the full set returns each record exactly once and
 the order is stable across requests. `total` and `items` are read in one snapshot,
 so they always agree.
 
@@ -130,13 +130,13 @@ building), so filtering by building has no duplicates and needs no proximity or
 coordinate search. Coordinates remain stored for map pins but are **not** a query
 axis; there is deliberately no radius/nearest search in this service.
 
-### Indexes and constraints
+### Indexes and tag constraint
 
-The initial Drizzle migration has a partial type index for active suppliers and
-the case-insensitive unique name/building index. The follow-up migration enforces
-that `tags` is a JSON array. Other listing sorts and substring search scan the
-active catalogue, which currently has about 33 seeded rows. See
-[`schema.md`](../docs/supplier-service/schema.md) §2.
+At the current catalogue size, listing scans active suppliers; the baseline's
+partial type index remains available for filtering. Sorts and per-tag substring
+search do not rely on additional indexes. The count and page share one SQL
+statement and snapshot. Drizzle migration `0001_supplier_tags_array` enforces
+that tags are a JSON array or null, as required by per-tag search.
 
 ## Seed
 

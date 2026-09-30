@@ -51,7 +51,7 @@ const SORT_KEY: Record<string, (s: Listed) => string> = {
 /** Byte-order compare, as the SQL sorts: no locale folding beyond the explicit lower(). */
 const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
-/** The ids in the listing order: primary direction, then name, building and id ascending. */
+/** The ids in the listing order: primary direction, then name and id ascending. */
 const expectedOrder = (rows: Listed[], sort: string, order: 'asc' | 'desc') => {
   const key = SORT_KEY[sort]!;
   const direction = order === 'desc' ? -1 : 1;
@@ -60,7 +60,6 @@ const expectedOrder = (rows: Listed[], sort: string, order: 'asc' | 'desc') => {
       (a, b) =>
         direction * compare(key(a), key(b)) ||
         compare(a.name.toLowerCase(), b.name.toLowerCase()) ||
-        compare(a.building.toLowerCase(), b.building.toLowerCase()) ||
         compare(a.supplierId, b.supplierId),
     )
     .map((s) => s.supplierId);
@@ -135,7 +134,7 @@ describe('listing shape and defaults', () => {
 });
 
 describe('pagination covers the whole set exactly once', () => {
-  it('pages the full set with no gaps or duplicates, ordered by name then building', async () => {
+  it('pages the full set with no gaps or duplicates, ordered by name then ID', async () => {
     const all = await seed(25, (i) => ({ name: `Stall ${i % 5}` }));
 
     const seen: string[] = [];
@@ -145,6 +144,24 @@ describe('pagination covers the whole set exactly once', () => {
       seen.push(...ids(body));
     }
     expect(seen).toEqual(expectedOrder(all, 'name', 'asc'));
+  });
+
+  it('breaks equal-name ties by ID even when building order disagrees', async () => {
+    const high = '00000000-0000-4000-8000-000000000002';
+    const low = '00000000-0000-4000-8000-000000000001';
+    for (const [building, id] of [
+      ['A', high],
+      ['Z', low],
+    ]) {
+      const created = await create({ name: 'Cafe', building });
+      await t.db.query('UPDATE suppliers SET supplier_id = $1 WHERE supplier_id = $2', [
+        id,
+        created.body.supplierId,
+      ]);
+    }
+    expect(ids(await listing())).toEqual([low, high]);
+    expect(ids(await listing('?pageSize=1&page=1'))).toEqual([low]);
+    expect(ids(await listing('?pageSize=1&page=2'))).toEqual([high]);
   });
 
   it('sorts names case-insensitively', async () => {
@@ -170,7 +187,7 @@ describe('every sort option orders correctly and is stable across pages', () => 
 
   beforeEach(async () => {
     // Repeated keys in mixed case force both the case folding and the
-    // name, building and id tie-breaks to matter for every sort.
+    // name and id tie-breaks to matter for every sort.
     const created = await seed(12, (i) => ({
       name: names[i % names.length],
       type: types[i % types.length],
@@ -188,7 +205,7 @@ describe('every sort option orders correctly and is stable across pages', () => 
 
   for (const sort of ['name', 'type', 'building', 'updatedAt'] as const) {
     for (const order of ['asc', 'desc'] as const) {
-      it(`sort=${sort} order=${order} orders by key, name, building, id and pages without gaps`, async () => {
+      it(`sort=${sort} order=${order} orders by key, name, id and pages without gaps`, async () => {
         const expected = expectedOrder(all, sort, order);
         const full = await listing(`?sort=${sort}&order=${order}&pageSize=100`);
         expect(ids(full)).toEqual(expected);

@@ -39,7 +39,7 @@ and Postgres covers it at this scale.
 
 ## 2. Schema
 
-Forward-only Drizzle migrations (`drizzle/`). All ids are UUID; all timestamps
+Forward-only migrations (`drizzle/`, generated from `src/db/schema.ts`). All ids are UUID; all timestamps
 are `timestamptz` (UTC).
 
 ### `suppliers`
@@ -75,12 +75,11 @@ are `timestamptz` (UTC).
 
 **Listing (SUP-02)**
 
-At the current catalogue size, listing scans the active rows. The partial type
-index from `0000_init` remains available for filtering; `0001_supplier_tags_array`
-adds the database check that `tags` is a JSON array. A listing uses one SQL
-statement for its count and page, so both come from the same snapshot. Only the
-selected sort key follows `order`; ties sort by name, building, then supplier ID
-ascending. Search checks name, building,
+At the current catalogue size, listing scans the active rows. The baseline's
+type index remains available for filtering. Migration `0001_supplier_tags_array`
+adds the tag array constraint. A listing uses one SQL statement for its count and page, so both
+come from the same snapshot. Only the selected sort key follows `order`; ties
+sort by name, then supplier ID ascending. Search checks name, building,
 location description, and each tag value separately.
 
 ### `supplier_idempotency_keys`
@@ -150,7 +149,7 @@ of ≥30 across ≥10 buildings and every type.
 | Case-insensitive name+building duplicate, active only               | `suppliers_name_building_active_key`                             |
 | Every invalid field returned at once as 422 `VALIDATION_FAILED`     | `src/suppliers/validation.ts` (`parseOrThrow`)                   |
 | Admin-only create/update/deactivate; non-admin → 403                | `@AdminOnly()` (`@foc/auth-client`), read server-side            |
-| Soft deactivation, excluded from lists, resolvable by id            | `active` flag; `list` vs `findById`                              |
+| Soft deactivation, excluded from lists, resolvable by id            | `active` flag; `listActive` vs `findById`                        |
 | Idempotency-Key replay returns the original, not 409                | `supplier_idempotency_keys` + advisory lock                     |
 | Stale `If-Match` → 412, nothing changed                             | `version` column; conditional `UPDATE … WHERE version = $`       |
 | One row per write, all-or-nothing                                   | every mutation wrapped in `db.transaction`                       |

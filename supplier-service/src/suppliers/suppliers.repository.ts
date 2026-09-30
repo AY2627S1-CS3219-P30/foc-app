@@ -69,7 +69,7 @@ const SORT_KEY: Record<SupplierSort, string> = {
 };
 
 /** Tie-breaks after the requested sort key, always ascending, so equal keys keep a stable A→Z order. */
-const TIE_BREAKS = ['lower(name)', 'lower(building)', 'supplier_id'];
+const TIE_BREAKS = ['lower(name)', 'supplier_id'];
 
 /**
  * All SQL for the suppliers tables, expressed through Drizzle. Every function
