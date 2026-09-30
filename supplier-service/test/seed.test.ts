@@ -1,13 +1,12 @@
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { runMigrations } from '@foc/platform';
 import type { Database } from '../src/db/db.js';
 import * as schema from '../src/db/schema.js';
-import { migrations } from '../src/db/migrations.js';
 import { loadSeedSuppliers } from '../src/admin/seed-data.js';
 import { seedSuppliers } from '../src/admin/seed.js';
 import { suppliersRepository as repo } from '../src/suppliers/suppliers.repository.js';
 import type { SupplierSeed } from '../src/admin/normalize.js';
+import { applyMigrations } from './helpers/migrate.js';
 import { PgliteDb } from './helpers/pglite-db.js';
 
 // `raw` runs the migrations and backs the direct SQL assertions; `db` is the
@@ -22,7 +21,7 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
   raw = await PgliteDb.create();
-  await runMigrations(raw, migrations);
+  await applyMigrations(raw);
   db = drizzle(raw.client, { schema });
 });
 afterAll(async () => {

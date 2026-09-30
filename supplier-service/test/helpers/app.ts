@@ -9,11 +9,11 @@ import {
   type AuthConfig,
   type AuthContext,
 } from '@foc/auth-client';
-import { ErrorEnvelopeFilter, PlatformModule, runMigrations, type Db } from '@foc/platform';
+import { ErrorEnvelopeFilter, PlatformModule, type Db } from '@foc/platform';
 import { DB, RAW_DB } from '../../src/db/db.js';
 import * as schema from '../../src/db/schema.js';
-import { migrations } from '../../src/db/migrations.js';
 import { SuppliersModule } from '../../src/suppliers/suppliers.module.js';
+import { applyMigrations } from './migrate.js';
 import { PgliteDb } from './pglite-db.js';
 
 /**
@@ -65,7 +65,7 @@ export async function createTestApp(options: { auth?: AuthConfig } = {}): Promis
   // `db` is the raw port, for migrations and direct row assertions; the service
   // queries through Drizzle over the same PGlite.
   const db = await PgliteDb.create();
-  await runMigrations(db, migrations);
+  await applyMigrations(db);
 
   const builder = Test.createTestingModule({
     imports: [

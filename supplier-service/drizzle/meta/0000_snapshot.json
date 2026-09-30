@@ -1,0 +1,258 @@
+{
+  "id": "f2b31de3-eb78-4b60-b865-dd0a8015a1fd",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.supplier_idempotency_keys": {
+      "name": "supplier_idempotency_keys",
+      "schema": "",
+      "columns": {
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "supplier_id": {
+          "name": "supplier_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_hash": {
+          "name": "request_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "supplier_idempotency_keys_supplier_id_suppliers_supplier_id_fk": {
+          "name": "supplier_idempotency_keys_supplier_id_suppliers_supplier_id_fk",
+          "tableFrom": "supplier_idempotency_keys",
+          "tableTo": "suppliers",
+          "columnsFrom": [
+            "supplier_id"
+          ],
+          "columnsTo": [
+            "supplier_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.suppliers": {
+      "name": "suppliers",
+      "schema": "",
+      "columns": {
+        "supplier_id": {
+          "name": "supplier_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "building": {
+          "name": "building",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "floor": {
+          "name": "floor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "location_description": {
+          "name": "location_description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "opening_hours": {
+          "name": "opening_hours",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "latitude": {
+          "name": "latitude",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "longitude": {
+          "name": "longitude",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "image_url": {
+          "name": "image_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tags": {
+          "name": "tags",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "suppliers_name_building_active_key": {
+          "name": "suppliers_name_building_active_key",
+          "columns": [
+            {
+              "expression": "lower(\"name\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"building\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "active",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "suppliers_active_type_idx": {
+          "name": "suppliers_active_type_idx",
+          "columns": [
+            {
+              "expression": "type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "active",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "suppliers_name_len": {
+          "name": "suppliers_name_len",
+          "value": "char_length(\"suppliers\".\"name\") BETWEEN 1 AND 200"
+        },
+        "suppliers_type_enum": {
+          "name": "suppliers_type_enum",
+          "value": "\"suppliers\".\"type\" IN ('FOOD', 'CAFE', 'PRINTING', 'SHOPPING', 'LANDMARK')"
+        },
+        "suppliers_building_len": {
+          "name": "suppliers_building_len",
+          "value": "char_length(\"suppliers\".\"building\") BETWEEN 1 AND 200"
+        },
+        "suppliers_floor_len": {
+          "name": "suppliers_floor_len",
+          "value": "char_length(\"suppliers\".\"floor\") BETWEEN 1 AND 50"
+        },
+        "suppliers_location_len": {
+          "name": "suppliers_location_len",
+          "value": "char_length(\"suppliers\".\"location_description\") BETWEEN 1 AND 500"
+        },
+        "suppliers_image_url_len": {
+          "name": "suppliers_image_url_len",
+          "value": "\"suppliers\".\"image_url\" IS NULL OR char_length(\"suppliers\".\"image_url\") BETWEEN 1 AND 2048"
+        },
+        "suppliers_version_positive": {
+          "name": "suppliers_version_positive",
+          "value": "\"suppliers\".\"version\" >= 1"
+        },
+        "suppliers_coordinates_paired": {
+          "name": "suppliers_coordinates_paired",
+          "value": "(\"suppliers\".\"latitude\" IS NULL) = (\"suppliers\".\"longitude\" IS NULL)"
+        },
+        "suppliers_latitude_range": {
+          "name": "suppliers_latitude_range",
+          "value": "\"suppliers\".\"latitude\" IS NULL OR \"suppliers\".\"latitude\" BETWEEN -90 AND 90"
+        },
+        "suppliers_longitude_range": {
+          "name": "suppliers_longitude_range",
+          "value": "\"suppliers\".\"longitude\" IS NULL OR \"suppliers\".\"longitude\" BETWEEN -180 AND 180"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

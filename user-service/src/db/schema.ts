@@ -20,11 +20,10 @@ import type { AuditAction, AuditActorType } from '../admin/admin.repository.js';
  * The Drizzle schema for the identity tables — one source of truth for both the
  * query builder (repositories) and drizzle-kit (`db:generate`, `db:studio`).
  *
- * The forward-only migrations in `db/migrations.ts` remain the authoritative
- * thing applied at boot: they also carry objects Drizzle's schema DSL cannot
- * express — the `audit_records` append-only trigger, its plpgsql function, and
- * the `REVOKE` that hardens it. This schema is kept in lockstep with the tables
- * those migrations create; the CHECK constraints and indexes below mirror them.
+ * The SQL migrations under `./drizzle` are what is applied to the database:
+ * `db:generate` diffs this file into a structural baseline, and a hand-written
+ * custom migration adds the `audit_records` append-only trigger, its plpgsql
+ * function and the `REVOKE` — objects Drizzle's schema DSL cannot express.
  */
 export const users = pgTable(
   'users',
@@ -156,8 +155,8 @@ export const refreshSessions = pgTable(
 /**
  * One row per suspension, reactivation, role change and bootstrap (US-NFR4.1.2).
  * The actor is a user (`actorId` set) or the SYSTEM (`actorId` null), never both.
- * Append-only — enforced in the migration by a trigger and a `REVOKE` that this
- * schema cannot express, so those live in `db/migrations.ts` alone.
+ * Append-only — enforced by a trigger and a `REVOKE` that this schema cannot
+ * express, so those live in the custom migration `0001_audit_append_only.sql`.
  */
 export const auditRecords = pgTable(
   'audit_records',

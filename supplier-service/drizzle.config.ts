@@ -2,13 +2,12 @@ import { defineConfig } from 'drizzle-kit';
 
 /**
  * drizzle-kit configuration for the Supplier Service. Drives `db:generate`
- * (diff the schema into SQL), `db:studio` and `db:push` for local work against
- * `src/db/schema.ts`.
+ * (diff the schema into SQL migrations under ./drizzle), `db:migrate` (apply
+ * them), `db:studio` and `db:push`, all against `src/db/schema.ts`.
  *
- * Note: the authoritative migrations applied at boot live in
- * `src/db/migrations.ts` (forward-only TypeScript strings). This schema is kept
- * in lockstep with them and is the single source of truth for the Drizzle query
- * builder and drizzle-kit tooling.
+ * The migrations in ./drizzle are the source of truth applied to the database.
+ * The service applies them at boot (main.ts) and they can also be applied
+ * out-of-band with `npm run db:migrate`.
  */
 export default defineConfig({
   dialect: 'postgresql',

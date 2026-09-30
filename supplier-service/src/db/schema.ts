@@ -18,11 +18,9 @@ import type { OpeningHours, SupplierType } from '../suppliers/types.js';
  * The Drizzle schema for the suppliers tables — one source of truth for both the
  * query builder (repository) and drizzle-kit (`db:generate`, `db:studio`).
  *
- * The forward-only migrations in `db/migrations.ts` remain the authoritative
- * thing applied at boot, because they also carry objects Drizzle's schema DSL
- * cannot express (nothing here — but see the User Service's audit trigger). This
- * schema is kept in lockstep with them; the CHECK constraints and partial
- * indexes below mirror migration `002`'s final state.
+ * The SQL migrations under `./drizzle` are what is applied to the database;
+ * `db:generate` diffs this file into them. The CHECK constraints and partial
+ * indexes below are carried through into that generated SQL.
  */
 export const suppliers = pgTable(
   'suppliers',
