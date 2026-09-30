@@ -26,7 +26,7 @@ import {
 let t: TestApp;
 const domains = ['u.nus.edu'];
 const seed = (emails: string[]) =>
-  seedAdmins(t.db, { emails, password: BOOTSTRAP_PASSWORD, allowedDomains: domains });
+  seedAdmins(t.orm, { emails, password: BOOTSTRAP_PASSWORD, allowedDomains: domains });
 
 beforeAll(async () => {
   t = await createTestApp();
@@ -95,7 +95,7 @@ describe('seedAdmins (US-FR3.1.3)', () => {
     // The boot error is printed to the console: it names the entry and its domain, never the
     // address.
     const bad = (email: string) =>
-      seedAdmins(t.db, { emails: [email], password: BOOTSTRAP_PASSWORD, allowedDomains: domains });
+      seedAdmins(t.orm, { emails: [email], password: BOOTSTRAP_PASSWORD, allowedDomains: domains });
     await expect(bad('some.one@gmail.com')).rejects.toThrow(
       /^ADMIN_SEED_EMAILS address 1 of 1 has domain gmail\.com, which is not in ALLOWED_EMAIL_DOMAINS\.$/,
     );
@@ -104,9 +104,9 @@ describe('seedAdmins (US-FR3.1.3)', () => {
       /^ADMIN_SEED_EMAILS address 1 of 1 is not an email address\.$/,
     );
     await expect(
-      seedAdmins(t.db, { emails: ['a@u.nus.edu'], allowedDomains: domains }),
+      seedAdmins(t.orm, { emails: ['a@u.nus.edu'], allowedDomains: domains }),
     ).rejects.toThrow(/ADMIN_SEED_PASSWORD/);
-    expect(await seedAdmins(t.db, { allowedDomains: domains })).toEqual({
+    expect(await seedAdmins(t.orm, { allowedDomains: domains })).toEqual({
       created: [],
       skipped: [],
     });
@@ -141,7 +141,7 @@ describe('the boot report names an entry by position, never by address (US-NFR4.
   });
 
   it('says so when no administrator is configured', async () => {
-    expect(report(await seedAdmins(t.db, { allowedDomains: domains }))).toEqual([
+    expect(report(await seedAdmins(t.orm, { allowedDomains: domains }))).toEqual([
       'warn: No seeded administrators configured.',
     ]);
   });

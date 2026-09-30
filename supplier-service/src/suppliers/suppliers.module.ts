@@ -1,7 +1,9 @@
 import { Module, type DynamicModule } from '@nestjs/common';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { LOGGER, PgDb, type PgDbOptions } from '@foc/platform';
 import { env } from '../config.js';
-import { DB } from '../db/db.js';
+import { DB, RAW_DB } from '../db/db.js';
+import * as schema from '../db/schema.js';
 import { SuppliersController } from './suppliers.controller.js';
 import { SuppliersService } from './suppliers.service.js';
 
@@ -14,12 +16,17 @@ export class SuppliersModule {
       providers: [
         SuppliersService,
         {
-          provide: DB,
+          provide: RAW_DB,
           useFactory: (logger: PgDbOptions['logger']) => new PgDb(env.DATABASE_URL, { logger }),
           inject: [LOGGER],
         },
+        {
+          provide: DB,
+          useFactory: (raw: PgDb) => drizzle(raw.pool, { schema }),
+          inject: [RAW_DB],
+        },
       ],
-      exports: [DB, SuppliersService],
+      exports: [DB, RAW_DB, SuppliersService],
     };
   }
 }

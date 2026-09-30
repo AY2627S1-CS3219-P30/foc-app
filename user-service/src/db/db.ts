@@ -1,12 +1,18 @@
-// The database port (Db / Queryable / Row), the PgDb implementation, and
-// runMigrations now live in @foc/platform so there is one source of truth
-// across services. Re-exported here so existing '../db/db.js' import sites keep
-// working, and so the Nest DI token below sits next to the types it injects.
-export { type Db, type Queryable, type Row } from '@foc/platform';
+import type { DrizzleDatabase } from '@foc/platform';
+import type * as schema from './schema.js';
 
 /**
- * Nest DI token for the {@link Db} port. Kept in the service layer (a Nest
- * concern, not shared runtime): the service binds it to a PgDb in production
- * and overrides it with a PGlite-backed Db in tests.
+ * The Drizzle handle the service codes against. It covers both the top-level
+ * instance and a transaction handle, so a repository function can run
+ * standalone or inside `db.transaction(...)`.
+ */
+export type Database = DrizzleDatabase<typeof schema>;
+
+/**
+ * Nest DI tokens. Kept in the service layer (a Nest concern, not shared
+ * runtime). `DB` is the Drizzle {@link Database}; `RAW_DB` is the raw `Db` port
+ * it shares a pool with, for migrations and the outbox relay. Tests override
+ * both with PGlite.
  */
 export const DB = Symbol('DB');
+export const RAW_DB = Symbol('RAW_DB');

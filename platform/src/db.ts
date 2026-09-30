@@ -1,11 +1,22 @@
 import type { OnApplicationShutdown } from '@nestjs/common';
+import type { ExtractTablesWithRelations } from 'drizzle-orm';
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import pg from 'pg';
 import type { Logger as PinoLogger } from 'pino';
 
 /**
- * The narrow database port the service codes against. Production uses `pg`
- * (see {@link PgDb}); tests run the same SQL on PGlite, which is real PostgreSQL
- * compiled to WASM, so no server is needed to run the suite.
+ * The Drizzle handle a service's repositories code against. Widened over
+ * {@link PgQueryResultHKT} so both the top-level database and a transaction
+ * handle, over `pg` in production or PGlite in tests, satisfy it.
+ */
+export type DrizzleDatabase<TSchema extends Record<string, unknown> = Record<string, never>> =
+  PgDatabase<PgQueryResultHKT, TSchema, ExtractTablesWithRelations<TSchema>>;
+
+/**
+ * The raw database port, for what Drizzle does not cover: migrations
+ * (multi-statement DDL), the outbox relay, and raw assertions in tests.
+ * Production uses `pg` (see {@link PgDb}); tests run the same SQL on PGlite,
+ * which is real PostgreSQL compiled to WASM, so no server is needed.
  */
 export type Row = Record<string, unknown>;
 
@@ -31,10 +42,11 @@ export interface PgDbOptions {
 
 /**
  * PostgreSQL implementation of {@link Db}. The pool connects lazily, on first
- * query, and is drained when Nest shuts the application down.
+ * query, and is drained when Nest shuts the application down. It is exposed so
+ * a Drizzle instance can share it.
  */
 export class PgDb implements Db, OnApplicationShutdown {
-  private readonly pool: pg.Pool;
+  readonly pool: pg.Pool;
   private closed = false;
 
   constructor(connectionString: string, options: PgDbOptions = {}) {

@@ -59,7 +59,7 @@ export function changePassword(
  * as the first sign-in requires, then logs in with {@link PASSWORD}.
  */
 export async function seededAdmin(t: TestApp, email: string): Promise<Actor> {
-  await seedAdmins(t.db, {
+  await seedAdmins(t.orm, {
     emails: [email],
     password: BOOTSTRAP_PASSWORD,
     allowedDomains: ['u.nus.edu'],

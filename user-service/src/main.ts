@@ -1,7 +1,13 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { createLogger, PinoLoggerService, runMigrations, startService } from '@foc/platform';
-import { DB, type Db } from './db/db.js';
+import {
+  createLogger,
+  PinoLoggerService,
+  runMigrations,
+  startService,
+  type Db,
+} from '@foc/platform';
+import { DB, RAW_DB, type Database } from './db/db.js';
 import { migrations } from './db/migrations.js';
 import { reportSeed, seedAdmins } from './admin/seed.js';
 
@@ -15,10 +21,11 @@ async function main(): Promise<void> {
   const app = await NestFactory.create(AppModule, { logger });
 
   // Schema first, then traffic: a request must never reach a database that is behind.
-  const applied = await runMigrations(app.get<Db>(DB), migrations);
+  // Migrations are multi-statement DDL, so they run on the raw port, not Drizzle.
+  const applied = await runMigrations(app.get<Db>(RAW_DB), migrations);
   if (applied.length > 0) logger.log(`Applied migrations: ${applied.join(', ')}`);
 
-  const seeded = await seedAdmins(app.get<Db>(DB), {
+  const seeded = await seedAdmins(app.get<Database>(DB), {
     emails: env.ADMIN_SEED_EMAILS,
     password: env.ADMIN_SEED_PASSWORD,
     allowedDomains: env.ALLOWED_EMAIL_DOMAINS,

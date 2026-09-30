@@ -60,9 +60,11 @@ export {
   OutboxRelay,
   insertOutboxEvent,
   provideOutboxRelay,
+  toOutboxRow,
   type CataloguedEventType,
   type NewOutboxEvent,
   type OutboxRelayOptions,
+  type OutboxRowValues,
   type OutboxRelayStats,
 } from './outbox.js';
 export { INBOX_TABLE_SQL, processOnce, withInbox, type InboxHandler } from './inbox.js';

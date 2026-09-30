@@ -19,6 +19,7 @@ export {
   PgDb,
   runMigrations,
   type Db,
+  type DrizzleDatabase,
   type Migration,
   type PgDbOptions,
   type Queryable,
