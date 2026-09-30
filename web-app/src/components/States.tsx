@@ -8,10 +8,11 @@ export function Skeleton({ className }: { className?: string }) {
   return <span className={cx(styles.skeleton, className)} aria-hidden="true" />;
 }
 
+/** Keep mounted across in-page loading updates so assistive technology can announce label changes. */
 export function LoadingState({ label = "Loading…", rows = 3 }: { label?: string; rows?: number }) {
   return (
     <div role="status" className={styles.loading}>
-      <span className="srOnly">{label}</span>
+      <span>{label}</span>
       {Array.from({ length: rows }, (_, i) => (
         <Skeleton key={i} />
       ))}

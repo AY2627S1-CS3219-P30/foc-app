@@ -209,6 +209,7 @@ jobs:
       - run: bun run lint
       # Unit tests use Bun's built-in runner; test/ is excluded from the Next typecheck.
       - run: bun test
+      - run: bun run typecheck:contracts
       - run: bun run build
 
   # ---------------------------------------------------------------------------

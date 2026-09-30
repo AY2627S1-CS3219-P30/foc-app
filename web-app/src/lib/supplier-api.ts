@@ -10,4 +10,6 @@ export type Supplier = components["schemas"]["Supplier"];
 export type SupplierType = components["schemas"]["SupplierType"];
 export type SupplierPage = components["schemas"]["SupplierPage"];
 
-export const supplierApi = createApiClient<paths>(SUPPLIER_SERVICE_URL);
+export const supplierApi = createApiClient<paths>(SUPPLIER_SERVICE_URL, {
+  notConfiguredMessage: "Suppliers are unavailable: NEXT_PUBLIC_SUPPLIER_SERVICE_URL is missing from this build.",
+});
