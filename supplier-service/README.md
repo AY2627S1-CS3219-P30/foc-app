@@ -103,7 +103,7 @@ search box lists everything. An unknown `type`, a repeated `type`/`building`/`q`
 or a NUL character is a `422 VALIDATION_FAILED`. Unknown parameters are ignored.
 
 Name and building sort case-insensitively, and every sort is **tie-broken by name,
-then `supplierId`**, so paging the full set returns each record exactly once and
+building, then `supplierId`**, so paging the full set returns each record exactly once and
 the order is stable across requests. `total` and `items` are read in one snapshot,
 so they always agree.
 
@@ -130,13 +130,13 @@ building), so filtering by building has no duplicates and needs no proximity or
 coordinate search. Coordinates remain stored for map pins but are **not** a query
 axis; there is deliberately no radius/nearest search in this service.
 
-### Indexes (migration `003`)
+### Indexes and constraints
 
-Every sort and every search arm is index-backed over active rows: a B-tree per
-sort matching its `ORDER BY` (the building one also serves the building filter),
-and **pg_trgm GIN** indexes on `name`, `building`, `location_description` and
-`supplier_tags_text(tags)`, so the planner can `BitmapOr` the search instead of
-scanning. See [`schema.md`](../docs/supplier-service/schema.md) §2.
+The initial Drizzle migration has a partial type index for active suppliers and
+the case-insensitive unique name/building index. The follow-up migration enforces
+that `tags` is a JSON array. Other listing sorts and substring search scan the
+active catalogue, which currently has about 33 seeded rows. See
+[`schema.md`](../docs/supplier-service/schema.md) §2.
 
 ## Seed
 
@@ -179,11 +179,11 @@ Run these from the repository root.
 On top of the shared base (`SERVICE_NAME`, `PORT`, `NODE_ENV`, `LOG_LEVEL`,
 `CORS_ORIGINS`, optional `RABBITMQ_URL`):
 
-| Variable               | Example                                   | Notes                                                       |
-| ---------------------- | ----------------------------------------- | ----------------------------------------------------------- |
-| `DATABASE_URL`         | `postgres://…@postgres:5432/foc_supplier` | Migrations run at boot; the schema is never behind traffic. |
-| `USER_SERVICE_URL`     | `http://user-service:3001`                | Base URL for identity introspection.                        |
-| `INTERNAL_SERVICE_KEY` | one of the User Service's keys            | Presented as `X-Service-Key`.                               |
+| Variable               | Example                                   | Notes                                                            |
+| ---------------------- | ----------------------------------------- | ---------------------------------------------------------------- |
+| `DATABASE_URL`         | `postgres://…@postgres:5432/foc_supplier` | Migrated by the one-shot migrate step before the service starts. |
+| `USER_SERVICE_URL`     | `http://user-service:3001`                | Base URL for identity introspection.                             |
+| `INTERNAL_SERVICE_KEY` | one of the User Service's keys            | Presented as `X-Service-Key`.                                    |
 
 A missing required variable stops the service at boot and names the variable.
 Nothing falls back to an insecure default.

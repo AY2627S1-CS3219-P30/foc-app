@@ -68,8 +68,14 @@ function codeFor(status: number): string {
  */
 const UNSTORABLE_TEXT = new Set(['22021', '22P05']);
 
-const isUnstorableText = (e: unknown): boolean =>
-  e instanceof Error && UNSTORABLE_TEXT.has((e as { code?: string }).code ?? '');
+const isUnstorableText = (e: unknown): boolean => {
+  let current = e;
+  while (current instanceof Error) {
+    if (UNSTORABLE_TEXT.has((current as Error & { code?: string }).code ?? '')) return true;
+    current = current.cause;
+  }
+  return false;
+};
 
 @Catch()
 export class ErrorEnvelopeFilter implements ExceptionFilter {

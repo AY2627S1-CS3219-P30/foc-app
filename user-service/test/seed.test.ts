@@ -1,15 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { runMigrations } from '@foc/platform';
 import { reportSeed, seedAdmins, type SeedResult } from '../src/admin/seed.js';
 import { REFRESH_COOKIE } from '../src/auth/cookies.js';
 import { JWT, type JwtService } from '../src/auth/jwt.service.js';
-import { hashPassword } from '../src/auth/passwords.js';
+import { sessionsRepository } from '../src/auth/sessions.repository.js';
 import { newOpaqueToken, sha256Hex } from '../src/auth/tokens.js';
-import type { Queryable } from '../src/db/db.js';
-import { migrations } from '../src/db/migrations.js';
 import { createTestApp, SERVICE_KEY, type TestApp } from './helpers/app.js';
-import { PgliteDb } from './helpers/pglite-db.js';
 import {
   activeStudent,
   BOOTSTRAP_PASSWORD,
@@ -26,7 +22,7 @@ import {
 let t: TestApp;
 const domains = ['u.nus.edu'];
 const seed = (emails: string[]) =>
-  seedAdmins(t.db, { emails, password: BOOTSTRAP_PASSWORD, allowedDomains: domains });
+  seedAdmins(t.orm, { emails, password: BOOTSTRAP_PASSWORD, allowedDomains: domains });
 
 beforeAll(async () => {
   t = await createTestApp();
@@ -95,7 +91,7 @@ describe('seedAdmins (US-FR3.1.3)', () => {
     // The boot error is printed to the console: it names the entry and its domain, never the
     // address.
     const bad = (email: string) =>
-      seedAdmins(t.db, { emails: [email], password: BOOTSTRAP_PASSWORD, allowedDomains: domains });
+      seedAdmins(t.orm, { emails: [email], password: BOOTSTRAP_PASSWORD, allowedDomains: domains });
     await expect(bad('some.one@gmail.com')).rejects.toThrow(
       /^ADMIN_SEED_EMAILS address 1 of 1 has domain gmail\.com, which is not in ALLOWED_EMAIL_DOMAINS\.$/,
     );
@@ -104,9 +100,9 @@ describe('seedAdmins (US-FR3.1.3)', () => {
       /^ADMIN_SEED_EMAILS address 1 of 1 is not an email address\.$/,
     );
     await expect(
-      seedAdmins(t.db, { emails: ['a@u.nus.edu'], allowedDomains: domains }),
+      seedAdmins(t.orm, { emails: ['a@u.nus.edu'], allowedDomains: domains }),
     ).rejects.toThrow(/ADMIN_SEED_PASSWORD/);
-    expect(await seedAdmins(t.db, { allowedDomains: domains })).toEqual({
+    expect(await seedAdmins(t.orm, { allowedDomains: domains })).toEqual({
       created: [],
       skipped: [],
     });
@@ -141,7 +137,7 @@ describe('the boot report names an entry by position, never by address (US-NFR4.
   });
 
   it('says so when no administrator is configured', async () => {
-    expect(report(await seedAdmins(t.db, { allowedDomains: domains }))).toEqual([
+    expect(report(await seedAdmins(t.orm, { allowedDomains: domains }))).toEqual([
       'warn: No seeded administrators configured.',
     ]);
   });
@@ -211,6 +207,43 @@ describe('the bootstrap secret is retired at first sign-in (US-FR3.1.3.2)', () =
     // An ordinary account is not told whether its choice happens to be the secret.
     await activeStudent(t, 'alex@u.nus.edu');
     await changePassword(t, 'alex@u.nus.edu', PASSWORD, BOOTSTRAP_PASSWORD).expect(204);
+  });
+
+  it('a session a flagged account still holds is refused by refresh, the guard and introspection', async () => {
+    // Login never starts one, so write it directly, as a session that predates the flag.
+    await seed(['root@u.nus.edu']);
+    const { id } = (await t.db.query<{ id: string }>('SELECT id FROM users')).rows[0]!;
+    const token = newOpaqueToken();
+    const sid = randomUUID();
+    await sessionsRepository.insert(t.orm, {
+      id: sid,
+      familyId: randomUUID(),
+      userId: id,
+      tokenHash: sha256Hex(token),
+      ttlDays: 7,
+    });
+
+    const accessToken = t.app.get<JwtService>(JWT).sign({ sub: id, sid });
+    const guarded = await http(t)
+      .get('/admin/users')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(401);
+    expect(guarded.body.error.code).toBe('UNAUTHENTICATED');
+    const introspected = await http(t)
+      .get(`/internal/introspect?sid=${sid}&sub=${id}`)
+      .set('x-service-key', SERVICE_KEY)
+      .expect(200);
+    expect(introspected.body).toEqual({ active: false });
+
+    const refreshed = await http(t)
+      .post('/auth/refresh')
+      .set('Cookie', `${REFRESH_COOKIE}=${token}`)
+      .set('Origin', ORIGIN)
+      .set('Content-Type', 'application/json')
+      .expect(403);
+    expect(refreshed.body.error.code).toBe('PASSWORD_CHANGE_REQUIRED');
+    const left = await t.db.query('SELECT 1 FROM refresh_sessions WHERE revoked_at IS NULL');
+    expect(left.rows).toHaveLength(0);
   });
 });
 
@@ -302,125 +335,3 @@ describe('recovering from a misbehaving appointed admin (the seeded tier, US-FR3
       .expect(200);
   });
 });
-
-describe('migration 004 on a database that already has bootstrap admins', () => {
-  const ADMIN_ID = '00000000-0000-4000-8000-000000000001';
-  const STUDENT_ID = '00000000-0000-4000-8000-000000000002';
-
-  it('flags and signs out every bootstrap admin, audits them, and keeps old audit rows valid', async () => {
-    const db = await PgliteDb.create();
-    await runMigrations(db, migrations.slice(0, 3));
-    // A deployment on 003: a bootstrap admin who signed in with the secret, a student, and an
-    // audit row in the old shape (no actor_type), which the new CHECKs must accept.
-    await db.query(
-      `INSERT INTO users (id, email, password_hash, status, is_seeded_admin, created_at) VALUES
-       ($1, 'root@u.nus.edu', $3, 'ACTIVE', true, '2020-01-01T00:00:00Z'),
-       ($2, 'alex@u.nus.edu', 'h', 'ACTIVE', false, '2020-01-02T00:00:00Z')`,
-      [ADMIN_ID, STUDENT_ID, await hashPassword(BOOTSTRAP_PASSWORD)],
-    );
-    await db.query(
-      `INSERT INTO user_roles (user_id, role) VALUES ($1, 'STUDENT'), ($1, 'ADMIN'), ($2, 'STUDENT')`,
-      [ADMIN_ID, STUDENT_ID],
-    );
-    await db.query(
-      `INSERT INTO profiles (user_id, display_name) VALUES ($1, 'Administrator'), ($2, 'Alex')`,
-      [ADMIN_ID, STUDENT_ID],
-    );
-    await db.query(
-      `INSERT INTO audit_records (id, actor_id, target_user_id, action, reason, correlation_id)
-       VALUES (gen_random_uuid(), $1, $2, 'SUSPEND', 'spam', 'c1')`,
-      [ADMIN_ID, STUDENT_ID],
-    );
-    const adminSession = await sessionWrittenDirectly(db, ADMIN_ID);
-    const studentSession = await sessionWrittenDirectly(db, STUDENT_ID);
-
-    const app = await createTestApp({ db }); // applies 004, as the next boot would
-    try {
-      const rows = (await db.query('SELECT email, must_change_password FROM users ORDER BY email'))
-        .rows;
-      expect(rows).toEqual([
-        { email: 'alex@u.nus.edu', must_change_password: false },
-        { email: 'root@u.nus.edu', must_change_password: true },
-      ]);
-
-      const audit = (
-        await db.query(
-          `SELECT actor_id, actor_type, target_user_id, action, occurred_at, correlation_id
-           FROM audit_records ORDER BY occurred_at`,
-        )
-      ).rows;
-      expect(audit).toEqual([
-        {
-          actor_id: null,
-          actor_type: 'SYSTEM',
-          target_user_id: ADMIN_ID,
-          action: 'ADMIN_BOOTSTRAP',
-          occurred_at: new Date('2020-01-01T00:00:00Z'),
-          correlation_id: 'migration-004',
-        },
-        expect.objectContaining({ actor_id: ADMIN_ID, actor_type: 'USER', action: 'SUSPEND' }),
-      ]);
-
-      // The admin's existing session is gone: refresh fails, and so does an admin route.
-      const refreshed = await refresh(app, adminSession.cookie).expect(401);
-      expect(refreshed.body.error.code).toBe('REFRESH_TOKEN_INVALID');
-      const token = await accessToken(app, ADMIN_ID, adminSession.sid);
-      await http(app).get('/admin/users').set('Authorization', `Bearer ${token}`).expect(401);
-      // Nobody else was signed out.
-      await refresh(app, studentSession.cookie).expect(200);
-
-      // The way back in is the ordinary one: replace the bootstrap password, then sign in.
-      await changePassword(app, 'root@u.nus.edu', BOOTSTRAP_PASSWORD, PASSWORD).expect(204);
-      const admin = await login(app, 'root@u.nus.edu');
-      await http(app).get('/admin/users').set('Authorization', bearer(admin)).expect(200);
-    } finally {
-      await app.close();
-    }
-  });
-
-  it('a session a flagged account still holds is refused by refresh, the guard and introspection', async () => {
-    // Login never starts one; this is a session from an instance still running code older than 004.
-    await seed(['root@u.nus.edu']);
-    const { id } = (await t.db.query<{ id: string }>('SELECT id FROM users')).rows[0]!;
-    const session = await sessionWrittenDirectly(t.db, id);
-
-    const token = await accessToken(t, id, session.sid);
-    const guarded = await http(t)
-      .get('/admin/users')
-      .set('Authorization', `Bearer ${token}`)
-      .expect(401);
-    expect(guarded.body.error.code).toBe('UNAUTHENTICATED');
-    const introspected = await http(t)
-      .get(`/internal/introspect?sid=${session.sid}&sub=${id}`)
-      .set('x-service-key', SERVICE_KEY)
-      .expect(200);
-    expect(introspected.body).toEqual({ active: false });
-
-    const refreshed = await refresh(t, session.cookie).expect(403);
-    expect(refreshed.body.error.code).toBe('PASSWORD_CHANGE_REQUIRED');
-    const left = await t.db.query('SELECT 1 FROM refresh_sessions WHERE revoked_at IS NULL');
-    expect(left.rows).toHaveLength(0);
-  });
-});
-
-/** A refresh session inserted as login did before migration 004, with no check of the flag. */
-async function sessionWrittenDirectly(db: Queryable, userId: string) {
-  const token = newOpaqueToken();
-  const sid = randomUUID();
-  await db.query(
-    `INSERT INTO refresh_sessions (id, family_id, user_id, token_hash, expires_at)
-     VALUES ($1, $2, $3, $4, now() + interval '7 days')`,
-    [sid, randomUUID(), userId, sha256Hex(token)],
-  );
-  return { sid, cookie: `${REFRESH_COOKIE}=${token}` };
-}
-
-const accessToken = (app: TestApp, sub: string, sid: string) =>
-  app.app.get<JwtService>(JWT).sign({ sub, sid });
-
-const refresh = (app: TestApp, cookie: string) =>
-  http(app)
-    .post('/auth/refresh')
-    .set('Cookie', cookie)
-    .set('Origin', ORIGIN)
-    .set('Content-Type', 'application/json');

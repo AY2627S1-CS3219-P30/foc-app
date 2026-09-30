@@ -1,11 +1,22 @@
 import type { OnApplicationShutdown } from '@nestjs/common';
+import type { ExtractTablesWithRelations } from 'drizzle-orm';
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import pg from 'pg';
 import type { Logger as PinoLogger } from 'pino';
 
 /**
- * The narrow database port the service codes against. Production uses `pg`
- * (see {@link PgDb}); tests run the same SQL on PGlite, which is real PostgreSQL
- * compiled to WASM, so no server is needed to run the suite.
+ * The Drizzle handle a service's repositories code against. Widened over
+ * {@link PgQueryResultHKT} so both the top-level database and a transaction
+ * handle, over `pg` in production or PGlite in tests, satisfy it.
+ */
+export type DrizzleDatabase<TSchema extends Record<string, unknown> = Record<string, never>> =
+  PgDatabase<PgQueryResultHKT, TSchema, ExtractTablesWithRelations<TSchema>>;
+
+/**
+ * The raw database port, for what Drizzle does not cover: migrations
+ * (multi-statement DDL), the outbox relay, and raw assertions in tests.
+ * Production uses `pg` (see {@link PgDb}); tests run the same SQL on PGlite,
+ * which is real PostgreSQL compiled to WASM, so no server is needed.
  */
 export type Row = Record<string, unknown>;
 
@@ -34,10 +45,11 @@ export interface PgDbOptions {
 
 /**
  * PostgreSQL implementation of {@link Db}. The pool connects lazily, on first
- * query, and is drained when Nest shuts the application down.
+ * query, and is drained when Nest shuts the application down. It is exposed so
+ * a Drizzle instance can share it.
  */
 export class PgDb implements Db, OnApplicationShutdown {
-  private readonly pool: pg.Pool;
+  readonly pool: pg.Pool;
   private closed = false;
 
   constructor(connectionString: string, options: PgDbOptions = {}) {
@@ -107,62 +119,4 @@ export class PgDb implements Db, OnApplicationShutdown {
   async onApplicationShutdown(): Promise<void> {
     await this.close();
   }
-}
-
-/**
- * One forward-only migration. Kept as a TypeScript string rather than a .sql
- * file so `tsc` carries it into `dist/` with no copy step. The actual list of
- * migrations is service-specific (each service owns its schema); pass it to
- * {@link runMigrations}.
- */
-export interface Migration {
-  id: string;
-  sql: string;
-}
-
-/**
- * Serializes migration runs across instances of the same service. It is a
- * transaction-scoped advisory lock, so it is released at each commit and never
- * outlives a crashed instance.
- */
-const MIGRATION_LOCK = `SELECT pg_advisory_xact_lock(hashtext('foc.schema_migrations'))`;
-
-/**
- * Applies every migration in `list` not yet recorded, in order, each in its own
- * transaction. Returns the ids this call applied. Forward-only: there is no
- * down step.
- *
- * Safe when several instances boot at once: each migration takes the lock and
- * re-checks the ledger inside its transaction, so an instance that waited on
- * another skips what that one already applied instead of failing on it.
- */
-export async function runMigrations(db: Db, list: Migration[]): Promise<string[]> {
-  await db.transaction(async (tx) => {
-    await tx.query(MIGRATION_LOCK);
-    await tx.exec(`
-      CREATE TABLE IF NOT EXISTS schema_migrations (
-        id         text PRIMARY KEY,
-        applied_at timestamptz NOT NULL DEFAULT now()
-      )
-    `);
-  });
-  const { rows } = await db.query<{ id: string }>('SELECT id FROM schema_migrations');
-  const done = new Set(rows.map((r) => r.id));
-  const applied: string[] = [];
-
-  for (const migration of list) {
-    if (done.has(migration.id)) continue;
-    const ran = await db.transaction(async (tx) => {
-      await tx.query(MIGRATION_LOCK);
-      const recorded = await tx.query('SELECT 1 FROM schema_migrations WHERE id = $1', [
-        migration.id,
-      ]);
-      if (recorded.rows.length > 0) return false;
-      await tx.exec(migration.sql);
-      await tx.query('INSERT INTO schema_migrations (id) VALUES ($1)', [migration.id]);
-      return true;
-    });
-    if (ran) applied.push(migration.id);
-  }
-  return applied;
 }

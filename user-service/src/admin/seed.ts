@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { LoggerService } from '@nestjs/common';
 import { EVENTS } from '@foc/platform';
 import { hashPassword } from '../auth/passwords.js';
-import type { Db } from '../db/db.js';
+import type { Database } from '../db/db.js';
 import { isAllowedDomain, normalizeEmail } from '../users/email.js';
 import { usersRepository } from '../users/users.repository.js';
 import { adminRepository } from './admin.repository.js';
@@ -30,7 +30,7 @@ export interface SeedResult {
  * transaction as the account, so a bootstrap admin cannot exist without its record.
  */
 export async function seedAdmins(
-  db: Db,
+  db: Database,
   config: { emails?: string[]; password?: string; allowedDomains: readonly string[] },
 ): Promise<SeedResult> {
   const result: SeedResult = { created: [], skipped: [] };

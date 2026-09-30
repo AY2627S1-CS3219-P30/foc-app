@@ -1,25 +1,24 @@
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { drizzle } from 'drizzle-orm/pglite';
 import type { DestinationStream } from 'pino';
-import {
-  ErrorEnvelopeFilter,
-  LOGGER,
-  PinoLoggerService,
-  PlatformModule,
-  runMigrations,
-} from '@foc/platform';
+import { ErrorEnvelopeFilter, LOGGER, PinoLoggerService, PlatformModule } from '@foc/platform';
 import { RATE_LIMITERS, RateLimiter, type AuthRateLimiters } from '../../src/auth/rate-limiter.js';
-import { DB, type Db } from '../../src/db/db.js';
-import { migrations } from '../../src/db/migrations.js';
+import { DB, RAW_DB, type Database } from '../../src/db/db.js';
+import * as schema from '../../src/db/schema.js';
 import { DevMailbox } from '../../src/mail/dev-mailbox.js';
 import { UsersModule } from '../../src/users/users.module.js';
+import { applyMigrations } from './migrate.js';
 import { PgliteDb } from './pglite-db.js';
 
 export const SERVICE_KEY = 'test-internal-key-0123456789';
 
 export interface TestApp {
   app: INestApplication;
-  db: Db;
+  /** The raw port, for direct SQL assertions. */
+  db: PgliteDb;
+  /** The Drizzle handle the service queries through, for driving a repository or the seed directly. */
+  orm: Database;
   mailbox: DevMailbox;
   close(): Promise<void>;
 }
@@ -30,12 +29,13 @@ export async function createTestApp(
     logLevel?: string;
     logDestination?: DestinationStream;
     rateLimiters?: AuthRateLimiters;
-    /** A database already part-way through the migrations; the rest are applied here, as at boot. */
+    /** An existing PGlite to reuse; migrations are applied idempotently. */
     db?: PgliteDb;
   } = {},
 ): Promise<TestApp> {
   const db = options.db ?? (await PgliteDb.create());
-  await runMigrations(db, migrations);
+  await applyMigrations(db);
+  const orm = drizzle(db.client, { schema });
 
   const moduleRef = await Test.createTestingModule({
     imports: [
@@ -48,8 +48,10 @@ export async function createTestApp(
       UsersModule.forRoot(),
     ],
   })
-    .overrideProvider(DB)
+    .overrideProvider(RAW_DB)
     .useValue(db)
+    .overrideProvider(DB)
+    .useValue(orm)
     // Generous by default: the suite shares one client IP and registers far more than a person would.
     .overrideProvider(RATE_LIMITERS)
     .useValue(options.rateLimiters ?? openLimiters())
@@ -70,6 +72,7 @@ export async function createTestApp(
   return {
     app,
     db,
+    orm,
     mailbox: app.get(DevMailbox),
     close: async () => {
       await app.close();

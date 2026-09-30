@@ -348,7 +348,7 @@ describe('GET /admin/users', () => {
     expect(second.items).toHaveLength(1);
   });
 
-  it('filters by status, role and search prefix, and treats % literally', async () => {
+  it('filters by status, role and search prefix, and treats % and _ literally', async () => {
     await as(root).suspend(student.id).expect(200);
     expect((await as(root).get('/admin/users?status=SUSPENDED').expect(200)).body.total).toBe(1);
     expect((await as(root).get('/admin/users?role=ADMIN').expect(200)).body.total).toBe(2);
@@ -356,6 +356,11 @@ describe('GET /admin/users', () => {
       'student@u.nus.edu',
     );
     expect((await as(root).get('/admin/users?q=%25').expect(200)).body.total).toBe(0);
+    expect((await as(root).get('/admin/users?q=stu_').expect(200)).body.total).toBe(0);
+    await activeStudent(t, 'first_last@u.nus.edu');
+    expect((await as(root).get('/admin/users?q=first_').expect(200)).body.items).toEqual([
+      expect.objectContaining({ email: 'first_last@u.nus.edu' }),
+    ]);
   });
 
   it('bounds the page size and rejects bad filters', async () => {

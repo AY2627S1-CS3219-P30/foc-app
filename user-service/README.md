@@ -18,13 +18,14 @@ npm install
 
 Run these from the repository root.
 
-| Command                                  | What it does                  |
-| ---------------------------------------- | ----------------------------- |
-| `npm run dev:user`                       | Start with reload on change   |
-| `npm run build -w @foc/user-service`     | Compile TypeScript to `dist/` |
-| `npm test -w @foc/user-service`          | Run this service's tests      |
-| `npm run typecheck -w @foc/user-service` | Type-check without emitting   |
-| `npm run lint`                           | Lint every service            |
+| Command                                   | What it does                       |
+| ----------------------------------------- | ---------------------------------- |
+| `npm run db:migrate -w @foc/user-service` | Apply migrations to `DATABASE_URL` |
+| `npm run dev:user`                        | Start with reload on change        |
+| `npm run build -w @foc/user-service`      | Compile TypeScript to `dist/`      |
+| `npm test -w @foc/user-service`           | Run this service's tests           |
+| `npm run typecheck -w @foc/user-service`  | Type-check without emitting        |
+| `npm run lint`                            | Lint every service                 |
 
 ### Required environment
 
@@ -76,7 +77,7 @@ user and declares a `HEALTHCHECK`. `compose.yaml` wiring arrives with PLT-02.
 | `GET /dev/mailbox?to=`                | **Development only.** Reads the activation token that would be emailed. Refused in production                                            |
 
 The contract is `contracts/user-service.openapi.yaml`; role and schema design are in
-`docs/user-service/`, and every decision with its trade-offs is in `docs/user-service/decisions.md`. Migrations run at boot and are forward-only (`src/db/migrations.ts`).
+`docs/user-service/`, and every decision with its trade-offs is in `docs/user-service/decisions.md`. Migrations are forward-only, live in `drizzle/`, and are applied by `npm run db:migrate -w @foc/user-service` before the service starts; the service never migrates at boot.
 
 **Tests run on PGlite** (PostgreSQL compiled to WASM), so `npm test -w @foc/user-service` needs no
 database server or Docker. Runtime uses `pg` against the Compose Postgres.

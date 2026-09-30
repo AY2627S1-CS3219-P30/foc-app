@@ -51,6 +51,14 @@ describe('ErrorEnvelopeFilter', () => {
     expect(JSON.stringify(body)).not.toContain('0x00');
   });
 
+  it('maps a text error wrapped by Drizzle to a 422', () => {
+    const driver = Object.assign(new Error('invalid byte sequence'), { code: '22021' });
+    const wrapped = new Error('Failed query', { cause: driver });
+    const { status, body } = run(wrapped);
+    expect(status).toBe(422);
+    expect(body.error.code).toBe('VALIDATION_FAILED');
+  });
+
   it('still treats other Postgres errors as internal', () => {
     const { status } = run(Object.assign(new Error('deadlock detected'), { code: '40P01' }));
     expect(status).toBe(500);

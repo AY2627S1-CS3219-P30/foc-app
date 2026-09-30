@@ -1,7 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
+import { sql } from 'drizzle-orm';
 import { ApiException } from '@foc/platform';
-import { DB, type Db } from '../db/db.js';
+import { DB, type Database } from '../db/db.js';
 import { isUniqueViolation, suppliersRepository as repo } from './suppliers.repository.js';
 import { validationFailed, type SupplierListQuery } from './validation.js';
 import {
@@ -69,7 +70,7 @@ export interface SupplierPage {
  */
 @Injectable()
 export class SuppliersService {
-  constructor(@Inject(DB) private readonly db: Db) {}
+  constructor(@Inject(DB) private readonly db: Database) {}
 
   async list(query: SupplierListQuery): Promise<SupplierPage> {
     const { rows, total } = await repo.list(this.db, query);
@@ -99,7 +100,7 @@ export class SuppliersService {
       if (idempotencyKey) {
         // Serialize same-key requests so a concurrent replay waits for the first
         // to commit, then finds its result below instead of racing to insert.
-        await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [idempotencyKey]);
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${idempotencyKey}))`);
         const existing = await repo.findIdempotent(tx, idempotencyKey);
         if (existing) {
           if (existing.requestHash !== hash) throw idempotencyKeyReused();

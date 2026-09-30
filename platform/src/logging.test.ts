@@ -4,7 +4,13 @@ import pino from 'pino';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CORRELATION_HEADER } from './correlation.js';
 import { ErrorEnvelopeFilter, type ErrorEnvelope } from './errors.js';
-import { createLogger, PinoLoggerService, REDACT_PATHS, requestLogger } from './logging.js';
+import {
+  createLogger,
+  errorMessage,
+  PinoLoggerService,
+  REDACT_PATHS,
+  requestLogger,
+} from './logging.js';
 
 /** The JSON line one log call writes, redacted the way every service's logger is. */
 function logged(fields: object): Record<string, unknown> {
@@ -148,6 +154,48 @@ describe('logged errors', () => {
     }
     expect(lines.join('')).not.toMatch(EMAIL);
     expect(lines.join('')).not.toMatch(/argon2|\$2b\$/);
+  });
+
+  it('keep a failed query but drop its bound values', () => {
+    const err = Object.assign(
+      new Error('Failed query: insert into "profiles" values ($1, $2)\nparams: 7f1c,Alice Tan'),
+      { query: 'insert into "profiles" values ($1, $2)', params: ['7f1c', 'Alice Tan'] },
+    );
+    const { logger, lines, parsed } = serviceLogger();
+    logger.error({ err });
+    new PinoLoggerService(logger).error(err, undefined, 'SomeService');
+
+    for (const line of parsed()) {
+      expect(line.msg).toBe('Failed query: insert into "profiles" values ($1, $2)');
+      expect(line.err.message).toBe(line.msg);
+    }
+    expect(lines.join('')).not.toContain('Alice Tan');
+  });
+
+  it('keep a failed query stripped even when its statement holds a replacement pattern', () => {
+    const query = `select '$&' from "profiles" where id = $1`;
+    const err = Object.assign(new Error(`Failed query: ${query}\nparams: Alice Tan`), {
+      query,
+      params: ['Alice Tan'],
+    });
+    const { logger, lines } = serviceLogger();
+    logger.error({ err });
+    expect(lines.join('')).not.toContain('Alice Tan');
+  });
+
+  it('give any sink a failed query with the driver reason and no bound values', () => {
+    const err = Object.assign(
+      new Error('Failed query: insert into "users" values ($1)\nparams: alice@u.nus.edu'),
+      {
+        query: 'insert into "users" values ($1)',
+        params: ['alice@u.nus.edu'],
+        cause: new Error('relation "users" does not exist'),
+      },
+    );
+    expect(errorMessage(err)).toBe(
+      'Failed query: insert into "users" values ($1): relation "users" does not exist',
+    );
+    expect(errorMessage('bob@u.nus.edu refused')).toBe('[email] refused');
   });
 
   it('mask a cause, and each error of an AggregateError', () => {

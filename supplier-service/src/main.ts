@@ -1,8 +1,7 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { createLogger, PinoLoggerService, runMigrations, startService } from '@foc/platform';
-import { DB, type Db } from './db/db.js';
-import { migrations } from './db/migrations.js';
+import { createLogger, errorMessage, PinoLoggerService, startService } from '@foc/platform';
+import { DB, type Database } from './db/db.js';
 import { loadSeedSuppliers } from './admin/seed-data.js';
 import { seedSuppliers } from './admin/seed.js';
 
@@ -15,13 +14,12 @@ async function main(): Promise<void> {
   const logger = new PinoLoggerService(createLogger(SERVICE_NAME, env.LOG_LEVEL));
   const app = await NestFactory.create(AppModule, { logger });
 
-  // Schema first, then traffic: a request must never reach a database that is behind.
-  const applied = await runMigrations(app.get<Db>(DB), migrations);
-  if (applied.length > 0) logger.log(`Applied migrations: ${applied.join(', ')}`);
-
+  // The schema is migrated as a separate step before the service starts (a
+  // one-shot `db/migrate.ts` container in compose, `npm run db:migrate` on a
+  // host, or the deploy pipeline) — never at boot.
   // Idempotent: safe to run on every boot, never overwrites an admin's edits.
   const suppliers = await loadSeedSuppliers();
-  const seeded = await seedSuppliers(app.get<Db>(DB), suppliers);
+  const seeded = await seedSuppliers(app.get<Database>(DB), suppliers);
   logger.log(
     `Supplier seed: ${seeded.created.length} created, ${seeded.skipped.length} already present.`,
   );
@@ -35,6 +33,6 @@ async function main(): Promise<void> {
 
 main().catch((err: unknown) => {
   // Configuration errors happen before a logger exists, so this must use console.
-  console.error(err instanceof Error ? err.message : String(err));
+  console.error(errorMessage(err));
   process.exit(1);
 });

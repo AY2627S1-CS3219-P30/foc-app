@@ -106,7 +106,7 @@ describe('log privacy across auth and admin paths (US-NFR4.1.1)', () => {
     const password = validRegistration().password;
     const adminPassword = 'the-admins-own-passphrase';
 
-    await seedAdmins(t.db, {
+    await seedAdmins(t.orm, {
       emails: [adminEmail],
       password,
       allowedDomains: ['u.nus.edu'],
@@ -255,7 +255,7 @@ describe('log privacy across auth and admin paths (US-NFR4.1.1)', () => {
         where: `SQL statement "INSERT INTO users VALUES ('${address}', '${hash}')"`,
       },
     );
-    const query = vi.spyOn(t.db, 'query').mockRejectedValueOnce(uniqueViolation);
+    const query = vi.spyOn(t.db.client, 'query').mockRejectedValueOnce(uniqueViolation);
     await http()
       .get(`/internal/users/${randomUUID()}`)
       .set('x-service-key', SERVICE_KEY)
@@ -274,11 +274,16 @@ describe('log privacy across auth and admin paths (US-NFR4.1.1)', () => {
       .slice(start)
       .map((line) => JSON.parse(line) as { context?: string; err?: Record<string, unknown> })
       .filter((line) => line.context === 'ErrorEnvelopeFilter');
+    // Drizzle wraps the driver error, which is logged as its cause; the bound values are dropped.
     expect(logged.map((line) => line.err)).toEqual([
       expect.objectContaining({
-        code: '23505',
-        table: 'users',
-        constraint: 'users_email_lower_key',
+        type: 'DrizzleQueryError',
+        message: expect.stringMatching(/^Failed query: [^\n]*$/),
+        cause: expect.objectContaining({
+          code: '23505',
+          table: 'users',
+          constraint: 'users_email_lower_key',
+        }),
       }),
       expect.objectContaining({ message: '550 5.1.1 <[email]>: Recipient address rejected' }),
     ]);
