@@ -209,6 +209,11 @@ PENDING_CREDIT --CreditReserved--> OPEN --accept--> ACCEPTED --pickup--> PICKED_
 - `DELIVERED` auto-confirms after 24 hours unless disputed. The timeout is a configurable product policy and must be shown in the UI.
 - An admin never edits a wallet. Admin outcomes are commands to Order Service, which trigger the normal idempotent transfer/release path.
 
+> **Superseded (2026-09-30).** `order-service/README.md` is now the authoritative order state model. The original text above is kept for history. It differs in three places:
+> 1. The rejected state is `REJECTED`, not `CREDIT_REJECTED`.
+> 2. Expiry is not limited to `OPEN`. A withdrawal or pickup timeout after the acceptance deadline expires an `ACCEPTED` order instead of reopening it (D1 OS-FR6.1.1). A courier suspension always reopens it, with the deadline extended.
+> 3. `DISPUTED` can also be reached from `PICKED_UP`: the requester reports non-delivery after 2 hours (D1 OS-FR4.1.5), the courier is suspended, or the 2 hours pass while the requester is suspended.
+
 ### 3.4 Data and privacy
 
 - User Service owns credentials, roles, profile, session hashes, account status, and audit records.

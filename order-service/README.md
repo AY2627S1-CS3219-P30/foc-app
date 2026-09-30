@@ -1,45 +1,107 @@
 # State Table
-**Order lifecycle.** The Order Service requirements refer to the states and transitions below. Any transition not listed is not permitted.
+**Order lifecycle.** The Order Service requirements refer to the states and transitions below. Any transition not listed is not permitted. The last column is what the web app shows for each state.
 
-| State | Meaning | Final |
-| ----- | ----- | :---: |
-| PENDING\_CREDIT | The request is submitted and waiting for the Credit Service to reserve its reward. | No |
-| OPEN | The reward is reserved and the order is waiting for a courier to accept it. | No |
-| ACCEPTED | A courier is assigned and the order is waiting for pickup. | No |
-| PICKED\_UP | The courier has collected the items and the order is waiting for delivery. | No |
-| DELIVERED | The courier has recorded delivery and the order is waiting for the requester to confirm receipt or report non-receipt. | No |
-| DISPUTED | Delivery could not be established and the order is waiting for an administrator decision. | No |
-| COMPLETION\_PENDING\_CREDIT | Delivery is accepted and the order is waiting for the Credit Service to transfer the reward to the courier. | No |
-| RELEASE\_PENDING\_CREDIT | The order is ending without payment and is waiting for the Credit Service to return the reward to the requester; the order records a release reason of cancelled or expired. | No |
-| REJECTED | The reward could not be reserved and no credits are held. | Yes |
-| COMPLETED | The reward has been transferred to the courier. | Yes |
-| CANCELLED | The reward has been returned to the requester after a cancellation or a dispute resolved for the requester. | Yes |
-| EXPIRED | The reward has been returned to the requester because the acceptance deadline passed without a courier keeping the order. | Yes |
+| State | Meaning | Final | Web app shows |
+| ----- | ----- | :---: | ----- |
+| PENDING\_CREDIT | The request is submitted and waiting for the Credit Service to reserve its reward. Couriers cannot see it. | No | Waiting for credits |
+| OPEN | The reward is reserved and the order is waiting for a courier to accept it. | No | Open |
+| ACCEPTED | A courier is assigned and the order is waiting for pickup. | No | Accepted |
+| PICKED\_UP | The courier has collected the items and the order is waiting for delivery. | No | In transit |
+| DELIVERED | The courier has recorded delivery and the order is waiting for the requester to confirm receipt or report non-receipt. | No | Delivered, confirm receipt |
+| DISPUTED | The order is referred to an administrator and is waiting for their decision. | No | With an administrator |
+| COMPLETION\_PENDING\_CREDIT | Delivery is accepted and the order is waiting for the Credit Service to transfer the reward to the courier. | No | Paying the courier |
+| RELEASE\_PENDING\_CREDIT | The order is ending without payment and is waiting for the Credit Service to return the reward to the requester; the order records a release reason of cancelled or expired. | No | Returning credits |
+| REJECTED | The reward could not be reserved and no credits are held. | Yes | Not placed |
+| COMPLETED | The reward has been transferred to the courier. | Yes | Complete |
+| CANCELLED | The reward has been returned to the requester after a cancellation or a dispute resolved for the requester. | Yes | Cancelled |
+| EXPIRED | The reward has been returned to the requester because the acceptance deadline passed without a courier keeping the order. | Yes | Expired |
+
+The web app's mock data has only five statuses today (`open`, `accepted`, `in_transit`, `complete`, `cancelled`); the other seven arrive when it is wired to this service.
 
 # Transition Table
-| From | Trigger | Actor | To |
+**Guard** is what must also be true, beyond the order being in the From state and the actor being allowed. If a guard fails, the order does not change and the caller is refused. Every student and administrator action also needs an active account: a suspended caller is refused before any guard is checked. A reply from the Credit Service is acted on only if it names the same order and amount the request did.
+
+**Emits** is what the transition sends, written to the outbox in the same transaction (see *Sending and receiving safely*). Every transition sends `order.status-changed`. A transition into a `*_PENDING_CREDIT` state also sends the request that state waits for.
+
+| From | Trigger | Actor | Guard | To | Emits |
+| ----- | ----- | ----- | ----- | ----- | ----- |
+| PENDING\_CREDIT | Reward reserved | Credit Service | Requester not suspended | OPEN | `order.status-changed` |
+| PENDING\_CREDIT | Reward reserved | Credit Service | Requester suspended while waiting | RELEASE\_PENDING\_CREDIT (cancelled) | `order.release-requested`, `order.status-changed` |
+| PENDING\_CREDIT | Reservation rejected | Credit Service | — | REJECTED | `order.status-changed` |
+| OPEN | Accept | Student | Actor is not the requester; acceptance deadline not passed | ACCEPTED | `order.status-changed` |
+| OPEN | Cancel | Requester | — | RELEASE\_PENDING\_CREDIT (cancelled) | `order.release-requested`, `order.status-changed` |
+| OPEN | Requester suspended | System | — | RELEASE\_PENDING\_CREDIT (cancelled) | `order.release-requested`, `order.status-changed` |
+| OPEN | Acceptance deadline passes | System | — | RELEASE\_PENDING\_CREDIT (expired) | `order.release-requested`, `order.status-changed` |
+| ACCEPTED | Record pickup | Assigned courier | — | PICKED\_UP | `order.status-changed` |
+| ACCEPTED | Cancel | Requester | — | RELEASE\_PENDING\_CREDIT (cancelled) | `order.release-requested`, `order.status-changed` |
+| ACCEPTED | Requester suspended | System | — | RELEASE\_PENDING\_CREDIT (cancelled) | `order.release-requested`, `order.status-changed` |
+| ACCEPTED | Withdraw or pickup timeout | Assigned courier (withdraw) or System | Acceptance deadline not passed | OPEN | `order.status-changed` |
+| ACCEPTED | Withdraw or pickup timeout | Assigned courier (withdraw) or System | Acceptance deadline passed | RELEASE\_PENDING\_CREDIT (expired) | `order.release-requested`, `order.status-changed` |
+| ACCEPTED | Courier suspended | System | — | OPEN, with the acceptance deadline extended by the time the courier held the order | `order.status-changed` |
+| PICKED\_UP | Record delivery | Assigned courier | — | DELIVERED | `order.status-changed` |
+| PICKED\_UP | Report non-delivery | Requester | Delivery period since pickup has passed | DISPUTED | `order.status-changed` |
+| PICKED\_UP | Delivery period passes, or requester suspended | System | Requester suspended and delivery period passed | DISPUTED | `order.status-changed` |
+| PICKED\_UP | Courier suspended | System | — | DISPUTED | `order.status-changed` |
+| DELIVERED | Confirm receipt | Requester | — | COMPLETION\_PENDING\_CREDIT | `order.completion-requested`, `order.status-changed` |
+| DELIVERED | Auto-confirmation period passes | System | — | COMPLETION\_PENDING\_CREDIT | `order.completion-requested`, `order.status-changed` |
+| DELIVERED | Report non-receipt | Requester | — | DISPUTED | `order.status-changed` |
+| DISPUTED | Resolve for courier | Administrator | A reason is given | COMPLETION\_PENDING\_CREDIT | `order.completion-requested`, `order.status-changed` |
+| DISPUTED | Resolve for requester | Administrator | A reason is given | RELEASE\_PENDING\_CREDIT (cancelled) | `order.release-requested`, `order.status-changed` |
+| COMPLETION\_PENDING\_CREDIT | Transfer confirmed | Credit Service | — | COMPLETED | `order.status-changed` |
+| RELEASE\_PENDING\_CREDIT | Release confirmed | Credit Service | Recorded reason is cancelled | CANCELLED | `order.status-changed` |
+| RELEASE\_PENDING\_CREDIT | Release confirmed | Credit Service | Recorded reason is expired | EXPIRED | `order.status-changed` |
+
+# Timers
+The periods come from the D1 backlog and are configurable.
+
+| Timer | Starts when | Length | When it runs out |
 | ----- | ----- | ----- | ----- |
-| PENDING\_CREDIT | Reward reserved | Credit Service | OPEN |
-| PENDING\_CREDIT | Reservation rejected | Credit Service | REJECTED |
-| OPEN | Accept | Student other than the requester | ACCEPTED |
-| OPEN | Cancel | Requester | RELEASE\_PENDING\_CREDIT (cancelled) |
-| OPEN | Requester suspended | System | RELEASE\_PENDING\_CREDIT (cancelled) |
-| OPEN | Acceptance deadline passes | System | RELEASE\_PENDING\_CREDIT (expired) |
-| ACCEPTED | Record pickup | Assigned courier | PICKED\_UP |
-| ACCEPTED | Cancel | Requester | RELEASE\_PENDING\_CREDIT (cancelled) |
-| ACCEPTED | Requester suspended | System | RELEASE\_PENDING\_CREDIT (cancelled) |
-| ACCEPTED | Withdraw, pickup timeout, or courier suspended, before the acceptance deadline | Assigned courier (withdraw) or System | OPEN |
-| ACCEPTED | Withdraw, pickup timeout, or courier suspended, after the acceptance deadline | Assigned courier (withdraw) or System | RELEASE\_PENDING\_CREDIT (expired) |
-| PICKED\_UP | Record delivery | Assigned courier | DELIVERED |
-| PICKED\_UP | Delivery timeout or courier suspended | System | DISPUTED |
-| DELIVERED | Confirm receipt | Requester | COMPLETION\_PENDING\_CREDIT |
-| DELIVERED | Auto-confirmation period passes | System | COMPLETION\_PENDING\_CREDIT |
-| DELIVERED | Report non-receipt | Requester | DISPUTED |
-| DISPUTED | Resolve for courier, with reason | Administrator | COMPLETION\_PENDING\_CREDIT |
-| DISPUTED | Resolve for requester, with reason | Administrator | RELEASE\_PENDING\_CREDIT (cancelled) |
-| COMPLETION\_PENDING\_CREDIT | Transfer confirmed | Credit Service | COMPLETED |
-| RELEASE\_PENDING\_CREDIT | Release confirmed, reason cancelled | Credit Service | CANCELLED |
-| RELEASE\_PENDING\_CREDIT | Release confirmed, reason expired | Credit Service | EXPIRED |
+| Acceptance deadline | The order becomes OPEN | 60 minutes | An OPEN order expires. An ACCEPTED order keeps its courier, but a later withdrawal or pickup timeout expires it instead of reopening it. A courier suspension extends the deadline by the time that courier held the order. |
+| Pickup | A courier accepts | 30 minutes | The courier is removed, handled as a withdrawal. |
+| Delivery | The courier records pickup | 2 hours | The requester may report non-delivery. If the requester is suspended, the order is referred automatically, at the end of the period or at the suspension if the period has already passed. |
+| Auto-confirmation | The courier records delivery | 24 hours | Receipt is confirmed. |
+| Credit wait | The order enters PENDING\_CREDIT | 5 minutes | An operator is alerted. The order is not rejected, and still opens if the reservation arrives. |
+
+# Waiting for the Credit Service
+While an order is in any `*_PENDING_CREDIT` state, no participant action, administrator action or timer changes it; only the Credit Service's reply does.
+
+- **Credit Service down.** Requests wait in the broker. The order moves on once the Credit Service replies; nobody has to resubmit.
+- **Transfers and releases do not fail as a business outcome.** The credits are already reserved, so a transfer or release has no reason to be refused. A missing reply leaves the order pending for retry or support handling (D1 OS-FR5.1.2); reconciliation (ORD-09) re-sends the same request, which the Credit Service applies at most once.
+- **Messages that cannot be processed** are retried five times and then dead-lettered for an operator. They are never dropped.
+- **The release reason** (cancelled or expired) is kept on the order. The Credit Service does not need it and does not send it back.
+
+# Services it talks to
+
+| Service | How | What for |
+| ----- | ----- | ----- |
+| Credit Service | Messages, both directions | Reserve, transfer and return each order's reward. Every `*_PENDING_CREDIT` state is waiting for one of its replies. |
+| User Service | HTTP, through `@foc/auth-client` | Who is calling, whether they are an administrator, and that their account is active. Checked on every request; a suspension takes effect within 5 seconds. |
+| User Service | Messages, received | Suspensions, which drive the "requester suspended" and "courier suspended" transitions. |
+| Supplier Service | HTTP, `GET /suppliers/:id` | At creation: refuse an inactive supplier and keep a copy of the supplier on the order, so it survives later changes. The call carries the requester's own token, so the Supplier Service needs no service-to-service route. |
+| Web app | HTTP | Every student and administrator command and query. |
+| Any listener | Messages, sent | Each status change, for live updates and chat. It carries no private details. |
+
+## Messages
+
+Routing keys are in `platform/src/events/catalogue.ts`. Only the reservation messages have payload schemas today; the rest are proposed here and join the catalogue with ORD-04 and ORD-05, once the Credit Service owner agrees.
+
+| Message | Direction | Carries | Schema |
+| ----- | ----- | ----- | ----- |
+| `order.reservation-requested` | Sent | order, requester, amount | In catalogue |
+| `credit.reserved` | Received | order, requester, amount, restated so the reply can be checked against the request | In catalogue |
+| `credit.reservation-rejected` | Received | the same, plus the reason: insufficient credits (with the available balance) or amount out of range | In catalogue |
+| `order.completion-requested` | Sent | order, requester, courier, amount | Proposed |
+| `credit.transferred` | Received | order, courier, amount, and a transfer reference for the receipt (D1 OS-FR5.1.3) | Proposed |
+| `order.release-requested` | Sent | order, requester, amount | Proposed |
+| `credit.released` | Received | order, requester, amount | Proposed |
+| `order.status-changed` | Sent | order, previous status, new status, when | Proposed |
+| `user.suspended` | Received | user | In catalogue |
+
+## Sending and receiving safely
+
+- **Sending.** A transition that sends a message writes it to this service's outbox table in the same database transaction as the status change. Nothing calls the publisher directly. The shared relay from EVT-02 (#135) publishes each row after commit, so a crash between saving and sending delays the message but never loses it. The outbox table arrives with the first order migration (ORD-01, ORD-02).
+- **Receiving.** Each received message's id is recorded in the same transaction as the transition it causes, so a redelivered reply changes nothing (EVT-02).
+- **Dependency.** Suspensions do not reach this service yet: the User Service writes them to its outbox, but nothing relays that outbox, and the rows use a different name and shape from the catalogue. EVT-02 fixes both. Until then the suspension transitions cannot fire.
 
 # UML Diagram
 ```mermaid
@@ -53,6 +115,7 @@ stateDiagram-v2
 
   PENDING_CREDIT --> OPEN : Reward reserved<br/>(Credit Service)
   PENDING_CREDIT --> REJECTED : Reservation rejected<br/>(Credit Service)
+  PENDING_CREDIT --> RELEASE_PENDING_CREDIT : Reward reserved, requester<br/>suspended meanwhile (Credit Service)<br/>reason = cancelled
 
   OPEN --> ACCEPTED : Accept<br/>(student other than requester)
   OPEN --> RELEASE_PENDING_CREDIT : Cancel (Requester) or<br/>requester suspended (System)<br/>reason = cancelled
@@ -60,11 +123,13 @@ stateDiagram-v2
 
   ACCEPTED --> PICKED_UP : Record pickup<br/>(assigned courier)
   ACCEPTED --> RELEASE_PENDING_CREDIT : Cancel (Requester) or<br/>requester suspended (System)<br/>reason = cancelled
-  ACCEPTED --> OPEN : [before deadline] Withdraw (courier),<br/>pickup timeout or courier suspended (System)
-  ACCEPTED --> RELEASE_PENDING_CREDIT : [after deadline] Withdraw (courier),<br/>pickup timeout or courier suspended (System)<br/>reason = expired
+  ACCEPTED --> OPEN : [before deadline] Withdraw (courier)<br/>or pickup timeout (System)
+  ACCEPTED --> OPEN : Courier suspended (System)<br/>deadline extended
+  ACCEPTED --> RELEASE_PENDING_CREDIT : [after deadline] Withdraw (courier)<br/>or pickup timeout (System)<br/>reason = expired
 
   PICKED_UP --> DELIVERED : Record delivery<br/>(assigned courier)
-  PICKED_UP --> DISPUTED : Delivery timeout or<br/>courier suspended (System)
+  PICKED_UP --> DISPUTED : Report non-delivery after<br/>delivery period (Requester)
+  PICKED_UP --> DISPUTED : Delivery period passes with requester<br/>suspended, or courier suspended (System)
 
   DELIVERED --> COMPLETION_PENDING_CREDIT : Confirm receipt (Requester) or<br/>auto-confirmation period passes (System)
   DELIVERED --> DISPUTED : Report non-receipt<br/>(Requester)
@@ -146,7 +211,7 @@ docker build -f order-service/Dockerfile -t foc/order-service .
 
 The build context is the **repository root**, not this folder, because the image
 needs the workspace manifests and `@foc/platform`. The image runs as a non-root
-user and declares a `HEALTHCHECK`. `compose.yaml` wiring arrives with PLT-02.
+user and declares a `HEALTHCHECK`. `compose.yaml` runs it on port 3003.
 
 ### Next tickets
 
