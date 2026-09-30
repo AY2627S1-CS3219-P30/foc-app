@@ -1,0 +1,13 @@
+Name,Type,Building,Floor,Location Description,Latitude,Longitude,StartingTime,ClosingTime,ImageURL
+Starbucks @ UTown,Cafe,University Town,1,Stephen Riady Centre level 1,1.304574,103.772375,0800hrs,2200hrs,
+Starbucks @ YIH,Cafe,Yusof Ishak House,1,Beside the Forum,1.298450,103.774600,0800hrs,2000hrs,
+FairPrice Xpress @ UTown,Shopping,University Town,1,Stephen Riady Centre basement,1.304500,103.772500,0800hrs,2300hrs,
+Fine Food @ UTown,Food,University Town,2,Town Plaza dining,1.304700,103.772200,0730hrs,2100hrs,
+Techno Edge,Food,Techno Edge,1,Faculty of Engineering canteen,1.297900,103.771600,0730hrs,2000hrs,
+The Deck,Food,The Deck,1,FASS canteen next to AS8,1.294600,103.772000,0730hrs,2000hrs,
+Flavours @ UTown,Food,University Town,2,Level 2 dining hall,1.304800,103.772400,1100hrs,2130hrs,
+Reliable Printing @ Central Library,Printing,Central Library,2,Level 2 self-service printers,1.296700,103.773200,0000hrs,2359hrs,
+UTown Green Pickup Point,Landmark,University Town,1,Open lawn beside the Education Resource Centre,1.304200,103.772800,0000hrs,2359hrs,
+Kent Ridge MRT Pickup Point,Landmark,Kent Ridge MRT,1,Exit A taxi stand,1.293400,103.784500,0000hrs,2359hrs,
+Central Library Pickup Point,Landmark,Central Library,1,Main entrance lobby,1.296500,103.773100,0000hrs,2359hrs,
+PGP Foyer Pickup Point,Landmark,Prince George's Park,1,Prince George's Park Residences foyer,1.290800,103.780500,0000hrs,2359hrs,

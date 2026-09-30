@@ -89,6 +89,11 @@ services:
       SERVICE_NAME: supplier-service
       PORT: 3002
       DATABASE_URL: postgres://supplier_service:supplier_service_dev@postgres:5432/foc_supplier
+      # How this service verifies callers: it asks the User Service who is behind
+      # a token (@foc/auth-client). The key must be one of the User Service's
+      # INTERNAL_SERVICE_KEYS above.
+      USER_SERVICE_URL: http://user-service:3001
+      INTERNAL_SERVICE_KEY: ${SUPPLIER_INTERNAL_KEY:-dev-only-internal-service-key-change-me}
     ports: ['${SUPPLIER_SERVICE_PORT:-3002}:3002']
 
   order-service:
