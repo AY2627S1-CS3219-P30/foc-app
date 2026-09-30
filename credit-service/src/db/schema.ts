@@ -52,6 +52,9 @@ export const creditTransactions = pgTable(
     uniqueIndex('credit_transactions_issue_wallet_key')
       .on(t.walletUserId, t.transactionType)
       .where(sql`${t.transactionType} = 'ISSUE'`),
+    uniqueIndex('credit_transactions_terminal_order_key')
+      .on(t.orderId)
+      .where(sql`${t.orderId} IS NOT NULL AND ${t.transactionType} IN ('RELEASE', 'TRANSFER')`),
   ],
 );
 
@@ -103,6 +106,9 @@ export const creditOperations = pgTable(
     orderId: text('order_id').notNull(),
     operationType: text('operation_type').notNull(),
     requesterId: text('requester_id').notNull(),
+    courierId: text('courier_id').references(() => wallets.userId, {
+      onDelete: 'restrict',
+    }),
     amount: integer('amount').notNull(),
     outcome: text('outcome').notNull(),
     rejectionReason: text('rejection_reason'),
@@ -110,6 +116,7 @@ export const creditOperations = pgTable(
     transactionId: uuid('transaction_id').references(() => creditTransactions.transactionId, {
       onDelete: 'restrict',
     }),
+    resultPayload: jsonb('result_payload'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -133,6 +140,14 @@ export const creditOperations = pgTable(
           OR (${t.outcome} = 'SUCCEEDED' AND ${t.transactionId} IS NOT NULL AND ${t.rejectionReason} IS NULL)
           OR (${t.outcome} = 'REJECTED' AND ${t.transactionId} IS NULL AND ${t.rejectionReason} IS NOT NULL)`,
     ),
+    check(
+      'credit_operations_party_shape',
+      sql`(${t.operationType} = 'TRANSFER' AND ${t.courierId} IS NOT NULL)
+          OR (${t.operationType} <> 'TRANSFER' AND ${t.courierId} IS NULL)`,
+    ),
+    uniqueIndex('credit_operations_terminal_order_key')
+      .on(t.orderId)
+      .where(sql`${t.operationType} IN ('RELEASE', 'TRANSFER')`),
   ],
 );
 

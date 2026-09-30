@@ -4,7 +4,7 @@ import {
   EVENT_CONSUMER,
   UnparseableMessageError,
   creditReservationRequestedPayload,
-  withInbox,
+  withReplayableInbox,
   type CreditReservationRequestedPayload,
   type Db,
   type Envelope,
@@ -32,7 +32,9 @@ export class ReservationConsumer implements OnApplicationBootstrap {
       eventType: EVENTS.CREDIT_RESERVATION_REQUESTED,
       expectedProducer: 'order-service',
       payloadSchema: creditReservationRequestedPayload,
-      handler: withInbox(this.db, RESERVATION_QUEUE, (envelope, tx) => this.handle(envelope, tx)),
+      handler: withReplayableInbox(this.db, RESERVATION_QUEUE, (envelope, tx) =>
+        this.handle(envelope, tx),
+      ),
     });
   }
 

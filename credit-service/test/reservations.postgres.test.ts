@@ -53,4 +53,70 @@ suite('reservation concurrency on real PostgreSQL', () => {
     >(`SELECT available, reserved FROM wallets WHERE user_id = $1`, [userId]);
     expect(wallet.rows[0]).toMatchObject({ available: 1, reserved: 9 });
   });
+
+  it('serializes transfer against release so exactly one terminal movement wins', async () => {
+    const requesterId = randomUUID();
+    const courierId = randomUUID();
+    const orderId = randomUUID();
+    await db.transaction((tx) => credits.issueInitial(tx, requesterId));
+    await db.transaction((tx) => credits.issueInitial(tx, courierId));
+    await db.transaction((tx) =>
+      credits.reserve(tx, {
+        orderId,
+        requesterId,
+        amount: 4,
+        correlationId: randomUUID(),
+        causationId: randomUUID(),
+      }),
+    );
+
+    const [transfer, release] = await Promise.all([
+      db.transaction((tx) =>
+        credits.transfer(tx, {
+          orderId,
+          requesterId,
+          courierId,
+          amount: 4,
+          correlationId: randomUUID(),
+          causationId: randomUUID(),
+        }),
+      ),
+      db.transaction((tx) =>
+        credits.release(tx, {
+          orderId,
+          requesterId,
+          amount: 4,
+          correlationId: randomUUID(),
+          causationId: randomUUID(),
+        }),
+      ),
+    ]);
+
+    expect(
+      [transfer.status, release.status].filter((status) => status !== 'REJECTED'),
+    ).toHaveLength(1);
+    const terminals = await db.query<{ transaction_type: string } & Record<string, unknown>>(
+      `SELECT transaction_type
+         FROM credit_transactions
+        WHERE order_id = $1 AND transaction_type IN ('TRANSFER', 'RELEASE')`,
+      [orderId],
+    );
+    expect(terminals.rows).toHaveLength(1);
+
+    const wallets = await db.query<
+      { user_id: string; available: number; reserved: number } & Record<string, unknown>
+    >(
+      `SELECT user_id, available, reserved
+         FROM wallets
+        WHERE user_id IN ($1, $2)
+        ORDER BY user_id`,
+      [requesterId, courierId],
+    );
+    const total = wallets.rows.reduce(
+      (sum, row) => sum + Number(row.available) + Number(row.reserved),
+      0,
+    );
+    expect(total).toBe(20);
+    expect(wallets.rows.every((row) => row.available >= 0 && row.reserved >= 0)).toBe(true);
+  });
 });

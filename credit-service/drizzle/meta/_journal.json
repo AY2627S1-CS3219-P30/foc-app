@@ -15,6 +15,20 @@
       "when": 1790796191885,
       "tag": "0001_immutable-ledger",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790798637066,
+      "tag": "0002_slow_lila_cheney",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790799171928,
+      "tag": "0003_ancient_ken_ellis",
+      "breakpoints": true
     }
   ]
 }
