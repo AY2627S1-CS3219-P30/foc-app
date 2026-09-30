@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { EventsModule, PlatformModule, provideOutboxRelay } from '@foc/platform';
 import { env, SERVICE_NAME, SERVICE_VERSION } from './config.js';
-import { DB } from './db/db.js';
+import { RAW_DB } from './db/db.js';
 import { UsersModule } from './users/users.module.js';
 
 /**
@@ -16,7 +16,7 @@ import { UsersModule } from './users/users.module.js';
 const eventModules = env.RABBITMQ_URL
   ? [EventsModule.forRoot({ url: env.RABBITMQ_URL, producer: SERVICE_NAME })]
   : [];
-const eventProviders = env.RABBITMQ_URL ? [provideOutboxRelay({ db: DB })] : [];
+const eventProviders = env.RABBITMQ_URL ? [provideOutboxRelay({ db: RAW_DB })] : [];
 
 @Module({
   imports: [

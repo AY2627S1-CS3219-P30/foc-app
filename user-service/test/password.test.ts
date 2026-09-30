@@ -57,7 +57,7 @@ describe('POST /auth/password', () => {
   it('a login that verified the old password just before a change starts no session', async () => {
     await activeStudent(t, EMAIL);
     // What a login in flight read before the change committed: the old hash, which it then verifies.
-    const stale = await usersRepository.findCredentials(t.db, EMAIL);
+    const stale = await usersRepository.findCredentials(t.orm, EMAIL);
     await changePassword(t, EMAIL, PASSWORD, NEW_PASSWORD).expect(204);
 
     const read = vi.spyOn(usersRepository, 'findCredentials').mockResolvedValueOnce(stale);

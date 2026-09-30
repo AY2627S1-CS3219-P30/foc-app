@@ -1,4 +1,5 @@
 import { Module, type DynamicModule } from '@nestjs/common';
+import { drizzle } from 'drizzle-orm/node-postgres';
 import { LOGGER, PgDb, type PgDbOptions } from '@foc/platform';
 import { AdminController } from '../admin/admin.controller.js';
 import { AdminService } from '../admin/admin.service.js';
@@ -10,7 +11,8 @@ import { defaultRateLimiters, RATE_LIMITERS } from '../auth/rate-limiter.js';
 import { SESSION_SETTINGS, SessionsService } from '../auth/sessions.service.js';
 import { SERVICE_KEYS, ServiceKeyGuard } from '../auth/service-key.guard.js';
 import { env } from '../config.js';
-import { DB } from '../db/db.js';
+import { DB, RAW_DB } from '../db/db.js';
+import * as schema from '../db/schema.js';
 import { DevMailbox, DevMailboxController } from '../mail/dev-mailbox.js';
 import { MAILER } from '../mail/mailer.js';
 import { AUTH_COOKIE_SETTINGS, AuthController } from './auth.controller.js';
@@ -66,9 +68,14 @@ export class UsersModule {
           },
         },
         {
-          provide: DB,
+          provide: RAW_DB,
           useFactory: (logger: PgDbOptions['logger']) => new PgDb(env.DATABASE_URL, { logger }),
           inject: [LOGGER],
+        },
+        {
+          provide: DB,
+          useFactory: (raw: PgDb) => drizzle(raw.pool, { schema }),
+          inject: [RAW_DB],
         },
         { provide: MAILER, useValue: mailbox },
         { provide: DevMailbox, useValue: mailbox },
@@ -82,7 +89,7 @@ export class UsersModule {
         },
         { provide: SESSION_SETTINGS, useValue: { bootstrapPassword: env.ADMIN_SEED_PASSWORD } },
       ],
-      exports: [DB, UsersService],
+      exports: [DB, RAW_DB, UsersService],
     };
   }
 }

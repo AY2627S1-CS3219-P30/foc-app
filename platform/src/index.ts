@@ -5,7 +5,7 @@ export {
   echoCorrelationId,
   resolveCorrelationId,
 } from './correlation.js';
-export { createLogger, PinoLoggerService, requestLogger } from './logging.js';
+export { createLogger, errorMessage, PinoLoggerService, requestLogger } from './logging.js';
 export { ApiException, ErrorEnvelopeFilter, type ErrorEnvelope } from './errors.js';
 export {
   HealthController,
@@ -17,11 +17,11 @@ export { LOGGER, PlatformModule, type PlatformModuleOptions } from './platform.m
 export { startService } from './bootstrap.js';
 export {
   PgDb,
-  runMigrations,
   type Db,
-  type Migration,
+  type DrizzleDatabase,
   type PgDbOptions,
   type Queryable,
   type Row,
 } from './db.js';
+export { assertJournalOrdered, runDrizzleMigrations } from './migrations.js';
 export * from './events/index.js';

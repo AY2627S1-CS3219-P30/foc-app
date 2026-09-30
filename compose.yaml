@@ -76,6 +76,20 @@ services:
   # three: identity changes for their auth cache, USR-07), so they wait for
   # rabbitmq as well as postgres. Give any other service the same dependency in
   # the ticket that makes it consume.
+  # Migrations run as a discrete step, never at service boot: a one-shot that
+  # applies the Drizzle migrations and exits, which the service waits on. CI/CD
+  # runs the same `dist/db/migrate.js` (or `npm run db:migrate`) against the DB.
+  user-service-migrate:
+    build: { context: ., dockerfile: user-service/Dockerfile }
+    command: ['node', 'user-service/dist/db/migrate.js']
+    restart: 'no'
+    environment:
+      DATABASE_URL: postgres://user_service:user_service_dev@postgres:5432/foc_user
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [foc]
+
   user-service:
     <<: *service-base
     build: { context: ., dockerfile: user-service/Dockerfile }
@@ -89,7 +103,21 @@ services:
       ADMIN_SEED_EMAILS: ${ADMIN_SEED_EMAILS:-admin@u.nus.edu}
       ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD:-dev-only-admin-password-change-me}
     ports: ['${USER_SERVICE_PORT:-3001}:3001']
-    depends_on: *consumer-deps
+    depends_on:
+      <<: *consumer-deps
+      user-service-migrate:
+        condition: service_completed_successfully
+
+  supplier-service-migrate:
+    build: { context: ., dockerfile: supplier-service/Dockerfile }
+    command: ['node', 'supplier-service/dist/db/migrate.js']
+    restart: 'no'
+    environment:
+      DATABASE_URL: postgres://supplier_service:supplier_service_dev@postgres:5432/foc_supplier
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [foc]
 
   supplier-service:
     <<: *service-base
@@ -105,7 +133,10 @@ services:
       USER_SERVICE_URL: http://user-service:3001
       INTERNAL_SERVICE_KEY: ${SUPPLIER_INTERNAL_KEY:-dev-only-internal-service-key-change-me}
     ports: ['${SUPPLIER_SERVICE_PORT:-3002}:3002']
-    depends_on: *consumer-deps
+    depends_on:
+      <<: *consumer-deps
+      supplier-service-migrate:
+        condition: service_completed_successfully
 
   order-service:
     <<: *service-base
