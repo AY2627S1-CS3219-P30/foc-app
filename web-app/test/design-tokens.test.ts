@@ -30,7 +30,12 @@ describe("design values come from the tokens", () => {
 
   it("only breaks at the locked breakpoints", async () => {
     const allowed = [breakpoints.md, breakpoints.lg].map((px) => `(min-width: ${px}px)`);
-    const queries = offenders(await sources("**/*.css"), /@media[^{]*width[^{]*/g);
-    expect(queries.filter((q) => !allowed.some((a) => q.includes(a)))).toEqual([]);
+    const mediaQueries = (await sources("**/*.css")).map(({ path, text }) => ({
+      path,
+      text: (text.match(/@media[^{]*/g) ?? []).join("\n"),
+    }));
+    // Every width feature, so a max-width or a second clause beside an allowed one still fails.
+    const widths = offenders(mediaQueries, /\([^()]*width[^()]*\)/g);
+    expect(widths.filter((w) => !allowed.some((a) => w.endsWith(`: ${a}`)))).toEqual([]);
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { Window } from "happy-dom";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Field } from "../src/components/Field";
+import { FormField } from "../src/components/FormField";
 import { Input } from "../src/components/Input";
 import { Select } from "../src/components/Select";
 import { Slider } from "../src/components/Slider";
@@ -39,6 +40,35 @@ describe("Field", () => {
       "Your NUS address",
       "Enter an NUS email",
     ]);
+    expect(control.getAttribute("aria-invalid")).toBe("true");
+  });
+
+  it("labels a FormField by the id its caller gives", () => {
+    const { label, control } = render(<FormField label="Email" id="email" error="Enter an NUS email" />);
+    expect(control.id).toBe("email");
+    expect(label.htmlFor).toBe("email");
+    expect(control.getAttribute("aria-describedby")).toBe("email-error");
+    expect(control.getAttribute("aria-invalid")).toBe("true");
+  });
+
+  it("keeps the label linked when the control sets its own id", () => {
+    const { label, control } = render(
+      <Field label="Email">
+        <Input id="mine" />
+      </Field>,
+    );
+    expect(label.htmlFor).toBe(control.id);
+  });
+
+  it("adds the control's own description to the hint and error", () => {
+    const { control } = render(
+      <Field label="Email" hint="Your NUS address" error="Enter an NUS email">
+        <Input aria-describedby="extra" aria-invalid={false} />
+      </Field>,
+    );
+    const ids = control.getAttribute("aria-describedby")!.split(" ");
+    expect(ids).toHaveLength(3);
+    expect(ids).toContain("extra");
     expect(control.getAttribute("aria-invalid")).toBe("true");
   });
 

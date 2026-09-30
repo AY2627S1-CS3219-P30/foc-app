@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { bearer, createApiClient, unwrap } from "../src/lib/api-client";
 import type { paths } from "../src/lib/generated/supplier-service";
-import { ApiError } from "../src/lib/user-api";
+import { ApiError, createUserApi, NOT_CONFIGURED_MESSAGE } from "../src/lib/user-api";
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -75,11 +75,88 @@ describe("createApiClient", () => {
     });
   });
 
+  it("gives up on a body that never finishes", async () => {
+    const { api } = client((_, signal) => {
+      const body = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{"items":'));
+          signal.addEventListener("abort", () => controller.error(signal.reason));
+        },
+      });
+      return new Response(body, { status: 200 });
+    }, 10);
+    expect(await unwrap(api.GET("/suppliers")).catch((e) => e)).toMatchObject({
+      status: 0,
+      code: "TIMEOUT",
+    });
+  });
+
+  it("treats a 2xx that is not JSON, or is empty, as not from the service", async () => {
+    for (const body of ["<html>Bad gateway</html>", null]) {
+      const { api } = client(() => new Response(body, { status: 200 }));
+      expect(await unwrap(api.GET("/suppliers")).catch((e) => e)).toMatchObject({
+        status: 0,
+        code: "NETWORK",
+      });
+    }
+  });
+
+  it("leaves a request the caller cancelled as the caller's abort", async () => {
+    const { api } = client(
+      (_, signal) =>
+        new Promise((_, reject) => signal.addEventListener("abort", () => reject(signal.reason))),
+    );
+    const controller = new AbortController();
+    const call = unwrap(api.GET("/suppliers", { signal: controller.signal })).catch((e) => e);
+    controller.abort();
+    const error = await call;
+    expect(error).not.toBeInstanceOf(ApiError);
+    expect(error.name).toBe("AbortError");
+  });
+
+  it("works where AbortSignal.any is missing (Safari before 17.4)", async () => {
+    const any = AbortSignal.any;
+    delete (AbortSignal as { any?: unknown }).any;
+    try {
+      const { api } = client(() => json(200, page));
+      expect(await unwrap(api.GET("/suppliers"))).toEqual(page);
+    } finally {
+      AbortSignal.any = any;
+    }
+  });
+
   it("refuses to call anywhere without a base URL", async () => {
     const api = createApiClient<paths>(null);
     expect(await unwrap(api.GET("/suppliers")).catch((e) => e)).toMatchObject({
       status: 0,
       code: "NOT_CONFIGURED",
+    });
+  });
+});
+
+describe("createUserApi", () => {
+  it("sends the refresh cookie and a JSON content type, even without a body", async () => {
+    const seen: Request[] = [];
+    const api = createUserApi({
+      baseUrl: "http://user-service.test",
+      fetch: async (request) => {
+        seen.push(request);
+        return new Response(null, { status: 204 });
+      },
+    });
+    expect(await api.logout()).toBeUndefined();
+    expect(seen[0].credentials).toBe("include");
+    expect(seen[0].headers.get("content-type")).toBe("application/json");
+  });
+
+  it("explains a build made without the service's address", async () => {
+    const error = await createUserApi({ baseUrl: null })
+      .me("t1")
+      .catch((e) => e);
+    expect(error).toMatchObject({
+      status: 0,
+      code: "NOT_CONFIGURED",
+      message: NOT_CONFIGURED_MESSAGE,
     });
   });
 });

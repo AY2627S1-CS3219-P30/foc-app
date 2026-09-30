@@ -13,6 +13,7 @@ export function FormField({
   label,
   error,
   hint,
+  id,
   ...input
 }: {
   label: ReactNode;
@@ -20,7 +21,7 @@ export function FormField({
   hint?: string;
 } & ComponentProps<"input">) {
   return (
-    <Field label={label} error={error} hint={hint} required={input.required}>
+    <Field id={id} label={label} error={error} hint={hint} required={input.required}>
       <Input {...input} />
     </Field>
   );

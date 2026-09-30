@@ -20,6 +20,7 @@ export const values = {
     infoSurface: "#dbeafe",
     success: "#166534",
     successSurface: "#dcfce7",
+    successBorder: "#bbf7d0",
     warning: "#92400e",
     warningSurface: "#fef3c7",
     danger: "#b91c1c",

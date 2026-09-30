@@ -50,7 +50,7 @@ function RequestDetail({ id }: { id: string }) {
           className="card"
           style={{
             background: vars.color.successSurface,
-            borderColor: vars.color.successSurface,
+            borderColor: vars.color.successBorder,
             color: vars.color.success,
             fontSize: vars.text.md,
             fontWeight: vars.weight.semibold,

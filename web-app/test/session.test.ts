@@ -14,12 +14,12 @@ type Handler = (req: { token?: string; signal: AbortSignal }) => Response | Prom
 /** A fake User Service behind an injected `fetch`: answers from `routes` and counts calls per route. */
 function fakeService(routes: Record<string, Handler>, timeoutMs?: number) {
   const calls: Record<string, number> = {};
-  const fetch = async (url: string, init: RequestInit) => {
-    const key = `${init.method ?? "GET"} ${new URL(url).pathname}`;
+  const fetch = async (request: Request, init: RequestInit) => {
+    const key = `${request.method} ${new URL(request.url).pathname}`;
     calls[key] = (calls[key] ?? 0) + 1;
     const handler = routes[key];
     if (!handler) throw new Error(`unexpected call: ${key}`);
-    const auth = new Headers(init.headers).get("authorization") ?? undefined;
+    const auth = request.headers.get("authorization") ?? undefined;
     return handler({ token: auth?.replace(/^Bearer /, ""), signal: init.signal as AbortSignal });
   };
   return { api: createUserApi({ baseUrl: "http://user-service.test", fetch, timeoutMs }), calls };
