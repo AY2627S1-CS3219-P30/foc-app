@@ -101,7 +101,7 @@ Routing keys are in `platform/src/events/catalogue.ts`. Only the reservation mes
 
 - **Sending.** A transition that sends a message writes it to this service's outbox table in the same database transaction as the status change. Nothing calls the publisher directly. The shared relay from EVT-02 (#135) publishes each row after commit, so a crash between saving and sending delays the message but never loses it. The outbox table arrives with the first order migration (ORD-01, ORD-02).
 - **Receiving.** Each received message's id is recorded in the same transaction as the transition it causes, so a redelivered reply changes nothing (EVT-02).
-- **Dependency.** Suspensions do not reach this service yet: the User Service writes them to its outbox, but nothing relays that outbox, and the rows use a different name and shape from the catalogue. EVT-02 fixes both. Until then the suspension transitions cannot fire.
+- **Dependency.** The User Service already writes catalogue-validated suspension events to its outbox, and the shared relay publishes them when RabbitMQ is configured (as it is in Compose). The remaining work is the Order Service consumer and its suspension transition handling; until those are implemented, suspension events do not change orders.
 
 # UML Diagram
 ```mermaid
