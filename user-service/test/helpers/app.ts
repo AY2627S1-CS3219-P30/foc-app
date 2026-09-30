@@ -24,9 +24,11 @@ export async function createTestApp(
     logLevel?: string;
     logDestination?: DestinationStream;
     rateLimiters?: AuthRateLimiters;
+    /** A database already part-way through the migrations; the rest are applied here, as at boot. */
+    db?: PgliteDb;
   } = {},
 ): Promise<TestApp> {
-  const db = await PgliteDb.create();
+  const db = options.db ?? (await PgliteDb.create());
   await runMigrations(db, migrations);
 
   const moduleRef = await Test.createTestingModule({
