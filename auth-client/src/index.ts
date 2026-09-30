@@ -20,3 +20,4 @@ export {
   AUTHENTICATOR,
   type AuthedRequest,
 } from './nest.js';
+export { authStatusEvents, UserStatusInvalidation } from './status-events.js';

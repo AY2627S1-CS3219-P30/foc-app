@@ -19,6 +19,7 @@ export type Introspection =
 interface Entry {
   value: Introspection;
   expiresAt: number;
+  userId: string;
 }
 
 /**
@@ -30,10 +31,18 @@ interface Entry {
  * - **Single-flight.** A burst of requests for one session makes one call, not one each.
  * - **Fail closed.** A timeout, a network error, a non-200 or a malformed reply throws
  *   `IDENTITY_UNAVAILABLE` and is *not* cached, so the next request retries.
+ * - **Event-driven invalidation (USR-07).** {@link invalidateUser} drops everything known about a
+ *   user the moment a `user.suspended` / `user.reactivated` event arrives, so the window above is
+ *   only the fallback when an event is late or lost.
  */
 export class IdentityClient {
   private readonly cache = new Map<string, Entry>();
   private readonly inflight = new Map<string, Promise<Introspection>>();
+  /**
+   * Bumped by {@link invalidateUser}. A lookup that was already in flight when the event arrived
+   * may carry the pre-event answer, so it is not cached if the user's generation moved meanwhile.
+   */
+  private readonly generations = new Map<string, number>();
   private readonly ttl: number;
   private readonly timeout: number;
   private readonly max: number;
@@ -57,14 +66,29 @@ export class IdentityClient {
     const pending = this.inflight.get(key);
     if (pending) return pending;
 
+    const generation = this.generations.get(userId) ?? 0;
     const request = this.fetchFresh(sessionId, userId)
       .then((value) => {
-        this.remember(key, value);
+        if ((this.generations.get(userId) ?? 0) === generation) this.remember(key, userId, value);
         return value;
       })
-      .finally(() => this.inflight.delete(key));
+      .finally(() => {
+        if (this.inflight.get(key) === request) this.inflight.delete(key);
+      });
     this.inflight.set(key, request);
     return request;
+  }
+
+  /**
+   * Forgets every cached answer for this user, across all their sessions, and detaches any lookup
+   * already in flight so the next request asks the User Service afresh. Cheap and idempotent.
+   */
+  invalidateUser(userId: string): void {
+    this.generations.set(userId, (this.generations.get(userId) ?? 0) + 1);
+    for (const [k, e] of this.cache) if (e.userId === userId) this.cache.delete(k);
+    for (const k of this.inflight.keys()) if (k.endsWith(`:${userId}`)) this.inflight.delete(k);
+    // Bounded like the cache: generations only matter while a lookup is in flight.
+    if (this.generations.size > this.max) this.generations.clear();
   }
 
   private async fetchFresh(sessionId: string, userId: string): Promise<Introspection> {
@@ -86,7 +110,7 @@ export class IdentityClient {
     return parse(body);
   }
 
-  private remember(key: string, value: Introspection): void {
+  private remember(key: string, userId: string, value: Introspection): void {
     if (this.ttl <= 0) return;
     if (this.cache.size >= this.max) {
       // Drop expired entries first; if still full, drop the oldest. Insertion order is age order.
@@ -95,7 +119,7 @@ export class IdentityClient {
       const oldest = this.cache.keys().next().value;
       if (this.cache.size >= this.max && oldest !== undefined) this.cache.delete(oldest);
     }
-    this.cache.set(key, { value, expiresAt: this.now() + this.ttl });
+    this.cache.set(key, { value, userId, expiresAt: this.now() + this.ttl });
   }
 }
 

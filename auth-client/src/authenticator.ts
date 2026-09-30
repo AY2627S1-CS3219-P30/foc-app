@@ -8,6 +8,11 @@ export interface Authenticator {
   authenticate(authorizationHeader: string | undefined): Promise<AuthContext>;
   /** Throws `FORBIDDEN` unless the caller is an administrator. */
   requireAdmin(context: AuthContext): void;
+  /**
+   * Drops any cached identity for this user, so their next request is checked against the User
+   * Service. Called on `user.suspended` / `user.reactivated` (see `status-events.ts`).
+   */
+  invalidateUser(userId: string): void;
 }
 
 /**
@@ -49,6 +54,10 @@ export function createAuthenticator(config: AuthConfig): Authenticator {
 
     requireAdmin(context) {
       if (!context.isAdmin) throw authFailure('FORBIDDEN');
+    },
+
+    invalidateUser(userId) {
+      identity.invalidateUser(userId);
     },
   };
 }

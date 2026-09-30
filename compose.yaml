@@ -104,6 +104,10 @@ services:
       SERVICE_NAME: order-service
       PORT: 3003
       DATABASE_URL: postgres://order_service:order_service_dev@postgres:5432/foc_order
+      # Verifies callers through the User Service (@foc/auth-client, USR-07). The key
+      # must be one of the User Service's INTERNAL_SERVICE_KEYS.
+      USER_SERVICE_URL: http://user-service:3001
+      INTERNAL_SERVICE_KEY: ${ORDER_INTERNAL_KEY:-dev-only-internal-service-key-change-me}
     ports: ['${ORDER_SERVICE_PORT:-3003}:3003']
 
   credit-service:
@@ -114,6 +118,10 @@ services:
       SERVICE_NAME: credit-service
       PORT: 3004
       DATABASE_URL: postgres://credit_service:credit_service_dev@postgres:5432/foc_credit
+      # Verifies callers through the User Service (@foc/auth-client, USR-07). The key
+      # must be one of the User Service's INTERNAL_SERVICE_KEYS.
+      USER_SERVICE_URL: http://user-service:3001
+      INTERNAL_SERVICE_KEY: ${CREDIT_INTERNAL_KEY:-dev-only-internal-service-key-change-me}
     ports: ['${CREDIT_SERVICE_PORT:-3004}:3004']
 
   # ---- web ------------------------------------------------------------------

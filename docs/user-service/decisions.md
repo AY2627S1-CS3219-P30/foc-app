@@ -390,7 +390,7 @@ Identity answers are cached per session for at most `cacheTtlMs` (default 5 000 
   USR-07's 10 s requirement, and it is tested at the edges (4 999 ms stale, 5 001 ms enforced).
 - **Also:** concurrent requests for one session share one call (single-flight); an "ended" answer is cached too; **failures are never cached**, so a recovered
   User Service is used at once; the cache is bounded (oldest evicted).
-- USR-07 will add event-driven invalidation to shrink the window for suspensions.
+- USR-07 added event-driven invalidation (§13).
 
 ### K5. Fail closed, and as 503 rather than 401 — ✅
 Timeout, network error, non-200, or a malformed reply → `IDENTITY_UNAVAILABLE`. A wrong service key or unreachable JWKS does the same.
@@ -506,3 +506,28 @@ reach inside `err.detail`. Worth a platform-level serializer for `err` (Jonus).
 The admin console's errand list (needs the Order Service's endpoints) and read-only wallet inspection (needs CRD-05) are blocked
 on other tickets. The user-management and audit halves of the console already exist server-side (`/admin/users`, `/admin/audit-records`),
 every console action (suspend, reactivate, role change) is audited, and the matrix test proves a student gets `403` on each.
+
+---
+
+## 13. Cross-service status enforcement (USR-07, #144)
+
+### X1. Invalidate on events, decide from the User Service — ✅
+`@foc/auth-client` subscribes (per service, `foc.<service>.auth-status`) to `user.suspended` and `user.reactivated` and drops
+every cached identity for that user. It **does not** take the new status from the event.
+- **Why only forget:** the User Service stays the single source of status and role; a forged, stale, duplicated or reordered
+  event can cost one lookup and nothing else. Taking the status from the event would make the broker an authorization input.
+- **In-flight race:** a lookup started before the event could return the old answer after it and re-cache it. A per-user
+  generation counter refuses to cache such an answer; a test holds the reply on the wire to prove it.
+- **Replicas:** replicas of one service share a queue, so only one invalidates; the others fall back to the 5 s window.
+  Inside the 10 s requirement; a per-replica exclusive queue would close it.
+
+### X2. Order and Credit are wired — ✅ (mechanism) / 📝 (endpoints)
+Both import `AuthModule` and the subscription, and Compose/`.env.example` give them `USER_SERVICE_URL` and their own
+`INTERNAL_SERVICE_KEY`. Neither service has a mutating endpoint yet (ORD-02+, CRD-05+); those tickets add `@Authenticated()`.
+The acceptance test "suspension blocks the next order/credit mutation within 10 s" can only run against those endpoints.
+
+### X3. User Service events now match the catalogue — ✅ (bug fix)
+The outbox held `UserSuspended` / `UserReactivated` / `UserActivated` with payloads missing `occurredAt` / `activatedAt`,
+while consumers subscribe to `user.suspended` etc. with schemas that require them. Once EVT-02 drains the outbox, every one
+would have been dead-lettered as unparseable. `insertOutboxEvent` is now typed on the catalogue's `PAYLOAD_SCHEMAS` and
+validates the payload before writing, so the mismatch cannot recur silently.

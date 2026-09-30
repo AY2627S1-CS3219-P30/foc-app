@@ -1,3 +1,5 @@
+import type { z } from 'zod';
+import { PAYLOAD_SCHEMAS } from '@foc/platform';
 import type { Queryable } from '../db/db.js';
 
 export type AccountStatus = 'PENDING_ACTIVATION' | 'ACTIVE' | 'SUSPENDED';
@@ -95,20 +97,26 @@ export const usersRepository = {
     return rows.length > 0;
   },
 
-  async insertOutboxEvent(
+  /**
+   * Writes an event to the outbox in the caller's transaction. The type and payload must match the
+   * shared catalogue (`@foc/platform` EVENTS / PAYLOAD_SCHEMAS): the payload is validated here, so a
+   * shape a consumer would dead-letter fails the change that produced it instead of reaching the broker.
+   */
+  async insertOutboxEvent<K extends keyof typeof PAYLOAD_SCHEMAS>(
     q: Queryable,
     e: {
       id: string;
-      eventType: string;
+      eventType: K;
       aggregateId: string;
-      payload: unknown;
+      payload: z.input<(typeof PAYLOAD_SCHEMAS)[K]>;
       correlationId: string;
     },
   ): Promise<void> {
+    const payload: unknown = PAYLOAD_SCHEMAS[e.eventType].parse(e.payload);
     await q.query(
       `INSERT INTO outbox_events (id, event_type, aggregate_id, payload, correlation_id)
        VALUES ($1, $2, $3, $4::jsonb, $5)`,
-      [e.id, e.eventType, e.aggregateId, JSON.stringify(e.payload), e.correlationId],
+      [e.id, e.eventType, e.aggregateId, JSON.stringify(payload), e.correlationId],
     );
   },
 

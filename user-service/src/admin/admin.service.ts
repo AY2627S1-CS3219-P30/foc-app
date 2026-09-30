@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { ApiException } from '@foc/platform';
+import { ApiException, EVENTS } from '@foc/platform';
 import { sessionsRepository as sessions } from '../auth/sessions.repository.js';
 import { DB, type Db, type Queryable } from '../db/db.js';
 import {
@@ -126,9 +126,14 @@ export class AdminService {
       const auditId = await this.record(tx, actorId, targetId, 'SUSPEND', reason, correlationId);
       await users.insertOutboxEvent(tx, {
         id: randomUUID(),
-        eventType: 'UserSuspended',
+        eventType: EVENTS.USER_SUSPENDED,
         aggregateId: targetId,
-        payload: { userId: targetId, status: 'SUSPENDED', reasonRef: auditId },
+        payload: {
+          userId: targetId,
+          status: 'SUSPENDED',
+          reasonRef: auditId,
+          occurredAt: new Date().toISOString(),
+        },
         correlationId,
       });
     });
@@ -152,9 +157,14 @@ export class AdminService {
       const auditId = await this.record(tx, actorId, targetId, 'REACTIVATE', reason, correlationId);
       await users.insertOutboxEvent(tx, {
         id: randomUUID(),
-        eventType: 'UserReactivated',
+        eventType: EVENTS.USER_REACTIVATED,
         aggregateId: targetId,
-        payload: { userId: targetId, status: 'ACTIVE', reasonRef: auditId },
+        payload: {
+          userId: targetId,
+          status: 'ACTIVE',
+          reasonRef: auditId,
+          occurredAt: new Date().toISOString(),
+        },
         correlationId,
       });
     });

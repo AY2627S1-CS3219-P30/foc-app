@@ -123,8 +123,40 @@ The identity answer is cached per session for `cacheTtlMs` (**default 5 000 ms**
 - concurrent requests for one session share a single call, and failures are **never cached**, so a recovered
   User Service is used at once.
 
-USR-07 will additionally consume `UserSuspended` / `UserReactivated` to drop cache entries immediately, shrinking
-the window for suspensions to the event's latency.
+### Event-driven invalidation (USR-07)
+
+A service with a broker also subscribes to `user.suspended` and `user.reactivated`, and drops every cached answer for
+that user the moment one arrives, so a suspension is enforced on the user's **next request** rather than up to 5 s later:
+
+```ts
+import { authStatusEvents, AuthModule } from '@foc/auth-client';
+
+const status = authStatusEvents('order'); // queue foc.order.auth-status
+
+@Module({
+  imports: [
+    AuthModule.forRoot(authConfig),
+    EventsModule.forRoot({ url, producer, subscriptions: [status.subscription] }),
+  ],
+  providers: [...status.providers],
+})
+```
+
+**Staleness, end to end** (suspension to refusal in Order / Credit):
+
+| Path                                                                | Bound                                                                    |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Event delivered                                                     | outbox drain + broker latency (sub-second once EVT-02 drains the outbox) |
+| Event late, lost, or handled by another replica of the same service | the cache window: **≤ 5 s**                                              |
+| No broker configured (`npm run dev:*` without the stack)            | the cache window: **≤ 5 s**                                              |
+
+Either way it is inside USR-07's 10 s requirement. The handler only **forgets**; it never reads a status from the event,
+so a forged, duplicated or reordered event can cost one extra lookup but can never let a suspended user in. A lookup that
+was already in flight when the event arrived is not cached (a per-user generation counter), so it cannot re-insert the
+pre-suspension answer.
+
+Order and Credit are wired (`AuthModule` + this subscription). Their mutating endpoints must use `@Authenticated()` /
+`@AdminOnly()`; no service reads a role from a client-supplied header.
 
 ## Key rotation
 

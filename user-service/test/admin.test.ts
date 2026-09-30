@@ -1,3 +1,4 @@
+import { userStatusChangedPayload } from '@foc/platform';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestApp, type TestApp } from './helpers/app.js';
 import {
@@ -72,15 +73,22 @@ describe('suspend / reactivate (US-FR3.1.2, US-FR4.1.4)', () => {
       action: 'SUSPEND',
       reason: 'Repeated no-shows',
     });
-    const [event] = await events('UserSuspended');
-    expect(event!.payload).toEqual({ userId: student.id, status: 'SUSPENDED', reasonRef: row!.id });
+    const [event] = await events('user.suspended');
+    expect(event!.payload).toEqual({
+      userId: student.id,
+      status: 'SUSPENDED',
+      reasonRef: row!.id,
+      occurredAt: expect.any(String),
+    });
+    // The shape the consumers subscribe with — anything else would be dead-lettered.
+    expect(userStatusChangedPayload.safeParse(event!.payload).success).toBe(true);
   });
 
   it('is idempotent: a second suspend adds no audit row and no event', async () => {
     await as(root).suspend(student.id).expect(200);
     await as(root).suspend(student.id).expect(200);
     expect(await audit()).toHaveLength(1);
-    expect(await events('UserSuspended')).toHaveLength(1);
+    expect(await events('user.suspended')).toHaveLength(1);
   });
 
   it('reactivates, allows login again, and records event and audit', async () => {
@@ -89,10 +97,10 @@ describe('suspend / reactivate (US-FR3.1.2, US-FR4.1.4)', () => {
     expect(res.body.status).toBe('ACTIVE');
     await login(t, student.email);
     expect((await audit()).map((a) => a.action)).toEqual(['SUSPEND', 'REACTIVATE']);
-    const [event] = await events('UserReactivated');
+    const [event] = await events('user.reactivated');
     expect(event!.payload).toMatchObject({ userId: student.id, status: 'ACTIVE' });
     await as(root).reactivate(student.id).expect(200); // idempotent
-    expect(await events('UserReactivated')).toHaveLength(1);
+    expect(await events('user.reactivated')).toHaveLength(1);
   });
 
   it('cannot suspend an account that never activated, so reactivation can never skip activation', async () => {

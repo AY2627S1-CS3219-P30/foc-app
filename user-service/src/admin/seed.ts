@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { EVENTS } from '@foc/platform';
 import { hashPassword } from '../auth/passwords.js';
 import type { Db } from '../db/db.js';
 import { isAllowedDomain, normalizeEmail } from '../users/email.js';
@@ -66,9 +67,9 @@ export async function seedAdmins(
         // A seeded admin is a student too, so Credit Service must issue a wallet like any other.
         await usersRepository.insertOutboxEvent(tx, {
           id: randomUUID(),
-          eventType: 'UserActivated',
+          eventType: EVENTS.USER_ACTIVATED,
           aggregateId: id,
-          payload: { userId: id },
+          payload: { userId: id, activatedAt: new Date().toISOString() },
           correlationId: 'seed',
         });
       }
