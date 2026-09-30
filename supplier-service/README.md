@@ -116,11 +116,11 @@ Run these from the repository root.
 On top of the shared base (`SERVICE_NAME`, `PORT`, `NODE_ENV`, `LOG_LEVEL`,
 `CORS_ORIGINS`, optional `RABBITMQ_URL`):
 
-| Variable               | Example                                   | Notes                                                       |
-| ---------------------- | ----------------------------------------- | ----------------------------------------------------------- |
-| `DATABASE_URL`         | `postgres://…@postgres:5432/foc_supplier` | Migrations run at boot; the schema is never behind traffic. |
-| `USER_SERVICE_URL`     | `http://user-service:3001`                | Base URL for identity introspection.                        |
-| `INTERNAL_SERVICE_KEY` | one of the User Service's keys            | Presented as `X-Service-Key`.                               |
+| Variable               | Example                                   | Notes                                                            |
+| ---------------------- | ----------------------------------------- | ---------------------------------------------------------------- |
+| `DATABASE_URL`         | `postgres://…@postgres:5432/foc_supplier` | Migrated by the one-shot migrate step before the service starts. |
+| `USER_SERVICE_URL`     | `http://user-service:3001`                | Base URL for identity introspection.                             |
+| `INTERNAL_SERVICE_KEY` | one of the User Service's keys            | Presented as `X-Service-Key`.                                    |
 
 A missing required variable stops the service at boot and names the variable.
 Nothing falls back to an insecure default.

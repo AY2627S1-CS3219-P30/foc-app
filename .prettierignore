@@ -4,6 +4,10 @@ coverage/
 *.lock
 package-lock.json
 
+# drizzle-kit generated migrations and snapshots — regenerating them would
+# reintroduce any reformatting, so keep Prettier off them.
+*/drizzle/
+
 # web-app has its own toolchain and its own config.
 web-app/
 

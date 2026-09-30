@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import type { ConfirmChannel, ConsumeMessage } from 'amqplib';
 import type { z } from 'zod';
+import { errorMessage } from '../logging.js';
 import type { BrokerConnection } from './connection.js';
 import { UnparseableMessageError, parseEnvelope, type Envelope } from './envelope.js';
 import {
@@ -124,7 +125,7 @@ export class EventConsumer {
     try {
       envelope = parseEnvelope(message.content, options.payloadSchema);
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
+      const reason = errorMessage(err);
       this.logger.error({ queue: options.queue, reason, msg: 'message is unparseable' });
       if (transient) {
         channel.nack(message, false, false); // nowhere to set it aside
@@ -155,7 +156,7 @@ export class EventConsumer {
         msg: 'event handled',
       });
     } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
+      const reason = errorMessage(err);
       if (transient) {
         this.logger.warn({
           correlationId: envelope.correlationId,

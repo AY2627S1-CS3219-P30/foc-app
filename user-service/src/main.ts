@@ -1,8 +1,7 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { createLogger, PinoLoggerService, runMigrations, startService } from '@foc/platform';
-import { DB, type Db } from './db/db.js';
-import { migrations } from './db/migrations.js';
+import { createLogger, errorMessage, PinoLoggerService, startService } from '@foc/platform';
+import { DB, type Database } from './db/db.js';
 import { reportSeed, seedAdmins } from './admin/seed.js';
 
 async function main(): Promise<void> {
@@ -14,11 +13,11 @@ async function main(): Promise<void> {
   const logger = new PinoLoggerService(createLogger(SERVICE_NAME, env.LOG_LEVEL));
   const app = await NestFactory.create(AppModule, { logger });
 
-  // Schema first, then traffic: a request must never reach a database that is behind.
-  const applied = await runMigrations(app.get<Db>(DB), migrations);
-  if (applied.length > 0) logger.log(`Applied migrations: ${applied.join(', ')}`);
-
-  const seeded = await seedAdmins(app.get<Db>(DB), {
+  // The schema is migrated as a separate step before the service starts (a
+  // one-shot `db/migrate.ts` container in compose, `npm run db:migrate` on a
+  // host, or the deploy pipeline) — never at boot. The seed below still runs on
+  // every boot, so it assumes migrations are already applied.
+  const seeded = await seedAdmins(app.get<Database>(DB), {
     emails: env.ADMIN_SEED_EMAILS,
     password: env.ADMIN_SEED_PASSWORD,
     allowedDomains: env.ALLOWED_EMAIL_DOMAINS,
@@ -34,6 +33,6 @@ async function main(): Promise<void> {
 
 main().catch((err: unknown) => {
   // Configuration errors happen before a logger exists, so this must use console.
-  console.error(err instanceof Error ? err.message : String(err));
+  console.error(errorMessage(err));
   process.exit(1);
 });
