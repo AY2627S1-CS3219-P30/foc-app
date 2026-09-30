@@ -39,7 +39,7 @@ describe('retry topology', () => {
     const a = retryLevels('user-service').map((l) => l.queue);
     const b = retryLevels('credit-service').map((l) => l.queue);
     expect(a).not.toEqual(b);
-    expect(a[0]).toBe('foc.user-service.retry.1');
+    expect(a[0]).toBe('foc.user-service.delay.1');
   });
 
   it('derives a dead-letter queue name from the queue it serves', () => {

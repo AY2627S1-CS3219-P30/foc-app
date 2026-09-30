@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   EVENTS,
+  PAYLOAD_SCHEMAS,
   creditReservationRejectedPayload,
   creditReservationRequestedPayload,
   creditsReservedPayload,
@@ -23,6 +24,25 @@ describe('event catalogue', () => {
   it('prefixes a request by the service that sends it, not the one that acts on it', () => {
     expect(EVENTS.CREDIT_RESERVATION_REQUESTED).toBe('order.reservation-requested');
     expect(EVENTS.CREDIT_RELEASE_REQUESTED).toBe('order.release-requested');
+  });
+});
+
+describe('user role changes (USR-07)', () => {
+  const change = { userId: 'user-1', roles: ['STUDENT'], occurredAt: new Date().toISOString() };
+
+  it('has an agreed shape: the roles after the change', () => {
+    const schema = PAYLOAD_SCHEMAS[EVENTS.USER_ROLE_CHANGED];
+    expect(schema.safeParse(change).success).toBe(true);
+    expect(
+      schema.safeParse({ ...change, roles: ['STUDENT', 'ADMIN'], reasonRef: 'a-1' }).success,
+    ).toBe(true);
+  });
+
+  it('refuses a role no consumer knows, and a change without a time', () => {
+    const schema = PAYLOAD_SCHEMAS[EVENTS.USER_ROLE_CHANGED];
+    expect(schema.safeParse({ ...change, roles: ['SUPERUSER'] }).success).toBe(false);
+    const { occurredAt: _, ...undated } = change;
+    expect(schema.safeParse(undated).success).toBe(false);
   });
 });
 
