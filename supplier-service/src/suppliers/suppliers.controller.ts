@@ -15,6 +15,7 @@ import type { Response } from 'express';
 import { AdminOnly, Authenticated } from '@foc/auth-client';
 import { SuppliersService } from './suppliers.service.js';
 import {
+  parseIdempotencyKey,
   parseIfMatch,
   parseOrThrow,
   supplierCreateSchema,
@@ -60,8 +61,8 @@ export class SuppliersController {
     @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ) {
+    const key = parseIdempotencyKey(idempotencyKey);
     const input = parseOrThrow(supplierCreateSchema, body);
-    const key = idempotencyKey?.trim() || undefined;
     const { supplier, replayed } = await this.suppliers.create(input, key);
     // A replay returns the original supplier with 200; a genuine create is 201.
     res.status(replayed ? 200 : 201);

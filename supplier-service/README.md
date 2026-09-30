@@ -39,7 +39,7 @@ Base path `/suppliers`. All errors use the shared envelope.
 | `GET`    | `/suppliers/:id` | any signed-in | Resolves any supplier by id, **including deactivated** ones.    |
 | `POST`   | `/suppliers`     | **admin**     | Create. Honors `Idempotency-Key`. `201` created / `200` replay. |
 | `PUT`    | `/suppliers/:id` | **admin**     | Partial update. Requires `If-Match: <version>`.                 |
-| `DELETE` | `/suppliers/:id` | **admin**     | Soft deactivation (`active = false`). Idempotent.               |
+| `DELETE` | `/suppliers/:id` | **admin**     | Soft deactivation (`active = false`). Requires `If-Match`.      |
 
 ### Permission table (enforced server-side)
 
@@ -68,10 +68,14 @@ suppliers (`DUPLICATE_NAME_BUILDING`).
 ### Retry safety
 
 - **Idempotency-Key** (create): a repeated `POST` with the same header returns the
-  original supplier (`200`) instead of creating a second row or `409`.
-- **If-Match / version** (update): send `If-Match: <version>` (the row's `version`,
-  also returned as the `ETag`). A stale value returns `412 STALE_VERSION` and
-  changes nothing; a missing header is `428 PRECONDITION_REQUIRED`.
+  original supplier (`200`) instead of creating a second row or `409`. The key is
+  trimmed; a blank key means none, and one over 200 characters is `400 BAD_REQUEST`.
+- **If-Match / version** (update, deactivate): send `If-Match: <version>` (the row's
+  `version`, also returned as the `ETag`). A stale value returns `412 STALE_VERSION`
+  and changes nothing; a missing header is `428 PRECONDITION_REQUIRED`.
+  Deactivation bumps the version, so a retry after a lost response is `412`: reload
+  the supplier to confirm it is inactive. Repeating at the version it returned is a
+  no-op `200`.
 - **Atomicity**: every mutation runs in one transaction — it commits fully or not
   at all, and a failure surfaces through the error envelope with nothing
   half-written.

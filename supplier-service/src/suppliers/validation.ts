@@ -260,3 +260,22 @@ export function parseIfMatch(raw: string | undefined): number {
   }
   return version;
 }
+
+const IDEMPOTENCY_KEY_MAX = 200;
+
+/**
+ * The optional `Idempotency-Key` header, trimmed. A blank key means none. The key
+ * is capped because it is stored and hashed into an advisory lock.
+ */
+export function parseIdempotencyKey(raw: string | undefined): string | undefined {
+  const key = raw?.trim();
+  if (!key) return undefined;
+  if (key.length > IDEMPOTENCY_KEY_MAX) {
+    throw new ApiException(
+      400,
+      'BAD_REQUEST',
+      `Idempotency-Key must be at most ${IDEMPOTENCY_KEY_MAX} characters.`,
+    );
+  }
+  return key;
+}
