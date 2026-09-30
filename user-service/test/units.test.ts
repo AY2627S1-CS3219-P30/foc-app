@@ -61,6 +61,7 @@ describe('migrations', () => {
       '002_refresh_sessions',
       '003_audit_records',
       '004_bootstrap_hardening',
+      '005_outbox_catalogue_events',
     ]);
     expect(await runMigrations(db, migrations)).toEqual([]);
   });

@@ -153,4 +153,35 @@ export const migrations: Migration[] = [
           CHECK (action IN ('SUSPEND', 'REACTIVATE', 'ROLE_GRANT', 'ROLE_REVOKE', 'ADMIN_BOOTSTRAP'));
     `,
   },
+  {
+    id: '005_outbox_catalogue_events',
+    sql: `
+      -- USR-07 renamed this service's events to the shared catalogue's routing
+      -- keys and added the timestamps its payload schemas require. Rows written
+      -- before that and not yet published would be dead-lettered by every
+      -- consumer, so rewrite them in place. Timestamps are ISO 8601 in UTC, as
+      -- the schemas expect; published rows are history and left alone.
+      UPDATE outbox_events o
+         SET event_type = 'user.activated',
+             payload = jsonb_build_object(
+               'activatedAt',
+               to_char(
+                 coalesce((SELECT u.activated_at FROM users u WHERE u.id = o.aggregate_id),
+                          o.occurred_at) AT TIME ZONE 'UTC',
+                 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+             ) || o.payload
+       WHERE o.event_type = 'UserActivated' AND o.published_at IS NULL;
+
+      UPDATE outbox_events
+         SET event_type = CASE event_type
+                            WHEN 'UserSuspended' THEN 'user.suspended'
+                            ELSE 'user.reactivated'
+                          END,
+             payload = jsonb_build_object(
+               'occurredAt',
+               to_char(occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+             ) || payload
+       WHERE event_type IN ('UserSuspended', 'UserReactivated') AND published_at IS NULL;
+    `,
+  },
 ];

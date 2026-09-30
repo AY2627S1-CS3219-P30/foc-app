@@ -113,7 +113,7 @@ and a trigger raises on any `UPDATE` or `DELETE`. No API edits or deletes an aud
 | Column | Type | Notes |
 | --- | --- | --- |
 | `id` | uuid PK | |
-| `event_type` | text | `UserActivated`, later `UserSuspended` / `UserReactivated` |
+| `event_type` | text | a catalogue routing key: `user.activated`, `user.suspended`, `user.reactivated`, `user.role-changed` (legacy names rewritten by migration 005) |
 | `aggregate_id` | uuid | the user |
 | `payload` | jsonb | |
 | `correlation_id` | text | |

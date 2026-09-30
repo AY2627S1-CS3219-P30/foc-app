@@ -512,22 +512,51 @@ every console action (suspend, reactivate, role change) is audited, and the matr
 ## 13. Cross-service status enforcement (USR-07, #144)
 
 ### X1. Invalidate on events, decide from the User Service — ✅
-`@foc/auth-client` subscribes (per service, `foc.<service>.auth-status`) to `user.suspended` and `user.reactivated` and drops
-every cached identity for that user. It **does not** take the new status from the event.
+`@foc/auth-client` subscribes to `user.suspended`, `user.reactivated` and `user.role-changed` and drops every cached identity
+for that user. It **does not** take the new status or roles from the event.
 - **Why only forget:** the User Service stays the single source of status and role; a forged, stale, duplicated or reordered
   event can cost one lookup and nothing else. Taking the status from the event would make the broker an authorization input.
-- **In-flight race:** a lookup started before the event could return the old answer after it and re-cache it. A per-user
-  generation counter refuses to cache such an answer; a test holds the reply on the wire to prove it.
-- **Replicas:** replicas of one service share a queue, so only one invalidates; the others fall back to the 5 s window.
-  Inside the 10 s requirement; a per-replica exclusive queue would close it.
+- **In-flight race:** a lookup started before the event could return the old answer after it and re-cache it. The event
+  detaches every in-flight lookup for the user, and only the current lookup for a session may write to the cache; a test
+  holds the reply on the wire to prove it, including after a flood of other invalidations.
+- **Replicas:** each *instance* has its own exclusive, auto-delete queue (`foc.<service>.auth-status.<random>`), because each
+  holds its own cache — a shared queue would hand each event to one replica. Its `x-message-ttl` is the cache window, so an
+  instance never replays invalidations older than anything it could still have cached, and it is length-bounded.
+- **Delivery:** events are published by the outbox relay (EVT-02). Wherever no relay is running, the 5 s cache window (K4) is
+  the only bound — still inside the 10 s requirement.
 
-### X2. Order and Credit are wired — ✅ (mechanism) / 📝 (endpoints)
-Both import `AuthModule` and the subscription, and Compose/`.env.example` give them `USER_SERVICE_URL` and their own
-`INTERNAL_SERVICE_KEY`. Neither service has a mutating endpoint yet (ORD-02+, CRD-05+); those tickets add `@Authenticated()`.
-The acceptance test "suspension blocks the next order/credit mutation within 10 s" can only run against those endpoints.
+### X2. Supplier, Order and Credit are wired — ✅ (mechanism) / 📝 (endpoints)
+All three import `AuthModule` and the subscription (when a broker is configured, like every other consumer), and
+Compose/`.env.example` give them `USER_SERVICE_URL` and their own `INTERNAL_SERVICE_KEY`; Compose starts them after RabbitMQ is
+healthy. Supplier's admin endpoints (`@AdminOnly()`) are covered now; Order and Credit have no mutating endpoint yet (ORD-02+,
+CRD-05+), and those tickets add `@Authenticated()`. A wiring test in each service fails if the subscription or its handler is
+dropped. The acceptance test "suspension blocks the next order/credit mutation within 10 s" can only run against those endpoints.
 
 ### X3. User Service events now match the catalogue — ✅ (bug fix)
 The outbox held `UserSuspended` / `UserReactivated` / `UserActivated` with payloads missing `occurredAt` / `activatedAt`,
 while consumers subscribe to `user.suspended` etc. with schemas that require them. Once EVT-02 drains the outbox, every one
 would have been dead-lettered as unparseable. `insertOutboxEvent` is now typed on the catalogue's `PAYLOAD_SCHEMAS` and
-validates the payload before writing, so the mismatch cannot recur silently.
+validates the payload before writing, so the mismatch cannot recur silently. Migration `005_outbox_catalogue_events` rewrites
+unpublished rows written before the change (type to the catalogue key; `activatedAt` from the account, `occurredAt` from the
+row).
+
+### X4. Role changes are events too — ✅
+Granting or revoking `ADMIN` writes `user.role-changed` (the roles after the change, the audit id as `reasonRef`) in the same
+transaction as the change and its audit row. Without it a demoted administrator kept `isAdmin` in other services until their
+cache expired.
+
+### X5. Events carry the stored user id — ✅ (bug fix)
+A UUID is case-insensitive, so `/admin/users/<UPPER-CASE-ID>/suspend` found the account — but the event named the user as typed,
+and every cache is keyed on the token's lower-case `sub`, so the invalidation missed. Admin actions now use the locked row's id for
+everything they write. The same fix closed a self-check bypass: an admin could suspend or demote *themselves* by changing the
+case of their own id in the URL. `invalidateUser` also lower-cases defensively.
+
+### X6. The broker plumbing had to hold up — ✅ (bug fix, platform)
+Two gaps in `@foc/platform`'s events layer surfaced once a second service bound the same routing key:
+- **Retries went to every queue bound to the key.** A retry dead-lettered back onto the topic exchange with the original
+  routing key, so one service's retry was redelivered to every other service's queue. It now goes back to the failing queue
+  only, through the default exchange. The delay queues were renamed (`foc.<service>.delay.N`) because a queue's
+  dead-letter arguments cannot change in place.
+- **A reconnect lost every consumer.** The connection re-declared the topology but never re-registered consumers, and a
+  channel the server closed on its own was not noticed at all. Consumers are now remembered and re-registered on every new
+  channel, and losing the channel alone reconnects too.
