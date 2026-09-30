@@ -22,11 +22,11 @@
 | PENDING\_CREDIT | Reward reserved | Credit Service | OPEN |
 | PENDING\_CREDIT | Reservation rejected | Credit Service | REJECTED |
 | OPEN | Accept | Student other than the requester | ACCEPTED |
-| OPEN | Cancel | Requester, or Administrator on the requester's behalf, with reason | RELEASE\_PENDING\_CREDIT (cancelled) |
+| OPEN | Cancel | Requester | RELEASE\_PENDING\_CREDIT (cancelled) |
 | OPEN | Requester suspended | System | RELEASE\_PENDING\_CREDIT (cancelled) |
 | OPEN | Acceptance deadline passes | System | RELEASE\_PENDING\_CREDIT (expired) |
 | ACCEPTED | Record pickup | Assigned courier | PICKED\_UP |
-| ACCEPTED | Cancel | Requester, or Administrator on the requester's behalf, with reason | RELEASE\_PENDING\_CREDIT (cancelled) |
+| ACCEPTED | Cancel | Requester | RELEASE\_PENDING\_CREDIT (cancelled) |
 | ACCEPTED | Requester suspended | System | RELEASE\_PENDING\_CREDIT (cancelled) |
 | ACCEPTED | Withdraw, pickup timeout, or courier suspended, before the acceptance deadline | Assigned courier (withdraw) or System | OPEN |
 | ACCEPTED | Withdraw, pickup timeout, or courier suspended, after the acceptance deadline | Assigned courier (withdraw) or System | RELEASE\_PENDING\_CREDIT (expired) |
@@ -55,11 +55,11 @@ stateDiagram-v2
   PENDING_CREDIT --> REJECTED : Reservation rejected<br/>(Credit Service)
 
   OPEN --> ACCEPTED : Accept<br/>(student other than requester)
-  OPEN --> RELEASE_PENDING_CREDIT : Cancel (Requester, or Administrator with reason) or<br/>requester suspended (System)<br/>reason = cancelled
+  OPEN --> RELEASE_PENDING_CREDIT : Cancel (Requester) or<br/>requester suspended (System)<br/>reason = cancelled
   OPEN --> RELEASE_PENDING_CREDIT : Acceptance deadline passes (System)<br/>reason = expired
 
   ACCEPTED --> PICKED_UP : Record pickup<br/>(assigned courier)
-  ACCEPTED --> RELEASE_PENDING_CREDIT : Cancel (Requester, or Administrator with reason) or<br/>requester suspended (System)<br/>reason = cancelled
+  ACCEPTED --> RELEASE_PENDING_CREDIT : Cancel (Requester) or<br/>requester suspended (System)<br/>reason = cancelled
   ACCEPTED --> OPEN : [before deadline] Withdraw (courier),<br/>pickup timeout or courier suspended (System)
   ACCEPTED --> RELEASE_PENDING_CREDIT : [after deadline] Withdraw (courier),<br/>pickup timeout or courier suspended (System)<br/>reason = expired
 

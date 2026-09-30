@@ -91,12 +91,12 @@ requester of errands they created and the courier of errands they accepted.
 | Cancel, confirm receipt, report non-receipt (**own** errand as requester) | 🔒 | ✅    | ❌                | ✅    |
 | Record pickup / delivery, withdraw (errand **assigned to you**) | 🔒      | ✅             | ❌                | ✅    |
 | Read an errand you are neither requester nor courier of       | 🔒        | ❌             | ❌                | ✅ (admin console, NTH-01) |
-| Act on **someone else's** errand, with a reason: resolve a dispute (`DISPUTED` → paid or refunded), or cancel it before pickup on the requester's behalf | 🔒 | ❌ | ❌ | ✅    |
+| Act on **someone else's** errand, with a reason, through the transitions the Order Service gives an *Administrator* — today: resolve a dispute (`DISPUTED` → paid or refunded) | 🔒 | ❌ | ❌ | ✅    |
 | System transitions (deadline, timeouts, credit replies)       | Not a user action — performed by the service itself or on a Credit Service event |
 
 An administrator's *own* errands follow the student rules. On **someone else's** errand an administrator
-may take exactly the transitions `order-service/README.md` lists with *Administrator* as actor — resolve a
-dispute, or cancel on the requester's behalf — each with a reason, enforced server-side by the Order
+may take exactly the transitions `order-service/README.md` lists with *Administrator* as actor — today,
+resolving a dispute — each with a reason, enforced server-side by the Order
 Service (decisions.md R4). Nothing else: an administrator does not confirm receipt or record a delivery
 for someone, and no administrator action edits a wallet.
 
