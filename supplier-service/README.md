@@ -142,7 +142,10 @@ change lands once rather than four times.
 Mirror the User Service style: unit tests for the CSV parser, normalizer and
 deterministic ids; integration tests boot the real modules against an **ephemeral**
 in-memory PostgreSQL (PGlite) — never a shared database — with the authenticator
-replaced by a test double so the permission logic is exercised directly.
+replaced by a test double so the permission logic is exercised directly. The
+exception is `test/auth-integration.test.ts`, which runs the **real**
+`@foc/auth-client` authenticator against the wire-level fake User Service from
+`auth-client/test/helpers/`, so the admin routes are proven with real signed tokens.
 
 ### Docker
 
