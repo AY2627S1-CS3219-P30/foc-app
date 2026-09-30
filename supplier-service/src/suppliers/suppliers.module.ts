@@ -1,5 +1,5 @@
 import { Module, type DynamicModule } from '@nestjs/common';
-import { PgDb } from '@foc/platform';
+import { LOGGER, PgDb, type PgDbOptions } from '@foc/platform';
 import { env } from '../config.js';
 import { DB } from '../db/db.js';
 import { SuppliersController } from './suppliers.controller.js';
@@ -11,7 +11,14 @@ export class SuppliersModule {
     return {
       module: SuppliersModule,
       controllers: [SuppliersController],
-      providers: [SuppliersService, { provide: DB, useFactory: () => new PgDb(env.DATABASE_URL) }],
+      providers: [
+        SuppliersService,
+        {
+          provide: DB,
+          useFactory: (logger: PgDbOptions['logger']) => new PgDb(env.DATABASE_URL, { logger }),
+          inject: [LOGGER],
+        },
+      ],
       exports: [DB, SuppliersService],
     };
   }

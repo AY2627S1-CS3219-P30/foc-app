@@ -1,5 +1,5 @@
 import { Module, type DynamicModule } from '@nestjs/common';
-import { PgDb } from '@foc/platform';
+import { LOGGER, PgDb, type PgDbOptions } from '@foc/platform';
 import { AdminController } from '../admin/admin.controller.js';
 import { AdminService } from '../admin/admin.service.js';
 import { AccessTokenGuard } from '../auth/access-token.guard.js';
@@ -65,7 +65,11 @@ export class UsersModule {
               .filter(Boolean),
           },
         },
-        { provide: DB, useFactory: () => new PgDb(env.DATABASE_URL) },
+        {
+          provide: DB,
+          useFactory: (logger: PgDbOptions['logger']) => new PgDb(env.DATABASE_URL, { logger }),
+          inject: [LOGGER],
+        },
         { provide: MAILER, useValue: mailbox },
         { provide: DevMailbox, useValue: mailbox },
         { provide: SERVICE_KEYS, useValue: env.INTERNAL_SERVICE_KEYS },
