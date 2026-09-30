@@ -1,8 +1,8 @@
-import type { ReactNode } from "react";
-import { AppBar } from "./AppBar";
-import { Sidebar, type NavItem } from "./Sidebar";
-import { TopBar } from "./TopBar";
-import styles from "./ResponsiveShell.module.css";
+import type { ReactNode } from 'react';
+import { AppBar } from './AppBar';
+import { Sidebar, type NavItem } from './Sidebar';
+import { TopBar } from './TopBar';
+import styles from './ResponsiveShell.module.css';
 
 /**
  * The app frame as one tree for every width, for screens that hold a form (decisions.md W3): the
@@ -14,11 +14,13 @@ export function ResponsiveShell({
   title,
   navItems,
   activeHref,
+  showCreditPill = true,
   children,
 }: {
   title: string;
   navItems: NavItem[];
   activeHref: string;
+  showCreditPill?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -27,7 +29,7 @@ export function ResponsiveShell({
         <AppBar title={title} />
       </div>
       <div className={styles.topBar}>
-        <TopBar />
+        <TopBar showCreditPill={showCreditPill} />
       </div>
       <div className={styles.body}>
         <div className={styles.sidebar}>
