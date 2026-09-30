@@ -76,8 +76,9 @@ It is UX only and is never read by an authorization decision.
 
 ### R4. Administrators may act on other people's errands — ✅ decided (product owner)
 Previously left open in roles.md ("deferred to the admin console"). Decision: **yes** — an administrator may
-resolve a dispute or cancel an errand on the requester's behalf, with a reason, and the Order Service
-enforces it server-side.
+act on other people's errands through the transitions the Order Service assigns to *Administrator* (today:
+resolving a dispute), with a reason, and the Order Service enforces it server-side. Which transitions those
+are is the Order Service's call (`order-service/README.md`).
 - **Why:** disputes need an administrator decision; `order-service/README.md`'s `DISPUTED → … (Administrator)`
   transitions depend on it.
 - **Limits:** only the transitions the Order Service lists with *Administrator* as actor; never a wallet edit
