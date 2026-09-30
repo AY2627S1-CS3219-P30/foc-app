@@ -1,8 +1,10 @@
+import { escapeLike } from '@foc/platform';
 import { and, eq, sql } from 'drizzle-orm';
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 import type { Database } from '../db/db.js';
 import { suppliers, supplierIdempotencyKeys } from '../db/schema.js';
-import type { SupplierInput, SupplierRow } from './types.js';
+import type { SupplierInput, SupplierListRow, SupplierRow } from './types.js';
+import type { SupplierListQuery, SupplierSort } from './validation.js';
 
 /** Postgres error code for a unique-constraint violation, shared by `pg` and PGlite. */
 export const UNIQUE_VIOLATION = '23505';
@@ -55,6 +57,21 @@ const insertValues = (s: NewSupplier): typeof suppliers.$inferInsert => ({
 });
 
 /**
+ * Sort field → sort key. The key set is closed (validated), so the expression is
+ * never caller-derived. Text keys are lower-cased so casing never decides order
+ * under a byte-order collation.
+ */
+const SORT_KEY: Record<SupplierSort, string> = {
+  name: 'lower(name)',
+  type: 'type',
+  building: 'lower(building)',
+  updatedAt: 'updated_at',
+};
+
+/** Tie-breaks after the requested sort key, always ascending, so equal keys keep a stable A→Z order. */
+const TIE_BREAKS = ['lower(name)', 'supplier_id'];
+
+/**
  * All SQL for the suppliers tables, expressed through Drizzle. Every function
  * takes a {@link Database} — the top-level instance or a transaction handle — so
  * the service can run several of them in one transaction.
@@ -82,13 +99,63 @@ export const suppliersRepository = {
     return rows[0] ?? null;
   },
 
-  /** Active suppliers only, for listings (SUP-02 adds filter/sort/pagination on top). */
-  async listActive(db: Database): Promise<SupplierRow[]> {
-    return db
-      .select()
-      .from(suppliers)
-      .where(eq(suppliers.active, true))
-      .orderBy(suppliers.name, suppliers.building);
+  /**
+   * A page of active suppliers, filtered, searched and sorted (SUP-02), with
+   * the unpaged `total`. One statement, so both come from one snapshot, and an
+   * out-of-range page still reports the total.
+   */
+  async list(
+    db: Database,
+    f: SupplierListQuery,
+  ): Promise<{ rows: SupplierListRow[]; total: number }> {
+    const where = [sql`active`];
+    if (f.type) where.push(sql`type = ${f.type}`);
+    if (f.building) where.push(sql`lower(building) = lower(${f.building})`);
+    if (f.q) {
+      const term = `%${escapeLike(f.q)}%`;
+      where.push(
+        sql`(name ILIKE ${term} ESCAPE '\\'
+          OR building ILIKE ${term} ESCAPE '\\'
+          OR location_description ILIKE ${term} ESCAPE '\\'
+          OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(tags) AS tag
+                     WHERE tag ILIKE ${term} ESCAPE '\\'))`,
+      );
+    }
+
+    // `order` is validated to asc|desc and every key comes from a fixed map, so
+    // neither reaches SQL from raw input. Only the primary key takes `order`.
+    const primary = SORT_KEY[f.sort];
+    const orderBy = sql.join(
+      [
+        sql.raw(`${primary} ${f.order === 'desc' ? 'DESC' : 'ASC'}`),
+        ...TIE_BREAKS.filter((k) => k !== primary).map((key) => sql.raw(key)),
+      ],
+      sql`, `,
+    );
+
+    // The count is the driving row, so an empty page still yields one row
+    // carrying the total (with null supplier columns). The join does not promise
+    // to keep the page's order, so the outer query restates it.
+    const result = await db.execute(
+      sql`WITH matched AS (SELECT * FROM suppliers WHERE ${sql.join(where, sql` AND `)})
+       SELECT counted.total, page.supplier_id AS "supplierId", page.name,
+              page.type, page.building, page.image_url AS "imageUrl"
+       FROM (SELECT count(*)::int AS total FROM matched) AS counted
+       LEFT JOIN (
+         SELECT * FROM matched ORDER BY ${orderBy}
+         LIMIT ${f.pageSize} OFFSET ${(f.page - 1) * f.pageSize}
+       ) AS page ON true
+       ORDER BY ${orderBy}`,
+    );
+    type PageRow = Omit<SupplierListRow, 'supplierId'> & {
+      supplierId: string | null;
+      total: number;
+    };
+    const rows = (result as { rows: PageRow[] }).rows;
+    return {
+      total: rows[0]!.total,
+      rows: rows.filter((r): r is PageRow & SupplierListRow => r.supplierId !== null),
+    };
   },
 
   /**

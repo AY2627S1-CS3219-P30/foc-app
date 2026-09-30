@@ -1,8 +1,8 @@
 # Supplier Service — Database Choice and Schema
 
 D2 §1–§2. Backlog refs: SS-FR4.1.1, and the SUP-01 acceptance criteria.
-Ticket: SUP-01 (#125). Out of scope here: search/filter/sort/pagination (SUP-02),
-the listing UI (SUP-03), and the deletion-hold against live errands (SUP-04).
+Ticket: SUP-01 (#125); the catalogue listing is SUP-02 (#126). Out of scope
+here: the listing UI (SUP-03) and the deletion-hold against live errands (SUP-04).
 
 ## 1. Database: PostgreSQL
 
@@ -39,7 +39,7 @@ and Postgres covers it at this scale.
 
 ## 2. Schema
 
-Forward-only migrations (`src/db/migrations.ts`). All ids are UUID; all timestamps
+Forward-only migrations (`drizzle/`, generated from `src/db/schema.ts`). All ids are UUID; all timestamps
 are `timestamptz` (UTC).
 
 ### `suppliers`
@@ -56,7 +56,7 @@ are `timestamptz` (UTC).
 | `latitude`             | double precision NULL           | Paired with `longitude`; range-checked.                                                   |
 | `longitude`            | double precision NULL           | Paired with `latitude`; range-checked.                                                    |
 | `image_url`            | text NULL                       | Missing for ~15 of the 21 template rows, so optional.                                     |
-| `tags`                 | jsonb NULL                      | Array of strings.                                                                         |
+| `tags`                 | jsonb NULL                      | Array of strings; the array shape is database checked.                                   |
 | `active`               | boolean NOT NULL DEFAULT true   | Soft-deactivation flag. A deactivated supplier leaves listings but stays resolvable by id. |
 | `version`              | integer NOT NULL DEFAULT 1      | Optimistic-lock counter; every update bumps it.                                           |
 | `created_at`, `updated_at` | timestamptz NOT NULL        | `updated_at` bumped on every mutation.                                                    |
@@ -67,13 +67,20 @@ are `timestamptz` (UTC).
   coordinate travels as a pair or not at all.
 - `suppliers_latitude_range` / `suppliers_longitude_range` — a malformed
   coordinate is refused by the database as well as the API.
-- `suppliers_name_building_active_key` — `UNIQUE (lower(name), building) WHERE active`:
+- `suppliers_name_building_active_key` — `UNIQUE (lower(name), lower(building)) WHERE active`:
   the case-insensitive name+building duplicate rule, scoped to active rows.
   "Starbucks @ YIH" and "Starbucks @ UTown" both live (different buildings); two
   active same-name suppliers in one building are refused; deactivating a supplier
   frees its name for reuse.
-- `suppliers_active_type_idx` — `(type) WHERE active`: the common listing path
-  (SUP-02 builds on it).
+
+**Listing (SUP-02)**
+
+At the current catalogue size, listing scans the active rows. The baseline's
+type index remains available for filtering. Migration `0001_supplier_tags_array`
+adds the tag array constraint. A listing uses one SQL statement for its count and page, so both
+come from the same snapshot. Only the selected sort key follows `order`; ties
+sort by name, then supplier ID ascending. Search checks name, building,
+location description, and each tag value separately.
 
 ### `supplier_idempotency_keys`
 

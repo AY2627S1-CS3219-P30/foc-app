@@ -1,0 +1,1 @@
+ALTER TABLE "suppliers" ADD CONSTRAINT "suppliers_tags_array" CHECK ("suppliers"."tags" IS NULL OR jsonb_typeof("suppliers"."tags") = 'array');

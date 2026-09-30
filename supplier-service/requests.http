@@ -1,0 +1,249 @@
+# Supplier Service — end-to-end request script (SUP-01 + SUP-02)
+#
+# Proves list, filter, sort, search, get-by-ID, create, update and deactivate
+# for BOTH a student and an admin token, against the Compose stack, no UI (D2 §3).
+#
+# Run order matters: the first block signs in and captures tokens; later blocks
+# reuse them. Works with the VS Code "REST Client" and the IntelliJ HTTP Client
+# (both read `# @name` and `{{name.response.body.field}}`).
+#
+# Prerequisites — bring the stack up first, from the repo root:
+#     docker compose up --build
+#   user-service → :3001, supplier-service → :3002 (see .env.example host ports).
+#
+# Written for a FRESH stack. The seeded admin (ADMIN_SEED_EMAILS) starts with the
+# bootstrap password and must change it before its first login; the student is
+# registered + activated here via the dev mailbox. Re-running against the same DB
+# will 409 on register / 403 on the already-changed admin password — reset the DB
+# or change @studentEmail to run again.
+
+@userBase = http://localhost:3001
+@supplierBase = http://localhost:3002
+
+@adminEmail = admin@u.nus.edu
+@bootstrapPassword = dev-only-admin-password-change-me
+@adminPassword = Admin-Passw0rd-Changed-01
+@studentEmail = sup02.student@u.nus.edu
+@studentPassword = Student-Passw0rd-01
+
+# ─────────────────────────────────────────────────────────────
+# 1 · Tokens
+# ─────────────────────────────────────────────────────────────
+
+### 1a · Admin clears the bootstrap password (required before first login)
+POST {{userBase}}/auth/password
+Content-Type: application/json
+
+{ "email": "{{adminEmail}}", "currentPassword": "{{bootstrapPassword}}", "newPassword": "{{adminPassword}}" }
+
+### 1b · Admin login → access token
+# @name adminLogin
+POST {{userBase}}/auth/login
+Content-Type: application/json
+
+{ "email": "{{adminEmail}}", "password": "{{adminPassword}}" }
+
+###
+@adminToken = {{adminLogin.response.body.accessToken}}
+
+### 1c · Register the student
+POST {{userBase}}/auth/register
+Content-Type: application/json
+
+{ "email": "{{studentEmail}}", "password": "{{studentPassword}}", "displayName": "SUP-02 Student" }
+
+### 1d · Read the activation token from the dev mailbox (mounted only outside production)
+# @name studentMailbox
+GET {{userBase}}/dev/mailbox?to={{studentEmail}}
+
+###
+@activationToken = {{studentMailbox.response.body.token}}
+
+### 1e · Activate the student account
+POST {{userBase}}/auth/activate
+Content-Type: application/json
+
+{ "token": "{{activationToken}}" }
+
+### 1f · Student login → access token
+# @name studentLogin
+POST {{userBase}}/auth/login
+Content-Type: application/json
+
+{ "email": "{{studentEmail}}", "password": "{{studentPassword}}" }
+
+###
+@studentToken = {{studentLogin.response.body.accessToken}}
+
+# ─────────────────────────────────────────────────────────────
+# 2 · Create (admin) — a small demo catalogue to list/filter/sort/search over
+# ─────────────────────────────────────────────────────────────
+
+### 2a · Admin creates a FOOD supplier in COM1 (Idempotency-Key makes a retry safe)
+# @name createFood
+POST {{supplierBase}}/suppliers
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+Idempotency-Key: sup02-demo-food
+
+{
+  "name": "Demo Kopitiam",
+  "type": "FOOD",
+  "building": "COM1",
+  "floor": "1",
+  "locationDescription": "Near the north entrance",
+  "openingHours": [{ "day": "MON", "opens": "08:00", "closes": "20:00" }],
+  "imageUrl": "https://example.com/kopitiam.jpg",
+  "tags": ["halal", "cheap"]
+}
+
+###
+@foodId = {{createFood.response.body.supplierId}}
+@foodVersion = {{createFood.response.body.version}}
+
+### 2b · Admin creates a CAFE supplier in COM2
+POST {{supplierBase}}/suppliers
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+Idempotency-Key: sup02-demo-cafe
+
+{
+  "name": "Demo Cafe",
+  "type": "CAFE",
+  "building": "COM2",
+  "floor": "2",
+  "locationDescription": "Beside the seminar rooms",
+  "imageUrl": "https://example.com/cafe.jpg"
+}
+
+### 2c · Admin creates a PRINTING supplier in COM1
+# @name createPrint
+POST {{supplierBase}}/suppliers
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+Idempotency-Key: sup02-demo-print
+
+{
+  "name": "Demo Print Shop",
+  "type": "PRINTING",
+  "building": "COM1",
+  "floor": "1",
+  "locationDescription": "Photocopier corner"
+}
+
+###
+@printId = {{createPrint.response.body.supplierId}}
+@printVersion = {{createPrint.response.body.version}}
+
+### 2d · A student may NOT create — expect 403 FORBIDDEN, nothing written
+POST {{supplierBase}}/suppliers
+Authorization: Bearer {{studentToken}}
+Content-Type: application/json
+
+{ "name": "Should Fail", "type": "FOOD", "building": "COM1", "floor": "1", "locationDescription": "x" }
+
+# ─────────────────────────────────────────────────────────────
+# 3 · List, filter, sort, search (SUP-02) — as a student, then admin
+# ─────────────────────────────────────────────────────────────
+
+### 3a · Student lists the default page (page 1, size 20, name asc)
+GET {{supplierBase}}/suppliers
+Authorization: Bearer {{studentToken}}
+
+### 3b · Admin lists with explicit pagination
+GET {{supplierBase}}/suppliers?page=1&pageSize=2
+Authorization: Bearer {{adminToken}}
+
+### 3c · Page size is clamped to 1–100, not rejected (999 → 100)
+GET {{supplierBase}}/suppliers?pageSize=999
+Authorization: Bearer {{studentToken}}
+
+### 3d · Filter by type (FOOD)
+GET {{supplierBase}}/suppliers?type=FOOD
+Authorization: Bearer {{studentToken}}
+
+### 3e · Filter by building — case-insensitive, canonicalized like create (com1 → COM1)
+GET {{supplierBase}}/suppliers?building=com1
+Authorization: Bearer {{studentToken}}
+
+### 3f · Combined filter: PRINTING in COM1
+GET {{supplierBase}}/suppliers?type=PRINTING&building=COM1
+Authorization: Bearer {{studentToken}}
+
+### 3g · Sort by name descending
+GET {{supplierBase}}/suppliers?sort=name&order=desc
+Authorization: Bearer {{studentToken}}
+
+### 3h · Sort by last-updated, newest first
+GET {{supplierBase}}/suppliers?sort=updatedAt&order=desc
+Authorization: Bearer {{studentToken}}
+
+### 3i · Case-insensitive search across name/building/location/tags — hits a tag
+GET {{supplierBase}}/suppliers?q=HALAL
+Authorization: Bearer {{studentToken}}
+
+### 3j · Search across the free-text fields
+GET {{supplierBase}}/suppliers?q=demo
+Authorization: Bearer {{studentToken}}
+
+### 3k · No match → 200 with an empty page (total 0), never 404
+GET {{supplierBase}}/suppliers?q=nothing-matches-this
+Authorization: Bearer {{studentToken}}
+
+# ─────────────────────────────────────────────────────────────
+# 4 · Get by ID (student and admin)
+# ─────────────────────────────────────────────────────────────
+
+### 4a · Student fetches one supplier (detail view adds floor, location, opening hours)
+GET {{supplierBase}}/suppliers/{{foodId}}
+Authorization: Bearer {{studentToken}}
+
+### 4b · Admin fetches the same supplier
+GET {{supplierBase}}/suppliers/{{foodId}}
+Authorization: Bearer {{adminToken}}
+
+# ─────────────────────────────────────────────────────────────
+# 5 · Update (admin) — optimistic lock via If-Match
+# ─────────────────────────────────────────────────────────────
+
+### 5a · Admin updates the FOOD supplier (If-Match carries the version last seen)
+# @name updateFood
+PUT {{supplierBase}}/suppliers/{{foodId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+If-Match: {{foodVersion}}
+
+{ "floor": "B1", "tags": ["halal", "cheap", "student-favourite"] }
+
+###
+@foodVersion2 = {{updateFood.response.body.version}}
+
+### 5b · A student may NOT update — expect 403 FORBIDDEN
+PUT {{supplierBase}}/suppliers/{{foodId}}
+Authorization: Bearer {{studentToken}}
+Content-Type: application/json
+If-Match: {{foodVersion2}}
+
+{ "floor": "3" }
+
+# ─────────────────────────────────────────────────────────────
+# 6 · Deactivate (admin) — soft delete; row leaves the listing, stays fetchable
+# ─────────────────────────────────────────────────────────────
+
+### 6a · Admin deactivates the PRINTING supplier
+DELETE {{supplierBase}}/suppliers/{{printId}}
+Authorization: Bearer {{adminToken}}
+If-Match: {{printVersion}}
+
+### 6b · It is gone from the listing …
+GET {{supplierBase}}/suppliers?building=COM1
+Authorization: Bearer {{studentToken}}
+
+### 6c · … but still fetchable by ID (active: false)
+GET {{supplierBase}}/suppliers/{{printId}}
+Authorization: Bearer {{studentToken}}
+
+### 6d · A student may NOT deactivate — expect 403 FORBIDDEN
+DELETE {{supplierBase}}/suppliers/{{foodId}}
+Authorization: Bearer {{studentToken}}
+If-Match: {{foodVersion2}}

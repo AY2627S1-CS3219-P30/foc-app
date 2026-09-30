@@ -61,6 +61,7 @@ export const suppliers = pgTable(
       sql`${t.imageUrl} IS NULL OR char_length(${t.imageUrl}) BETWEEN 1 AND 2048`,
     ),
     check('suppliers_version_positive', sql`${t.version} >= 1`),
+    check('suppliers_tags_array', sql`${t.tags} IS NULL OR jsonb_typeof(${t.tags}) = 'array'`),
     check('suppliers_coordinates_paired', sql`(${t.latitude} IS NULL) = (${t.longitude} IS NULL)`),
     check(
       'suppliers_latitude_range',

@@ -62,11 +62,33 @@ function codeFor(status: number): string {
   }
 }
 
+/**
+ * SQLSTATEs Postgres raises for text it cannot store, such as a `\0` in a
+ * string field: the caller's input is at fault, not the server.
+ */
+const UNSTORABLE_TEXT = new Set(['22021', '22P05']);
+
+const isUnstorableText = (e: unknown): boolean => {
+  let current = e;
+  while (current instanceof Error) {
+    if (UNSTORABLE_TEXT.has((current as Error & { code?: string }).code ?? '')) return true;
+    current = current.cause;
+  }
+  return false;
+};
+
 @Catch()
 export class ErrorEnvelopeFilter implements ExceptionFilter {
   private readonly logger = new Logger(ErrorEnvelopeFilter.name);
 
-  catch(exception: unknown, host: ArgumentsHost): void {
+  catch(thrown: unknown, host: ArgumentsHost): void {
+    const exception = isUnstorableText(thrown)
+      ? new ApiException(
+          HttpStatus.UNPROCESSABLE_ENTITY,
+          'VALIDATION_FAILED',
+          'The request contains text that cannot be stored.',
+        )
+      : thrown;
     const ctx = host.switchToHttp();
     const res = ctx.getResponse<Response>();
     const req = ctx.getRequest<Request & { id?: string; correlationId?: string }>();

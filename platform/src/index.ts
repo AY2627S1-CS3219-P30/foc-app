@@ -16,6 +16,7 @@ export {
 export { LOGGER, PlatformModule, type PlatformModuleOptions } from './platform.module.js';
 export { startService } from './bootstrap.js';
 export {
+  escapeLike,
   PgDb,
   type Db,
   type DrizzleDatabase,
