@@ -79,6 +79,11 @@ npm run dev:order      # http://localhost:3003
 npm run dev:credit     # http://localhost:3004
 ```
 
+Supplier, Order and Credit verify callers through the User Service, so they also
+need `USER_SERVICE_URL` and `INTERNAL_SERVICE_KEY` (and Supplier its `DATABASE_URL`)
+in your `.env` or shell; see `.env.example`. A missing one stops the service at
+boot and names it.
+
 Check it is alive:
 
 ```bash
@@ -287,13 +292,27 @@ job is to hold it for a TTL and then route it back.
 
 Two details that are easy to get wrong, and are commented in the code:
 
-- Each delay level has a **fanout** exchange, not a topic one. A message
-  dead-lettered out of a retry queue keeps whatever routing key it carries, so
-  that key must stay the original event type the whole way round.
-- Retry queues are **namespaced per service** (`foc.<service>.retry.N`). A
+- A retry goes back to **the queue that failed**, not to the event's routing
+  key: several services can bind one event type, and each must not handle
+  another's retries. Each delay level is a **fanout** exchange whose queue
+  dead-letters onto the default exchange; the failed message travels with its
+  queue's name as routing key, which fanout ignores on the way in and the
+  default exchange delivers by on the way out.
+- Delay queues are **namespaced per service** (`foc.<service>.delay.N`). A
   queue's TTL is fixed at declaration, so globally named retry queues would
   force every service onto one backoff forever and require deleting queues to
-  change it.
+  change it. (The first release named them `foc.<service>.retry.N` and routed
+  retries by event type; a broker that still has those can delete them.)
+
+A consumer survives the broker: if the connection or its channel goes, the
+service reconnects with backoff, declares its topology again and re-registers
+every subscription.
+
+A subscription can also be **per instance** (`exclusive`, `autoDelete`,
+`messageTtlMs`, `maxLength` on its `SubscriptionSpec`) when every replica must
+see every message — the auth cache invalidation of USR-07. Such a queue goes
+with its connection and has no retry or dead-letter queue: a failed message is
+dropped, so its handler must be idempotent and have a fallback.
 
 ### Inspecting it
 
