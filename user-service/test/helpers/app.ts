@@ -1,7 +1,13 @@
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import type { DestinationStream } from 'pino';
-import { ErrorEnvelopeFilter, PlatformModule, runMigrations } from '@foc/platform';
+import {
+  ErrorEnvelopeFilter,
+  LOGGER,
+  PinoLoggerService,
+  PlatformModule,
+  runMigrations,
+} from '@foc/platform';
 import { RATE_LIMITERS, RateLimiter, type AuthRateLimiters } from '../../src/auth/rate-limiter.js';
 import { DB, type Db } from '../../src/db/db.js';
 import { migrations } from '../../src/db/migrations.js';
@@ -47,7 +53,10 @@ export async function createTestApp(
     .useValue(options.rateLimiters ?? openLimiters())
     .compile();
 
-  const app = moduleRef.createNestApplication();
+  // Same as main.ts: Nest's own Logger (used by the error filter and any service) writes through the
+  // platform's pino instance, so the log-privacy scan sees everything production would log.
+  const app = moduleRef.createNestApplication({ bufferLogs: true });
+  app.useLogger(new PinoLoggerService(app.get(LOGGER)));
   app.useGlobalFilters(new ErrorEnvelopeFilter());
   await app.init();
   // Listen once so concurrent supertest requests share one server instead of racing to start it.

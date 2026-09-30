@@ -34,11 +34,13 @@ export async function seedAdmins(
     throw new Error('ADMIN_SEED_EMAILS is set but ADMIN_SEED_PASSWORD is not.');
   }
 
-  for (const raw of emails) {
+  for (const [index, raw] of emails.entries()) {
     const email = normalizeEmail(raw);
     if (!isAllowedDomain(email, config.allowedDomains)) {
+      // Named by position, not value: this message is printed at boot, and logs never carry an
+      // email address (US-NFR4.1.1).
       throw new Error(
-        `ADMIN_SEED_EMAILS contains an address outside ALLOWED_EMAIL_DOMAINS: ${email}`,
+        `ADMIN_SEED_EMAILS entry ${index + 1} is outside ALLOWED_EMAIL_DOMAINS: fix that address.`,
       );
     }
     const passwordHash = await hashPassword(config.password);

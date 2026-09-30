@@ -89,7 +89,15 @@ describe('seedAdmins (US-FR3.1.3)', () => {
         password: BOOTSTRAP_PASSWORD,
         allowedDomains: domains,
       }),
-    ).rejects.toThrow(/outside ALLOWED_EMAIL_DOMAINS/);
+    ).rejects.toThrow(/entry 1 is outside ALLOWED_EMAIL_DOMAINS/);
+    // The boot error names the entry, never the address (it is printed to the console).
+    await expect(
+      seedAdmins(t.db, {
+        emails: ['a@gmail.com'],
+        password: BOOTSTRAP_PASSWORD,
+        allowedDomains: domains,
+      }),
+    ).rejects.not.toThrow(/gmail/);
     await expect(
       seedAdmins(t.db, { emails: ['a@u.nus.edu'], allowedDomains: domains }),
     ).rejects.toThrow(/ADMIN_SEED_PASSWORD/);

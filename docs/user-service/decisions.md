@@ -475,3 +475,34 @@ The feedback's worry: once the bootstrap admin graduates, a misbehaving appointe
 There is no delete, for anyone (US-FR3.1.2.2 in the DOC-02 draft): accounts are suspended, because errands, ledger entries and audit
 rows must keep resolving to an account. Written up in roles.md §4, together with the system-wide matrix D2 §1 asks for (Supplier,
 Order, Credit and the web app, not just the User Service).
+
+---
+
+## 12. Log privacy verification (USR-08, #156 — log half)
+
+### L1. The scan now covers login, refresh, profile and admin paths — ✅
+`test/log-privacy.test.ts` walks registration, activation, login (success, wrong password, unknown email, suspended), refresh
+(rotation, reuse detection, garbage cookie), logout, `/users/me`, a refused profile edit, and every admin route — including an
+email inside a query string — at `trace`, then asserts the output holds **no email address** (plain or URL-encoded), password,
+Argon2 hash, activation token, access token, refresh token or service key, and that lines carry a `correlationId`.
+
+### L2. Two leaks found and fixed — ✅
+| What | Fix |
+|---|---|
+| `main.ts` logged every bootstrap admin's email at boot (`Seeded administrators: a@…`). | Counts only; who was bootstrapped is in the audit trail. |
+| A misconfigured `ADMIN_SEED_EMAILS` entry was echoed in the boot error printed with `console.error`. | The error names the entry by position. |
+
+### L3. The first scan could not see service logs — ✅ (test harness bug)
+The test app never routed Nest's `Logger` into the captured pino stream, so only request lines were scanned: a deliberate
+`new Logger().log({ user: email })` in login **passed** the old test. The harness now calls `app.useLogger(PinoLoggerService)`,
+exactly as `main.ts` does, and the same mutation fails the scan.
+
+### L4. Residual risk — 🟡
+An *unhandled* exception is logged with its `err` object. A PostgreSQL error's `detail` can quote a row value (e.g. a
+unique-violation on email). Registration uses `ON CONFLICT`, so no tested path raises one, but the redaction backstop does not
+reach inside `err.detail`. Worth a platform-level serializer for `err` (Jonus).
+
+### L5. Still open in USR-08
+The admin console's errand list (needs the Order Service's endpoints) and read-only wallet inspection (needs CRD-05) are blocked
+on other tickets. The user-management and audit halves of the console already exist server-side (`/admin/users`, `/admin/audit-records`),
+every console action (suspend, reactivate, role change) is audited, and the matrix test proves a student gets `403` on each.
