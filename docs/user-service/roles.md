@@ -51,8 +51,9 @@ Legend: ✅ allowed · ❌ denied (`403`) · 🔒 `401` if unauthenticated · �
 
 | Action                                              | Anonymous | Pending | Active STUDENT | Suspended STUDENT | ADMIN |
 | --------------------------------------------------- | :-------: | :-----: | :------------: | :---------------: | :---: |
-| Register, activate, log in                          | ✅        | ✅      | ✅             | ❌ login denied   | ✅    |
-| Refresh / log out own session                       | 🔒        | ❌      | ✅             | ❌                | ✅    |
+| Register, activate, log in                          | ✅        | ✅      | ✅             | ❌ login denied   | ✅ ¹  |
+| Change own password (`POST /auth/password`, proving the current one; no token) | ✅ with the password | ❌ | ✅ | ❌ | ✅ |
+| Refresh / log out own session                       | 🔒        | ❌      | ✅             | ❌                | ✅ ¹  |
 | Read own profile                                    | 🔒        | ❌      | ✅             | ❌                | ✅    |
 | Edit own profile (display name, faculty, avatar, contact pref, preferred mode) | 🔒 | ❌ | ✅ | ❌ | ✅ |
 | Edit `role`, `status`, `id`, `email` through profile | ❌ (never a valid field, any actor) |
@@ -62,6 +63,10 @@ Legend: ✅ allowed · ❌ denied (`403`) · 🔒 `401` if unauthenticated · �
 | Appoint an admin (`STUDENT` → `ADMIN`)               | 🔒        | ❌      | ❌             | ❌                | ✅    |
 | Downgrade an admin (`ADMIN` → `STUDENT`)             | 🔒        | ❌      | ❌             | ❌                | seeded admin only, never self |
 | Internal identity / permissions lookup               | service credential only — no user token is accepted |
+
+¹ Except a bootstrap admin who has not yet replaced the bootstrap password: login and refresh answer
+`403 PASSWORD_CHANGE_REQUIRED`, and every token-guarded route treats a session of theirs as ended. The
+one thing they can do is `POST /auth/password` (§4).
 
 ### Supplier Service (built — SUP-01; enforced by `@foc/auth-client`)
 
@@ -83,22 +88,25 @@ requester of errands they created and the courier of errands they accepted.
 | ------------------------------------------------------------- | :-------: | :------------: | :---------------: | :---: |
 | Create an errand                                              | 🔒        | ✅             | ❌                | ✅    |
 | Browse open errands; accept one that is not your own          | 🔒        | ✅             | ❌                | ✅    |
-| Cancel, confirm receipt, report non-receipt (**own** errand as requester) | 🔒 | ✅    | ❌                | ✅ (own only) |
-| Record pickup / delivery, withdraw (errand **assigned to you**) | 🔒      | ✅             | ❌                | ✅ (own only) |
-| Read an errand you are neither requester nor courier of       | 🔒        | ❌             | ❌                | ✅ read-only (console, USR-08) |
-| Resolve a dispute (`DISPUTED` → paid or refunded), with reason | 🔒       | ❌             | ❌                | ✅    |
+| Cancel, confirm receipt, report non-receipt (**own** errand as requester) | 🔒 | ✅    | ❌                | ✅    |
+| Record pickup / delivery, withdraw (errand **assigned to you**) | 🔒      | ✅             | ❌                | ✅    |
+| Read an errand you are neither requester nor courier of       | 🔒        | ❌             | ❌                | ✅ (admin console, NTH-01) |
+| Act on **someone else's** errand, with a reason: resolve a dispute (`DISPUTED` → paid or refunded), or cancel it before pickup on the requester's behalf | 🔒 | ❌ | ❌ | ✅    |
 | System transitions (deadline, timeouts, credit replies)       | Not a user action — performed by the service itself or on a Credit Service event |
 
-An administrator's *own* errands follow the student rules: being an admin grants no extra power over an
-errand's lifecycle except resolving disputes.
+An administrator's *own* errands follow the student rules. On **someone else's** errand an administrator
+may take exactly the transitions `order-service/README.md` lists with *Administrator* as actor — resolve a
+dispute, or cancel on the requester's behalf — each with a reason, enforced server-side by the Order
+Service (decisions.md R4). Nothing else: an administrator does not confirm receipt or record a delivery
+for someone, and no administrator action edits a wallet.
 
 ### Credit Service (designed — CRD-01…CRD-08; enforced by `@foc/auth-client` + ownership checks)
 
 | Action                                              | Anonymous | Active STUDENT | Suspended STUDENT | ADMIN |
 | --------------------------------------------------- | :-------: | :------------: | :---------------: | :---: |
 | Read **own** wallet balance and ledger              | 🔒        | ✅             | ❌                | ✅    |
-| Read **another** user's wallet                      | 🔒        | ❌             | ❌                | ✅ read-only (console, USR-08) |
-| Directly credit, debit or adjust any wallet         | ❌ — **no actor, ever.** Credits move only as reservation, transfer and release driven by errand events (closed economy, CRD-06). |
+| Read **another** user's wallet                      | 🔒        | ❌             | ❌                | ✅ read-only (admin console, NTH-01) |
+| Directly credit, debit or adjust any wallet         | ❌ — **no actor, ever.** Credits move only as reservation, transfer and release driven by errand events (closed economy, CRD-06) — an administrator's errand decision included. |
 
 ### Web app (UX only — never an authorization decision)
 
@@ -116,9 +124,10 @@ The User Service's matrix is `user-service/test/matrix.test.ts`; each other serv
 **First administrator — bootstrapped from deployment configuration through normal account provisioning.**
 Admins are never self-registered and never inserted by hand into the database. At boot the service reads
 `ADMIN_SEED_EMAILS` (comma-separated, each checked against the NUS allowlist) and `ADMIN_SEED_PASSWORD`
-(a bootstrap secret from the environment or secret store) and creates those accounts through the same
-code path as registration: Argon2id hash with a unique salt, domain check, one transaction, and the
-`UserActivated` event so Credit Service issues a wallet. They are `ACTIVE`, `ADMIN` and `STUDENT`, with
+(a bootstrap secret from the environment or secret store) and creates those accounts through normal
+account provisioning — the seed's own SQL, not the registration endpoint, with the same guarantees:
+Argon2id hash with a unique salt, domain check, one transaction, and the `UserActivated` event so Credit
+Service issues a wallet. They are `ACTIVE`, `ADMIN` and `STUDENT`, with
 `is_seeded_admin = true`. Properties:
 - **Idempotent** — an address that already exists is skipped; two boots at once still create one account.
 - **Never escalates** — an address that already has an ordinary account is *skipped, not promoted*; a
@@ -127,10 +136,16 @@ code path as registration: Argon2id hash with a unique salt, domain check, one t
 - **No endpoint** creates the first admin, and the password is never logged.
 - **Audited** — each account created writes an `ADMIN_BOOTSTRAP` audit row with actor `SYSTEM`
   (`actor_id` null), in the same transaction as the account. The secret is not recorded.
-- **The bootstrap secret is single-use.** A bootstrap admin signing in with it is refused with
+- **The bootstrap secret cannot start a session.** A bootstrap admin signing in with it is refused with
   `403 PASSWORD_CHANGE_REQUIRED` and gets no session; `POST /auth/password` (proving the bootstrap
-  password) sets their own password and clears the flag. From then on the configured secret opens
-  nothing — not even a restart with the same configuration, because the seed skips existing accounts.
+  password) sets their own password and clears the flag. After that the secret no longer signs in to
+  *that* account — not even after a restart with the same configuration, because the seed skips
+  existing accounts — and it cannot be chosen again as its password.
+- **Until it is claimed, a seeded account belongs to whoever knows the secret.** One
+  `ADMIN_SEED_PASSWORD` covers every address in `ADMIN_SEED_EMAILS`, and `POST /auth/password` proves
+  the password, not the mailbox. So claim each seeded account as soon as the deploy that creates it is
+  up, and **rotate the secret whenever `ADMIN_SEED_EMAILS` changes**: otherwise whoever knew the old one
+  (an earlier admin, anyone who read the old configuration) can claim the new account first.
 
 **Promotion (no developer involved).** An `ADMIN` calls `PUT /admin/users/{id}/role` with `ADMIN`
 and a reason. The target must be `ACTIVE`. The change is written with an audit record in the same
@@ -152,14 +167,21 @@ transaction. Any admin, seeded or appointed, may appoint further admins (US-FR3.
 **Why keep the seeded-vs-appointed tier (US-FR3.1.3.1)?** The D1 feedback asked us to reconsider it:
 once the bootstrap admin graduates, could a misbehaving appointed admin never be removed? Decision:
 **keep the tier**, because that failure has a recovery path that needs no database edit — the operators
-add a new address to `ADMIN_SEED_EMAILS` and redeploy, which bootstraps a fresh seeded admin who can
-then demote or suspend the appointed one (`user-service/test/seed.test.ts` walks through it). Recovery
-therefore requires *deployment access*, which is exactly the authority that created the first admin.
+add a new address to `ADMIN_SEED_EMAILS`, rotate `ADMIN_SEED_PASSWORD` and redeploy, which bootstraps a
+fresh seeded admin who can then demote or suspend the appointed one (`user-service/test/seed.test.ts`
+walks through it). Recovery therefore requires *deployment access*, which is exactly the authority that
+created the first admin.
 Without the tier, any appointed admin — possibly appointed casually — could demote every other admin
 but one, including the operators who appointed them. The last-admin protection alone does not stop
 that takeover; the tier does.
 - **Trade-off:** routine removal of an admin needs a seeded admin to be reachable; if none is, the fix
   is a redeploy rather than an in-app action.
+- **The recovery address must be a dedicated mailbox that has never been registered.** The seed skips
+  any existing account, `PENDING_ACTIVATION` included, and anyone can register an NUS address without
+  owning its mailbox (the account just never activates). So keep the address private until it is
+  claimed. If the boot log reports it as skipped, it has been squatted: configure a different
+  never-registered address (with a fresh secret) and redeploy. The seed never takes over an existing
+  row — that is the same rule that stops a config line promoting a student.
 
 **The only admin tries to demote or delete their account (D2 §6, EC5).** Demotion → refused
 (`409 SELF_DEMOTION_FORBIDDEN`, and `LAST_ADMIN` underneath it). **Deletion does not exist, for anyone:**

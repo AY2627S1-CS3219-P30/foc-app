@@ -38,7 +38,7 @@ export async function activeStudent(t: TestApp, email: string): Promise<Actor> {
   return login(t, email);
 }
 
-/** The shared bootstrap secret the seeding tests configure; never usable to sign in. */
+/** The shared bootstrap secret (`ADMIN_SEED_PASSWORD` in vitest.config.mts); never usable to sign in. */
 export const BOOTSTRAP_PASSWORD = 'bootstrap-secret-from-config';
 
 /** Replaces a password through the real endpoint. */

@@ -15,6 +15,7 @@ export default defineConfig({
       DATABASE_URL: 'postgres://unused:unused@localhost:1/unused', // never connected: tests use PGlite
       ALLOWED_EMAIL_DOMAINS: 'u.nus.edu,nus.edu.sg',
       INTERNAL_SERVICE_KEYS: 'test-internal-key-0123456789',
+      ADMIN_SEED_PASSWORD: 'bootstrap-secret-from-config', // = BOOTSTRAP_PASSWORD in test/helpers
     },
   },
 });
