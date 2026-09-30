@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { reportSeed, seedAdmins, type SeedResult } from '../src/admin/seed.js';
-import { createTestApp, SERVICE_KEY, type TestApp } from './helpers/app.js';
+import { createTestApp, type TestApp } from './helpers/app.js';
 import {
   activeStudent,
   BOOTSTRAP_PASSWORD,
