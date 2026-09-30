@@ -93,6 +93,12 @@ describe('validation (422, every field at once)', () => {
     expect((res.body.error.details as { field: string }[])[0]!.field).toBe('longitude');
   });
 
+  it('rejects one coordinate null while the other is a number (create)', async () => {
+    const res = await create(validSupplier({ latitude: null, longitude: 103.5 })).expect(422);
+    expect(res.body.error.code).toBe('VALIDATION_FAILED');
+    expect((res.body.error.details as { field: string }[])[0]!.field).toBe('latitude');
+  });
+
   it('rejects an unknown field', async () => {
     const res = await create(validSupplier({ surprise: true })).expect(422);
     expect(res.body.error.details).toEqual([
@@ -143,6 +149,19 @@ describe('optimistic locking (If-Match / version)', () => {
       version: 2,
     });
     expect(res.headers.etag).toBe('"2"');
+  });
+
+  it('rejects clearing one coordinate while sending a value for the other (422, not 500)', async () => {
+    const created = (await create(validSupplier({ latitude: 1.3, longitude: 103.7 })).expect(201))
+      .body;
+    const res = await http(t)
+      .put(`/suppliers/${created.supplierId}`)
+      .set('Authorization', asAdmin)
+      .set('If-Match', String(created.version))
+      .send({ latitude: null, longitude: 103.5 })
+      .expect(422);
+    expect(res.body.error.code).toBe('VALIDATION_FAILED');
+    expect((res.body.error.details as { field: string }[])[0]!.field).toBe('latitude');
   });
 
   it('rejects a stale version with 412 and changes nothing', async () => {

@@ -97,6 +97,17 @@ const coordinatesPaired = (
       path: [hasLatKey ? 'longitude' : 'latitude'],
       message: 'Latitude and longitude must be provided together.',
     });
+    return;
+  }
+  // Both keys present: they must also agree on null-ness — two real numbers or
+  // both explicitly null. One number and one null would null a single column
+  // and trip the DB's `(latitude IS NULL) = (longitude IS NULL)` check as a 500.
+  if (hasLatKey && (v.latitude === null) !== (v.longitude === null)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: [v.latitude === null ? 'latitude' : 'longitude'],
+      message: 'Latitude and longitude must be set or cleared together.',
+    });
   }
 };
 
