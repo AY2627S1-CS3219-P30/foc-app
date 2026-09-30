@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "incremental": false },
+  "include": ["test/api-contract.typecheck.ts"],
+  "exclude": ["node_modules"]
+}

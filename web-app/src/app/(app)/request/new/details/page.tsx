@@ -5,9 +5,12 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/Button";
 import { CreditSlider } from "@/components/CreditSlider";
 import { DesktopPanel } from "@/components/DesktopPanel";
+import { Field } from "@/components/Field";
+import { Input } from "@/components/Input";
 import { NavRow } from "@/components/NavRow";
 import { Screen, ScreenContent } from "@/components/Screen";
 import { ScreenHeader } from "@/components/ScreenHeader";
+import { Textarea } from "@/components/Textarea";
 import { useStore } from "@/lib/store";
 
 function DetailsForm() {
@@ -27,32 +30,21 @@ function DetailsForm() {
     router.push(`/request/${id}?posted=1`);
   }
 
-  // Implicit <label> wrapping (no id/htmlFor): this form renders twice
-  // in the DOM, once per breakpoint, and duplicate ids would break
-  // label association for whichever copy loads second.
   const body = (
     <>
       <NavRow label="Pickup" value={supplier || "—"} />
       <NavRow label="Drop-off" value={dropoff || "—"} />
-      <label style={{ display: "block" }}>
-        <span className="field-label">Title</span>
-        <input
-          className="text-input"
-          placeholder="Title..."
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-      </label>
+      <Field label="Title" required>
+        <Input placeholder="Title..." value={title} onChange={(e) => setTitle(e.target.value)} />
+      </Field>
       <CreditSlider value={credits} onChange={setCredits} />
-      <label style={{ display: "block" }}>
-        <span className="field-label">Description</span>
-        <textarea
-          className="text-input"
+      <Field label="Description">
+        <Textarea
           placeholder="Description..."
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
-      </label>
+      </Field>
       <Button full onClick={submit} disabled={!title.trim()}>
         Post request
       </Button>

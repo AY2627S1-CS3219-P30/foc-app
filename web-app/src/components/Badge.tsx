@@ -1,4 +1,5 @@
 import type { RequestStatus } from "@/lib/types";
+import styles from "./Badge.module.css";
 
 const LABELS: Record<RequestStatus, string> = {
   open: "Open",
@@ -9,5 +10,5 @@ const LABELS: Record<RequestStatus, string> = {
 };
 
 export function Badge({ status }: { status: RequestStatus }) {
-  return <span className={`badge badge--${status}`}>{LABELS[status]}</span>;
+  return <span className={`${styles.badge} ${styles[status]}`}>{LABELS[status]}</span>;
 }

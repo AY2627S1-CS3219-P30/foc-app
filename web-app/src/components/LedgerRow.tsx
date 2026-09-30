@@ -1,11 +1,12 @@
 import type { LedgerEntry, LedgerType } from "@/lib/types";
+import { vars } from "@/styles/tokens";
 import styles from "./LedgerRow.module.css";
 
 const DOT_COLOR: Record<LedgerType, string> = {
-  earned: "#15803d",
-  spent: "#b91c1c",
-  reserved: "#b45309",
-  released: "#1d4ed8",
+  earned: vars.color.success,
+  spent: vars.color.danger,
+  reserved: vars.color.warning,
+  released: vars.color.info,
 };
 
 export function LedgerRow({ entry }: { entry: LedgerEntry }) {

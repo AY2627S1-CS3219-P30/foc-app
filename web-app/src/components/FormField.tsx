@@ -1,48 +1,29 @@
-import { useId, type InputHTMLAttributes } from "react";
+"use client";
+
+import type { ComponentProps, ReactNode } from "react";
+import { Field } from "./Field";
+import { Input } from "./Input";
 import styles from "./FormField.module.css";
 
 /**
- * A labelled input whose error is announced and tied to it (`aria-invalid` + `aria-describedby`), so
- * a screen reader hears which field failed and why. The value is controlled by the caller, so a
- * failed submit never clears what the user typed.
+ * A labelled text input: shorthand for `<Field><Input /></Field>`. The value is controlled by the
+ * caller, so a failed submit never clears what the user typed.
  */
 export function FormField({
   label,
   error,
   hint,
+  id,
   ...input
 }: {
-  label: string;
+  label: ReactNode;
   error?: string;
   hint?: string;
-} & InputHTMLAttributes<HTMLInputElement>) {
-  const id = useId();
-  const errorId = `${id}-error`;
-  const hintId = `${id}-hint`;
-  const describedBy = [hint ? hintId : null, error ? errorId : null].filter(Boolean).join(" ");
+} & ComponentProps<"input">) {
   return (
-    <div className={styles.field}>
-      <label htmlFor={id} className="field-label">
-        {label}
-      </label>
-      <input
-        id={id}
-        className={`text-input ${error ? styles.invalid : ""}`}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={describedBy || undefined}
-        {...input}
-      />
-      {hint && (
-        <p id={hintId} className={styles.hint}>
-          {hint}
-        </p>
-      )}
-      {error && (
-        <p id={errorId} className={styles.error}>
-          {error}
-        </p>
-      )}
-    </div>
+    <Field id={id} label={label} error={error} hint={hint} required={input.required}>
+      <Input {...input} />
+    </Field>
   );
 }
 
@@ -57,7 +38,7 @@ export function FormAlert({
   children,
   tone = "error",
 }: {
-  children?: React.ReactNode;
+  children?: ReactNode;
   tone?: "error" | "info" | "success";
 }) {
   return (

@@ -11,6 +11,7 @@ import { Screen, ScreenContent } from "@/components/Screen";
 import { ScreenHeader } from "@/components/ScreenHeader";
 import { useStore } from "@/lib/store";
 import { CURRENT_USER } from "@/lib/types";
+import { vars } from "@/styles/tokens";
 
 function RequestDetail({ id }: { id: string }) {
   const router = useRouter();
@@ -48,11 +49,11 @@ function RequestDetail({ id }: { id: string }) {
         <div
           className="card"
           style={{
-            background: "#f0fdf4",
-            borderColor: "#bbf7d0",
-            color: "#15803d",
-            fontSize: 14,
-            fontWeight: 600,
+            background: vars.color.successSurface,
+            borderColor: vars.color.successBorder,
+            color: vars.color.success,
+            fontSize: vars.text.md,
+            fontWeight: vars.weight.semibold,
           }}
         >
           Posted — this is now visible to other students in the feed.
@@ -66,7 +67,7 @@ function RequestDetail({ id }: { id: string }) {
       <NavRow label="Credits" value={`${request.credits} credits`} />
 
       {isOwn && request.status === "open" && (
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: vars.space[2] }}>
           <Button variant="outline" onClick={() => router.push(`/request/${request.id}/edit`)}>
             Edit
           </Button>
@@ -78,7 +79,7 @@ function RequestDetail({ id }: { id: string }) {
 
       {isOwn && (request.status === "in_transit" || request.status === "accepted") && (
         <>
-          <p style={{ fontSize: 14, color: "var(--color-text-muted)" }}>
+          <p style={{ fontSize: vars.text.md, color: vars.color.textMuted }}>
             {request.courierName} is on it.
           </p>
           {request.courierName && <PersonRow name={request.courierName} location="En route" />}
@@ -99,7 +100,7 @@ function RequestDetail({ id }: { id: string }) {
 
       {!isOwn && request.status === "in_transit" && isMyDelivery && (
         <>
-          <p style={{ fontSize: 14, fontWeight: 600 }}>You have picked this up!</p>
+          <p style={{ fontSize: vars.text.md, fontWeight: vars.weight.semibold }}>You have picked this up!</p>
           <PersonRow name={request.requesterName} location={request.dropoff} />
           <Button full onClick={() => completeRequest(request.id)}>
             Mark as delivered
@@ -111,10 +112,10 @@ function RequestDetail({ id }: { id: string }) {
       )}
 
       {request.status === "complete" && (
-        <p style={{ fontSize: 14, color: "var(--color-text-subtle)" }}>This errand is complete.</p>
+        <p style={{ fontSize: vars.text.md, color: vars.color.textSubtle }}>This errand is complete.</p>
       )}
       {request.status === "cancelled" && (
-        <p style={{ fontSize: 14, color: "var(--color-text-subtle)" }}>This request was cancelled.</p>
+        <p style={{ fontSize: vars.text.md, color: vars.color.textSubtle }}>This request was cancelled.</p>
       )}
     </>
   );

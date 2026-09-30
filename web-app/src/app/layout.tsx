@@ -1,8 +1,10 @@
 import type { Metadata, Viewport } from "next";
+import "@/styles/tokens.css";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
 import { StoreProvider } from "@/lib/store";
 import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
+import { values } from "@/styles/tokens";
 
 export const metadata: Metadata = {
   title: "NUQueSt",
@@ -15,7 +17,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#05417e",
+  themeColor: values.color.primary,
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

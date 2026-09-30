@@ -1,0 +1,520 @@
+openapi: 3.1.0
+info:
+  title: FoC Supplier Service API
+  version: 1.0.0-draft.1
+  summary: The campus supplier catalogue for Friend on Campus.
+  description: |
+    **DRAFT — proposal for FND-03 (#117). Not frozen until the producer (Patrick) and one consumer
+    owner approve the PR.**
+
+    Conventions follow `contracts/README.md` and `user-service.openapi.yaml`: UUID ids, RFC 3339 UTC
+    timestamps, the shared `Error` envelope, `X-Correlation-Id` echoed on every response, and
+    `page` / `pageSize` pagination returning `{ items, page, pageSize, total }`.
+
+    ## Callers
+    Every endpoint except `/health` needs `Authorization: Bearer <access token>` from the User
+    Service. Reading needs an `ACTIVE` account; writing also needs the `ADMIN` role. Both are resolved
+    server-side from the User Service, never from the token or a header. If the User Service cannot
+    be reached the call fails closed with `503 IDENTITY_UNAVAILABLE`.
+
+    ## Concurrency
+    Each supplier carries a `version`, also sent as the `ETag` header. `PUT` and `DELETE` require
+    `If-Match: <version>`; a stale value is `412 STALE_VERSION` and changes nothing. `POST` honours an
+    optional `Idempotency-Key`: a replay returns the supplier's current state with `200`.
+
+    ## Status
+    `GET /suppliers` follows SUP-02: lean list items in a page, with search, filters and sorting.
+    `GET /suppliers/{supplierId}` returns the full detail view.
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: http://localhost:3002
+    description: Local Compose (host port from compose.yaml)
+tags:
+  - name: Suppliers
+  - name: Health
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Liveness
+      security: []
+      responses:
+        '200':
+          description: Service is up.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+              example: { status: ok, service: supplier-service, version: 0.1.0, uptimeSeconds: 42 }
+
+  /suppliers:
+    get:
+      tags: [Suppliers]
+      operationId: listSuppliers
+      summary: List active suppliers (SS-FR3.1.1)
+      description: |
+        Active suppliers only. `q` matches name, building, location description and tags,
+        case-insensitively, within each tag independently. Filters combine with AND. Default ordering
+        is case-insensitive name ascending, then supplierId ascending. Other sorts use their chosen
+        direction, then name and supplierId ascending. Empty filters are ignored; repeated filters
+        return 422. Unknown query parameters are ignored. NUL characters in text are rejected.
+      parameters:
+        - name: q
+          in: query
+          description: Trimmed; at most 200 characters. An empty value means no search.
+          schema: { type: string, maxLength: 200 }
+        - name: type
+          in: query
+          description: Case-insensitive; an empty value means no filter.
+          schema: { $ref: '#/components/schemas/SupplierType' }
+        - name: building
+          in: query
+          description: Canonicalized as on create, then matched case-insensitively. Empty means no filter.
+          schema: { type: string }
+        - name: sort
+          in: query
+          description: Trimmed and case-insensitive; unknown or repeated values default to name.
+          schema: { type: string, enum: [name, type, building, updatedAt], default: name }
+        - name: order
+          in: query
+          description: Trimmed and case-insensitive; unknown or repeated values default to asc.
+          schema: { type: string, enum: [asc, desc], default: asc }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: One page of active suppliers.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupplierPage' }
+              examples:
+                page: { $ref: '#/components/examples/SupplierPage' }
+                empty: { value: { items: [], page: 1, pageSize: 20, total: 0 } }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/AccountNotActive' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '503': { $ref: '#/components/responses/IdentityUnavailable' }
+
+    post:
+      tags: [Suppliers]
+      operationId: createSupplier
+      summary: Create a supplier (admin)
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SupplierInput' }
+            example:
+              name: The Deck
+              type: FOOD
+              building: The Deck
+              floor: '1'
+              locationDescription: Beside the Central Library, facing Kent Ridge Road.
+              openingHours: [{ day: MON, opens: '08:00', closes: '20:00' }]
+      responses:
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '201':
+          description: Created.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Supplier' }
+              examples:
+                supplier: { $ref: '#/components/examples/Supplier' }
+        '200':
+          description: A replay with the same key and body returns the supplier's current state.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Supplier' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '503': { $ref: '#/components/responses/IdentityUnavailable' }
+
+  /suppliers/{supplierId}:
+    parameters:
+      - $ref: '#/components/parameters/SupplierId'
+    get:
+      tags: [Suppliers]
+      operationId: getSupplier
+      summary: Get a supplier by id
+      description: Resolves deactivated suppliers too (`active` is `false`), so old errands still show theirs.
+      responses:
+        '200':
+          description: The supplier.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Supplier' }
+              examples:
+                supplier: { $ref: '#/components/examples/Supplier' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/AccountNotActive' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '503': { $ref: '#/components/responses/IdentityUnavailable' }
+
+    put:
+      tags: [Suppliers]
+      operationId: updateSupplier
+      summary: Update a supplier (admin)
+      description: Partial. Only the fields present change; `null` clears an optional field.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SupplierUpdate' }
+            example: { floor: '2', imageUrl: null }
+      responses:
+        '200':
+          description: Updated; `version` is bumped.
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Supplier' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleVersion' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '503': { $ref: '#/components/responses/IdentityUnavailable' }
+
+    delete:
+      tags: [Suppliers]
+      operationId: deactivateSupplier
+      summary: Deactivate a supplier (admin)
+      description: |
+        Soft. The supplier leaves listings but stays resolvable by id. Deactivation increments
+        version, so retrying with the previous version returns 412. Already inactive at the
+        current version is a successful no-op.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Deactivated (or already inactive at that version).
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Supplier' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleVersion' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '503': { $ref: '#/components/responses/IdentityUnavailable' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    SupplierId:
+      name: supplierId
+      in: path
+      required: true
+      description: Invalid UUIDs return 422 with details[].field set to id.
+      schema: { type: string, format: uuid }
+    Page:
+      name: page
+      in: query
+      description: Plain decimal integer (up to nine digits), clamped to at least 1. Invalid or repeated values default to 1.
+      schema: { type: integer, default: 1 }
+    PageSize:
+      name: pageSize
+      in: query
+      description: Plain decimal integer (up to nine digits), clamped to 1–100. Invalid or repeated values default to 20.
+      schema: { type: integer, default: 20 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      description: |
+        Trimmed; blank means no key. Over 200 characters returns 400 BAD_REQUEST. A replay
+        returns the current supplier. Reusing a key with a different body returns
+        422 IDEMPOTENCY_KEY_REUSED without field-level details.
+      schema: { type: string, maxLength: 200 }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: The supplier `version` last read, bare or quoted as an ETag (`3` or `"3"`).
+      schema: { type: string, examples: ['"3"'] }
+
+  headers:
+    ETag:
+      description: The supplier `version`, quoted.
+      schema: { type: string, examples: ['"3"'] }
+
+  schemas:
+    Health:
+      type: object
+      required: [status, service, version, uptimeSeconds]
+      properties:
+        status: { type: string, enum: [ok] }
+        service: { type: string, const: supplier-service }
+        version: { type: string }
+        uptimeSeconds: { type: integer, minimum: 0 }
+
+    SupplierType:
+      type: string
+      enum: [FOOD, CAFE, PRINTING, SHOPPING, LANDMARK]
+    Day:
+      type: string
+      enum: [MON, TUE, WED, THU, FRI, SAT, SUN]
+    OpeningHours:
+      type: object
+      required: [day, opens, closes]
+      additionalProperties: false
+      description: |
+        One window per day, 24-hour `HH:MM`. `closes` at or before `opens` runs past midnight;
+        `00:00`–`23:59` is open all day.
+      properties:
+        day: { $ref: '#/components/schemas/Day' }
+        opens: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$' }
+        closes: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$' }
+
+    Supplier:
+      type: object
+      required:
+        - supplierId
+        - name
+        - type
+        - building
+        - floor
+        - locationDescription
+        - openingHours
+        - latitude
+        - longitude
+        - imageUrl
+        - tags
+        - active
+        - version
+        - createdAt
+        - updatedAt
+      properties:
+        supplierId: { type: string, format: uuid }
+        name: { type: string }
+        type: { $ref: '#/components/schemas/SupplierType' }
+        building: { type: string, description: Canonical spelling (e.g. `COM2`). }
+        floor: { type: string, examples: ['1', B1, G] }
+        locationDescription: { type: string }
+        openingHours:
+          type: [array, 'null']
+          items: { $ref: '#/components/schemas/OpeningHours' }
+        latitude: { type: [number, 'null'] }
+        longitude: { type: [number, 'null'] }
+        imageUrl: { type: [string, 'null'], format: uri }
+        tags:
+          type: [array, 'null']
+          items: { type: string }
+        active: { type: boolean }
+        version: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    SupplierInput:
+      type: object
+      required: [name, type, building, floor, locationDescription]
+      additionalProperties: false
+      description: '`latitude` and `longitude` are given together or not at all.'
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        type: { $ref: '#/components/schemas/SupplierType' }
+        building: { type: string, minLength: 1, maxLength: 200 }
+        floor: { type: string, minLength: 1, maxLength: 50 }
+        locationDescription: { type: string, minLength: 1, maxLength: 500 }
+        openingHours:
+          type: [array, 'null']
+          maxItems: 7
+          description: Each day at most once.
+          items: { $ref: '#/components/schemas/OpeningHours' }
+        latitude: { type: [number, 'null'], minimum: -90, maximum: 90 }
+        longitude: { type: [number, 'null'], minimum: -180, maximum: 180 }
+        imageUrl:
+          type: [string, 'null']
+          format: uri
+          maxLength: 2048
+          pattern: '^https://'
+        tags:
+          type: [array, 'null']
+          maxItems: 50
+          items: { type: string, minLength: 1, maxLength: 50 }
+
+    SupplierUpdate:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      description: Any subset of `SupplierInput`. Coordinates still change or clear together.
+      properties:
+        name: { $ref: '#/components/schemas/SupplierInput/properties/name' }
+        type: { $ref: '#/components/schemas/SupplierType' }
+        building: { $ref: '#/components/schemas/SupplierInput/properties/building' }
+        floor: { $ref: '#/components/schemas/SupplierInput/properties/floor' }
+        locationDescription: { $ref: '#/components/schemas/SupplierInput/properties/locationDescription' }
+        openingHours: { $ref: '#/components/schemas/SupplierInput/properties/openingHours' }
+        latitude: { $ref: '#/components/schemas/SupplierInput/properties/latitude' }
+        longitude: { $ref: '#/components/schemas/SupplierInput/properties/longitude' }
+        imageUrl: { $ref: '#/components/schemas/SupplierInput/properties/imageUrl' }
+        tags: { $ref: '#/components/schemas/SupplierInput/properties/tags' }
+
+    SupplierListItem:
+      type: object
+      required: [supplierId, name, type, building, imageUrl]
+      properties:
+        supplierId: { type: string, format: uuid }
+        name: { type: string }
+        type: { $ref: '#/components/schemas/SupplierType' }
+        building: { type: string }
+        imageUrl: { type: [string, 'null'], format: uri }
+
+    SupplierPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/SupplierListItem' } }
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total: { type: integer, minimum: 0 }
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, correlationId]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable code. Clients switch on this, never on `message`.
+            message: { type: string, description: Human-readable and safe to display. }
+            correlationId: { type: string }
+            details:
+              type: array
+              description: Field-level errors for `VALIDATION_FAILED`.
+              items:
+                type: object
+                required: [field, code, message]
+                properties:
+                  field: { type: string }
+                  code: { type: string }
+                  message: { type: string }
+
+  examples:
+    Supplier:
+      value:
+        supplierId: 3f0c9a52-8a8e-5f5c-9d7e-1b6a2c4e8f10
+        name: The Deck
+        type: FOOD
+        building: The Deck
+        floor: '1'
+        locationDescription: Beside the Central Library, facing Kent Ridge Road.
+        openingHours: [{ day: MON, opens: '08:00', closes: '20:00' }]
+        latitude: 1.2945
+        longitude: 103.7725
+        imageUrl: null
+        tags: [halal, western]
+        active: true
+        version: 1
+        createdAt: '2026-09-21T08:30:00Z'
+        updatedAt: '2026-09-21T08:30:00Z'
+    SupplierPage:
+      value:
+        items:
+          - { supplierId: 3f0c9a52-8a8e-5f5c-9d7e-1b6a2c4e8f10, name: The Deck, type: FOOD, building: The Deck, imageUrl: null }
+        page: 1
+        pageSize: 20
+        total: 1
+
+  responses:
+    Unauthenticated:
+      description: Missing, malformed, expired or revoked access token.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error: { code: TOKEN_EXPIRED, message: The access token has expired. Refresh and retry., correlationId: 5c1f2a9e }
+    AccountNotActive:
+      description: The account is suspended or not yet activated.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error: { code: ACCOUNT_SUSPENDED, message: This account is suspended., correlationId: 5c1f2a9e }
+    Forbidden:
+      description: Not an administrator, or the account is not active.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error: { code: FORBIDDEN, message: Administrator role required., correlationId: 5c1f2a9e }
+    NotFound:
+      description: No supplier has this id.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error: { code: NOT_FOUND, message: Supplier not found., correlationId: 5c1f2a9e }
+    ValidationFailed:
+      description: Invalid fields (including duplicate active name/building); idempotency key reuse returns IDEMPOTENCY_KEY_REUSED without details.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error:
+              code: VALIDATION_FAILED
+              message: One or more fields are invalid.
+              correlationId: 5c1f2a9e
+              details:
+                - { field: type, code: INVALID_VALUE, message: 'Invalid option: expected one of "FOOD"|"CAFE"|"PRINTING"|"SHOPPING"|"LANDMARK"' }
+                - { field: name, code: DUPLICATE_NAME_BUILDING, message: An active supplier with this name already exists in this building. }
+    BadRequest:
+      description: Malformed JSON, an invalid If-Match version, or an oversized Idempotency-Key.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error: { code: BAD_REQUEST, message: If-Match must be a positive integer version., correlationId: 5c1f2a9e }
+    StaleVersion:
+      description: The supplier changed since the version in `If-Match`. Nothing was written.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error: { code: STALE_VERSION, message: The supplier has changed since version 3. Reload it and retry., correlationId: 5c1f2a9e }
+    PreconditionRequired:
+      description: '`If-Match` is missing.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error: { code: PRECONDITION_REQUIRED, message: An If-Match header with the supplier version is required to update., correlationId: 5c1f2a9e }
+    IdentityUnavailable:
+      description: The User Service could not be asked who the caller is. Fails closed.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            error: { code: IDENTITY_UNAVAILABLE, message: Could not verify your identity. Try again shortly., correlationId: 5c1f2a9e }

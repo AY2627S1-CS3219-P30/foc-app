@@ -9,6 +9,7 @@ import { WalletBalance } from "@/components/WalletBalance";
 import { STUDENT_NAV } from "@/lib/nav";
 import { useStore } from "@/lib/store";
 import { CURRENT_USER } from "@/lib/types";
+import { vars } from "@/styles/tokens";
 
 export default function WalletPage() {
   const { state } = useStore();
@@ -29,14 +30,14 @@ export default function WalletPage() {
   );
 
   const reservedHint = state.reserved > 0 && (
-    <p style={{ fontSize: 13, color: "var(--color-text-subtle)" }}>
+    <p style={{ fontSize: vars.text.sm, color: vars.color.textSubtle }}>
       {state.reserved} credits held against {openCount} open errand{openCount === 1 ? "" : "s"}
     </p>
   );
 
   const activity = (
     <div className="card" style={{ padding: 0 }}>
-      <div style={{ padding: "0 16px" }}>
+      <div style={{ padding: `0 ${vars.space[4]}` }}>
         {state.ledger.map((entry) => (
           <LedgerRow key={entry.id} entry={entry} />
         ))}
@@ -52,7 +53,9 @@ export default function WalletPage() {
           <ScreenContent>
             <WalletBalance available={state.balance} reserved={state.reserved} earnedThisWeek={earnedThisWeek} />
             {reservedHint}
-            <p style={{ fontSize: 15, fontWeight: 600, marginTop: 8 }}>Recent activity</p>
+            <p style={{ fontSize: vars.text.lg, fontWeight: vars.weight.semibold, marginTop: vars.space[2] }}>
+              Recent activity
+            </p>
             {activity}
           </ScreenContent>
         </Screen>
@@ -60,13 +63,15 @@ export default function WalletPage() {
 
       <div className="desktopOnly">
         <DesktopShell navItems={STUDENT_NAV} activeHref="/wallet" heading="Wallet">
-          <div style={{ display: "flex", gap: 24, alignItems: "flex-start" }}>
-            <div style={{ width: 320, flexShrink: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: vars.space[5], alignItems: "flex-start" }}>
+            <div style={{ width: 320, flexShrink: 0, display: "flex", flexDirection: "column", gap: vars.space[2] }}>
               <WalletBalance available={state.balance} reserved={state.reserved} earnedThisWeek={earnedThisWeek} />
               {reservedHint}
             </div>
-            <div style={{ flex: 1, maxWidth: 480 }}>
-              <p style={{ fontSize: 15, fontWeight: 600, marginBottom: 8 }}>Recent activity</p>
+            <div style={{ flex: "1 1 320px", maxWidth: 480 }}>
+              <p style={{ fontSize: vars.text.lg, fontWeight: vars.weight.semibold, marginBottom: vars.space[2] }}>
+                Recent activity
+              </p>
               {activity}
             </div>
           </div>

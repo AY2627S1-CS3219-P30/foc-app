@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { AuthCard } from "@/components/AuthCard";
-import { Button } from "@/components/Button";
+import { Button, buttonClass } from "@/components/Button";
 import { FormAlert, FormField } from "@/components/FormField";
 import { useHydrated } from "@/lib/use-hydrated";
 import { ApiError, DEV_MAILBOX_ENABLED, userApi } from "@/lib/user-api";
 import { PASSWORD_MIN, validateRegistration, type Errors } from "@/lib/validation";
+import { vars } from "@/styles/tokens";
 
 export default function RegisterPage() {
   const hydrated = useHydrated();
@@ -97,13 +98,13 @@ export default function RegisterPage() {
         )}
       </FormAlert>
       {registered ? (
-        <Link className="btn btn--outline btn--full" href="/activate">
+        <Link className={buttonClass({ variant: "outline", full: true })} href="/activate">
           I have an activation code
         </Link>
       ) : (
         // method="post": if it were ever submitted natively, the password must not end up in a URL.
         <form method="post" onSubmit={onSubmit} noValidate aria-busy={submitting}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: vars.space[4] }}>
             <FormAlert>{alert}</FormAlert>
             <FormField
               label="NUS email"

@@ -1,6 +1,6 @@
 /* Phone first: the same frame as Screen + AppBar + ScreenContent. */
 .shell {
-  max-width: var(--phone-width);
+  max-width: var(--size-phone);
   margin: 0 auto;
   min-height: 100vh;
   background: var(--color-surface);
@@ -44,8 +44,8 @@
   white-space: nowrap;
 }
 
-/* From 1024 px: the same frame as DesktopShell. */
-@media (min-width: 1024px) {
+/* From 768 px: the same frame as DesktopShell. */
+@media (min-width: 768px) {
   .shell {
     max-width: none;
     margin: 0;
@@ -68,8 +68,8 @@
 
   .main {
     display: block;
-    padding: var(--space-5) 40px;
-    max-width: 1120px;
+    padding: var(--space-5);
+    max-width: var(--size-content);
   }
 
   .heading {
@@ -80,7 +80,13 @@
     clip-path: none;
     white-space: normal;
     margin-bottom: var(--space-4);
-    font-size: 22px;
-    font-weight: 700;
+    font-size: var(--text-2xl);
+    font-weight: var(--weight-bold);
+  }
+}
+
+@media (min-width: 1440px) {
+  .main {
+    padding: var(--space-5) var(--space-7);
   }
 }

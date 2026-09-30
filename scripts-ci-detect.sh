@@ -52,7 +52,8 @@ detect() {
     )]"
   fi
 
-  matches '^web-app/' && echo 'web=true' || echo 'web=false'
+  # The web app's API types are generated from contracts/, and its tests check they are current.
+  matches '^(web-app|contracts)/' && echo 'web=true' || echo 'web=false'
 
   if [[ "$shared" == "true" ]] || matches "$SERVICE_RE"; then
     echo 'node=true'
@@ -102,6 +103,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "a Dockerfile -> stack runs"            "order-service/Dockerfile" 'stack=true'
   check "a Dockerfile -> that service too"      "order-service/Dockerfile" 'services=["order-service"]'
   check "web Dockerfile -> stack and web"       "web-app/Dockerfile" 'web=true'
+  check "contract -> web runs"                  "contracts/supplier-service.openapi.yaml" 'web=true'
   check "two services -> both"                  "$(printf 'user-service/src/a.ts\ncredit-service/src/b.ts')" 'services=["user-service","credit-service"]'
   check "mixed web + service"                   "$(printf 'web-app/x.tsx\norder-service/src/y.ts')" 'services=["order-service"]'
   check "this workflow -> all four"             ".github/workflows/ci.yml" 'services=["user-service","supplier-service","order-service","credit-service"]'

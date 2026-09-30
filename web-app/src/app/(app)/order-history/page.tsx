@@ -5,9 +5,11 @@ import { AppBar } from "@/components/AppBar";
 import { DesktopShell } from "@/components/DesktopShell";
 import { ErrandCard } from "@/components/ErrandCard";
 import { Screen, ScreenContent } from "@/components/Screen";
+import { EmptyState } from "@/components/States";
 import { STUDENT_NAV } from "@/lib/nav";
 import { useStore } from "@/lib/store";
 import { CURRENT_USER } from "@/lib/types";
+import { vars } from "@/styles/tokens";
 
 export default function OrderHistoryPage() {
   const { state } = useStore();
@@ -21,9 +23,9 @@ export default function OrderHistoryPage() {
   );
 
   const empty = (
-    <p style={{ color: "var(--color-text-subtle)", fontSize: 14 }}>
-      You haven&apos;t requested or fulfilled any errands yet.
-    </p>
+    <EmptyState title="No errands yet">
+      Errands you request or deliver will show up here.
+    </EmptyState>
   );
 
   return (
@@ -46,7 +48,7 @@ export default function OrderHistoryPage() {
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
-              gap: 16,
+              gap: vars.space[4],
             }}
           >
             {myRequests.map((r) => (

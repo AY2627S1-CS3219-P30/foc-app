@@ -7,10 +7,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "bun test"
+    "generate": "bun scripts/generate.ts",
+    "test": "bun test",
+    "typecheck:contracts": "tsc -p tsconfig.contracts.json --noEmit"
   },
   "dependencies": {
     "next": "16.3.5",
+    "openapi-fetch": "^0.17.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
@@ -20,6 +23,8 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
+    "happy-dom": "^20.14.5",
+    "openapi-typescript": "^7.13.0",
     "typescript": "^5"
   }
 }

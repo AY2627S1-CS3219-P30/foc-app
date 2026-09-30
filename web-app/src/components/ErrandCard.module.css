@@ -12,28 +12,28 @@
 }
 
 .expiry {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--color-text-subtle);
 }
 
 .route {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .title {
-  font-size: 16px;
+  font-size: var(--text-lg);
   color: var(--color-text);
 }
 
 .dropoff {
-  font-size: 14px;
+  font-size: var(--text-md);
   color: var(--color-text-muted);
 }
 
 .requester {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--color-text-subtle);
 }
 
@@ -46,15 +46,15 @@
 .reward {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: var(--space-1);
 }
 
 .reward strong {
-  font-size: 18px;
-  font-weight: 700;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
 }
 
 .reward span {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--color-text-subtle);
 }

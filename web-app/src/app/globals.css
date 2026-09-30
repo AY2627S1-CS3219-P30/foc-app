@@ -1,31 +1,4 @@
-:root {
-  --color-primary: #05417e;
-  --color-accent: #ef7c00;
-  --color-text: #0f172a;
-  --color-text-muted: #475569;
-  --color-text-subtle: #64748b;
-  --color-border: #e2e8f0;
-  --color-surface: #ffffff;
-  --color-page: #f1f5f9;
-  --color-danger: #dc2626;
-
-  --radius-sm: 8px;
-  --radius-md: 16px;
-  --radius-pill: 999px;
-
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-
-  --font-content: "Inter", system-ui, sans-serif;
-  --font-display: "Roboto", system-ui, sans-serif;
-
-  --phone-width: 412px;
-  --desktop-breakpoint: 1024px;
-  --sidebar-width: 240px;
-}
+/* Tokens live in src/styles/tokens.ts; the variables come from the generated tokens.css. */
 
 * {
   box-sizing: border-box;
@@ -65,94 +38,16 @@ button {
 }
 
 input,
+select,
 textarea {
   font: inherit;
   color: inherit;
 }
 
-/* ---- Primitives shared across screens ---- */
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  height: 42px;
-  padding: 0 var(--space-5);
-  border-radius: var(--radius-md);
-  font-size: 14px;
-  font-weight: 600;
-  white-space: nowrap;
-  transition: filter 0.15s ease;
-}
-
-.btn:hover:not(:disabled) {
-  filter: brightness(0.95);
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn--primary {
-  background: var(--color-primary);
-  color: #ffffff;
-}
-
-.btn--accent {
-  background: var(--color-accent);
-  color: var(--color-text);
-}
-
-.btn--outline {
-  background: transparent;
-  border: 1px solid var(--color-border);
-  color: var(--color-text);
-}
-
-.btn--subtle {
-  background: var(--color-border);
-  color: var(--color-text-muted);
-}
-
-.btn--full {
-  width: 100%;
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px var(--space-3);
-  border-radius: var(--radius-pill);
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.badge--open {
-  background: var(--color-border);
-  color: var(--color-text-muted);
-}
-
-.badge--accepted {
-  background: #dbeafe;
-  color: #1d4ed8;
-}
-
-.badge--in_transit {
-  background: #fef3c7;
-  color: #b45309;
-}
-
-.badge--complete {
-  background: #dcfce7;
-  color: #15803d;
-}
-
-.badge--cancelled {
-  background: #fee2e2;
-  color: #b91c1c;
+/* A visible focus ring for keyboard users on every interactive element. */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 .card {
@@ -163,39 +58,20 @@ textarea {
 }
 
 .field-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  margin-bottom: var(--space-2);
   display: block;
+  margin-bottom: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-muted);
 }
 
-.text-input {
-  width: 100%;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 12px var(--space-4);
-  font-size: 14px;
-  background: var(--color-surface);
-}
-
-/* A visible focus ring for keyboard users on every interactive element (USR-05). */
-a:focus-visible,
-button:focus-visible,
-input[type="radio"]:focus-visible + label,
-select:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-}
-
-.text-input:focus {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 1px;
-}
-
-textarea.text-input {
-  resize: vertical;
-  min-height: 90px;
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* ---- Responsive layout switch ----
@@ -210,7 +86,7 @@ textarea.text-input {
   display: none;
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 768px) {
   .mobileOnly {
     display: none;
   }

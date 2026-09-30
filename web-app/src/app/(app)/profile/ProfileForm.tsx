@@ -6,6 +6,7 @@ import { FormAlert, FormField } from "@/components/FormField";
 import { useAuth } from "@/lib/auth";
 import { ApiError, type ContactPreference, type Me } from "@/lib/user-api";
 import { validateDisplayName, type Errors } from "@/lib/validation";
+import { vars } from "@/styles/tokens";
 
 /**
  * Edits the fields a student owns (US-FR3.1.1). Email, roles and status are shown but not editable:
@@ -58,15 +59,15 @@ export function ProfileForm({ user }: { user: Me }) {
 
   return (
     <form onSubmit={onSubmit} noValidate aria-busy={saving} className="card">
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700 }}>Your details</h2>
+      <div style={{ display: "flex", flexDirection: "column", gap: vars.space[4] }}>
+        <h2 style={{ fontSize: vars.text.lg, fontWeight: vars.weight.bold }}>Your details</h2>
         {/* One mounted region per tone, so each message is announced. */}
         <FormAlert>{alert?.tone === "error" && alert.text}</FormAlert>
         <FormAlert tone="success">{alert?.tone === "success" && alert.text}</FormAlert>
-        <dl style={{ display: "grid", gap: 4, fontSize: 14 }}>
-          <dt style={{ color: "var(--color-text-subtle)", fontSize: 12 }}>Email</dt>
+        <dl style={{ display: "grid", gap: vars.space[1], fontSize: vars.text.md }}>
+          <dt style={{ color: vars.color.textSubtle, fontSize: vars.text.xs }}>Email</dt>
           <dd>{user.email}</dd>
-          <dt style={{ color: "var(--color-text-subtle)", fontSize: 12 }}>Account</dt>
+          <dt style={{ color: vars.color.textSubtle, fontSize: vars.text.xs }}>Account</dt>
           <dd>{user.roles.includes("ADMIN") ? "Student · Administrator" : "Student"}</dd>
         </dl>
         <FormField
@@ -90,14 +91,22 @@ export function ProfileForm({ user }: { user: Me }) {
         />
         <fieldset style={{ border: "none", padding: 0, margin: 0 }}>
           <legend className="field-label">How should we contact you?</legend>
-          <div style={{ display: "flex", gap: 16, fontSize: 14 }}>
+          <div style={{ display: "flex", gap: vars.space[4], fontSize: vars.text.md }}>
             {(
               [
                 ["IN_APP", "In the app"],
                 ["EMAIL", "By email"],
               ] as const
             ).map(([value, label]) => (
-              <label key={value} style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+              <label
+                key={value}
+                style={{
+                  display: "inline-flex",
+                  gap: vars.space[2],
+                  alignItems: "center",
+                  minHeight: vars.size.control,
+                }}
+              >
                 <input
                   type="radio"
                   name="contactPreference"

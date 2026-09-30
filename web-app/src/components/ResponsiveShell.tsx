@@ -6,7 +6,7 @@ import styles from "./ResponsiveShell.module.css";
 
 /**
  * The app frame as one tree for every width, for screens that hold a form (decisions.md W3): the
- * phone app bar below 1024 px, the top bar and sidebar from there up. The children render once, so
+ * phone app bar below 768 px, the top bar and sidebar from there up. The children render once, so
  * typed input survives a resize and ids are never duplicated. (Screens without a form still render
  * separate `Screen` and `DesktopShell` trees and let CSS pick one.)
  */

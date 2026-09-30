@@ -1,4 +1,5 @@
-import styles from "./CreditSlider.module.css";
+import { Field } from "./Field";
+import { Slider } from "./Slider";
 
 export function CreditSlider({
   value,
@@ -12,20 +13,8 @@ export function CreditSlider({
   max?: number;
 }) {
   return (
-    <div>
-      <div className={styles.row}>
-        <span className="field-label">Credits</span>
-        <span className={styles.value}>{value}</span>
-      </div>
-      <input
-        type="range"
-        className={styles.slider}
-        min={min}
-        max={max}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
-      <p className={styles.desc}>How many credits will you offer for this errand?</p>
-    </div>
+    <Field label="Credits" hint="How many credits will you offer for this errand?">
+      <Slider min={min} max={max} value={value} onChange={(e) => onChange(Number(e.target.value))} />
+    </Field>
   );
 }

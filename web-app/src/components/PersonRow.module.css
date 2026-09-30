@@ -9,21 +9,21 @@
   height: 48px;
   border-radius: 50%;
   background: var(--color-primary);
-  color: #ffffff;
+  color: var(--color-on-primary);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 700;
-  font-size: 16px;
+  font-weight: var(--weight-bold);
+  font-size: var(--text-lg);
   flex-shrink: 0;
 }
 
 .name {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
 }
 
 .location {
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--color-text-subtle);
 }

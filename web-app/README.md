@@ -25,6 +25,59 @@ Open <http://localhost:3000>.
 | `bun run build` | Production build |
 | `bun start` | Serve the production build |
 | `bun run lint` | Lint |
+| `bun test` | Unit tests |
+| `bun run generate` | Regenerate `tokens.css` and the API types after editing `tokens.ts` or a contract |
+
+## Design system
+
+**Tokens.** `src/styles/tokens.ts` is the single source for colour, spacing, type, radius, shadow and
+size. `bun run generate` writes them to `src/styles/tokens.css` as variables (`--color-primary`,
+`--space-4`, `--text-md`, …). Use `var(--…)` in CSS modules and `vars.*` from `@/styles/tokens` in inline
+styles. `bun test` fails on a literal colour, font size or weight, or a breakpoint other than the two
+below.
+
+**Breakpoints.** Mobile first. Base styles hold from **360 px**; `@media (min-width: 768px)` switches to
+the top bar and sidebar; `@media (min-width: 1440px)` widens the gutters. Nothing scrolls sideways at
+360, 768 or 1440, and controls are at least 44 px tall.
+
+**Primitives** (`src/components/`):
+
+| Component | Use |
+| --- | --- |
+| `Field` | Label, hint, error and required marker for one control; wires `id`, `aria-describedby` and `aria-invalid` for it |
+| `Input`, `Select`, `Textarea`, `Slider` | Native controls with the shared focus, disabled and invalid looks. Work inside or outside a `Field` |
+| `FormField` | Shorthand for `<Field><Input /></Field>` |
+| `FormAlert` | Form-level live message (`error`, `info`, `success`) |
+| `Button`, `buttonClass` | `primary`, `accent`, `outline`, `subtle`; `buttonClass()` styles a `<Link>` as a button |
+| `LoadingState`, `Skeleton` | Skeleton rows announced as a status |
+| `EmptyState` | Title, explanation and an optional action |
+| `ErrorState` | `role="alert"` with a retry button |
+
+```tsx
+<Field label="Email" hint="Your NUS address" error={errors.email} required>
+  <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+</Field>
+```
+
+## API clients
+
+Types come from the contracts in [`contracts/`](../contracts), generated into `src/lib/generated/` by
+`bun run generate` — never edit them by hand, and `bun test` fails if they are stale. The Supplier
+Service client (`src/lib/supplier-api.ts`) is [`openapi-fetch`](https://openapi-ts.dev/openapi-fetch/)
+over those types, so paths, parameters and bodies are checked against the contract at compile time.
+`unwrap` turns a failure into the same `ApiError` the account screens use, and `authed` refreshes the
+token on a `401`:
+
+```ts
+const { authed } = useAuth();
+const page = await authed((token) =>
+  unwrap(supplierApi.GET("/suppliers", { params: { query: { type: "CAFE" } }, headers: bearer(token) })),
+);
+```
+
+`src/lib/user-api.ts` keeps its hand-written transport (the session rules depend on it) but takes its
+types from the generated User Service contract. `NEXT_PUBLIC_SUPPLIER_SERVICE_URL` works like the User
+Service's address below.
 
 ## Talking to the services
 
@@ -82,7 +135,8 @@ holds the React state around them.
 ### Tests
 
 `bun test` runs the unit tests in `test/`: validation, error-envelope parsing, redirect safety, nav
-ordering, and the session rules above (single-flight refresh, retry after `401`, which failures
+ordering, the generated API client, `Field`'s accessibility wiring, generated files being current, the
+design-token rules, and the session rules above (single-flight refresh, retry after `401`, which failures
 sign out, pending sign-out, cross-tab sign-out) against a fake `fetch`, fake locks and a fake tab
 channel. They use Bun's built-in runner, so `test/` is excluded from the Next typecheck. CI runs them
 in the `web-app` job.
@@ -103,8 +157,9 @@ trace a failure across services.
 ```text
 src/
 ├── app/           routes — (app) group for the authenticated shell
-├── components/    shared UI
-└── lib/           auth + User Service client, store, types, navigation, mock data
+├── components/    shared UI and the form, button and state primitives
+├── lib/           auth, API clients (generated/ from contracts), store, navigation, mock data
+└── styles/        design tokens (tokens.ts → generated tokens.css)
 ```
 
 ## Deployment

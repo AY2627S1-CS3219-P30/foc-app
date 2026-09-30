@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AuthCard } from "@/components/AuthCard";
-import { Button } from "@/components/Button";
+import { Button, buttonClass } from "@/components/Button";
 import { FormAlert, FormField } from "@/components/FormField";
 import { useHydrated } from "@/lib/use-hydrated";
 import { useQueryParam } from "@/lib/use-query-param";
 import { ApiError, userApi } from "@/lib/user-api";
+import { vars } from "@/styles/tokens";
 
 type State = "idle" | "working" | "done" | "error";
 
@@ -79,12 +80,12 @@ export default function ActivatePage() {
     >
       <FormAlert tone="success">{done && message}</FormAlert>
       {done ? (
-        <Link className="btn btn--primary btn--full" href="/login">
+        <Link className={buttonClass({ full: true })} href="/login">
           Sign in
         </Link>
       ) : (
         <form method="post" onSubmit={onSubmit} noValidate aria-busy={state === "working"}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: vars.space[4] }}>
             <FormAlert tone="info">{state === "working" && "Activating…"}</FormAlert>
             <FormAlert>{state === "error" && message}</FormAlert>
             <FormField

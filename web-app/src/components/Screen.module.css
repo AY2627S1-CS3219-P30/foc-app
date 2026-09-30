@@ -1,5 +1,5 @@
 .screen {
-  max-width: var(--phone-width);
+  max-width: var(--size-phone);
   margin: 0 auto;
   min-height: 100vh;
   background: var(--color-surface);

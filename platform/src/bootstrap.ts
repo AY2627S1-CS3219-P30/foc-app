@@ -28,8 +28,14 @@ export async function startService(
   app.enableCors({
     origin: origins,
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', CORRELATION_HEADER],
-    exposedHeaders: [CORRELATION_HEADER],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'If-Match',
+      'Idempotency-Key',
+      CORRELATION_HEADER,
+    ],
+    exposedHeaders: ['ETag', 'Retry-After', CORRELATION_HEADER],
   });
   logger.log(`CORS allows: ${origins.join(', ')}`);
 
