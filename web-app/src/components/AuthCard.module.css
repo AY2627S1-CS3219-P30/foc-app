@@ -9,7 +9,7 @@
 
 .card {
   width: 100%;
-  max-width: 420px;
+  max-width: var(--size-form);
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -17,25 +17,25 @@
 }
 
 .logo {
-  font-size: 28px;
-  font-weight: 700;
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-bold);
   color: var(--color-primary);
 }
 
 .title {
-  font-size: 22px;
-  font-weight: 700;
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
   color: var(--color-text);
 }
 
 .intro {
-  font-size: 14px;
+  font-size: var(--text-md);
   color: var(--color-text-muted);
   line-height: 1.5;
 }
 
 .footer {
-  font-size: 14px;
+  font-size: var(--text-md);
   color: var(--color-text-muted);
   text-align: center;
 }
@@ -43,7 +43,7 @@
 .footer a,
 .intro a {
   color: var(--color-primary);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   text-decoration: underline;
 }
 
@@ -57,7 +57,7 @@
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
-    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
-    padding: 48px var(--space-5);
+    box-shadow: var(--shadow-md);
+    padding: var(--space-8) var(--space-5);
   }
 }

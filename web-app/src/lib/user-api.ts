@@ -6,6 +6,8 @@
  * caller and lives in memory only (see session.ts).
  */
 
+import type { components } from "./generated/user-service";
+
 /**
  * Where the User Service is. NEXT_PUBLIC_* values are inlined when the app is **built**, so this is
  * fixed by then (the Docker image takes it as a build arg). Outside production a missing value means
@@ -35,34 +37,15 @@ export const DEV_MAILBOX_ENABLED =
  */
 const TIMEOUT_MS = 10_000;
 
-export type Role = "STUDENT" | "ADMIN";
-export type AccountStatus = "PENDING_ACTIVATION" | "ACTIVE" | "SUSPENDED";
-export type PreferredMode = "REQUESTER" | "COURIER";
-export type ContactPreference = "IN_APP" | "EMAIL";
+type Schemas = components["schemas"];
 
-export type Profile = {
-  displayName: string;
-  faculty: string | null;
-  avatarRef: string | null;
-  contactPreference: ContactPreference;
-  preferredMode: PreferredMode;
-};
-
-export type Me = {
-  id: string;
-  email: string;
-  roles: Role[];
-  status: AccountStatus;
-  profile: Profile;
-  createdAt: string;
-};
-
-export type TokenResponse = {
-  accessToken: string;
-  tokenType: "Bearer";
-  expiresIn: number;
-  user: { id: string; displayName: string; roles: Role[]; status: AccountStatus };
-};
+export type Role = Schemas["Role"];
+export type AccountStatus = Schemas["AccountStatus"];
+export type PreferredMode = Schemas["PreferredMode"];
+export type ContactPreference = Schemas["ContactPreference"];
+export type Profile = Schemas["Profile"];
+export type Me = Schemas["Me"];
+export type TokenResponse = Schemas["TokenResponse"];
 
 export type FieldError = { field: string; code: string; message: string };
 

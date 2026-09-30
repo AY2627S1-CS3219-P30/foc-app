@@ -5,8 +5,12 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/Button";
 import { CreditSlider } from "@/components/CreditSlider";
 import { DesktopPanel } from "@/components/DesktopPanel";
+import { Field } from "@/components/Field";
+import { Input } from "@/components/Input";
 import { Screen, ScreenContent } from "@/components/Screen";
 import { ScreenHeader } from "@/components/ScreenHeader";
+import { EmptyState } from "@/components/States";
+import { Textarea } from "@/components/Textarea";
 import { useStore } from "@/lib/store";
 
 export default function EditRequestPage({ params }: { params: Promise<{ id: string }> }) {
@@ -20,7 +24,7 @@ export default function EditRequestPage({ params }: { params: Promise<{ id: stri
   const [credits, setCredits] = useState(request?.credits ?? 10);
 
   if (!request) {
-    const notFound = <p>This request no longer exists.</p>;
+    const notFound = <EmptyState title="This request no longer exists." />;
     return (
       <>
         <div className="mobileOnly">
@@ -48,24 +52,15 @@ export default function EditRequestPage({ params }: { params: Promise<{ id: stri
     router.push(`/request/${id}`);
   }
 
-  // Uses implicit <label> wrapping (no id/htmlFor) since this form
-  // renders twice in the DOM — once per breakpoint — and duplicate
-  // ids would break label association for whichever copy loads second.
   const body = (
     <>
-      <label style={{ display: "block" }}>
-        <span className="field-label">Title</span>
-        <input className="text-input" value={title} onChange={(e) => setTitle(e.target.value)} />
-      </label>
+      <Field label="Title" required>
+        <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+      </Field>
       <CreditSlider value={credits} onChange={setCredits} />
-      <label style={{ display: "block" }}>
-        <span className="field-label">Description</span>
-        <textarea
-          className="text-input"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-      </label>
+      <Field label="Description">
+        <Textarea value={description} onChange={(e) => setDescription(e.target.value)} />
+      </Field>
       <Button full onClick={submit} disabled={!title.trim()}>
         Save changes
       </Button>

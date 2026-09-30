@@ -1,20 +1,23 @@
+/* Phone first: a scrolling row of tabs under the top bar; a column beside the content from 768 px. */
 .sidebar {
-  width: var(--sidebar-width);
   flex-shrink: 0;
-  padding: var(--space-5) var(--space-3);
+  padding: var(--space-2) var(--space-4);
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  border-right: 1px solid var(--color-border);
+  gap: var(--space-1);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-border);
 }
 
 .item {
-  display: block;
-  padding: 10px var(--space-3);
+  display: flex;
+  align-items: center;
+  min-height: var(--size-control);
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
   color: var(--color-text-muted);
+  white-space: nowrap;
 }
 
 .item:hover {
@@ -23,10 +26,21 @@
 
 .active {
   background: var(--color-primary);
-  color: #ffffff;
-  font-weight: 600;
+  color: var(--color-on-primary);
+  font-weight: var(--weight-semibold);
 }
 
 .active:hover {
   background: var(--color-primary);
+}
+
+@media (min-width: 768px) {
+  .sidebar {
+    width: var(--size-sidebar);
+    padding: var(--space-5) var(--space-3);
+    flex-direction: column;
+    overflow-x: visible;
+    border-bottom: none;
+    border-right: 1px solid var(--color-border);
+  }
 }

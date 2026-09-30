@@ -3,9 +3,13 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { DesktopPanel } from "@/components/DesktopPanel";
+import { Field } from "@/components/Field";
+import { Input } from "@/components/Input";
 import { Screen, ScreenContent } from "@/components/Screen";
 import { ScreenHeader } from "@/components/ScreenHeader";
+import { EmptyState } from "@/components/States";
 import { useStore } from "@/lib/store";
+import { vars } from "@/styles/tokens";
 
 export default function NewRequestLocationPage() {
   const { state } = useStore();
@@ -27,16 +31,15 @@ export default function NewRequestLocationPage() {
 
   const body = (
     <>
-      <input
-        className="text-input"
-        placeholder="Type a location..."
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
-      <p className="field-label" style={{ marginTop: 12 }}>
-        Pick a pickup point
-      </p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <Field label="Search pickup points">
+        <Input
+          type="search"
+          placeholder="Type a location..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </Field>
+      <div style={{ display: "flex", flexDirection: "column", gap: vars.space[2] }}>
         {matches.map((s) => (
           <button
             key={s.id}
@@ -44,13 +47,11 @@ export default function NewRequestLocationPage() {
             style={{ textAlign: "left" }}
             onClick={() => pick(s.name, s.location)}
           >
-            <p style={{ fontWeight: 600, fontSize: 15 }}>{s.name}</p>
-            <p style={{ fontSize: 13, color: "var(--color-text-subtle)" }}>{s.location}</p>
+            <p style={{ fontWeight: vars.weight.semibold, fontSize: vars.text.lg }}>{s.name}</p>
+            <p style={{ fontSize: vars.text.sm, color: vars.color.textSubtle }}>{s.location}</p>
           </button>
         ))}
-        {matches.length === 0 && (
-          <p style={{ color: "var(--color-text-subtle)", fontSize: 14 }}>No matches.</p>
-        )}
+        {matches.length === 0 && <EmptyState title="No pickup points match" />}
       </div>
     </>
   );

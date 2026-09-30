@@ -2,8 +2,8 @@
 
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Button } from "@/components/Button";
 import { Menu } from "@/components/Menu";
+import { ErrorState, LoadingState } from "@/components/States";
 import { useAuth } from "@/lib/auth";
 import styles from "./layout.module.css";
 
@@ -31,18 +31,19 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   if (status === "unavailable") {
     return (
       <div className={styles.pending}>
-        <p role="alert">{problem}</p>
-        <Button variant="outline" onClick={() => void retry()}>
-          Try again
-        </Button>
+        <ErrorState title="Can't reach your account" onRetry={() => void retry()}>
+          {problem}
+        </ErrorState>
       </div>
     );
   }
 
   if (status !== "signedIn") {
     return (
-      <div className={styles.pending} role="status" aria-live="polite">
-        {status === "loading" ? "Loading your account…" : "Redirecting to sign in…"}
+      <div className={styles.pending}>
+        <LoadingState
+          label={status === "loading" ? "Loading your account…" : "Redirecting to sign in…"}
+        />
       </div>
     );
   }

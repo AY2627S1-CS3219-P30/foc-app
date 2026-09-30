@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { values } from "@/styles/tokens";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -7,8 +8,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "Campus errands, run by students.",
     start_url: "/",
     display: "standalone",
-    background_color: "#ffffff",
-    theme_color: "#05417e",
+    background_color: values.color.surface,
+    theme_color: values.color.primary,
     icons: [
       { src: "/icons/192", sizes: "192x192", type: "image/png", purpose: "any" },
       { src: "/icons/192", sizes: "192x192", type: "image/png", purpose: "maskable" },

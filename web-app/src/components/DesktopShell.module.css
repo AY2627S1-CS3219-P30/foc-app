@@ -7,12 +7,14 @@
 .body {
   flex: 1;
   display: flex;
+  flex-direction: column;
 }
 
 .main {
   flex: 1;
-  padding: var(--space-5) 40px;
-  max-width: 1120px;
+  min-width: 0;
+  padding: var(--space-4);
+  max-width: var(--size-content);
 }
 
 .headingRow {
@@ -23,6 +25,22 @@
 }
 
 .heading {
-  font-size: 22px;
-  font-weight: 700;
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+}
+
+@media (min-width: 768px) {
+  .body {
+    flex-direction: row;
+  }
+
+  .main {
+    padding: var(--space-5);
+  }
+}
+
+@media (min-width: 1440px) {
+  .main {
+    padding: var(--space-5) var(--space-7);
+  }
 }

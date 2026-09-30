@@ -7,9 +7,11 @@ import { Button } from "@/components/Button";
 import { DesktopShell } from "@/components/DesktopShell";
 import { ErrandCard } from "@/components/ErrandCard";
 import { Screen, ScreenContent } from "@/components/Screen";
+import { EmptyState } from "@/components/States";
 import { STUDENT_NAV } from "@/lib/nav";
 import { useStore } from "@/lib/store";
 import { CURRENT_USER } from "@/lib/types";
+import { vars } from "@/styles/tokens";
 
 export default function FeedPage() {
   const { state, acceptRequest } = useStore();
@@ -24,9 +26,7 @@ export default function FeedPage() {
   );
 
   const empty = (
-    <p style={{ color: "var(--color-text-subtle)", fontSize: 14 }}>
-      No open errands right now — check back soon.
-    </p>
+    <EmptyState title="No open errands right now">Check back soon.</EmptyState>
   );
 
   return (
@@ -56,7 +56,7 @@ export default function FeedPage() {
             style={{
               display: "grid",
               gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
-              gap: 16,
+              gap: vars.space[4],
             }}
           >
             {openRequests.map((r) => (

@@ -12,7 +12,7 @@ owner, one consumer owner, and Dev 3 or Dev 4 review; within v1, changes are add
 | File                            | Status                    | Owner   |
 | ------------------------------- | ------------------------- | ------- |
 | `user-service.openapi.yaml`     | Draft 1 — awaiting review | Anselm  |
-| `supplier-service.openapi.yaml` | Not started               | Patrick |
+| `supplier-service.openapi.yaml` | Draft 1 — awaiting review | Patrick |
 
 ## Cross-service proposals for approval (FND-03 scope)
 
@@ -70,4 +70,9 @@ instead of a workshop. The User Service spec is written against them.
 1. Is `preferredMode` on the profile acceptable for the requester↔courier switch, or should the toggle be client-only?
 2. Access token in memory + refresh in an `HttpOnly` cookie: does the gateway (or `web-app` dev proxy) keep API and web on the same site so `SameSite=Strict` works?
 3. JWT signing: which algorithm and where does the verification key come from for other services (shared secret vs. JWKS endpoint)? Proposed: EdDSA with a JWKS at `GET /.well-known/jwks.json` — not yet in the spec.
-4. Framework and runtime (PLT-01) decide the OpenAPI → types generator. The spec is generator-neutral.
+4. Framework and runtime (PLT-01) decide the OpenAPI → types generator. The spec is generator-neutral. The web app
+   uses `openapi-typescript` + `openapi-fetch` (`web-app/scripts/generate.ts`); its tests fail if the generated
+   types fall behind a contract.
+5. `GET /suppliers` is specified with SUP-02's search, filters and `{ items, page, pageSize, total }` page. SUP-01
+   still returns a bare array, so the listing page (SUP-03) needs SUP-02 merged before it runs against the real
+   service.

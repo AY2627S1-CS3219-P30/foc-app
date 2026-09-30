@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { values } from "@/styles/tokens";
 
 export function iconMarkup(size: number): { style: CSSProperties; children: string } {
   return {
@@ -8,10 +9,10 @@ export function iconMarkup(size: number): { style: CSSProperties; children: stri
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      background: "#05417e",
-      color: "#ffffff",
+      background: values.color.primary,
+      color: values.color.onPrimary,
       fontSize: size * 0.55,
-      fontWeight: 700,
+      fontWeight: Number(values.weight.bold),
       fontFamily: "system-ui, sans-serif",
     },
     children: "N",

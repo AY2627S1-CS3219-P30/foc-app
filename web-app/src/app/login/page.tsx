@@ -11,6 +11,7 @@ import { useHydrated } from "@/lib/use-hydrated";
 import { useQueryParam } from "@/lib/use-query-param";
 import { ApiError } from "@/lib/user-api";
 import { safeNext, validateLogin, type Errors } from "@/lib/validation";
+import { vars } from "@/styles/tokens";
 
 export default function LoginPage() {
   const { login, status, logoutPending, retryLogout } = useAuth();
@@ -84,7 +85,7 @@ export default function LoginPage() {
       </FormAlert>
       {/* method="post": if it were ever submitted natively, the password must not end up in a URL. */}
       <form method="post" onSubmit={onSubmit} noValidate aria-busy={submitting}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: vars.space[4] }}>
           <FormAlert>{alert}</FormAlert>
           <FormField
             label="NUS email"
@@ -110,8 +111,8 @@ export default function LoginPage() {
           <Button type="submit" full disabled={!hydrated || submitting}>
             {submitting ? "Signing in…" : "Sign in"}
           </Button>
-          <p style={{ fontSize: 13, textAlign: "center" }}>
-            <Link href="/change-password" style={{ color: "var(--color-primary)" }}>
+          <p style={{ fontSize: vars.text.sm, textAlign: "center" }}>
+            <Link href="/change-password" style={{ color: vars.color.primary }}>
               Change your password
             </Link>
           </p>

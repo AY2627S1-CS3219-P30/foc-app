@@ -8,7 +8,7 @@
   width: 48px;
   height: 48px;
   border-radius: var(--radius-sm);
-  background: repeating-linear-gradient(45deg, #e2e8f0, #e2e8f0 8px, #f1f5f9 8px, #f1f5f9 16px);
+  background: repeating-linear-gradient(45deg, var(--color-border) 0 var(--space-2), var(--color-page) 0 var(--space-4));
   flex-shrink: 0;
 }
 
@@ -18,12 +18,12 @@
 }
 
 .name {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
 }
 
 .location {
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--color-text-subtle);
 }
 
@@ -33,11 +33,11 @@
 }
 
 .category {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--color-text-muted);
 }
 
 .distance {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--color-text-subtle);
 }

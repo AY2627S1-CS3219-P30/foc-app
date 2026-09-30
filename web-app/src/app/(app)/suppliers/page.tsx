@@ -3,11 +3,15 @@
 import { useMemo, useState } from "react";
 import { AppBar } from "@/components/AppBar";
 import { DesktopShell } from "@/components/DesktopShell";
+import { Field } from "@/components/Field";
 import { FilterChip } from "@/components/FilterChip";
+import { Input } from "@/components/Input";
 import { Screen, ScreenContent } from "@/components/Screen";
+import { EmptyState } from "@/components/States";
 import { SupplierCard } from "@/components/SupplierCard";
 import { STUDENT_NAV } from "@/lib/nav";
 import { useStore } from "@/lib/store";
+import { vars } from "@/styles/tokens";
 
 const CATEGORIES = ["All", "Café", "Printers", "Marts"];
 
@@ -28,13 +32,17 @@ export default function SuppliersPage() {
 
   const filters = (
     <>
-      <input
-        className="text-input"
-        placeholder="Type a location..."
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
-      <div style={{ display: "flex", gap: 8, overflowX: "auto", margin: "12px 0" }}>
+      <Field label="Search suppliers">
+        <Input
+          type="search"
+          placeholder="Type a location..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </Field>
+      <div
+        style={{ display: "flex", gap: vars.space[2], overflowX: "auto", margin: `${vars.space[3]} 0` }}
+      >
         {CATEGORIES.map((c) => (
           <FilterChip key={c} label={c} selected={category === c} onClick={() => setCategory(c)} />
         ))}
@@ -42,7 +50,9 @@ export default function SuppliersPage() {
     </>
   );
 
-  const empty = <p style={{ color: "var(--color-text-subtle)", fontSize: 14 }}>No suppliers match.</p>;
+  const empty = (
+    <EmptyState title="No suppliers match">Try another search or category.</EmptyState>
+  );
 
   return (
     <>
@@ -61,8 +71,8 @@ export default function SuppliersPage() {
 
       <div className="desktopOnly">
         <DesktopShell navItems={STUDENT_NAV} activeHref="/suppliers" heading="Campus suppliers">
-          <div style={{ maxWidth: 640, marginBottom: 16 }}>{filters}</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 640 }}>
+          <div style={{ maxWidth: 640, marginBottom: vars.space[4] }}>{filters}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: vars.space[3], maxWidth: 640 }}>
             {suppliers.map((s) => (
               <SupplierCard key={s.id} supplier={s} />
             ))}

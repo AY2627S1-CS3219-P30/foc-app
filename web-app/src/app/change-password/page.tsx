@@ -11,6 +11,7 @@ import { useHydrated } from "@/lib/use-hydrated";
 import { useQueryParam } from "@/lib/use-query-param";
 import { ApiError, userApi } from "@/lib/user-api";
 import { PASSWORD_MIN, validatePasswordChange, type Errors } from "@/lib/validation";
+import { vars } from "@/styles/tokens";
 
 /**
  * Changes a password by proving the current one (`POST /auth/password`). Also the first stop for a
@@ -95,7 +96,7 @@ export default function ChangePasswordPage() {
       </FormAlert>
       {/* method="post": if it were ever submitted natively, the passwords must not end up in a URL. */}
       <form method="post" onSubmit={onSubmit} noValidate aria-busy={submitting} hidden={changed}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: vars.space[4] }}>
           <FormAlert>{alert}</FormAlert>
           <FormField
             label="NUS email"

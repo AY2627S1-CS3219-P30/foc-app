@@ -1,7 +1,7 @@
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.4);
+  background: var(--color-overlay);
   z-index: 100;
   display: flex;
   justify-content: center;
@@ -9,7 +9,7 @@
 
 .panel {
   width: 100%;
-  max-width: var(--phone-width);
+  max-width: var(--size-phone);
   background: var(--color-surface);
   padding: var(--space-5) var(--space-4);
   display: flex;
@@ -22,10 +22,11 @@
 .item {
   display: block;
   width: 100%;
+  min-height: var(--size-control);
   text-align: left;
-  padding: 14px var(--space-2);
-  font-size: 15px;
-  font-weight: 500;
+  padding: var(--space-3) var(--space-2);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
   border-radius: var(--radius-sm);
   color: var(--color-text);
 }

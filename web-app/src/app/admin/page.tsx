@@ -6,6 +6,7 @@ import { OrdersTable } from "@/components/OrdersTable";
 import { StatCard } from "@/components/StatCard";
 import { ADMIN_NAV } from "@/lib/nav";
 import { useStore } from "@/lib/store";
+import { vars } from "@/styles/tokens";
 
 export default function AdminDashboardPage() {
   const { state } = useStore();
@@ -30,7 +31,7 @@ export default function AdminDashboardPage() {
       showCreditPill={false}
       heading="Overview"
     >
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 24 }}>
+      <div style={{ display: "flex", gap: vars.space[4], flexWrap: "wrap", marginBottom: vars.space[5] }}>
         <StatCard label="Live orders" value={stats.live} />
         <StatCard label="Completed" value={stats.completed} />
         <StatCard label="Open requests" value={stats.open} />

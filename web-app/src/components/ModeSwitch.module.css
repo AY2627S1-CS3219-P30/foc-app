@@ -19,7 +19,7 @@
   display: inline-flex;
   background: var(--color-border);
   border-radius: var(--radius-pill);
-  padding: 3px;
+  padding: var(--space-1);
 }
 
 .option {
@@ -34,13 +34,20 @@
 }
 
 .label {
-  display: inline-block;
-  padding: 6px 14px;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--size-control);
+  padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-pill);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
   color: var(--color-text-muted);
   cursor: pointer;
+}
+
+.input:focus-visible + .label {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 .switch[aria-busy="true"] .label {
@@ -51,12 +58,12 @@
 .input:checked + .label {
   background: var(--color-surface);
   color: var(--color-primary);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+  box-shadow: var(--shadow-sm);
 }
 
 .error {
   margin-top: var(--space-1);
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--color-danger);
 }
 

@@ -22,21 +22,21 @@
 }
 
 .label {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
 }
 
 .detail {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--color-text-subtle);
 }
 
 .amount {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
   color: var(--color-danger);
 }
 
 .positive {
-  color: #15803d;
+  color: var(--color-success);
 }

@@ -20,8 +20,10 @@ export function TopBar({
     <div className={styles.bar}>
       <span className={styles.logo}>{logoText}</span>
       <div className={styles.right}>
-        <ModeSwitch />
-        {showCreditPill && <span className={styles.creditPill}>{state.balance} credits</span>}
+        <div className={styles.wide}>
+          <ModeSwitch />
+          {showCreditPill && <span className={styles.creditPill}>{state.balance} credits</span>}
+        </div>
         <Link href="/profile" className={styles.avatar} aria-label={`Profile: ${name}`}>
           <span aria-hidden="true">{name.charAt(0).toUpperCase()}</span>
         </Link>

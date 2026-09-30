@@ -1,8 +1,8 @@
 .bar {
-  height: 64px;
+  height: var(--size-app-bar);
   flex-shrink: 0;
   background: var(--color-primary);
-  color: #ffffff;
+  color: var(--color-on-primary);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -13,26 +13,30 @@
 }
 
 .iconBtn {
-  width: 40px;
-  height: 40px;
+  width: var(--size-control);
+  height: var(--size-control);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
-  color: #ffffff;
+  font-size: var(--text-xl);
+  color: var(--color-on-primary);
   border-radius: var(--radius-sm);
 }
 
+.iconBtn:focus-visible {
+  outline-color: var(--color-on-primary);
+}
+
 .iconBtn:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: color-mix(in srgb, var(--color-on-primary) 12%, transparent);
 }
 
 .spacer {
-  width: 40px;
+  width: var(--size-control);
 }
 
 .title {
-  font-size: 16px;
-  font-weight: 500;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
   font-family: var(--font-display);
 }
