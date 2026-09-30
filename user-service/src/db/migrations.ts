@@ -136,6 +136,11 @@ export const migrations: Migration[] = [
       -- was no way to change a password before this migration.
       ALTER TABLE users ADD COLUMN must_change_password boolean NOT NULL DEFAULT false;
       UPDATE users SET must_change_password = true WHERE is_seeded_admin;
+      -- Nor may it keep one: a bootstrap admin who signed in with the secret before this
+      -- migration is signed out everywhere, and must change the password to sign in again.
+      UPDATE refresh_sessions SET revoked_at = now()
+        WHERE revoked_at IS NULL
+          AND user_id IN (SELECT id FROM users WHERE must_change_password);
 
       -- The bootstrap itself is now audited, and it has no human actor. The actor
       -- is either a user (actor_id set) or the SYSTEM (actor_id null), never
@@ -151,6 +156,16 @@ export const migrations: Migration[] = [
       ALTER TABLE audit_records
         ADD CONSTRAINT audit_records_action_check
           CHECK (action IN ('SUSPEND', 'REACTIVATE', 'ROLE_GRANT', 'ROLE_REVOKE', 'ADMIN_BOOTSTRAP'));
+
+      -- Bootstrap admins created before this migration get the row the seed now writes, dated
+      -- when the account was created. An INSERT, which the append-only trigger allows.
+      INSERT INTO audit_records
+        (id, actor_id, actor_type, target_user_id, action, reason, occurred_at, correlation_id)
+      SELECT gen_random_uuid(), NULL, 'SYSTEM', id, 'ADMIN_BOOTSTRAP',
+             'Bootstrap administrator from deployment configuration (ADMIN_SEED_EMAILS); '
+               || 'recorded by migration 004',
+             created_at, 'migration-004'
+      FROM users WHERE is_seeded_admin;
     `,
   },
   {

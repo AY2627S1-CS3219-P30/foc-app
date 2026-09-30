@@ -74,6 +74,16 @@ It is UX only and is never read by an authorization decision.
 - **Trade-off:** a lone seeded admin cannot step down without first appointing and seeding a successor.
 - ❓ Suspending *another* admin is restricted to seeded admins here; the backlog only says "an administrator".
 
+### R4. Administrators may act on other people's errands — ✅ decided (product owner)
+Previously left open in roles.md ("deferred to the admin console"). Decision: **yes** — an administrator may
+act on other people's errands through the transitions the Order Service assigns to *Administrator* (today:
+resolving a dispute), with a reason, and the Order Service enforces it server-side. Which transitions those
+are is the Order Service's call (`order-service/README.md`).
+- **Why:** disputes need an administrator decision; `order-service/README.md`'s `DISPUTED → … (Administrator)`
+  transitions depend on it.
+- **Limits:** only the transitions the Order Service lists with *Administrator* as actor; never a wallet edit
+  (credits still move only through reservation, transfer and release). The console that drives it is NTH-01.
+
 ---
 
 ## 3. API contract
@@ -335,7 +345,7 @@ Suspending an already-suspended account is idempotent and adds no second audit r
 See roles.md. **Never promotes** an existing account; **fails loudly** on bad config; idempotent; emits `UserActivated`.
 - ~~No change-password endpoint, so the bootstrap password is the admin's password~~ — fixed: see B1.
 - **Limit:** `compose.yaml` carries a dev-only default (`admin@u.nus.edu`) — a committed credential for PLT-06 to remove.
-  It is now only usable once, to set a real password.
+  It no longer starts a session; it only sets a real password — for whoever uses it first (see B1).
 - **Rejected:** a first-registered-user-becomes-admin rule (racy, and a takeover risk), and a setup endpoint (an unauthenticated privilege grant).
 
 ### M7. Profile edits use a closed schema and are all-or-nothing — ✅
@@ -448,7 +458,19 @@ bootstrap admin's permanent password.
 - **Compare-and-swap** on the stored hash, so two simultaneous changes cannot both win. ❗ PGlite is single-connection, so this
   race is not exercised by an automated test (same limit as P4); the SQL is a single conditional `UPDATE`.
 - **Rate limited** with login's per-IP and per-email limiters, and the same Origin/JSON CSRF checks: it is as much a password oracle as login.
-- **Migration 004** flags every *existing* bootstrap admin, since none could have changed their password before.
+- **Migration 004** flags every *existing* bootstrap admin, since none could have changed their password before,
+  and revokes their live sessions. ❗ Found in review: the first version only set the flag, which only login read, so an
+  admin already signed in kept working. Refresh, the access-token guard and introspection now also treat a flagged
+  account's session as ended — the backstop for a session an instance still on older code starts during a rolling deploy.
+- **A login in flight cannot outlive a change.** Its session is inserted only if the account still has the hash it
+  verified, is `ACTIVE` and is not flagged (`INSERT … SELECT … WHERE EXISTS … FOR SHARE`); otherwise `401`. A test
+  replays the stale read; the lock ordering itself, like the compare-and-swap, needs two connections PGlite lacks.
+- **A seeded admin cannot choose the configured secret** as their new password (`422 PASSWORD_UNCHANGED`). Only a
+  seeded admin is checked: for anyone else the answer would confirm a guess of the secret.
+- **Limit — the secret is shared and proves no mailbox.** One `ADMIN_SEED_PASSWORD` covers every seeded address, and
+  `POST /auth/password` proves the password, not the mailbox, so until a seeded account is claimed, anyone who knows
+  the secret can claim it. Operating rule (roles.md §4): claim each seeded account as soon as it exists, and rotate the
+  secret whenever `ADMIN_SEED_EMAILS` changes.
 - **Trade-off:** one extra step at first sign-in (the web app must handle `PASSWORD_CHANGE_REQUIRED` — USR-05).
 
 ### B2. The bootstrap is audited, with the SYSTEM as actor — ✅
@@ -458,14 +480,19 @@ bootstrap admin's permanent password.
 - **Rejected:** a sentinel "system" user row (it would be a real account someone could try to log in as, and would appear in user
   lists), and a sentinel UUID without an FK (loses referential integrity for every other row).
 - **Not audited:** a restart that creates nothing, and a skipped address (nothing was granted). The secret is never recorded.
+- **Backfilled:** migration 004 writes the row for every bootstrap admin created before it (actor `SYSTEM`, dated at the
+  account's creation, correlation id `migration-004`), so every seeded admin has one.
 - The API exposes `actorType`; `actorId` is `null` for SYSTEM rows (a contract change — additive for readers that ignore unknown fields,
   but `actorId` is now nullable).
 
 ### B3. Keep the seeded-vs-appointed tier (US-FR3.1.3.1) — ✅ decided
 The feedback's worry: once the bootstrap admin graduates, a misbehaving appointed admin can never be removed.
-- **Chosen:** keep it. The recovery path is to add a new address to `ADMIN_SEED_EMAILS` and redeploy; that bootstraps a fresh seeded
-  admin who can demote the appointed one. A test walks through it. Recovery requires deployment access — the same authority that
-  created the first admin — and no database edit.
+- **Chosen:** keep it. The recovery path is to add a new address to `ADMIN_SEED_EMAILS`, rotate `ADMIN_SEED_PASSWORD` and redeploy;
+  that bootstraps a fresh seeded admin who can demote the appointed one. A test walks through it. Recovery requires deployment
+  access — the same authority that created the first admin — and no database edit.
+- **Limit:** the address must be a dedicated mailbox that has **never been registered**. The seed skips any existing row,
+  `PENDING_ACTIVATION` included, and registering an NUS address needs no access to its mailbox. If the boot log reports the
+  address as skipped, it was squatted: use another never-registered address and redeploy.
 - **Rejected:** dropping the tier. Then any appointed admin could demote every other admin but one, including the operators; the
   last-admin rule does not prevent that takeover.
 - **Trade-off:** if no seeded admin is reachable, removing an admin takes a redeploy rather than a click.
@@ -481,26 +508,34 @@ Order, Credit and the web app, not just the User Service).
 ## 12. Log privacy verification (USR-08, #156 — log half)
 
 ### L1. The scan now covers login, refresh, profile and admin paths — ✅
-`test/log-privacy.test.ts` walks registration, activation, login (success, wrong password, unknown email, suspended), refresh
-(rotation, reuse detection, garbage cookie), logout, `/users/me`, a refused profile edit, and every admin route — including an
-email inside a query string — at `trace`, then asserts the output holds **no email address** (plain or URL-encoded), password,
-Argon2 hash, activation token, access token, refresh token or service key, and that lines carry a `correlationId`.
+`test/log-privacy.test.ts` walks registration (incl. duplicate and off-domain), activation (incl. replay and a bad token), login
+(success, wrong password, unknown email, suspended), refresh (rotation, reuse detection, garbage cookie), logout, `/users/me`, a
+refused profile edit, every admin route, an email in a query string and in a URL path, and two forced `500`s, at `trace`. Every
+test checks the **whole capture**, not only its own lines, for an email address (plain or URL-encoded); the walk also asserts no
+password (set or attempted), Argon2 hash, activation, access or refresh token, service key or display name appears, and that
+every request line carries a `correlationId`.
 
-### L2. Two leaks found and fixed — ✅
+### L2. Leaks found and fixed — ✅
 | What | Fix |
 |---|---|
-| `main.ts` logged every bootstrap admin's email at boot (`Seeded administrators: a@…`). | Counts only; who was bootstrapped is in the audit trail. |
-| A misconfigured `ADMIN_SEED_EMAILS` entry was echoed in the boot error printed with `console.error`. | The error names the entry by position. |
+| `main.ts` logged every bootstrap admin's email at boot (`Seeded administrators: a@…`). | `reportSeed`: counts, and skipped entries by position (`address(es) 2, 4 of 5`). Who was bootstrapped is in the audit trail. |
+| A misconfigured `ADMIN_SEED_EMAILS` entry was echoed in the boot error printed with `console.error`. | The error names the entry by position and gives its domain, which is the actual mistake. Positions count addresses (blank entries are dropped when the variable is parsed). |
+| pino's default `err` serializer copies every field of an error before redaction runs: PostgreSQL's `detail` and `where` quote the row (`Key (lower(email))=(…)`, `Failing row contains (…, $argon2id$…)`), a mailer's message names the recipient, and pino copies `err.message` into `msg`. | `createLogger` serializes `err` itself: type, message and stack with email addresses and password hashes masked, plus code, constraint, table and socket fields. `detail`, `where` and everything else are dropped; the copied `msg` is masked too. Platform-wide. |
+| Only the query string was stripped from the request line, so `GET /admin/users/alice@…` (or any mistyped route) logged the address. | The path is masked, raw or `%40`-encoded. |
+| `to` (a mail recipient) and `displayName` were not redaction keys. | Added. No other service logs a field with either name. |
 
 ### L3. The first scan could not see service logs — ✅ (test harness bug)
 The test app never routed Nest's `Logger` into the captured pino stream, so only request lines were scanned: a deliberate
-`new Logger().log({ user: email })` in login **passed** the old test. The harness now calls `app.useLogger(PinoLoggerService)`,
-exactly as `main.ts` does, and the same mutation fails the scan.
+`new Logger().log({ user: email })` in login **passed** the old test. A suite that captures logs now gets `main.ts`'s wiring
+(`PinoLoggerService` as the app's logger), and the suite first proves the capture works: a canary logged through Nest's `Logger`
+must arrive, and the email pattern must match an address deliberately logged, so the scans cannot pass vacuously. Nest installs
+an app's logger process-wide, so suites that do not capture keep Nest's console logger and an unexpected `500` still prints.
 
 ### L4. Residual risk — 🟡
-An *unhandled* exception is logged with its `err` object. A PostgreSQL error's `detail` can quote a row value (e.g. a
-unique-violation on email). Registration uses `ON CONFLICT`, so no tested path raises one, but the redaction backstop does not
-reach inside `err.detail`. Worth a platform-level serializer for `err` (Jonus).
+Masking reaches `err` and the request path only, and works by pattern (email addresses, Argon2 and bcrypt hashes). An address,
+display name or token a developer writes into any other message or field is caught by key redaction or by the scan, and the
+scan only covers the paths it walks. The event consumer (`platform/src/events/consumer.ts`) logs a failed handler's
+`err.message` as a plain `reason` field, which the `err` serializer does not see.
 
 ### L5. Still open in USR-08
 The admin console's errand list (needs the Order Service's endpoints) and read-only wallet inspection (needs CRD-05) are blocked

@@ -1,5 +1,6 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RateLimiter } from '../src/auth/rate-limiter.js';
+import { usersRepository } from '../src/users/users.repository.js';
 import { createTestApp, openLimiters, type TestApp } from './helpers/app.js';
 import {
   activeStudent,
@@ -51,6 +52,28 @@ describe('POST /auth/password', () => {
       .set('Origin', ORIGIN)
       .set('Content-Type', 'application/json')
       .expect(401);
+  });
+
+  it('a login that verified the old password just before a change starts no session', async () => {
+    await activeStudent(t, EMAIL);
+    // What a login in flight read before the change committed: the old hash, which it then verifies.
+    const stale = await usersRepository.findCredentials(t.db, EMAIL);
+    await changePassword(t, EMAIL, PASSWORD, NEW_PASSWORD).expect(204);
+
+    const read = vi.spyOn(usersRepository, 'findCredentials').mockResolvedValueOnce(stale);
+    try {
+      const res = await http(t)
+        .post('/auth/login')
+        .set('Origin', ORIGIN)
+        .send({ email: EMAIL, password: PASSWORD })
+        .expect(401);
+      expect(res.body.error.code).toBe('INVALID_CREDENTIALS');
+      expect(read).toHaveBeenCalledOnce();
+    } finally {
+      read.mockRestore();
+    }
+    const live = await t.db.query('SELECT 1 FROM refresh_sessions WHERE revoked_at IS NULL');
+    expect(live.rows).toHaveLength(0);
   });
 
   it('answers a wrong password and an unknown email identically', async () => {

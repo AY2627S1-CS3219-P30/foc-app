@@ -7,7 +7,7 @@ import { AdminGuard } from '../auth/admin.guard.js';
 import { JwksController } from '../auth/jwks.controller.js';
 import { JWT, JwtService } from '../auth/jwt.service.js';
 import { defaultRateLimiters, RATE_LIMITERS } from '../auth/rate-limiter.js';
-import { SessionsService } from '../auth/sessions.service.js';
+import { SESSION_SETTINGS, SessionsService } from '../auth/sessions.service.js';
 import { SERVICE_KEYS, ServiceKeyGuard } from '../auth/service-key.guard.js';
 import { env } from '../config.js';
 import { DB } from '../db/db.js';
@@ -80,6 +80,7 @@ export class UsersModule {
             activationTokenTtlHours: env.ACTIVATION_TOKEN_TTL_HOURS,
           },
         },
+        { provide: SESSION_SETTINGS, useValue: { bootstrapPassword: env.ADMIN_SEED_PASSWORD } },
       ],
       exports: [DB, UsersService],
     };

@@ -129,6 +129,7 @@ export const usersRepository = {
     passwordHash: string;
     status: AccountStatus;
     mustChangePassword: boolean;
+    isSeededAdmin: boolean;
     displayName: string;
     roles: Role[];
   } | null> {
@@ -137,10 +138,11 @@ export const usersRepository = {
       password_hash: string;
       status: AccountStatus;
       must_change_password: boolean;
+      is_seeded_admin: boolean;
       display_name: string;
       roles: Role[];
     }>(
-      `SELECT u.id, u.password_hash, u.status, u.must_change_password,
+      `SELECT u.id, u.password_hash, u.status, u.must_change_password, u.is_seeded_admin,
               coalesce(p.display_name, '') AS display_name,
               array(SELECT r.role FROM user_roles r WHERE r.user_id = u.id ORDER BY r.role) AS roles
        FROM users u LEFT JOIN profiles p ON p.user_id = u.id
@@ -154,6 +156,7 @@ export const usersRepository = {
           passwordHash: r.password_hash,
           status: r.status,
           mustChangePassword: r.must_change_password,
+          isSeededAdmin: r.is_seeded_admin,
           displayName: r.display_name,
           roles: r.roles,
         }
