@@ -15,6 +15,11 @@ export function validationFailed(details: FieldError[]): ApiException {
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/** Postgres rejects `\0` in text, which would surface as a 500; refuse it up front as a 422. */
+const rejectNul = <T extends z.ZodType<string>>(schema: T): T =>
+  schema.refine((v) => !v.includes('\0'), 'Must not contain a NUL character.');
+const text = () => rejectNul(z.string());
+
 const openingHoursEntry = z.strictObject({
   day: z.enum(DAYS),
   opens: z.string().regex(HHMM, 'Time must be HH:MM (24-hour).'),
@@ -46,22 +51,21 @@ const openingHoursSchema = z
 
 /** The always-present fields, shared by create (all required) and update (all optional). */
 const baseFields = {
-  name: z.string().trim().min(1).max(200),
+  name: text().trim().min(1).max(200),
   type: z.enum(SUPPLIER_TYPES),
   // Canonicalize the building the same way the seed does (collapse spacing and
   // apostrophes, then map known spellings onto one canonical name) BEFORE the
   // length check, so `Com 2` and `COM2` land on the same value and the unique
   // `(lower(name), lower(building))` index catches the resulting duplicate.
   // The transform runs first so min/max validate the canonical form.
-  building: z
-    .string()
+  building: text()
     .trim()
     .min(1)
     .max(200)
     .transform((v) => normalizeBuilding(v))
     .pipe(z.string().min(1).max(200)),
-  floor: z.string().trim().min(1).max(50),
-  locationDescription: z.string().trim().min(1).max(500),
+  floor: text().trim().min(1).max(50),
+  locationDescription: text().trim().min(1).max(500),
   openingHours: openingHoursSchema.nullable(),
   latitude: z.number().min(-90).max(90).nullable(),
   longitude: z.number().min(-180).max(180).nullable(),
@@ -69,11 +73,8 @@ const baseFields = {
   // `javascript:`, `data:`, `http:`), which would let an image field carry an
   // active or plaintext URL. Restrict the scheme, keep the trim, length cap and
   // nullable semantics.
-  imageUrl: z
-    .url({ protocol: /^https$/ })
-    .max(2048)
-    .nullable(),
-  tags: z.array(z.string().trim().min(1).max(50)).max(50).nullable(),
+  imageUrl: rejectNul(z.url({ protocol: /^https$/ }).max(2048)).nullable(),
+  tags: z.array(text().trim().min(1).max(50)).max(50).nullable(),
 };
 
 /**
@@ -143,42 +144,46 @@ export const supplierUpdateSchema = z
 
 export const supplierIdSchema = z.uuid();
 
-/** The fields a caller may sort by; each is tie-broken by `supplierId` for stable paging. */
+/** The fields a caller may sort by; ties are broken by name, then `supplierId`, for stable paging. */
 export const SUPPLIER_SORTS = ['name', 'type', 'building', 'updatedAt'] as const;
 export type SupplierSort = (typeof SUPPLIER_SORTS)[number];
 
-// Page and page size are clamped, never rejected: an out-of-range or unparseable
-// value falls back to a sane bound so a listing request always returns a page.
-const page = z.coerce
-  .number()
-  .int()
-  .transform((v) => Math.max(1, v))
-  .catch(1);
-const pageSize = z.coerce
-  .number()
-  .int()
-  .transform((v) => Math.min(100, Math.max(1, v)))
-  .catch(20);
+// Page and page size are clamped, never rejected: an out-of-range value is pulled
+// into bounds and anything that is not a plain decimal integer (`''`, `0x2`, `1e3`,
+// a repeated key) falls back to the default, so a listing request always returns a page.
+const count = (fallback: number, clamp: (n: number) => number) =>
+  z
+    .string()
+    .trim()
+    .regex(/^-?\d{1,9}$/)
+    .transform((v) => clamp(Number(v)))
+    .catch(fallback);
+
+/** An optional filter where an empty or whitespace-only value (a cleared input) means unset. */
+const optionalFilter = <T extends z.ZodType>(schema: T) =>
+  z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    schema.optional(),
+  );
 
 /**
  * The `GET /suppliers` query. Filters (`type`, `building`) and the search term
- * are optional; `building` is canonicalized the same way create is, so `com2`
- * matches the stored `COM2`. `sort`/`order` fall back to the stable default
- * rather than erroring on a cosmetic typo.
+ * are optional; `type` is case-insensitive and `building` is canonicalized the
+ * same way create is, so `com2` matches the stored `COM2`. `sort`/`order` fall
+ * back to the stable default rather than erroring on a cosmetic typo.
  */
 export const supplierListQuerySchema = z.object({
-  page,
-  pageSize,
-  type: z.enum(SUPPLIER_TYPES).optional(),
-  building: z
-    .string()
-    .trim()
-    .min(1)
-    .transform((v) => normalizeBuilding(v))
-    .optional(),
-  q: z.string().trim().min(1).max(200).optional(),
+  page: count(1, (v) => Math.max(1, v)),
+  pageSize: count(20, (v) => Math.min(100, Math.max(1, v))),
+  type: optionalFilter(z.string().trim().toUpperCase().pipe(z.enum(SUPPLIER_TYPES))),
+  building: optionalFilter(text().trim().transform(normalizeBuilding)),
+  q: optionalFilter(text().trim().max(200)),
   sort: z.enum(SUPPLIER_SORTS).catch('name'),
-  order: z.enum(['asc', 'desc']).catch('asc'),
+  order: z
+    .string()
+    .toLowerCase()
+    .pipe(z.enum(['asc', 'desc']))
+    .catch('asc'),
 });
 
 export type SupplierListQuery = z.output<typeof supplierListQuerySchema>;

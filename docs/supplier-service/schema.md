@@ -1,8 +1,8 @@
 # Supplier Service — Database Choice and Schema
 
 D2 §1–§2. Backlog refs: SS-FR4.1.1, and the SUP-01 acceptance criteria.
-Ticket: SUP-01 (#125). Out of scope here: search/filter/sort/pagination (SUP-02),
-the listing UI (SUP-03), and the deletion-hold against live errands (SUP-04).
+Ticket: SUP-01 (#125); the listing indexes in §2 are SUP-02 (#126). Out of scope
+here: the listing UI (SUP-03) and the deletion-hold against live errands (SUP-04).
 
 ## 1. Database: PostgreSQL
 
@@ -72,8 +72,22 @@ are `timestamptz` (UTC).
   "Starbucks @ YIH" and "Starbucks @ UTown" both live (different buildings); two
   active same-name suppliers in one building are refused; deactivating a supplier
   frees its name for reuse.
-- `suppliers_active_type_idx` — `(type) WHERE active`: the common listing path
-  (SUP-02 builds on it).
+
+**Listing indexes (SUP-02, migration `003`)**
+
+All are partial (`WHERE active`), since only active rows are listed.
+
+- **Sorts** — `(lower(name), supplier_id)`, `(type, lower(name), supplier_id)`,
+  `(lower(building), lower(name), supplier_id)`, `(updated_at, lower(name), supplier_id)`.
+  Each matches its `ORDER BY` exactly (a backward scan serves `DESC`). Text keys
+  are lower-cased so order does not depend on the database collation (musl's is
+  byte order), and every sort tie-breaks by name then id. The building index also
+  serves the building filter; the type index replaces 001's `(type)` index.
+- **Search** — `pg_trgm` GIN indexes on `name`, `building`, `location_description`
+  and `supplier_tags_text(tags)`, an immutable function joining tag values with
+  newlines. Every arm of the `ILIKE '%q%'` search is indexable, so the planner
+  can `BitmapOr` them. This adds the `pg_trgm` extension, a standard contrib
+  module that PGlite also ships.
 
 ### `supplier_idempotency_keys`
 

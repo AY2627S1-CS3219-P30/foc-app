@@ -33,11 +33,15 @@ const UPDATABLE = {
 const jsonParam = (value: unknown): string | null =>
   value === null || value === undefined ? null : JSON.stringify(value);
 
-/** Sort field → column. The key set is closed (validated), so the column is never caller-derived. */
-const SORT_COLUMN: Record<SupplierSort, string> = {
-  name: 'name',
+/**
+ * Sort field → sort key. The key set is closed (validated), so the expression is
+ * never caller-derived. Text keys are lower-cased so casing never decides order
+ * under a byte-order collation.
+ */
+const SORT_KEY: Record<SupplierSort, string> = {
+  name: 'lower(name)',
   type: 'type',
-  building: 'building',
+  building: 'lower(building)',
   updatedAt: 'updated_at',
 };
 
@@ -123,10 +127,10 @@ export const suppliersRepository = {
   },
 
   /**
-   * A page of active suppliers, filtered, searched and sorted (SUP-02). Ordering
-   * always ends in `supplier_id` so paging the full set returns every row
-   * exactly once. Returns the page's lean rows and the unpaged `total`, so the
-   * caller can report how many matched an empty page included.
+   * A page of active suppliers, filtered, searched and sorted (SUP-02). Every
+   * sort tie-breaks by name then `supplier_id`, so paging the full set returns
+   * every row exactly once. Returns the page's lean rows and the unpaged
+   * `total`; run it in one snapshot so the two agree.
    */
   async list(q: Queryable, f: ListFilters): Promise<{ rows: SupplierListRow[]; total: number }> {
     const where = ['active'];
@@ -144,9 +148,7 @@ export const suppliersRepository = {
         `(name ILIKE ${term} ESCAPE '\\'
           OR building ILIKE ${term} ESCAPE '\\'
           OR location_description ILIKE ${term} ESCAPE '\\'
-          OR (tags IS NOT NULL AND EXISTS (
-                SELECT 1 FROM jsonb_array_elements_text(tags) AS tag
-                WHERE tag ILIKE ${term} ESCAPE '\\')))`,
+          OR supplier_tags_text(tags) ILIKE ${term} ESCAPE '\\')`,
       );
     }
     const clause = `WHERE ${where.join(' AND ')}`;
@@ -157,11 +159,12 @@ export const suppliersRepository = {
     );
     const total = totalResult.rows[0]?.n ?? 0;
 
-    // `order` is validated to asc|desc and the sort column comes from a fixed map,
-    // so neither reaches SQL from raw input. Apply the direction to the tie-break
-    // too so each sort has one deterministic total order.
+    // `order` is validated to asc|desc and the sort key comes from a fixed map,
+    // so neither reaches SQL from raw input. Apply the direction to the
+    // tie-breaks too so each sort is one total order an index can walk.
     const dir = f.order === 'desc' ? 'DESC' : 'ASC';
-    const orderBy = `ORDER BY ${SORT_COLUMN[f.sort]} ${dir}, supplier_id ${dir}`;
+    const keys = [...new Set([SORT_KEY[f.sort], 'lower(name)', 'supplier_id'])];
+    const orderBy = `ORDER BY ${keys.map((k) => `${k} ${dir}`).join(', ')}`;
     const { rows } = await q.query<SupplierListRow>(
       `SELECT ${LIST_COLUMNS} FROM suppliers ${clause}
        ${orderBy}

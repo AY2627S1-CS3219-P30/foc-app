@@ -84,18 +84,24 @@ optional; an unmatched query is a `200` empty page (`total: 0`), never a `404`, 
 
 ### Query parameters
 
-| Parameter  | Default | Notes                                                                                    |
-| ---------- | ------- | ---------------------------------------------------------------------------------------- |
-| `page`     | `1`     | 1-based. Clamped up to `1`, never rejected.                                              |
-| `pageSize` | `20`    | **Clamped to 1–100** (not rejected); an unparseable value falls back to `20`.            |
-| `type`     | —       | Exact match on the type enum (`FOOD \| CAFE \| PRINTING \| SHOPPING \| LANDMARK`).       |
-| `building` | —       | Case-insensitive; canonicalized the same way create is, so `com2` matches stored `COM2`. |
-| `q`        | —       | Case-insensitive substring search across **name, building, location description, tags**. |
-| `sort`     | `name`  | One of `name`, `type`, `building`, `updatedAt` (last-updated). Unknown → default.        |
-| `order`    | `asc`   | `asc` or `desc`. Unknown → default.                                                      |
+| Parameter  | Default | Notes                                                                                         |
+| ---------- | ------- | --------------------------------------------------------------------------------------------- |
+| `page`     | `1`     | 1-based. Clamped up to `1`, never rejected.                                                   |
+| `pageSize` | `20`    | **Clamped to 1–100** (not rejected); anything but a plain integer falls back to `20`.         |
+| `type`     | —       | Case-insensitive match on the type enum (`FOOD \| CAFE \| PRINTING \| SHOPPING \| LANDMARK`). |
+| `building` | —       | Case-insensitive; canonicalized the same way create is, so `com2` matches stored `COM2`.      |
+| `q`        | —       | Case-insensitive substring search across **name, building, location description, tags**.      |
+| `sort`     | `name`  | One of `name`, `type`, `building`, `updatedAt` (last-updated). Unknown → default.             |
+| `order`    | `asc`   | `asc` or `desc`, any case. Unknown → default.                                                 |
 
-Every sort is **tie-broken by `supplierId`**, so paging the full set returns each
-record exactly once and the order is stable across requests.
+An empty or whitespace-only `type`, `building` or `q` is ignored, so a cleared
+search box lists everything. An unknown `type`, a repeated `type`/`building`/`q`,
+or a NUL character is a `422 VALIDATION_FAILED`. Unknown parameters are ignored.
+
+Name and building sort case-insensitively, and every sort is **tie-broken by name,
+then `supplierId`**, so paging the full set returns each record exactly once and
+the order is stable across requests. `total` and `items` are read in one snapshot,
+so they always agree.
 
 ### Response
 
@@ -122,11 +128,11 @@ axis; there is deliberately no radius/nearest search in this service.
 
 ### Indexes (migration `003`)
 
-Backing the filter, sort and search paths over active rows: `lower(building)` for
-the building filter; `(name, supplier_id)`, `(type, name, supplier_id)` and
-`(updated_at, supplier_id)` for the sorts and their id tie-break; and **pg_trgm
-GIN** indexes on `name`, `building` and `location_description` so the
-case-insensitive substring search is index-backed rather than a scan.
+Every sort and every search arm is index-backed over active rows: a B-tree per
+sort matching its `ORDER BY` (the building one also serves the building filter),
+and **pg_trgm GIN** indexes on `name`, `building`, `location_description` and
+`supplier_tags_text(tags)`, so the planner can `BitmapOr` the search instead of
+scanning. See [`schema.md`](../docs/supplier-service/schema.md) §2.
 
 ## Seed
 

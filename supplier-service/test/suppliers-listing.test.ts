@@ -31,6 +31,39 @@ const listing = (query = '') =>
     .expect(200)
     .then((r) => r.body);
 
+const ids = (page: { items: { supplierId: string }[] }) => page.items.map((s) => s.supplierId);
+
+interface Listed {
+  supplierId: string;
+  name: string;
+  type: string;
+  building: string;
+  updatedAt: string;
+}
+
+const SORT_KEY: Record<string, (s: Listed) => string> = {
+  name: (s) => s.name.toLowerCase(),
+  type: (s) => s.type,
+  building: (s) => s.building.toLowerCase(),
+  updatedAt: (s) => s.updatedAt,
+};
+
+/** Byte-order compare, as the SQL sorts: no locale folding beyond the explicit lower(). */
+const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+
+/** The ids in the order the listing must return: sort key, then lower-cased name, then id. */
+const expectedOrder = (rows: Listed[], sort: string, order: 'asc' | 'desc') => {
+  const key = SORT_KEY[sort]!;
+  const sorted = [...rows].sort(
+    (a, b) =>
+      compare(key(a), key(b)) ||
+      compare(a.name.toLowerCase(), b.name.toLowerCase()) ||
+      compare(a.supplierId, b.supplierId),
+  );
+  if (order === 'desc') sorted.reverse();
+  return sorted.map((s) => s.supplierId);
+};
+
 /** Creates `n` active suppliers with distinct name+building, returning them oldest-first. */
 const seed = async (n: number, over: (i: number) => Record<string, unknown> = () => ({})) => {
   const created = [];
@@ -91,47 +124,69 @@ describe('listing shape and defaults', () => {
 
 describe('pagination covers the whole set exactly once', () => {
   it('pages the full set with no gaps or duplicates, ordered by name then id', async () => {
-    const all = await seed(25);
-    const expectedIds = [...all].map((s) => s.supplierId).sort();
+    // Shared names force the id tie-break to decide order within each name.
+    const all = await seed(25, (i) => ({ name: `Stall ${i % 5}` }));
 
     const seen: string[] = [];
     for (let page = 1; page <= 3; page++) {
       const body = await listing(`?page=${page}&pageSize=10`);
       expect(body.total).toBe(25);
-      seen.push(...body.items.map((s: { supplierId: string }) => s.supplierId));
+      seen.push(...ids(body));
     }
-    expect(seen).toHaveLength(25);
-    expect([...seen].sort()).toEqual(expectedIds);
+    expect(seen).toEqual(expectedOrder(all, 'name', 'asc'));
+  });
 
-    // Ordering is name then id: the flat sequence equals a single full page.
-    const full = await listing('?pageSize=100');
-    expect(seen).toEqual(full.items.map((s: { supplierId: string }) => s.supplierId));
+  it('sorts names case-insensitively', async () => {
+    for (const name of ['TOMORO', 'he by He Brews', 'NUS Co-op', 'Nami']) {
+      await create({ name, building: 'COM1' });
+    }
+    const page = await listing();
+    expect(page.items.map((s: { name: string }) => s.name)).toEqual([
+      'he by He Brews',
+      'Nami',
+      'NUS Co-op',
+      'TOMORO',
+    ]);
   });
 });
 
-describe('every sort option is stable across pages', () => {
+describe('every sort option orders correctly and is stable across pages', () => {
   const types = ['FOOD', 'CAFE', 'PRINTING', 'SHOPPING', 'LANDMARK'] as const;
+  const names = ['kopi a', 'Kopi B', 'KOPI c'];
+  const buildings = ['blk A', 'Blk b', 'BLK C', 'blk D'];
+  const updatedAt = (i: number) => `2026-01-0${1 + (i % 2)}T00:00:00.000Z`;
+  let all: Listed[];
 
   beforeEach(async () => {
-    // Repeated sort keys (shared name, type, building) force the id tie-break to matter.
-    await seed(12, (i) => ({
-      name: `Kopi ${i % 3}`,
+    // Repeated keys in mixed case force both the case folding and the
+    // name-then-id tie-breaks to matter for every sort.
+    const created = await seed(12, (i) => ({
+      name: names[i % names.length],
       type: types[i % types.length],
-      building: `Blk ${i % 4}`,
+      building: buildings[i % buildings.length],
     }));
+    // Two shared timestamps, so updatedAt ties too.
+    all = created.map((s: Listed, i: number) => ({ ...s, updatedAt: updatedAt(i) }));
+    for (const at of new Set(all.map((s) => s.updatedAt))) {
+      await t.db.query('UPDATE suppliers SET updated_at = $1 WHERE supplier_id = ANY($2)', [
+        at,
+        all.filter((s) => s.updatedAt === at).map((s) => s.supplierId),
+      ]);
+    }
   });
 
   for (const sort of ['name', 'type', 'building', 'updatedAt'] as const) {
     for (const order of ['asc', 'desc'] as const) {
-      it(`sort=${sort} order=${order} pages identically to one full page`, async () => {
+      it(`sort=${sort} order=${order} orders by key, name, id and pages without gaps`, async () => {
+        const expected = expectedOrder(all, sort, order);
         const full = await listing(`?sort=${sort}&order=${order}&pageSize=100`);
+        expect(ids(full)).toEqual(expected);
+
         const paged: string[] = [];
         for (let page = 1; page <= 3; page++) {
-          const body = await listing(`?sort=${sort}&order=${order}&page=${page}&pageSize=5`);
-          paged.push(...body.items.map((s: { supplierId: string }) => s.supplierId));
+          paged.push(...ids(await listing(`?sort=${sort}&order=${order}&page=${page}&pageSize=5`)));
         }
-        expect(paged).toEqual(full.items.map((s: { supplierId: string }) => s.supplierId));
-        expect(new Set(paged).size).toBe(12);
+        expect(paged).toEqual(expected);
       });
     }
   }
@@ -187,6 +242,9 @@ describe('search is case-insensitive across all four fields', () => {
       locationDescription: 'nothing here',
       tags: ['halal'],
     });
+    await create({ name: '100% Juice', building: 'COM1' });
+    await create({ name: 'Snack_Bar', building: 'COM1' });
+    await create({ name: 'Back\\Slash', building: 'COM1' });
   });
 
   it('matches the term in name, building, location description or tags', async () => {
@@ -205,9 +263,20 @@ describe('search is case-insensitive across all four fields', () => {
     expect(page).toMatchObject({ total: 0, items: [] });
   });
 
-  it('treats LIKE wildcards as literal text', async () => {
-    const page = await listing('?q=%25');
-    expect(page.total).toBe(0);
+  // Unescaped, `%` and `_` would match every row and `\` would escape the trailing `%`.
+  it.each([
+    ['%25', '100% Juice'],
+    ['_', 'Snack_Bar'],
+    ['%5C', 'Back\\Slash'],
+  ])('treats ?q=%s as literal text, not a LIKE wildcard', async (q, name) => {
+    const page = await listing(`?q=${q}`);
+    expect(page.items.map((s: { name: string }) => s.name)).toEqual([name]);
+  });
+
+  it('matches tag values, not the JSON they are stored as', async () => {
+    for (const q of ['%22', '%5B', '%2C']) {
+      expect((await listing(`?q=${q}`)).total).toBe(0);
+    }
   });
 });
 
