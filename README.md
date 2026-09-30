@@ -335,13 +335,84 @@ docker compose up -d rabbitmq
 RABBITMQ_URL=amqp://foc:foc_dev@localhost:55672 npm test -w @foc/platform
 ```
 
-### Not done here
+### Publishing with a database write: the outbox and inbox
 
-Publishing is **not yet atomic with a database write**. A crash between commit
-and publish loses the event — which is exactly the gap the transactional outbox
-in [EVT-02](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/135) closes.
-Until then, do not treat a published event as a durable consequence of a
-committed transaction.
+An event that records a state change is never published straight from the
+code that made the change: a crash between the commit and the publish would
+lose it. It is written to the service's `outbox_events` table **in the same
+transaction as the change**, and the platform's relay publishes it after the
+commit ([EVT-02](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/135)).
+The event exists exactly when the change does — a rollback discards both, and a
+crash after the commit only delays the event until the relay next runs.
+
+```ts
+import {
+  INBOX_TABLE_SQL,
+  OUTBOX_TABLE_SQL,
+  insertOutboxEvent,
+  provideOutboxRelay,
+  withInbox,
+} from '@foc/platform';
+
+// 1. Migrations: the shared tables. Both snippets are frozen, like any migration.
+{ id: '002_outbox', sql: OUTBOX_TABLE_SQL },
+{ id: '003_inbox', sql: INBOX_TABLE_SQL },
+
+// 2. Producing: in the transaction that changes state. The payload is checked
+//    against the catalogue here, so a bad shape fails the change, not a consumer.
+await db.transaction(async (tx) => {
+  await orders.save(tx, order); // PENDING_CREDIT
+  await insertOutboxEvent(tx, {
+    eventType: EVENTS.CREDIT_RESERVATION_REQUESTED,
+    aggregateId: order.id,
+    correlationId,
+    payload: { orderId: order.id, requesterId, amount },
+  });
+});
+
+// 3. Relaying: next to EventsModule, so it runs only when RABBITMQ_URL is set.
+providers: env.RABBITMQ_URL ? [provideOutboxRelay({ db: DB })] : [],
+
+// 4. Consuming: the effect, any reply, and the inbox record commit together.
+handler: withInbox(db, RESERVATION_QUEUE, async (event, tx) => {
+  await wallets.reserve(tx, event.payload);
+  await insertOutboxEvent(tx, {
+    eventType: EVENTS.CREDITS_RESERVED,
+    aggregateId: event.payload.orderId,
+    correlationId: event.correlationId,
+    causationId: event.eventId,
+    payload: event.payload,
+  });
+}),
+```
+
+| Property                                | How                                                                                                                     |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Crash after commit still publishes      | The relay polls at boot, then every 500 ms, for rows with no `published_at`                                             |
+| A redelivery is recognisably the same   | The row's id is the envelope's `eventId` on every attempt, with its `occurredAt` and `correlationId`                    |
+| Duplicates have one effect              | The inbox (`processed_events`, keyed by consumer and event id) is written in the effect's own transaction               |
+| One aggregate's events stay in order    | A row waits while an earlier row for the same aggregate is unpublished; other aggregates are not held up                |
+| Several instances can relay at once     | Rows are claimed with `FOR UPDATE SKIP LOCKED`                                                                          |
+| The broker is down or refuses a message | The row stays unpublished, with `attempts`, `last_error` and a backoff of 1 s doubling to 60 s; nothing is ever dropped |
+
+Delivery is therefore **at least once**, and every consumer must go through the
+inbox (or be naturally idempotent, like dropping a cache entry).
+
+**Metrics** are structured log lines: `outbox relay stats` every minute
+(`published`, `failed`, `backlog`, `oldestUnpublishedAgeMs`), `outbox publish
+failed; will retry` per failed attempt, and `duplicate event skipped` per
+duplicate an inbox absorbs. `OutboxRelay.stats` returns the same numbers. A
+growing `oldestUnpublishedAgeMs` is the signal that events are stuck.
+
+The relay's concurrency test needs real PostgreSQL, since PGlite runs one
+transaction at a time:
+
+```bash
+docker compose up -d postgres
+TEST_DATABASE_URL=postgres://postgres:postgres_dev@localhost:55432/postgres npm test -w @foc/platform
+```
+
+Not done yet: published outbox rows and old inbox rows are never pruned.
 
 ## Continuous integration
 
