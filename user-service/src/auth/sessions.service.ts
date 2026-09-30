@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { ApiException } from '@foc/platform';
 import { DB, type Db } from '../db/db.js';
 import { normalizeEmail } from '../users/email.js';
+import { validationFailed } from '../users/validation.js';
 import {
   usersRepository as users,
   type AccountStatus,
@@ -53,6 +54,15 @@ export class SessionsService {
     }
     // Status is revealed only after the password proves the caller owns the account.
     if (user.status !== 'ACTIVE') throw codeForStatus(user.status);
+    // A bootstrap password is shared deployment configuration, not a credential: it proves
+    // who you are exactly once, to replace it (US-FR3.1.3.2). No session is started with it.
+    if (user.mustChangePassword) {
+      throw new ApiException(
+        403,
+        'PASSWORD_CHANGE_REQUIRED',
+        'Choose a new password before signing in.',
+      );
+    }
 
     const sessionId = randomUUID();
     const refreshToken = newOpaqueToken();
@@ -124,6 +134,49 @@ export class SessionsService {
           status: identity.status,
         });
       }
+    }
+  }
+
+  /**
+   * Replaces a password after proving the current one. Proof is the password itself rather than
+   * an access token, so the same call serves a bootstrap admin who has no session yet (their login
+   * is refused with `PASSWORD_CHANGE_REQUIRED`) and any active user changing theirs.
+   *
+   * Every session of the account is revoked in the same transaction: whoever knew the old password
+   * may already hold one. Failure responses match login's, so this is no better an oracle than it.
+   */
+  async changePassword(rawEmail: string, currentPassword: string, newPassword: string) {
+    const user = await users.findCredentials(this.db, normalizeEmail(rawEmail));
+
+    this.dummyHash ??= hashPassword('not-a-real-password');
+    const valid = await verifyPassword(
+      user?.passwordHash ?? (await this.dummyHash),
+      currentPassword,
+    );
+    if (!user || !valid) {
+      throw new ApiException(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.');
+    }
+    if (user.status !== 'ACTIVE') throw codeForStatus(user.status);
+    if (newPassword === currentPassword) {
+      throw validationFailed([
+        {
+          field: 'newPassword',
+          code: 'PASSWORD_UNCHANGED',
+          message: 'Choose a password different from the current one.',
+        },
+      ]);
+    }
+
+    // Hashed before the transaction: Argon2id is deliberately slow and must not hold a connection.
+    const newHash = await hashPassword(newPassword);
+    const replaced = await this.db.transaction(async (tx) => {
+      if (!(await users.replacePassword(tx, user.id, user.passwordHash, newHash))) return false;
+      await sessions.revokeAllForUser(tx, user.id);
+      return true;
+    });
+    // Lost a race with another change: the password we verified is no longer the current one.
+    if (!replaced) {
+      throw new ApiException(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.');
     }
   }
 

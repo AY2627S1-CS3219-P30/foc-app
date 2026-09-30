@@ -27,8 +27,10 @@ const as = (a: Actor) => ({
 });
 const events = async (type: string) =>
   (await t.db.query('SELECT * FROM outbox_events WHERE event_type = $1', [type])).rows;
+/** Human-initiated audit rows. The bootstrap of `root`/`root2` writes SYSTEM rows, covered in seed.test.ts. */
 const audit = async () =>
-  (await t.db.query('SELECT * FROM audit_records ORDER BY occurred_at')).rows;
+  (await t.db.query("SELECT * FROM audit_records WHERE actor_type = 'USER' ORDER BY occurred_at"))
+    .rows;
 
 beforeAll(async () => {
   t = await createTestApp();
@@ -230,21 +232,24 @@ describe('audit trail (US-NFR4.1.2)', () => {
   it('lists records newest first and filters by target', async () => {
     await as(root).suspend(student.id, 'one').expect(200);
     await as(root).reactivate(student.id, 'two').expect(200);
-    const all = (await as(root).get('/admin/audit-records').expect(200)).body;
+    const all = (await as(root).get(`/admin/audit-records?targetUserId=${student.id}`).expect(200))
+      .body;
     expect(all.total).toBe(2);
     expect(all.items.map((i: { action: string }) => i.action)).toEqual(['REACTIVATE', 'SUSPEND']);
     expect(all.items[0]).toEqual({
       id: expect.any(String),
       actorId: root.id,
+      actorType: 'USER',
       targetUserId: student.id,
       action: 'REACTIVATE',
       reason: 'two',
       occurredAt: expect.any(String),
       correlationId: expect.any(String),
     });
-    const none = (await as(root).get(`/admin/audit-records?targetUserId=${root.id}`).expect(200))
+    // The filter is exact: root's own history is only its bootstrap.
+    const own = (await as(root).get(`/admin/audit-records?targetUserId=${root.id}`).expect(200))
       .body;
-    expect(none.total).toBe(0);
+    expect(own.items.map((i: { action: string }) => i.action)).toEqual(['ADMIN_BOOTSTRAP']);
   });
 
   it('is append-only: the database rejects UPDATE and DELETE', async () => {
@@ -254,6 +259,10 @@ describe('audit trail (US-NFR4.1.2)', () => {
     );
     await expect(t.db.query('DELETE FROM audit_records')).rejects.toThrow(/append-only/);
     expect(await audit()).toHaveLength(1);
+    // The bootstrap's SYSTEM rows are protected by the same trigger.
+    await expect(
+      t.db.query("DELETE FROM audit_records WHERE actor_type = 'SYSTEM'"),
+    ).rejects.toThrow(/append-only/);
   });
 
   it('has no API route that creates, edits or deletes a record', async () => {

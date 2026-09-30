@@ -84,6 +84,7 @@ const PUBLIC = new Set([
   'POST /auth/register',
   'POST /auth/activate',
   'POST /auth/login',
+  'POST /auth/password',
   'POST /auth/refresh',
   'POST /auth/logout',
   'GET /.well-known/jwks.json',

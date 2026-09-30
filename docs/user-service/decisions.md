@@ -283,6 +283,7 @@ Recorded because they are the honest answer to "what went wrong?" and each has a
 - ❓ Everyone: how do other services get and cache the JWKS, and who owns key rotation?
 
 **Deferred, with an owner**
+- ~~Bootstrap secret stays valid; bootstrap unaudited~~ — fixed in §11 (D1 feedback on USR-03).
 - ~~USR-03~~ — built: admin endpoints, suspension revoking sessions, audit table, seeded admins, profile edits (see §9).
 - USR-05 — single-flight refresh across tabs.
 - ~~USR-06~~ — built (see §10). Consuming services must still add the dependency, the two env vars and the Dockerfile lines.
@@ -330,10 +331,11 @@ So reactivation always restores a state the account already had, and can never s
 The audit row's id is the `reasonRef` carried in `UserSuspended`, so a consumer can trace an event back to who did it and why.
 Suspending an already-suspended account is idempotent and adds no second audit row or event.
 
-### M6. Seeded admins come from configuration with a bootstrap password — 🟡
+### M6. Seeded admins come from configuration with a bootstrap password — ✅ (hardened in §11)
 See roles.md. **Never promotes** an existing account; **fails loudly** on bad config; idempotent; emits `UserActivated`.
-- **Trade-offs / limits:** no change-password endpoint exists, so the bootstrap password is the admin's password;
-  and `compose.yaml` carries a dev-only default (`admin@u.nus.edu`) — another committed credential for PLT-06 to remove.
+- ~~No change-password endpoint, so the bootstrap password is the admin's password~~ — fixed: see B1.
+- **Limit:** `compose.yaml` carries a dev-only default (`admin@u.nus.edu`) — a committed credential for PLT-06 to remove.
+  It is now only usable once, to set a real password.
 - **Rejected:** a first-registered-user-becomes-admin rule (racy, and a takeover risk), and a setup endpoint (an unauthenticated privilege grant).
 
 ### M7. Profile edits use a closed schema and are all-or-nothing — ✅
@@ -427,3 +429,49 @@ It lets `auth-client` boot the real service in-process without publishing or dup
 ### K10. Verification — ✅
 48 tests; ten deliberate breakages, each caught (revoked treated as active, suspended allowed, admin guard open, expired reported as invalid, issuer unchecked,
 cache that never expires, no single-flight, a failure treated as "session ended", an `x-role` header granting admin, key-fetch failure reported as a bad token).
+
+---
+
+## 11. D1 feedback on the admin lifecycle (USR-03 follow-up, #122)
+
+### B1. The bootstrap secret is retired at first sign-in — ✅
+The teaching team's resource: *"temporary secrets are invalidated after use."* Before this, `ADMIN_SEED_PASSWORD` became the
+bootstrap admin's permanent password.
+- **Chosen:** a `must_change_password` flag, set by the seed. While it is set, login verifies the password and then refuses with
+  `403 PASSWORD_CHANGE_REQUIRED` — **no session, no cookie**. `POST /auth/password` (email + current + new password) replaces it
+  and clears the flag.
+- **Why a credential-proven endpoint rather than a restricted session:** a "change-password-only" access token would need every
+  guard in every service to understand a new token state. Refusing the session outright means the bootstrap secret can never
+  reach any other endpoint, and the same endpoint doubles as the general change-password the service was missing.
+- **Order of checks** mirrors login (A7): the flag is revealed only *after* the password is proven, so it tells an attacker nothing.
+- **Revokes every session** of the account in the same transaction (anyone who knew the old password may hold one).
+- **Compare-and-swap** on the stored hash, so two simultaneous changes cannot both win. ❗ PGlite is single-connection, so this
+  race is not exercised by an automated test (same limit as P4); the SQL is a single conditional `UPDATE`.
+- **Rate limited** with login's per-IP and per-email limiters, and the same Origin/JSON CSRF checks: it is as much a password oracle as login.
+- **Migration 004** flags every *existing* bootstrap admin, since none could have changed their password before.
+- **Trade-off:** one extra step at first sign-in (the web app must handle `PASSWORD_CHANGE_REQUIRED` — USR-05).
+
+### B2. The bootstrap is audited, with the SYSTEM as actor — ✅
+`audit_records.actor_id` was a non-null FK to `users`, and the bootstrap has no human actor.
+- **Chosen:** `actor_id` becomes nullable and a new `actor_type` (`USER` | `SYSTEM`) is added, with a CHECK that `actor_id IS NULL`
+  exactly when `actor_type = 'SYSTEM'`. New action `ADMIN_BOOTSTRAP`. The row is written in the account's own transaction.
+- **Rejected:** a sentinel "system" user row (it would be a real account someone could try to log in as, and would appear in user
+  lists), and a sentinel UUID without an FK (loses referential integrity for every other row).
+- **Not audited:** a restart that creates nothing, and a skipped address (nothing was granted). The secret is never recorded.
+- The API exposes `actorType`; `actorId` is `null` for SYSTEM rows (a contract change — additive for readers that ignore unknown fields,
+  but `actorId` is now nullable).
+
+### B3. Keep the seeded-vs-appointed tier (US-FR3.1.3.1) — ✅ decided
+The feedback's worry: once the bootstrap admin graduates, a misbehaving appointed admin can never be removed.
+- **Chosen:** keep it. The recovery path is to add a new address to `ADMIN_SEED_EMAILS` and redeploy; that bootstraps a fresh seeded
+  admin who can demote the appointed one. A test walks through it. Recovery requires deployment access — the same authority that
+  created the first admin — and no database edit.
+- **Rejected:** dropping the tier. Then any appointed admin could demote every other admin but one, including the operators; the
+  last-admin rule does not prevent that takeover.
+- **Trade-off:** if no seeded admin is reachable, removing an admin takes a redeploy rather than a click.
+- Matches the DOC-02 (#186) draft of US-FR3.1.3.1, which keeps the tier.
+
+### B4. "What if the only admin deletes their account?" — ✅ answered
+There is no delete, for anyone (US-FR3.1.2.2 in the DOC-02 draft): accounts are suspended, because errands, ledger entries and audit
+rows must keep resolving to an account. Written up in roles.md §4, together with the system-wide matrix D2 §1 asks for (Supplier,
+Order, Credit and the web app, not just the User Service).

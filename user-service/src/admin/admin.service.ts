@@ -8,7 +8,12 @@ import {
   type AccountStatus,
   type Role,
 } from '../users/users.repository.js';
-import { adminRepository as admin, type AdminUserRow, type AuditRow } from './admin.repository.js';
+import {
+  adminRepository as admin,
+  type AdminUserRow,
+  type AuditAction,
+  type AuditRow,
+} from './admin.repository.js';
 
 export interface AdminUserView {
   id: string;
@@ -47,6 +52,7 @@ export const toAdminUserView = (r: AdminUserRow): AdminUserView => ({
 const toAuditView = (r: AuditRow) => ({
   id: r.id,
   actorId: r.actor_id,
+  actorType: r.actor_type,
   targetUserId: r.target_user_id,
   action: r.action,
   reason: r.reason,
@@ -225,7 +231,7 @@ export class AdminService {
     tx: Queryable,
     actorId: string,
     targetUserId: string,
-    action: 'SUSPEND' | 'REACTIVATE' | 'ROLE_GRANT' | 'ROLE_REVOKE',
+    action: Exclude<AuditAction, 'ADMIN_BOOTSTRAP'>,
     reason: string,
     correlationId: string,
   ): Promise<string> {

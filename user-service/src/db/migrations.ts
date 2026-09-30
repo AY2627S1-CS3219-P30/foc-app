@@ -127,4 +127,30 @@ export const migrations: Migration[] = [
       $do$;
     `,
   },
+  {
+    id: '004_bootstrap_hardening',
+    sql: `
+      -- The bootstrap password comes from deployment configuration, so it must not
+      -- stay usable (US-FR3.1.3.2). A flagged account cannot start a session until
+      -- its password is changed. Every existing bootstrap admin is flagged: there
+      -- was no way to change a password before this migration.
+      ALTER TABLE users ADD COLUMN must_change_password boolean NOT NULL DEFAULT false;
+      UPDATE users SET must_change_password = true WHERE is_seeded_admin;
+
+      -- The bootstrap itself is now audited, and it has no human actor. The actor
+      -- is either a user (actor_id set) or the SYSTEM (actor_id null), never
+      -- ambiguous. DDL, so the append-only row trigger is not involved.
+      ALTER TABLE audit_records ALTER COLUMN actor_id DROP NOT NULL;
+      ALTER TABLE audit_records
+        ADD COLUMN actor_type text NOT NULL DEFAULT 'USER'
+          CHECK (actor_type IN ('USER', 'SYSTEM'));
+      ALTER TABLE audit_records
+        ADD CONSTRAINT audit_records_actor_consistent
+          CHECK ((actor_type = 'SYSTEM') = (actor_id IS NULL));
+      ALTER TABLE audit_records DROP CONSTRAINT audit_records_action_check;
+      ALTER TABLE audit_records
+        ADD CONSTRAINT audit_records_action_check
+          CHECK (action IN ('SUSPEND', 'REACTIVATE', 'ROLE_GRANT', 'ROLE_REVOKE', 'ADMIN_BOOTSTRAP'));
+    `,
+  },
 ];

@@ -120,6 +120,7 @@ export const usersRepository = {
     id: string;
     passwordHash: string;
     status: AccountStatus;
+    mustChangePassword: boolean;
     displayName: string;
     roles: Role[];
   } | null> {
@@ -127,10 +128,12 @@ export const usersRepository = {
       id: string;
       password_hash: string;
       status: AccountStatus;
+      must_change_password: boolean;
       display_name: string;
       roles: Role[];
     }>(
-      `SELECT u.id, u.password_hash, u.status, coalesce(p.display_name, '') AS display_name,
+      `SELECT u.id, u.password_hash, u.status, u.must_change_password,
+              coalesce(p.display_name, '') AS display_name,
               array(SELECT r.role FROM user_roles r WHERE r.user_id = u.id ORDER BY r.role) AS roles
        FROM users u LEFT JOIN profiles p ON p.user_id = u.id
        WHERE lower(u.email) = lower($1)`,
@@ -142,10 +145,30 @@ export const usersRepository = {
           id: r.id,
           passwordHash: r.password_hash,
           status: r.status,
+          mustChangePassword: r.must_change_password,
           displayName: r.display_name,
           roles: r.roles,
         }
       : null;
+  },
+
+  /**
+   * Compare-and-swap on the stored hash: it succeeds only if the password is still the one the
+   * caller just proved, so two simultaneous changes cannot both win. Clears the forced-change flag.
+   */
+  async replacePassword(
+    q: Queryable,
+    userId: string,
+    expectedHash: string,
+    newHash: string,
+  ): Promise<boolean> {
+    const { rows } = await q.query(
+      `UPDATE users SET password_hash = $3, must_change_password = false, updated_at = now()
+       WHERE id = $1 AND password_hash = $2
+       RETURNING id`,
+      [userId, expectedHash, newHash],
+    );
+    return rows.length > 0;
   },
 
   /** The caller's own account for `GET /users/me`. */

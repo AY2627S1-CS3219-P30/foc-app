@@ -17,7 +17,11 @@ export interface SeedResult {
  * An address that already has an account is skipped, never promoted: silently
  * escalating an existing student because of a config line would be a privilege
  * grant nobody approved. Each account gets its own salt. The password is a
- * bootstrap secret and is never logged.
+ * bootstrap secret: it is never logged or audited, and it cannot start a session —
+ * the account must replace it at first sign-in (`POST /auth/password`).
+ *
+ * Each account created is audited with the SYSTEM as actor, in the same
+ * transaction as the account, so a bootstrap admin cannot exist without its record.
  */
 export async function seedAdmins(
   db: Db,
@@ -47,6 +51,16 @@ export async function seedAdmins(
         displayName: 'Administrator',
       });
       if (inserted) {
+        // Audited like every other role change, with the SYSTEM as actor. The reason names
+        // where the grant came from; the secret is never recorded.
+        await adminRepository.insertAudit(tx, {
+          id: randomUUID(),
+          actorId: null,
+          targetUserId: id,
+          action: 'ADMIN_BOOTSTRAP',
+          reason: 'Bootstrap administrator from deployment configuration (ADMIN_SEED_EMAILS)',
+          correlationId: 'seed',
+        });
         // A seeded admin is a student too, so Credit Service must issue a wallet like any other.
         await usersRepository.insertOutboxEvent(tx, {
           id: randomUUID(),

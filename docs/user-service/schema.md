@@ -46,6 +46,7 @@ erDiagram
 | `password_hash`     | text NOT NULL | Argon2id, encoded string including the per-hash random salt and parameters. |
 | `status`            | text NOT NULL | `CHECK IN ('PENDING_ACTIVATION','ACTIVE','SUSPENDED')`                       |
 | `is_seeded_admin`   | boolean NOT NULL DEFAULT false | Set only by the boot seed. Never writable through any API. |
+| `must_change_password` | boolean NOT NULL DEFAULT false | Set by the boot seed; cleared by `POST /auth/password`. While set, login starts no session (`PASSWORD_CHANGE_REQUIRED`). Migration 004 set it on every existing bootstrap admin. |
 | `activated_at`      | timestamptz NULL | Set once, on first activation. Drives "exactly one `UserActivated`".      |
 | `created_at`, `updated_at` | timestamptz NOT NULL |                                                                    |
 
@@ -97,9 +98,10 @@ transaction that first checks the remaining admin count under `SELECT … FOR UP
 | Column           | Type        | Notes                                                        |
 | ---------------- | ----------- | ------------------------------------------------------------ |
 | `id`             | uuid PK     | Also the "reason reference" carried in `UserSuspended`        |
-| `actor_id`       | uuid        |                                                              |
+| `actor_id`       | uuid NULL   | The administrator who acted; `NULL` exactly when `actor_type = 'SYSTEM'` (CHECK) |
+| `actor_type`     | text        | `USER` \| `SYSTEM`. `SYSTEM` is the boot-time bootstrap (migration 004) |
 | `target_user_id` | uuid        |                                                              |
-| `action`         | text        | `SUSPEND` \| `REACTIVATE` \| `ROLE_GRANT` \| `ROLE_REVOKE`     |
+| `action`         | text        | `SUSPEND` \| `REACTIVATE` \| `ROLE_GRANT` \| `ROLE_REVOKE` \| `ADMIN_BOOTSTRAP` |
 | `reason`         | text        | Required, 1–500 chars                                         |
 | `occurred_at`    | timestamptz |                                                              |
 | `correlation_id` | text        |                                                              |

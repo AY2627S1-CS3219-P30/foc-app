@@ -60,6 +60,7 @@ describe('migrations', () => {
       '001_identity',
       '002_refresh_sessions',
       '003_audit_records',
+      '004_bootstrap_hardening',
     ]);
     expect(await runMigrations(db, migrations)).toEqual([]);
   });

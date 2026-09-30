@@ -152,6 +152,9 @@ paths:
       description: |
         Only an `ACTIVE` account with valid credentials receives tokens. Sets the `foc_refresh` cookie and
         returns the access token in the body. Rate limited per IP and per email.
+
+        A bootstrap administrator signing in with the configured bootstrap password gets
+        `403 PASSWORD_CHANGE_REQUIRED` and no session; call `POST /auth/password` first (US-FR3.1.3.2).
       security: []
       requestBody:
         required: true
@@ -182,6 +185,35 @@ paths:
         '401': { $ref: '#/components/responses/InvalidCredentials' }
         '403': { $ref: '#/components/responses/AccountNotLoginable' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/password:
+    post:
+      tags: [Auth]
+      operationId: changePassword
+      summary: Change a password by proving the current one (US-FR3.1.3.2)
+      description: |
+        Proof is the current password, not an access token, so a bootstrap administrator who cannot yet
+        start a session can retire the bootstrap secret, and any active user can change theirs.
+        Every session of the account is revoked. Failure responses match login's, it shares login's
+        rate limits, and it requires an allowed `Origin` (if sent) and `Content-Type: application/json`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChangePasswordRequest' }
+      responses:
+        '204': { description: Password changed; every existing session of the account is revoked. }
+        '401': { $ref: '#/components/responses/InvalidCredentials' }
+        '403': { $ref: '#/components/responses/AccountNotLoginable' }
+        '422':
+          description: |
+            `VALIDATION_FAILED`. `newPassword` outside 12–128 characters, or `PASSWORD_UNCHANGED` when it
+            equals the current password.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
   /auth/refresh:
@@ -654,6 +686,14 @@ components:
       properties:
         email: { type: string, format: email }
         password: { type: string, writeOnly: true }
+    ChangePasswordRequest:
+      type: object
+      required: [email, currentPassword, newPassword]
+      additionalProperties: false
+      properties:
+        email: { type: string, format: email }
+        currentPassword: { type: string, writeOnly: true }
+        newPassword: { type: string, minLength: 12, maxLength: 128, writeOnly: true }
     TokenResponse:
       type: object
       required: [accessToken, tokenType, expiresIn, user]
@@ -737,12 +777,20 @@ components:
             items: { type: array, items: { $ref: '#/components/schemas/AdminUser' } }
     AuditRecord:
       type: object
-      required: [id, actorId, targetUserId, action, reason, occurredAt, correlationId]
+      required: [id, actorId, actorType, targetUserId, action, reason, occurredAt, correlationId]
       properties:
         id: { type: string, format: uuid }
-        actorId: { type: string, format: uuid }
+        actorId:
+          type: [string, 'null']
+          format: uuid
+          description: The administrator who acted; `null` exactly when `actorType` is `SYSTEM`.
+        actorType:
+          type: string
+          enum: [USER, SYSTEM]
+          description: '`SYSTEM` only for `ADMIN_BOOTSTRAP`, written at boot from deployment configuration.'
         targetUserId: { type: string, format: uuid }
-        action: { type: string, enum: [SUSPEND, REACTIVATE, ROLE_GRANT, ROLE_REVOKE] }
+        action:
+          { type: string, enum: [SUSPEND, REACTIVATE, ROLE_GRANT, ROLE_REVOKE, ADMIN_BOOTSTRAP] }
         reason: { type: string }
         occurredAt: { type: string, format: date-time }
         correlationId: { type: string }
@@ -939,7 +987,9 @@ components:
                 },
             }
     AccountNotLoginable:
-      description: Valid credentials but the account is `PENDING_ACTIVATION` or `SUSPENDED`.
+      description: |
+        Valid credentials but the account is `PENDING_ACTIVATION` or `SUSPENDED`, or (login only) it must
+        replace a bootstrap password first (`PASSWORD_CHANGE_REQUIRED`).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
