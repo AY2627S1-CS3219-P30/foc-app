@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import type { z } from 'zod';
 import type { Db, Queryable } from '../db.js';
+import { errorMessage } from '../logging.js';
 import { PAYLOAD_SCHEMAS } from './catalogue.js';
 import { EVENT_PUBLISHER } from './events.module.js';
 import type { EventPublisher } from './publisher.js';
@@ -80,35 +81,63 @@ export interface NewOutboxEvent<K extends CataloguedEventType> {
   schemaVersion?: number;
 }
 
+/** An outbox row as written: the event with its defaults filled in and its payload validated. */
+export interface OutboxRowValues {
+  id: string;
+  eventType: CataloguedEventType;
+  schemaVersion: number;
+  aggregateId: string;
+  payload: unknown;
+  correlationId: string;
+  causationId: string | null;
+}
+
 /**
- * Writes an event to the outbox in the caller's transaction, so it commits or
- * rolls back with the change it describes. Returns the event id.
+ * The row {@link insertOutboxEvent} writes, for a service that writes it
+ * through its own query builder instead.
  *
  * The payload is validated against the catalogue here: a shape a consumer
  * would dead-letter fails the change that produced it, instead of reaching the
  * broker.
  */
+export function toOutboxRow<K extends CataloguedEventType>(
+  event: NewOutboxEvent<K>,
+): OutboxRowValues {
+  return {
+    id: event.id ?? randomUUID(),
+    eventType: event.eventType,
+    schemaVersion: event.schemaVersion ?? 1,
+    aggregateId: event.aggregateId,
+    payload: PAYLOAD_SCHEMAS[event.eventType].parse(event.payload),
+    correlationId: event.correlationId,
+    causationId: event.causationId ?? null,
+  };
+}
+
+/**
+ * Writes an event to the outbox in the caller's transaction, so it commits or
+ * rolls back with the change it describes. Returns the event id.
+ */
 export async function insertOutboxEvent<K extends CataloguedEventType>(
   tx: Queryable,
   event: NewOutboxEvent<K>,
 ): Promise<string> {
-  const id = event.id ?? randomUUID();
-  const payload: unknown = PAYLOAD_SCHEMAS[event.eventType].parse(event.payload);
+  const row = toOutboxRow(event);
   await tx.query(
     `INSERT INTO outbox_events
        (id, event_type, schema_version, aggregate_id, payload, correlation_id, causation_id)
      VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)`,
     [
-      id,
-      event.eventType,
-      event.schemaVersion ?? 1,
-      event.aggregateId,
-      JSON.stringify(payload),
-      event.correlationId,
-      event.causationId ?? null,
+      row.id,
+      row.eventType,
+      row.schemaVersion,
+      row.aggregateId,
+      JSON.stringify(row.payload),
+      row.correlationId,
+      row.causationId,
     ],
   );
-  return id;
+  return row.id;
 }
 
 type OutboxRow = {
@@ -370,7 +399,7 @@ export class OutboxRelay implements OnApplicationBootstrap, BeforeApplicationShu
   }
 
   private async recordFailure(tx: Queryable, row: OutboxRow, err: unknown): Promise<void> {
-    const reason = (err instanceof Error ? err.message : String(err)).slice(0, 500);
+    const reason = errorMessage(err).slice(0, 500);
     const retryInMs = Math.min(this.maxBackoffMs, this.backoffMs * 2 ** row.attempts);
     await tx.query(
       `UPDATE outbox_events

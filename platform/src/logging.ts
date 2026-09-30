@@ -66,6 +66,19 @@ const isErrorLike = (value: unknown): value is ErrorLike =>
   typeof (value as { message?: unknown }).message === 'string';
 
 /**
+ * An error's message, safe for any sink, masked. A Drizzle query error appends every bound value
+ * (`params: …`), which can be any column of the row, so its statement is kept with the driver's
+ * reason instead.
+ */
+export function errorMessage(err: unknown): string {
+  if (!isErrorLike(err)) return maskPersonalData(String(err));
+  const { query, params, cause } = err;
+  if (typeof query !== 'string' || params === undefined) return maskPersonalData(err.message);
+  const reason = isErrorLike(cause) ? `: ${cause.message}` : '';
+  return maskPersonalData(`Failed query: ${query}${reason}`);
+}
+
+/**
  * Replaces pino's default `err` serializer, which copies every field of an error and runs before
  * redaction can see inside a string. A PostgreSQL error's `detail` and `where` quote the row
  * (`Key (lower(email))=(alice@u.nus.edu) already exists`, `Failing row contains (…, $argon2id$…)`),
@@ -78,11 +91,14 @@ export function serializeError(err: unknown, seen = new WeakSet<object>()): unkn
   if (seen.has(err)) return '[circular]';
   seen.add(err);
 
+  const message = errorMessage(err);
   const out: Record<string, unknown> = {
     type: typeof err.constructor === 'function' ? err.constructor.name : err.name,
-    message: maskPersonalData(err.message),
+    message,
   };
-  if (typeof err.stack === 'string') out.stack = maskPersonalData(err.stack);
+  if (typeof err.stack === 'string') {
+    out.stack = maskPersonalData(err.stack.replace(err.message, () => message));
+  }
   for (const key of ERROR_FIELDS) {
     const value = err[key];
     if (typeof value === 'string') out[key] = maskPersonalData(value);
@@ -118,7 +134,7 @@ export function createLogger(
                 : (first as { msg?: unknown }).msg === undefined
                   ? (first as { err?: unknown }).err
                   : undefined;
-            if (isErrorLike(err)) return method.apply(this, [first, maskPersonalData(err.message)]);
+            if (isErrorLike(err)) return method.apply(this, [first, errorMessage(err)]);
           }
           return method.apply(this, args);
         },
@@ -148,7 +164,7 @@ export class PinoLoggerService implements LoggerService {
   ): void {
     const ctx = typeof context === 'string' ? { context } : {};
     if (message instanceof Error)
-      this.logger[level]({ ...ctx, err: message }, maskPersonalData(message.message));
+      this.logger[level]({ ...ctx, err: message }, errorMessage(message));
     else if (typeof message === 'object' && message !== null)
       this.logger[level]({ ...ctx, ...message });
     else this.logger[level](ctx, String(message));

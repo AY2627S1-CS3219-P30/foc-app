@@ -31,6 +31,8 @@ COPY user-service/package.json user-service/package.json
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/platform/dist platform/dist
 COPY --from=build /app/user-service/dist user-service/dist
+# The Drizzle migrations, applied by the one-shot migrate step (dist/db/migrate.js reads ../drizzle).
+COPY --from=build /app/user-service/drizzle user-service/drizzle
 
 # node:22-alpine ships an unprivileged `node` user; never run as root.
 USER node

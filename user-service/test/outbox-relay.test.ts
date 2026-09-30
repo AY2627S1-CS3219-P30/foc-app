@@ -1,20 +1,16 @@
-import { randomUUID } from 'node:crypto';
 import {
   CORRELATION_HEADER,
   EventPublisher,
   EVENTS,
-  insertOutboxEvent,
   OutboxRelay,
   PAYLOAD_SCHEMAS,
   parseEnvelope,
-  runMigrations,
   userStatusChangedPayload,
   type BrokerConnection,
   type Envelope,
 } from '@foc/platform';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { z } from 'zod';
-import { migrations } from '../src/db/migrations.js';
 import { createTestApp, type TestApp } from './helpers/app.js';
 import {
   activeStudent,
@@ -24,7 +20,6 @@ import {
   TRUNCATE_ALL,
   type Actor,
 } from './helpers/actors.js';
-import { PgliteDb } from './helpers/pglite-db.js';
 
 /**
  * EVT-02 from the User Service's side: what it writes to its outbox is what the platform relay
@@ -129,54 +124,5 @@ describe('outbox relay', () => {
         key,
       ).toBe(true);
     }
-  });
-});
-
-describe('migration 006', () => {
-  it('keeps rows written before it and relays them in the order they happened', async () => {
-    const db = await PgliteDb.create();
-    await runMigrations(
-      db,
-      migrations.filter((m) => m.id < '006'),
-    );
-    const userId = randomUUID();
-    const row = (minutesAgo: number, status: 'SUSPENDED' | 'ACTIVE') => ({
-      id: randomUUID(),
-      type: status === 'SUSPENDED' ? EVENTS.USER_SUSPENDED : EVENTS.USER_REACTIVATED,
-      minutesAgo,
-      payload: { userId, status, occurredAt: new Date().toISOString() },
-    });
-    // Inserted newest first, so the table's physical order is the reverse of what happened.
-    const reactivated = row(1, 'ACTIVE');
-    const suspended = row(2, 'SUSPENDED');
-    for (const r of [reactivated, suspended]) {
-      await db.query(
-        `INSERT INTO outbox_events (id, event_type, aggregate_id, payload, correlation_id, occurred_at)
-         VALUES ($1, $2, $3, $4::jsonb, 'legacy', now() - make_interval(mins => $5))`,
-        [r.id, r.type, userId, JSON.stringify(r.payload), r.minutesAgo],
-      );
-    }
-
-    await runMigrations(db, migrations);
-    // A row written after the migration sorts after the renumbered ones.
-    const later = await db.transaction((tx) =>
-      insertOutboxEvent(tx, {
-        eventType: EVENTS.USER_SUSPENDED,
-        aggregateId: userId,
-        correlationId: 'new',
-        payload: { userId, status: 'SUSPENDED', occurredAt: new Date().toISOString() },
-      }),
-    );
-
-    const broker = fakeBroker();
-    const relay = new OutboxRelay({ db, publisher: broker.publisher, logger: quiet() });
-    expect(await relay.tick()).toBe(3);
-    expect(broker.sent.map((m) => m.envelope.eventId)).toEqual([
-      suspended.id,
-      reactivated.id,
-      later,
-    ]);
-    expect(broker.sent[0]!.envelope.payload).toEqual(suspended.payload);
-    await db.close();
   });
 });

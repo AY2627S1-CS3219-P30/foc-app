@@ -1,5 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { drizzle } from 'drizzle-orm/pglite';
 import request from 'supertest';
 import {
   AUTHENTICATOR,
@@ -8,10 +9,11 @@ import {
   type AuthConfig,
   type AuthContext,
 } from '@foc/auth-client';
-import { ErrorEnvelopeFilter, PlatformModule, runMigrations } from '@foc/platform';
-import { DB, type Db } from '../../src/db/db.js';
-import { migrations } from '../../src/db/migrations.js';
+import { ErrorEnvelopeFilter, PlatformModule, type Db } from '@foc/platform';
+import { DB, RAW_DB } from '../../src/db/db.js';
+import * as schema from '../../src/db/schema.js';
 import { SuppliersModule } from '../../src/suppliers/suppliers.module.js';
+import { applyMigrations } from './migrate.js';
 import { PgliteDb } from './pglite-db.js';
 
 /**
@@ -60,8 +62,10 @@ export interface TestApp {
  * exactly as given, so a caller that wants no identity caching says `cacheTtlMs: 0` itself.
  */
 export async function createTestApp(options: { auth?: AuthConfig } = {}): Promise<TestApp> {
+  // `db` is the raw port, for migrations and direct row assertions; the service
+  // queries through Drizzle over the same PGlite.
   const db = await PgliteDb.create();
-  await runMigrations(db, migrations);
+  await applyMigrations(db);
 
   const builder = Test.createTestingModule({
     imports: [
@@ -76,8 +80,10 @@ export async function createTestApp(options: { auth?: AuthConfig } = {}): Promis
       SuppliersModule.forRoot(),
     ],
   })
+    .overrideProvider(RAW_DB)
+    .useValue(db)
     .overrideProvider(DB)
-    .useValue(db);
+    .useValue(drizzle(db.client, { schema }));
   if (!options.auth) builder.overrideProvider(AUTHENTICATOR).useValue(fakeAuthenticator);
   const moduleRef = await builder.compile();
 

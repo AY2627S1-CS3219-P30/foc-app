@@ -66,7 +66,7 @@ for line in sys.stdin:
     health, state = d.get('Health'), d.get('State')
     if health and health != 'healthy':
         bad.append(d['Service'])
-    elif not health and state != 'running':
+    elif not health and state != 'running' and not (state == 'exited' and d.get('ExitCode') == 0):
         bad.append(d['Service'])
 print(' '.join(bad))
 " 2>/dev/null || echo "pending")
