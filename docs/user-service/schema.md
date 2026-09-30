@@ -114,7 +114,7 @@ and a trigger raises on any `UPDATE` or `DELETE`. No API edits or deletes an aud
 | --- | --- | --- |
 | `id` | uuid PK | Also the envelope's `eventId`, on every publish attempt |
 | `seq` | bigint identity | Insertion order, which the relay publishes in (migration 006) |
-| `event_type` | text | A catalogue routing key, e.g. `user.activated`, `user.suspended` |
+| `event_type` | text | A catalogue routing key: `user.activated`, `user.suspended`, `user.reactivated`, `user.role-changed` (legacy names rewritten by migration 005) |
 | `schema_version` | integer | Default 1 |
 | `aggregate_id` | uuid | the user |
 | `payload` | jsonb | Validated against the catalogue's schema on insert |

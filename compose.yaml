@@ -16,10 +16,17 @@ x-service-base: &service-base
     LOG_LEVEL: ${LOG_LEVEL:-info}
     CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
     RABBITMQ_URL: amqp://${RABBITMQ_USER:-foc}:${RABBITMQ_PASSWORD:-foc_dev}@rabbitmq:5672
-  depends_on:
+  depends_on: &service-deps
     postgres:
       condition: service_healthy
   networks: [foc]
+
+# For a service that consumes events: it connects to the broker at boot and
+# declares its queues there, so it waits for the broker to be healthy too.
+x-consumer-deps: &consumer-deps
+  <<: *service-deps
+  rabbitmq:
+    condition: service_healthy
 
 services:
   # ---- infrastructure -------------------------------------------------------
@@ -64,9 +71,10 @@ services:
     networks: [foc]
 
   # ---- services -------------------------------------------------------------
-  # No service depends on rabbitmq yet — nothing consumes it until EVT-01, and
-  # waiting on it would add ~20s to every `up` for no benefit. Add the
-  # dependency in the ticket that starts using it.
+  # Supplier, Order and Credit consume events (Credit: wallet provisioning; all
+  # three: identity changes for their auth cache, USR-07), so they wait for
+  # rabbitmq as well as postgres. Give any other service the same dependency in
+  # the ticket that makes it consume.
   user-service:
     <<: *service-base
     build: { context: ., dockerfile: user-service/Dockerfile }
@@ -95,6 +103,7 @@ services:
       USER_SERVICE_URL: http://user-service:3001
       INTERNAL_SERVICE_KEY: ${SUPPLIER_INTERNAL_KEY:-dev-only-internal-service-key-change-me}
     ports: ['${SUPPLIER_SERVICE_PORT:-3002}:3002']
+    depends_on: *consumer-deps
 
   order-service:
     <<: *service-base
@@ -109,6 +118,7 @@ services:
       USER_SERVICE_URL: http://user-service:3001
       INTERNAL_SERVICE_KEY: ${ORDER_INTERNAL_KEY:-dev-only-internal-service-key-change-me}
     ports: ['${ORDER_SERVICE_PORT:-3003}:3003']
+    depends_on: *consumer-deps
 
   credit-service:
     <<: *service-base
@@ -123,6 +133,7 @@ services:
       USER_SERVICE_URL: http://user-service:3001
       INTERNAL_SERVICE_KEY: ${CREDIT_INTERNAL_KEY:-dev-only-internal-service-key-change-me}
     ports: ['${CREDIT_SERVICE_PORT:-3004}:3004']
+    depends_on: *consumer-deps
 
   # ---- web ------------------------------------------------------------------
   web-app:

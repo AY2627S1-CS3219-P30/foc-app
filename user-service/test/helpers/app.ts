@@ -30,9 +30,11 @@ export async function createTestApp(
     logLevel?: string;
     logDestination?: DestinationStream;
     rateLimiters?: AuthRateLimiters;
+    /** A database already part-way through the migrations; the rest are applied here, as at boot. */
+    db?: PgliteDb;
   } = {},
 ): Promise<TestApp> {
-  const db = await PgliteDb.create();
+  const db = options.db ?? (await PgliteDb.create());
   await runMigrations(db, migrations);
 
   const moduleRef = await Test.createTestingModule({
@@ -53,10 +55,13 @@ export async function createTestApp(
     .useValue(options.rateLimiters ?? openLimiters())
     .compile();
 
-  // Same as main.ts: Nest's own Logger (used by the error filter and any service) writes through the
-  // platform's pino instance, so the log-privacy scan sees everything production would log.
-  const app = moduleRef.createNestApplication({ bufferLogs: true });
-  app.useLogger(new PinoLoggerService(app.get(LOGGER)));
+  // A suite that captures logs gets main.ts's wiring: Nest's own Logger (the error filter, any
+  // service) writes through the platform's pino instance, so the log-privacy scan sees everything
+  // production would log. Nest installs an app's logger process-wide, so the others keep Nest's
+  // console default and an unexpected 500 still prints.
+  const app = moduleRef.createNestApplication(
+    options.logDestination ? { logger: new PinoLoggerService(moduleRef.get(LOGGER)) } : {},
+  );
   app.useGlobalFilters(new ErrorEnvelopeFilter());
   await app.init();
   // Listen once so concurrent supertest requests share one server instead of racing to start it.

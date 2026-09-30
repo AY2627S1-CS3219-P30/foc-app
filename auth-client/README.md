@@ -125,13 +125,15 @@ The identity answer is cached per session for `cacheTtlMs` (**default 5 000 ms**
 
 ### Event-driven invalidation (USR-07)
 
-A service with a broker also subscribes to `user.suspended` and `user.reactivated`, and drops every cached answer for
-that user the moment one arrives, so a suspension is enforced on the user's **next request** rather than up to 5 s later:
+A service with a broker also subscribes to `user.suspended`, `user.reactivated` and `user.role-changed`, and drops
+every cached answer for that user the moment one arrives, so a suspension or a revoked admin role is enforced on the
+user's **next request** rather than up to 5 s later:
 
 ```ts
 import { authStatusEvents, AuthModule } from '@foc/auth-client';
 
-const status = authStatusEvents('order'); // queue foc.order.auth-status
+// One queue per instance: foc.order.auth-status.<random>
+const status = authStatusEvents('order', authConfig);
 
 @Module({
   imports: [
@@ -142,21 +144,32 @@ const status = authStatusEvents('order'); // queue foc.order.auth-status
 })
 ```
 
-**Staleness, end to end** (suspension to refusal in Order / Credit):
+Every **instance** gets its own queue, because every instance holds its own cache: a queue shared by replicas would
+hand each event to just one of them. The queue is exclusive and auto-deleted (it goes with the instance and is declared
+again on every reconnect), bounded, and keeps a message only for the cache window (`x-message-ttl` = `cacheTtlMs`):
+after that there is nothing left to invalidate, so an instance that was down never replays stale invalidations. It has
+no retry or dead-letter queue; a message that fails is dropped and the cache window covers it.
 
-| Path                                                                | Bound                                                                    |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Event delivered                                                     | outbox drain + broker latency (sub-second once EVT-02 drains the outbox) |
-| Event late, lost, or handled by another replica of the same service | the cache window: **≤ 5 s**                                              |
-| No broker configured (`npm run dev:*` without the stack)            | the cache window: **≤ 5 s**                                              |
+**Staleness, end to end** (suspension or role change to enforcement in Supplier / Order / Credit):
 
-Either way it is inside USR-07's 10 s requirement. The handler only **forgets**; it never reads a status from the event,
-so a forged, duplicated or reordered event can cost one extra lookup but can never let a suspended user in. A lookup that
-was already in flight when the event arrived is not cached (a per-user generation counter), so it cannot re-insert the
-pre-suspension answer.
+| Path                                                                     | Bound                                  |
+| ------------------------------------------------------------------------ | -------------------------------------- |
+| Event delivered                                                          | outbox relay (EVT-02) + broker latency |
+| Event late or lost, or not yet published                                 | the cache window: **≤ 5 s**            |
+| No broker configured (`npm run dev:*` without `RABBITMQ_URL`, see below) | the cache window: **≤ 5 s**            |
 
-Order and Credit are wired (`AuthModule` + this subscription). Their mutating endpoints must use `@Authenticated()` /
-`@AdminOnly()`; no service reads a role from a client-supplied header.
+Events are published by the outbox relay (EVT-02): the User Service writes each one to its outbox in the same
+transaction as the change, and the relay puts it on the broker. Wherever no relay is running, nothing reaches the
+broker and the cache window alone is the bound. Either way it is inside USR-07's 10 s requirement.
+
+The handler only **forgets**; it never reads a status or role from the event, so a forged, duplicated or reordered
+event can cost one extra lookup but can never let a suspended user in. A lookup that was already in flight when the
+event arrived is not cached (it is detached, and only the current lookup for a session may write to the cache), so it
+cannot re-insert the pre-suspension answer.
+
+Supplier, Order and Credit are wired (`AuthModule` + this subscription). Their mutating endpoints must use
+`@Authenticated()` / `@AdminOnly()`; no service reads a role from a client-supplied header. Run outside Compose, each of
+them needs `USER_SERVICE_URL` and `INTERNAL_SERVICE_KEY` exported (or in `.env`); `RABBITMQ_URL` stays optional.
 
 ## Key rotation
 

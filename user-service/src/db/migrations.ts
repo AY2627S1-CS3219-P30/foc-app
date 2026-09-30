@@ -136,6 +136,11 @@ export const migrations: Migration[] = [
       -- was no way to change a password before this migration.
       ALTER TABLE users ADD COLUMN must_change_password boolean NOT NULL DEFAULT false;
       UPDATE users SET must_change_password = true WHERE is_seeded_admin;
+      -- Nor may it keep one: a bootstrap admin who signed in with the secret before this
+      -- migration is signed out everywhere, and must change the password to sign in again.
+      UPDATE refresh_sessions SET revoked_at = now()
+        WHERE revoked_at IS NULL
+          AND user_id IN (SELECT id FROM users WHERE must_change_password);
 
       -- The bootstrap itself is now audited, and it has no human actor. The actor
       -- is either a user (actor_id set) or the SYSTEM (actor_id null), never
@@ -151,6 +156,47 @@ export const migrations: Migration[] = [
       ALTER TABLE audit_records
         ADD CONSTRAINT audit_records_action_check
           CHECK (action IN ('SUSPEND', 'REACTIVATE', 'ROLE_GRANT', 'ROLE_REVOKE', 'ADMIN_BOOTSTRAP'));
+
+      -- Bootstrap admins created before this migration get the row the seed now writes, dated
+      -- when the account was created. An INSERT, which the append-only trigger allows.
+      INSERT INTO audit_records
+        (id, actor_id, actor_type, target_user_id, action, reason, occurred_at, correlation_id)
+      SELECT gen_random_uuid(), NULL, 'SYSTEM', id, 'ADMIN_BOOTSTRAP',
+             'Bootstrap administrator from deployment configuration (ADMIN_SEED_EMAILS); '
+               || 'recorded by migration 004',
+             created_at, 'migration-004'
+      FROM users WHERE is_seeded_admin;
+    `,
+  },
+  {
+    id: '005_outbox_catalogue_events',
+    sql: `
+      -- USR-07 renamed this service's events to the shared catalogue's routing
+      -- keys and added the timestamps its payload schemas require. Rows written
+      -- before that and not yet published would be dead-lettered by every
+      -- consumer, so rewrite them in place. Timestamps are ISO 8601 in UTC, as
+      -- the schemas expect; published rows are history and left alone.
+      UPDATE outbox_events o
+         SET event_type = 'user.activated',
+             payload = jsonb_build_object(
+               'activatedAt',
+               to_char(
+                 coalesce((SELECT u.activated_at FROM users u WHERE u.id = o.aggregate_id),
+                          o.occurred_at) AT TIME ZONE 'UTC',
+                 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+             ) || o.payload
+       WHERE o.event_type = 'UserActivated' AND o.published_at IS NULL;
+
+      UPDATE outbox_events
+         SET event_type = CASE event_type
+                            WHEN 'UserSuspended' THEN 'user.suspended'
+                            ELSE 'user.reactivated'
+                          END,
+             payload = jsonb_build_object(
+               'occurredAt',
+               to_char(occurred_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+             ) || payload
+       WHERE event_type IN ('UserSuspended', 'UserReactivated') AND published_at IS NULL;
     `,
   },
   {

@@ -152,8 +152,10 @@ limiting is in memory, so it is per instance. Refresh lifetime is sliding: each 
 
 **First admin.** Set `ADMIN_SEED_EMAILS` and `ADMIN_SEED_PASSWORD`; the accounts are created at boot, each
 with an `ADMIN_BOOTSTRAP` audit row (actor `SYSTEM`). An address that already has an account is skipped,
-never promoted. The bootstrap password is **single-use**: logging in with it returns
-`403 PASSWORD_CHANGE_REQUIRED`, and the admin must first set their own password:
+never promoted. The bootstrap password cannot start a session: logging in with it returns
+`403 PASSWORD_CHANGE_REQUIRED`, and the admin must first set their own password. Do it as soon as the
+account exists — the secret is shared by every seeded address and proves no mailbox, so until then anyone
+who knows it can claim the account:
 
 ```bash
 curl -s localhost:3001/auth/password -H 'content-type: application/json' \
@@ -161,8 +163,10 @@ curl -s localhost:3001/auth/password -H 'content-type: application/json' \
 ```
 
 In Compose the dev default is `admin@u.nus.edu` / `dev-only-admin-password-change-me`. To recover from a
-misbehaving appointed admin when no bootstrap admin is reachable, add a new address to `ADMIN_SEED_EMAILS`
-and redeploy (roles.md §4).
+misbehaving appointed admin when no bootstrap admin is reachable, add a new address to `ADMIN_SEED_EMAILS`,
+rotate `ADMIN_SEED_PASSWORD`, redeploy and claim the account at once (roles.md §4). The address must never
+have been registered: the seed skips an existing account, even an unactivated one someone registered to
+squat it. If the boot log reports it as skipped, pick another address.
 
 Authorisation reads the caller's role from the database on every request, never from the token or a header.
 `test/matrix.test.ts` runs every protected endpoint as four actors and fails if a route is added without a

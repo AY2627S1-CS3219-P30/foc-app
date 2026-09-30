@@ -74,6 +74,16 @@ It is UX only and is never read by an authorization decision.
 - **Trade-off:** a lone seeded admin cannot step down without first appointing and seeding a successor.
 - ❓ Suspending *another* admin is restricted to seeded admins here; the backlog only says "an administrator".
 
+### R4. Administrators may act on other people's errands — ✅ decided (product owner)
+Previously left open in roles.md ("deferred to the admin console"). Decision: **yes** — an administrator may
+act on other people's errands through the transitions the Order Service assigns to *Administrator* (today:
+resolving a dispute), with a reason, and the Order Service enforces it server-side. Which transitions those
+are is the Order Service's call (`order-service/README.md`).
+- **Why:** disputes need an administrator decision; `order-service/README.md`'s `DISPUTED → … (Administrator)`
+  transitions depend on it.
+- **Limits:** only the transitions the Order Service lists with *Administrator* as actor; never a wallet edit
+  (credits still move only through reservation, transfer and release). The console that drives it is NTH-01.
+
 ---
 
 ## 3. API contract
@@ -336,7 +346,7 @@ Suspending an already-suspended account is idempotent and adds no second audit r
 See roles.md. **Never promotes** an existing account; **fails loudly** on bad config; idempotent; emits `UserActivated`.
 - ~~No change-password endpoint, so the bootstrap password is the admin's password~~ — fixed: see B1.
 - **Limit:** `compose.yaml` carries a dev-only default (`admin@u.nus.edu`) — a committed credential for PLT-06 to remove.
-  It is now only usable once, to set a real password.
+  It no longer starts a session; it only sets a real password — for whoever uses it first (see B1).
 - **Rejected:** a first-registered-user-becomes-admin rule (racy, and a takeover risk), and a setup endpoint (an unauthenticated privilege grant).
 
 ### M7. Profile edits use a closed schema and are all-or-nothing — ✅
@@ -449,7 +459,19 @@ bootstrap admin's permanent password.
 - **Compare-and-swap** on the stored hash, so two simultaneous changes cannot both win. ❗ PGlite is single-connection, so this
   race is not exercised by an automated test (same limit as P4); the SQL is a single conditional `UPDATE`.
 - **Rate limited** with login's per-IP and per-email limiters, and the same Origin/JSON CSRF checks: it is as much a password oracle as login.
-- **Migration 004** flags every *existing* bootstrap admin, since none could have changed their password before.
+- **Migration 004** flags every *existing* bootstrap admin, since none could have changed their password before,
+  and revokes their live sessions. ❗ Found in review: the first version only set the flag, which only login read, so an
+  admin already signed in kept working. Refresh, the access-token guard and introspection now also treat a flagged
+  account's session as ended — the backstop for a session an instance still on older code starts during a rolling deploy.
+- **A login in flight cannot outlive a change.** Its session is inserted only if the account still has the hash it
+  verified, is `ACTIVE` and is not flagged (`INSERT … SELECT … WHERE EXISTS … FOR SHARE`); otherwise `401`. A test
+  replays the stale read; the lock ordering itself, like the compare-and-swap, needs two connections PGlite lacks.
+- **A seeded admin cannot choose the configured secret** as their new password (`422 PASSWORD_UNCHANGED`). Only a
+  seeded admin is checked: for anyone else the answer would confirm a guess of the secret.
+- **Limit — the secret is shared and proves no mailbox.** One `ADMIN_SEED_PASSWORD` covers every seeded address, and
+  `POST /auth/password` proves the password, not the mailbox, so until a seeded account is claimed, anyone who knows
+  the secret can claim it. Operating rule (roles.md §4): claim each seeded account as soon as it exists, and rotate the
+  secret whenever `ADMIN_SEED_EMAILS` changes.
 - **Trade-off:** one extra step at first sign-in (the web app must handle `PASSWORD_CHANGE_REQUIRED` — USR-05).
 
 ### B2. The bootstrap is audited, with the SYSTEM as actor — ✅
@@ -459,14 +481,19 @@ bootstrap admin's permanent password.
 - **Rejected:** a sentinel "system" user row (it would be a real account someone could try to log in as, and would appear in user
   lists), and a sentinel UUID without an FK (loses referential integrity for every other row).
 - **Not audited:** a restart that creates nothing, and a skipped address (nothing was granted). The secret is never recorded.
+- **Backfilled:** migration 004 writes the row for every bootstrap admin created before it (actor `SYSTEM`, dated at the
+  account's creation, correlation id `migration-004`), so every seeded admin has one.
 - The API exposes `actorType`; `actorId` is `null` for SYSTEM rows (a contract change — additive for readers that ignore unknown fields,
   but `actorId` is now nullable).
 
 ### B3. Keep the seeded-vs-appointed tier (US-FR3.1.3.1) — ✅ decided
 The feedback's worry: once the bootstrap admin graduates, a misbehaving appointed admin can never be removed.
-- **Chosen:** keep it. The recovery path is to add a new address to `ADMIN_SEED_EMAILS` and redeploy; that bootstraps a fresh seeded
-  admin who can demote the appointed one. A test walks through it. Recovery requires deployment access — the same authority that
-  created the first admin — and no database edit.
+- **Chosen:** keep it. The recovery path is to add a new address to `ADMIN_SEED_EMAILS`, rotate `ADMIN_SEED_PASSWORD` and redeploy;
+  that bootstraps a fresh seeded admin who can demote the appointed one. A test walks through it. Recovery requires deployment
+  access — the same authority that created the first admin — and no database edit.
+- **Limit:** the address must be a dedicated mailbox that has **never been registered**. The seed skips any existing row,
+  `PENDING_ACTIVATION` included, and registering an NUS address needs no access to its mailbox. If the boot log reports the
+  address as skipped, it was squatted: use another never-registered address and redeploy.
 - **Rejected:** dropping the tier. Then any appointed admin could demote every other admin but one, including the operators; the
   last-admin rule does not prevent that takeover.
 - **Trade-off:** if no seeded admin is reachable, removing an admin takes a redeploy rather than a click.
@@ -482,26 +509,34 @@ Order, Credit and the web app, not just the User Service).
 ## 12. Log privacy verification (USR-08, #156 — log half)
 
 ### L1. The scan now covers login, refresh, profile and admin paths — ✅
-`test/log-privacy.test.ts` walks registration, activation, login (success, wrong password, unknown email, suspended), refresh
-(rotation, reuse detection, garbage cookie), logout, `/users/me`, a refused profile edit, and every admin route — including an
-email inside a query string — at `trace`, then asserts the output holds **no email address** (plain or URL-encoded), password,
-Argon2 hash, activation token, access token, refresh token or service key, and that lines carry a `correlationId`.
+`test/log-privacy.test.ts` walks registration (incl. duplicate and off-domain), activation (incl. replay and a bad token), login
+(success, wrong password, unknown email, suspended), refresh (rotation, reuse detection, garbage cookie), logout, `/users/me`, a
+refused profile edit, every admin route, an email in a query string and in a URL path, and two forced `500`s, at `trace`. Every
+test checks the **whole capture**, not only its own lines, for an email address (plain or URL-encoded); the walk also asserts no
+password (set or attempted), Argon2 hash, activation, access or refresh token, service key or display name appears, and that
+every request line carries a `correlationId`.
 
-### L2. Two leaks found and fixed — ✅
+### L2. Leaks found and fixed — ✅
 | What | Fix |
 |---|---|
-| `main.ts` logged every bootstrap admin's email at boot (`Seeded administrators: a@…`). | Counts only; who was bootstrapped is in the audit trail. |
-| A misconfigured `ADMIN_SEED_EMAILS` entry was echoed in the boot error printed with `console.error`. | The error names the entry by position. |
+| `main.ts` logged every bootstrap admin's email at boot (`Seeded administrators: a@…`). | `reportSeed`: counts, and skipped entries by position (`address(es) 2, 4 of 5`). Who was bootstrapped is in the audit trail. |
+| A misconfigured `ADMIN_SEED_EMAILS` entry was echoed in the boot error printed with `console.error`. | The error names the entry by position and gives its domain, which is the actual mistake. Positions count addresses (blank entries are dropped when the variable is parsed). |
+| pino's default `err` serializer copies every field of an error before redaction runs: PostgreSQL's `detail` and `where` quote the row (`Key (lower(email))=(…)`, `Failing row contains (…, $argon2id$…)`), a mailer's message names the recipient, and pino copies `err.message` into `msg`. | `createLogger` serializes `err` itself: type, message and stack with email addresses and password hashes masked, plus code, constraint, table and socket fields. `detail`, `where` and everything else are dropped; the copied `msg` is masked too. Platform-wide. |
+| Only the query string was stripped from the request line, so `GET /admin/users/alice@…` (or any mistyped route) logged the address. | The path is masked, raw or `%40`-encoded. |
+| `to` (a mail recipient) and `displayName` were not redaction keys. | Added. No other service logs a field with either name. |
 
 ### L3. The first scan could not see service logs — ✅ (test harness bug)
 The test app never routed Nest's `Logger` into the captured pino stream, so only request lines were scanned: a deliberate
-`new Logger().log({ user: email })` in login **passed** the old test. The harness now calls `app.useLogger(PinoLoggerService)`,
-exactly as `main.ts` does, and the same mutation fails the scan.
+`new Logger().log({ user: email })` in login **passed** the old test. A suite that captures logs now gets `main.ts`'s wiring
+(`PinoLoggerService` as the app's logger), and the suite first proves the capture works: a canary logged through Nest's `Logger`
+must arrive, and the email pattern must match an address deliberately logged, so the scans cannot pass vacuously. Nest installs
+an app's logger process-wide, so suites that do not capture keep Nest's console logger and an unexpected `500` still prints.
 
 ### L4. Residual risk — 🟡
-An *unhandled* exception is logged with its `err` object. A PostgreSQL error's `detail` can quote a row value (e.g. a
-unique-violation on email). Registration uses `ON CONFLICT`, so no tested path raises one, but the redaction backstop does not
-reach inside `err.detail`. Worth a platform-level serializer for `err` (Jonus).
+Masking reaches `err` and the request path only, and works by pattern (email addresses, Argon2 and bcrypt hashes). An address,
+display name or token a developer writes into any other message or field is caught by key redaction or by the scan, and the
+scan only covers the paths it walks. The event consumer (`platform/src/events/consumer.ts`) logs a failed handler's
+`err.message` as a plain `reason` field, which the `err` serializer does not see.
 
 ### L5. Still open in USR-08
 The admin console's errand list (needs the Order Service's endpoints) and read-only wallet inspection (needs CRD-05) are blocked
@@ -513,22 +548,51 @@ every console action (suspend, reactivate, role change) is audited, and the matr
 ## 13. Cross-service status enforcement (USR-07, #144)
 
 ### X1. Invalidate on events, decide from the User Service — ✅
-`@foc/auth-client` subscribes (per service, `foc.<service>.auth-status`) to `user.suspended` and `user.reactivated` and drops
-every cached identity for that user. It **does not** take the new status from the event.
+`@foc/auth-client` subscribes to `user.suspended`, `user.reactivated` and `user.role-changed` and drops every cached identity
+for that user. It **does not** take the new status or roles from the event.
 - **Why only forget:** the User Service stays the single source of status and role; a forged, stale, duplicated or reordered
   event can cost one lookup and nothing else. Taking the status from the event would make the broker an authorization input.
-- **In-flight race:** a lookup started before the event could return the old answer after it and re-cache it. A per-user
-  generation counter refuses to cache such an answer; a test holds the reply on the wire to prove it.
-- **Replicas:** replicas of one service share a queue, so only one invalidates; the others fall back to the 5 s window.
-  Inside the 10 s requirement; a per-replica exclusive queue would close it.
+- **In-flight race:** a lookup started before the event could return the old answer after it and re-cache it. The event
+  detaches every in-flight lookup for the user, and only the current lookup for a session may write to the cache; a test
+  holds the reply on the wire to prove it, including after a flood of other invalidations.
+- **Replicas:** each *instance* has its own exclusive, auto-delete queue (`foc.<service>.auth-status.<random>`), because each
+  holds its own cache — a shared queue would hand each event to one replica. Its `x-message-ttl` is the cache window, so an
+  instance never replays invalidations older than anything it could still have cached, and it is length-bounded.
+- **Delivery:** events are published by the outbox relay (EVT-02). Wherever no relay is running, the 5 s cache window (K4) is
+  the only bound — still inside the 10 s requirement.
 
-### X2. Order and Credit are wired — ✅ (mechanism) / 📝 (endpoints)
-Both import `AuthModule` and the subscription, and Compose/`.env.example` give them `USER_SERVICE_URL` and their own
-`INTERNAL_SERVICE_KEY`. Neither service has a mutating endpoint yet (ORD-02+, CRD-05+); those tickets add `@Authenticated()`.
-The acceptance test "suspension blocks the next order/credit mutation within 10 s" can only run against those endpoints.
+### X2. Supplier, Order and Credit are wired — ✅ (mechanism) / 📝 (endpoints)
+All three import `AuthModule` and the subscription (when a broker is configured, like every other consumer), and
+Compose/`.env.example` give them `USER_SERVICE_URL` and their own `INTERNAL_SERVICE_KEY`; Compose starts them after RabbitMQ is
+healthy. Supplier's admin endpoints (`@AdminOnly()`) are covered now; Order and Credit have no mutating endpoint yet (ORD-02+,
+CRD-05+), and those tickets add `@Authenticated()`. A wiring test in each service fails if the subscription or its handler is
+dropped. The acceptance test "suspension blocks the next order/credit mutation within 10 s" can only run against those endpoints.
 
 ### X3. User Service events now match the catalogue — ✅ (bug fix)
 The outbox held `UserSuspended` / `UserReactivated` / `UserActivated` with payloads missing `occurredAt` / `activatedAt`,
 while consumers subscribe to `user.suspended` etc. with schemas that require them. Once EVT-02 drains the outbox, every one
 would have been dead-lettered as unparseable. `insertOutboxEvent` is now typed on the catalogue's `PAYLOAD_SCHEMAS` and
-validates the payload before writing, so the mismatch cannot recur silently.
+validates the payload before writing, so the mismatch cannot recur silently. Migration `005_outbox_catalogue_events` rewrites
+unpublished rows written before the change (type to the catalogue key; `activatedAt` from the account, `occurredAt` from the
+row).
+
+### X4. Role changes are events too — ✅
+Granting or revoking `ADMIN` writes `user.role-changed` (the roles after the change, the audit id as `reasonRef`) in the same
+transaction as the change and its audit row. Without it a demoted administrator kept `isAdmin` in other services until their
+cache expired.
+
+### X5. Events carry the stored user id — ✅ (bug fix)
+A UUID is case-insensitive, so `/admin/users/<UPPER-CASE-ID>/suspend` found the account — but the event named the user as typed,
+and every cache is keyed on the token's lower-case `sub`, so the invalidation missed. Admin actions now use the locked row's id for
+everything they write. The same fix closed a self-check bypass: an admin could suspend or demote *themselves* by changing the
+case of their own id in the URL. `invalidateUser` also lower-cases defensively.
+
+### X6. The broker plumbing had to hold up — ✅ (bug fix, platform)
+Two gaps in `@foc/platform`'s events layer surfaced once a second service bound the same routing key:
+- **Retries went to every queue bound to the key.** A retry dead-lettered back onto the topic exchange with the original
+  routing key, so one service's retry was redelivered to every other service's queue. It now goes back to the failing queue
+  only, through the default exchange. The delay queues were renamed (`foc.<service>.delay.N`) because a queue's
+  dead-letter arguments cannot change in place.
+- **A reconnect lost every consumer.** The connection re-declared the topology but never re-registered consumers, and a
+  channel the server closed on its own was not noticed at all. Consumers are now remembered and re-registered on every new
+  channel, and losing the channel alone reconnects too.

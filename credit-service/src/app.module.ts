@@ -9,9 +9,9 @@ const WALLET_QUEUE = 'foc.credit.wallet-provisioning';
 /**
  * Every wallet endpoint must use `@Authenticated()` from `@foc/auth-client`, which reads the caller's
  * live status from the User Service (USR-07). A cached answer is at most 5 s old, and a
- * `user.suspended` / `user.reactivated` event drops it at once.
+ * `user.suspended` / `user.reactivated` / `user.role-changed` event drops it at once.
  */
-const status = authStatusEvents('credit');
+const status = authStatusEvents('credit', authConfig);
 
 /**
  * EventsModule is imported only when a broker URL is configured, so the

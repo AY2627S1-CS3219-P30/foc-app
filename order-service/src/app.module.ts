@@ -7,9 +7,9 @@ import { authConfig, env, SERVICE_NAME, SERVICE_VERSION } from './config.js';
  * Every mutating endpoint must use `@Authenticated()` (or `@AdminOnly()`) from `@foc/auth-client`,
  * which reads the caller's live status and roles from the User Service — never from the token or a
  * header (USR-07). A cached answer is at most 5 s old, and a `user.suspended` / `user.reactivated`
- * event drops it at once.
+ * / `user.role-changed` event drops it at once.
  */
-const status = authStatusEvents('order');
+const status = authStatusEvents('order', authConfig);
 
 /**
  * EventsModule is imported only when a broker URL is configured, so the service still runs locally
