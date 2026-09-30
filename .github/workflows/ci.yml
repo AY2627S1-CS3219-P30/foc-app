@@ -207,6 +207,8 @@ jobs:
           bun-version: latest
       - run: bun install --frozen-lockfile
       - run: bun run lint
+      # Unit tests use Bun's built-in runner; test/ is excluded from the Next typecheck.
+      - run: bun test
       - run: bun run build
 
   # ---------------------------------------------------------------------------

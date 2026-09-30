@@ -2,15 +2,16 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useStore } from "@/lib/store";
+import { useAuth } from "@/lib/auth";
 
 export default function Home() {
-  const { state } = useStore();
+  const { status } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    router.replace(state.isAuthenticated ? "/feed" : "/login");
-  }, [state.isAuthenticated, router]);
+    if (status === "loading") return;
+    router.replace(status === "signedIn" ? "/feed" : "/login");
+  }, [status, router]);
 
   return null;
 }

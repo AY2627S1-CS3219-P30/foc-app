@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/auth";
+import { orderForMode } from "@/lib/nav";
 import { useStore } from "@/lib/store";
+import { ModeSwitch } from "./ModeSwitch";
 import styles from "./Menu.module.css";
 
 const ITEMS = [
@@ -15,7 +18,8 @@ const ITEMS = [
 ];
 
 export function Menu() {
-  const { state, setMenuOpen, logout } = useStore();
+  const { state, setMenuOpen } = useStore();
+  const { logout, user } = useAuth();
   const router = useRouter();
   const panelRef = useRef<HTMLElement>(null);
 
@@ -26,7 +30,9 @@ export function Menu() {
 
     const panel = panelRef.current;
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    const focusable = panel?.querySelectorAll<HTMLElement>("a[href], button:not([disabled])");
+    const focusable = panel?.querySelectorAll<HTMLElement>(
+      "a[href], button:not([disabled]), input:not([disabled])",
+    );
     focusable?.[0]?.focus();
 
     function onKeyDown(e: KeyboardEvent) {
@@ -67,7 +73,10 @@ export function Menu() {
         aria-label="Menu"
         onClick={(e) => e.stopPropagation()}
       >
-        {ITEMS.map((item) => (
+        <div className={styles.mode}>
+          <ModeSwitch />
+        </div>
+        {orderForMode(ITEMS, user?.profile.preferredMode).map((item) => (
           <Link
             key={item.href}
             href={item.href}
@@ -81,8 +90,7 @@ export function Menu() {
           className={`${styles.item} ${styles.logout}`}
           onClick={() => {
             setMenuOpen(false);
-            logout();
-            router.push("/login");
+            void logout().then(() => router.push("/login"));
           }}
         >
           Log out

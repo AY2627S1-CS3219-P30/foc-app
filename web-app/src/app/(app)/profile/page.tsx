@@ -1,59 +1,46 @@
 "use client";
 
-import { useMemo } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AppBar } from "@/components/AppBar";
 import { Button } from "@/components/Button";
 import { DesktopShell } from "@/components/DesktopShell";
-import { PersonRow } from "@/components/PersonRow";
+import { ModeSwitch } from "@/components/ModeSwitch";
 import { Screen, ScreenContent } from "@/components/Screen";
+import { useAuth } from "@/lib/auth";
 import { STUDENT_NAV } from "@/lib/nav";
-import { useStore } from "@/lib/store";
-import { CURRENT_USER } from "@/lib/types";
+import { ProfileForm } from "./ProfileForm";
 
 export default function ProfilePage() {
-  const { state, logout } = useStore();
+  const { user, logout } = useAuth();
   const router = useRouter();
+  // The (app) layout only renders this once signed in.
+  if (!user) return null;
 
-  const stats = useMemo(() => {
-    const mine = state.requests.filter((r) => r.requesterId === CURRENT_USER.id);
-    const delivered = state.requests.filter(
-      (r) => r.courierId === CURRENT_USER.id && r.status === "complete"
-    );
-    return {
-      posted: mine.length,
-      delivered: delivered.length,
-    };
-  }, [state.requests]);
-
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
     router.push("/login");
   }
 
   const body = (
-    <>
-      <div className="card">
-        <PersonRow name={CURRENT_USER.name} location="NUS student" />
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div className="card" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700 }}>Mode</h2>
+        <p style={{ fontSize: 13, color: "var(--color-text-subtle)" }}>
+          Switch between asking for errands and running them. You can always do both.
+        </p>
+        <ModeSwitch />
       </div>
-      <div className="card" style={{ display: "flex", gap: 24, marginTop: 12 }}>
-        <div>
-          <p style={{ fontSize: 12, color: "var(--color-text-subtle)" }}>Requests posted</p>
-          <p style={{ fontSize: 20, fontWeight: 700 }}>{stats.posted}</p>
-        </div>
-        <div>
-          <p style={{ fontSize: 12, color: "var(--color-text-subtle)" }}>Errands delivered</p>
-          <p style={{ fontSize: 20, fontWeight: 700 }}>{stats.delivered}</p>
-        </div>
-        <div>
-          <p style={{ fontSize: 12, color: "var(--color-text-subtle)" }}>Balance</p>
-          <p style={{ fontSize: 20, fontWeight: 700 }}>{state.balance}</p>
-        </div>
+      <ProfileForm user={user} />
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <Link className="btn btn--outline" href="/change-password">
+          Change password
+        </Link>
+        <Button variant="subtle" onClick={() => void handleLogout()}>
+          Log out
+        </Button>
       </div>
-      <Button variant="subtle" onClick={handleLogout} style={{ marginTop: 16 }}>
-        Log out
-      </Button>
-    </>
+    </div>
   );
 
   return (
