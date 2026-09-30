@@ -481,26 +481,34 @@ Order, Credit and the web app, not just the User Service).
 ## 12. Log privacy verification (USR-08, #156 — log half)
 
 ### L1. The scan now covers login, refresh, profile and admin paths — ✅
-`test/log-privacy.test.ts` walks registration, activation, login (success, wrong password, unknown email, suspended), refresh
-(rotation, reuse detection, garbage cookie), logout, `/users/me`, a refused profile edit, and every admin route — including an
-email inside a query string — at `trace`, then asserts the output holds **no email address** (plain or URL-encoded), password,
-Argon2 hash, activation token, access token, refresh token or service key, and that lines carry a `correlationId`.
+`test/log-privacy.test.ts` walks registration (incl. duplicate and off-domain), activation (incl. replay and a bad token), login
+(success, wrong password, unknown email, suspended), refresh (rotation, reuse detection, garbage cookie), logout, `/users/me`, a
+refused profile edit, every admin route, an email in a query string and in a URL path, and two forced `500`s, at `trace`. Every
+test checks the **whole capture**, not only its own lines, for an email address (plain or URL-encoded); the walk also asserts no
+password (set or attempted), Argon2 hash, activation, access or refresh token, service key or display name appears, and that
+every request line carries a `correlationId`.
 
-### L2. Two leaks found and fixed — ✅
+### L2. Leaks found and fixed — ✅
 | What | Fix |
 |---|---|
-| `main.ts` logged every bootstrap admin's email at boot (`Seeded administrators: a@…`). | Counts only; who was bootstrapped is in the audit trail. |
-| A misconfigured `ADMIN_SEED_EMAILS` entry was echoed in the boot error printed with `console.error`. | The error names the entry by position. |
+| `main.ts` logged every bootstrap admin's email at boot (`Seeded administrators: a@…`). | `reportSeed`: counts, and skipped entries by position (`address(es) 2, 4 of 5`). Who was bootstrapped is in the audit trail. |
+| A misconfigured `ADMIN_SEED_EMAILS` entry was echoed in the boot error printed with `console.error`. | The error names the entry by position and gives its domain, which is the actual mistake. Positions count addresses (blank entries are dropped when the variable is parsed). |
+| pino's default `err` serializer copies every field of an error before redaction runs: PostgreSQL's `detail` and `where` quote the row (`Key (lower(email))=(…)`, `Failing row contains (…, $argon2id$…)`), a mailer's message names the recipient, and pino copies `err.message` into `msg`. | `createLogger` serializes `err` itself: type, message and stack with email addresses and password hashes masked, plus code, constraint, table and socket fields. `detail`, `where` and everything else are dropped; the copied `msg` is masked too. Platform-wide. |
+| Only the query string was stripped from the request line, so `GET /admin/users/alice@…` (or any mistyped route) logged the address. | The path is masked, raw or `%40`-encoded. |
+| `to` (a mail recipient) and `displayName` were not redaction keys. | Added. No other service logs a field with either name. |
 
 ### L3. The first scan could not see service logs — ✅ (test harness bug)
 The test app never routed Nest's `Logger` into the captured pino stream, so only request lines were scanned: a deliberate
-`new Logger().log({ user: email })` in login **passed** the old test. The harness now calls `app.useLogger(PinoLoggerService)`,
-exactly as `main.ts` does, and the same mutation fails the scan.
+`new Logger().log({ user: email })` in login **passed** the old test. A suite that captures logs now gets `main.ts`'s wiring
+(`PinoLoggerService` as the app's logger), and the suite first proves the capture works: a canary logged through Nest's `Logger`
+must arrive, and the email pattern must match an address deliberately logged, so the scans cannot pass vacuously. Nest installs
+an app's logger process-wide, so suites that do not capture keep Nest's console logger and an unexpected `500` still prints.
 
 ### L4. Residual risk — 🟡
-An *unhandled* exception is logged with its `err` object. A PostgreSQL error's `detail` can quote a row value (e.g. a
-unique-violation on email). Registration uses `ON CONFLICT`, so no tested path raises one, but the redaction backstop does not
-reach inside `err.detail`. Worth a platform-level serializer for `err` (Jonus).
+Masking reaches `err` and the request path only, and works by pattern (email addresses, Argon2 and bcrypt hashes). An address,
+display name or token a developer writes into any other message or field is caught by key redaction or by the scan, and the
+scan only covers the paths it walks. The event consumer (`platform/src/events/consumer.ts`) logs a failed handler's
+`err.message` as a plain `reason` field, which the `err` serializer does not see.
 
 ### L5. Still open in USR-08
 The admin console's errand list (needs the Order Service's endpoints) and read-only wallet inspection (needs CRD-05) are blocked

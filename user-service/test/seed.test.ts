@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { runMigrations } from '@foc/platform';
-import { seedAdmins } from '../src/admin/seed.js';
+import { reportSeed, seedAdmins, type SeedResult } from '../src/admin/seed.js';
 import { migrations } from '../src/db/migrations.js';
 import { createTestApp, type TestApp } from './helpers/app.js';
 import { PgliteDb } from './helpers/pglite-db.js';
@@ -53,7 +53,7 @@ describe('seedAdmins (US-FR3.1.3)', () => {
   it('is idempotent across restarts', async () => {
     await seed(['root@u.nus.edu']);
     const again = await seed(['root@u.nus.edu']);
-    expect(again).toEqual({ created: [], skipped: ['root@u.nus.edu'] });
+    expect(again).toEqual({ created: [], skipped: [{ entry: 1, email: 'root@u.nus.edu' }] });
     expect((await t.db.query('SELECT 1 FROM users')).rows).toHaveLength(1);
   });
 
@@ -74,7 +74,7 @@ describe('seedAdmins (US-FR3.1.3)', () => {
   it('never promotes an address that already has an ordinary account', async () => {
     await activeStudent(t, 'alex@u.nus.edu');
     const r = await seed(['alex@u.nus.edu']);
-    expect(r.skipped).toEqual(['alex@u.nus.edu']);
+    expect(r.skipped).toEqual([{ entry: 1, email: 'alex@u.nus.edu' }]);
     expect((await t.db.query("SELECT 1 FROM user_roles WHERE role = 'ADMIN'")).rows).toHaveLength(
       0,
     );
@@ -83,21 +83,17 @@ describe('seedAdmins (US-FR3.1.3)', () => {
   });
 
   it('fails loudly on a misconfiguration', async () => {
-    await expect(
-      seedAdmins(t.db, {
-        emails: ['a@gmail.com'],
-        password: BOOTSTRAP_PASSWORD,
-        allowedDomains: domains,
-      }),
-    ).rejects.toThrow(/entry 1 is outside ALLOWED_EMAIL_DOMAINS/);
-    // The boot error names the entry, never the address (it is printed to the console).
-    await expect(
-      seedAdmins(t.db, {
-        emails: ['a@gmail.com'],
-        password: BOOTSTRAP_PASSWORD,
-        allowedDomains: domains,
-      }),
-    ).rejects.not.toThrow(/gmail/);
+    // The boot error is printed to the console: it names the entry and its domain, never the
+    // address.
+    const bad = (email: string) =>
+      seedAdmins(t.db, { emails: [email], password: BOOTSTRAP_PASSWORD, allowedDomains: domains });
+    await expect(bad('some.one@gmail.com')).rejects.toThrow(
+      /^ADMIN_SEED_EMAILS address 1 of 1 has domain gmail\.com, which is not in ALLOWED_EMAIL_DOMAINS\.$/,
+    );
+    await expect(bad('some.one@gmail.com')).rejects.not.toThrow(/some\.one/);
+    await expect(bad('some.one.u.nus.edu')).rejects.toThrow(
+      /^ADMIN_SEED_EMAILS address 1 of 1 is not an email address\.$/,
+    );
     await expect(
       seedAdmins(t.db, { emails: ['a@u.nus.edu'], allowedDomains: domains }),
     ).rejects.toThrow(/ADMIN_SEED_PASSWORD/);
@@ -106,6 +102,39 @@ describe('seedAdmins (US-FR3.1.3)', () => {
       skipped: [],
     });
     expect((await t.db.query('SELECT 1 FROM users')).rows).toHaveLength(0);
+  });
+});
+
+describe('the boot report names an entry by position, never by address (US-NFR4.1.1)', () => {
+  const report = (result: SeedResult) => {
+    const lines: string[] = [];
+    reportSeed(
+      {
+        log: (message: string) => void lines.push(`log: ${message}`),
+        warn: (message: string) => void lines.push(`warn: ${message}`),
+      },
+      result,
+    );
+    return lines;
+  };
+
+  it('counts the admins created and lists the skipped entries', async () => {
+    await activeStudent(t, 'alex@u.nus.edu');
+    await activeStudent(t, 'sam@u.nus.edu');
+    const lines = report(
+      await seed(['root@u.nus.edu', 'alex@u.nus.edu', 'new@u.nus.edu', 'sam@u.nus.edu']),
+    );
+    expect(lines).toEqual([
+      'log: Seeded administrators: 2',
+      'warn: Seed skipped ADMIN_SEED_EMAILS address(es) 2, 4 of 4: an account already exists and is never promoted',
+    ]);
+    expect(lines.join('\n')).not.toMatch(/@|alex|sam/);
+  });
+
+  it('says so when no administrator is configured', async () => {
+    expect(report(await seedAdmins(t.db, { allowedDomains: domains }))).toEqual([
+      'warn: No seeded administrators configured.',
+    ]);
   });
 });
 
