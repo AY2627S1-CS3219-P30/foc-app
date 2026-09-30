@@ -414,10 +414,13 @@ this package and the `TOKEN_*` codes. So there are **two verification paths and 
 - **Trade-off:** a client sees `UNAUTHENTICATED` from the User Service but `TOKEN_EXPIRED` from Supplier for the same condition.
   **Open:** map the User Service's guard onto the same codes so the web app has one vocabulary (small change, but it alters USR-02/03's contract, so it needs a reviewer's say).
 
-### K8. Not yet wired into Supplier, Order or Credit — 🟡
-Those are other people's services and tickets (SUP-01 needs it). The package is proven three ways: a fake User Service speaking the real wire protocol, a Supplier-style Nest
-controller, and the **real User Service over real HTTP**. Wiring it into Supplier is four steps in `auth-client/README.md`.
-- **Effect on D2 point 4:** until SUP-01 lands, the Supplier integration demo is the sample controller in `auth-client/test`, not Supplier itself.
+### K8. Wired into Supplier; Order and Credit next — ✅ (Supplier)
+SUP-01 wired Supplier to the package (`@Authenticated` reads, `@AdminOnly` writes). `supplier-service/test/auth-integration.test.ts`
+now drives Supplier's **real** routes through the **real** authenticator against the wire-level fake User Service: a student token is
+refused on create/update/deactivate and an admin token accepted; expired and malformed tokens return distinct codes in the shared
+envelope; a suspended admin and a revoked session are refused; an `X-Role` header changes nothing. Supplier's other tests keep the
+lightweight stand-in authenticator, so they stay focused on catalogue logic.
+- Order and Credit adopt it with their first mutating endpoints (USR-07).
 
 ### K9. The integration test imports the User Service's test helpers by relative path — 🟡
 It lets `auth-client` boot the real service in-process without publishing or duplicating it.

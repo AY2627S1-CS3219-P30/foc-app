@@ -44,30 +44,37 @@ export interface TestApp {
   close(): Promise<void>;
 }
 
-/** Boots the real Supplier modules against a fresh in-memory PostgreSQL with migrations applied. */
-export async function createTestApp(): Promise<TestApp> {
+/**
+ * Boots the real Supplier modules against a fresh in-memory PostgreSQL with migrations applied.
+ *
+ * By default callers are resolved by {@link fakeAuthenticator}. Pass `auth` to use the real
+ * `@foc/auth-client` authenticator against a (fake or real) User Service instead.
+ */
+export async function createTestApp(
+  options: { auth?: { userServiceUrl: string; serviceKey: string } } = {},
+): Promise<TestApp> {
   const db = await PgliteDb.create();
   await runMigrations(db, migrations);
 
-  const moduleRef = await Test.createTestingModule({
+  const builder = Test.createTestingModule({
     imports: [
       PlatformModule.forRoot({
         serviceName: 'supplier-service',
         version: 'test',
         logLevel: 'silent',
       }),
-      AuthModule.forRoot({
-        userServiceUrl: 'http://user-service.test',
-        serviceKey: 'x'.repeat(16),
-      }),
+      AuthModule.forRoot(
+        options.auth
+          ? { ...options.auth, cacheTtlMs: 0 }
+          : { userServiceUrl: 'http://user-service.test', serviceKey: 'x'.repeat(16) },
+      ),
       SuppliersModule.forRoot(),
     ],
   })
     .overrideProvider(DB)
-    .useValue(db)
-    .overrideProvider(AUTHENTICATOR)
-    .useValue(fakeAuthenticator)
-    .compile();
+    .useValue(db);
+  if (!options.auth) builder.overrideProvider(AUTHENTICATOR).useValue(fakeAuthenticator);
+  const moduleRef = await builder.compile();
 
   const app = moduleRef.createNestApplication();
   app.useGlobalFilters(new ErrorEnvelopeFilter());
