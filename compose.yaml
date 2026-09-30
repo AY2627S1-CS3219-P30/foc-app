@@ -21,8 +21,9 @@ x-service-base: &service-base
       condition: service_healthy
   networks: [foc]
 
-# For a service that consumes events: it connects to the broker at boot and
-# declares its queues there, so it waits for the broker to be healthy too.
+# For a service that uses the broker (consumes events, or relays its outbox):
+# it connects at boot and declares its queues there, so it waits for the broker
+# to be healthy too.
 x-consumer-deps: &consumer-deps
   <<: *service-deps
   rabbitmq:
@@ -88,6 +89,7 @@ services:
       ADMIN_SEED_EMAILS: ${ADMIN_SEED_EMAILS:-admin@u.nus.edu}
       ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD:-dev-only-admin-password-change-me}
     ports: ['${USER_SERVICE_PORT:-3001}:3001']
+    depends_on: *consumer-deps
 
   supplier-service:
     <<: *service-base

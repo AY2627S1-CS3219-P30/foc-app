@@ -85,30 +85,6 @@ stateDiagram-v2
   class REJECTED,COMPLETED,CANCELLED,EXPIRED final
 ```
 
-# Events and the pending states
-
-Each `*_PENDING_CREDIT` state is entered together with a request to the Credit
-Service (`order.reservation-requested`, `order.completion-requested`,
-`order.release-requested`), and left when its reply arrives. **Every event is
-written to the Order Service's `outbox_events` table in the same transaction as
-the state change** (`insertOutboxEvent` from `@foc/platform`), and the
-platform's outbox relay publishes it after the commit. So no order can be left
-in `PENDING_CREDIT`, `COMPLETION_PENDING_CREDIT` or `RELEASE_PENDING_CREDIT`
-without its request: a crash after the commit only delays the request until the
-relay next runs (at boot, then every 500 ms), and a transaction that fails
-discards the state change and the request together. Requests for one order
-reach the broker in the order they were written, so a release never overtakes
-the reservation it releases. The same holds for `order.status-changed`.
-
-Delivery is at least once, so every handler — the Credit Service's replies,
-and the `user.suspended` events that drive the _Requester suspended_ and
-_courier suspended_ transitions — runs through the inbox (`withInbox` from
-`@foc/platform`). It records the event id in the same transaction as the
-transition, so a duplicate delivery changes nothing. The User Service publishes
-`user.suspended` through its own outbox in the same way. See
-[Asynchronous workflows](../README.md#publishing-with-a-database-write-the-outbox-and-inbox)
-for the API.
-
 ---
 
 ## Running this service
