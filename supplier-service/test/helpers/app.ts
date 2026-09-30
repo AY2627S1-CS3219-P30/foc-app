@@ -1,7 +1,13 @@
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { AUTHENTICATOR, AuthModule, authFailure, type AuthContext } from '@foc/auth-client';
+import {
+  AUTHENTICATOR,
+  AuthModule,
+  authFailure,
+  type AuthConfig,
+  type AuthContext,
+} from '@foc/auth-client';
 import { ErrorEnvelopeFilter, PlatformModule, runMigrations } from '@foc/platform';
 import { DB, type Db } from '../../src/db/db.js';
 import { migrations } from '../../src/db/migrations.js';
@@ -9,9 +15,11 @@ import { SuppliersModule } from '../../src/suppliers/suppliers.module.js';
 import { PgliteDb } from './pglite-db.js';
 
 /**
- * A stand-in for `@foc/auth-client`'s authenticator. The real one is proven end
- * to end in that package's own suite (against the real User Service); here we
- * only need to drive this service's own logic, so the bearer token IS the role:
+ * A stand-in for `@foc/auth-client`'s authenticator, used by default. The real
+ * one is proven end to end in that package's own suite (against the real User
+ * Service) and on this service's own routes in `auth-integration.test.ts`
+ * (against a wire-level fake User Service). Everywhere else we only need to
+ * drive this service's own logic, so the bearer token IS the role:
  * `Bearer admin` is an administrator, anything else a student, absent is
  * unauthenticated. The role never comes from the client — the guards still read
  * it from this resolved context, exactly as they read the real one.
@@ -48,11 +56,10 @@ export interface TestApp {
  * Boots the real Supplier modules against a fresh in-memory PostgreSQL with migrations applied.
  *
  * By default callers are resolved by {@link fakeAuthenticator}. Pass `auth` to use the real
- * `@foc/auth-client` authenticator against a (fake or real) User Service instead.
+ * `@foc/auth-client` authenticator against a (fake or real) User Service instead; it is used
+ * exactly as given, so a caller that wants no identity caching says `cacheTtlMs: 0` itself.
  */
-export async function createTestApp(
-  options: { auth?: { userServiceUrl: string; serviceKey: string } } = {},
-): Promise<TestApp> {
+export async function createTestApp(options: { auth?: AuthConfig } = {}): Promise<TestApp> {
   const db = await PgliteDb.create();
   await runMigrations(db, migrations);
 
@@ -64,9 +71,7 @@ export async function createTestApp(
         logLevel: 'silent',
       }),
       AuthModule.forRoot(
-        options.auth
-          ? { ...options.auth, cacheTtlMs: 0 }
-          : { userServiceUrl: 'http://user-service.test', serviceKey: 'x'.repeat(16) },
+        options.auth ?? { userServiceUrl: 'http://user-service.test', serviceKey: 'x'.repeat(16) },
       ),
       SuppliersModule.forRoot(),
     ],

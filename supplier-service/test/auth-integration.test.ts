@@ -18,19 +18,36 @@ let t: TestApp;
 
 beforeAll(async () => {
   fake = await startFakeUserService();
-  t = await createTestApp({ auth: { userServiceUrl: fake.url, serviceKey: SERVICE_KEY } });
+  t = await createTestApp({
+    auth: {
+      userServiceUrl: fake.url,
+      serviceKey: SERVICE_KEY,
+      // Ask the User Service on every request, so a change to a session shows on the very next
+      // call. Production keeps the default: identity is cached for up to 5 s, so a suspension,
+      // demotion or logout is enforced there within that staleness window (auth-client README).
+      cacheTtlMs: 0,
+    },
+  });
 });
 afterAll(async () => {
-  await t.close();
-  await fake.close();
+  // Close the fake even if the app fails to (or never started), so its socket never leaks.
+  try {
+    await t?.close();
+  } finally {
+    await fake?.close();
+  }
 });
 
 const bearer = (token: string) => `Bearer ${token}`;
+
+const countSuppliers = async (): Promise<number> =>
+  Number((await t.db.query<{ n: string }>('SELECT count(*) AS n FROM suppliers')).rows[0]!.n);
 
 describe('Supplier Service with the real @foc/auth-client (USR-06)', () => {
   it('rejects a student token on create and accepts an admin token', async () => {
     const student = await fake.login();
     const admin = await fake.login({ roles: ['ADMIN', 'STUDENT'] });
+    const before = await countSuppliers();
 
     const denied = await http(t)
       .post('/suppliers')
@@ -38,6 +55,7 @@ describe('Supplier Service with the real @foc/auth-client (USR-06)', () => {
       .send(validSupplier())
       .expect(403);
     expect(denied.body.error.code).toBe('FORBIDDEN');
+    expect(await countSuppliers()).toBe(before);
 
     const created = await http(t)
       .post('/suppliers')
@@ -58,17 +76,27 @@ describe('Supplier Service with the real @foc/auth-client (USR-06)', () => {
     const id = created.body.supplierId as string;
 
     await http(t).get(`/suppliers/${id}`).set('Authorization', bearer(student.token)).expect(200);
-    await http(t)
+    const put = await http(t)
       .put(`/suppliers/${id}`)
       .set('Authorization', bearer(student.token))
       .set('If-Match', `"${created.body.version}"`)
       .send({ name: 'Hijacked' })
       .expect(403);
-    await http(t)
+    const del = await http(t)
       .delete(`/suppliers/${id}`)
       .set('Authorization', bearer(student.token))
       .set('If-Match', `"${created.body.version}"`)
       .expect(403);
+    expect(put.body.error.code).toBe('FORBIDDEN');
+    expect(del.body.error.code).toBe('FORBIDDEN');
+
+    // Neither refused write landed: the supplier is exactly as created, and still active.
+    const after = await http(t)
+      .get(`/suppliers/${id}`)
+      .set('Authorization', bearer(student.token))
+      .expect(200);
+    expect(after.body).toEqual(created.body);
+    expect(after.body.active).toBe(true);
   });
 
   it('reports an expired and a malformed token as distinct codes in the shared envelope', async () => {
@@ -84,6 +112,31 @@ describe('Supplier Service with the real @foc/auth-client (USR-06)', () => {
         expect.objectContaining({ message: expect.any(String), correlationId: expect.any(String) }),
       );
     }
+  });
+
+  it('refuses an admin token with a forged signature or a foreign issuer', async () => {
+    // A live admin session: only the token's signature or issuer can be wrong here.
+    const admin = fake.addSession({ roles: ['ADMIN', 'STUDENT'] });
+    const forged = await fake.mint(admin, { privateKey: await fake.foreignKey() });
+    const foreign = await fake.mint(admin, { issuer: 'not-foc-user-service' });
+    const before = await countSuppliers();
+
+    for (const token of [forged, foreign]) {
+      const res = await http(t)
+        .post('/suppliers')
+        .set('Authorization', bearer(token))
+        .send(validSupplier({ name: 'Forged Cafe' }))
+        .expect(401);
+      expect(res.body.error.code).toBe('TOKEN_INVALID');
+    }
+    expect(await countSuppliers()).toBe(before);
+
+    // Control: a genuine token for the same session is accepted.
+    await http(t)
+      .post('/suppliers')
+      .set('Authorization', bearer(await fake.mint(admin)))
+      .send(validSupplier({ name: 'Genuine Cafe' }))
+      .expect(201);
   });
 
   it('refuses a suspended admin and a revoked session, whatever the token still says', async () => {
@@ -105,14 +158,47 @@ describe('Supplier Service with the real @foc/auth-client (USR-06)', () => {
     expect(r.body.error.code).toBe('TOKEN_REVOKED');
   });
 
-  it('ignores a client-supplied role header', async () => {
+  it('refuses an admin suspended, demoted or logged out after a successful write', async () => {
+    const admin = await fake.login({ roles: ['ADMIN', 'STUDENT'] });
+    const session = fake.sessions.get(admin.sid)!;
+    // The same, still-unexpired token throughout; only the User Service's answer changes.
+    const create = (name: string) =>
+      http(t)
+        .post('/suppliers')
+        .set('Authorization', bearer(admin.token))
+        .send(validSupplier({ name }));
+
+    await create('Before Cafe').expect(201);
+    const before = await countSuppliers();
+
+    session.status = 'SUSPENDED';
+    expect((await create('Suspended Later Cafe').expect(403)).body.error.code).toBe(
+      'ACCOUNT_SUSPENDED',
+    );
+    session.status = 'ACTIVE';
+
+    session.roles = ['STUDENT'];
+    expect((await create('Demoted Cafe').expect(403)).body.error.code).toBe('FORBIDDEN');
+    session.roles = ['ADMIN', 'STUDENT'];
+
+    session.active = false;
+    expect((await create('Logged Out Cafe').expect(401)).body.error.code).toBe('TOKEN_REVOKED');
+
+    expect(await countSuppliers()).toBe(before);
+  });
+
+  it('ignores any role a client claims in a header or body', async () => {
     const student = await fake.login();
-    await http(t)
-      .post('/suppliers')
-      .set('Authorization', bearer(student.token))
-      .set('X-Role', 'ADMIN')
-      .set('X-User-Roles', 'ADMIN')
-      .send(validSupplier({ name: 'Header Cafe' }))
-      .expect(403);
+    const before = await countSuppliers();
+    for (const h of ['x-role', 'x-user-role', 'x-user-roles', 'x-roles', 'x-admin', 'role']) {
+      const res = await http(t)
+        .post('/suppliers')
+        .set('Authorization', bearer(student.token))
+        .set(h, 'ADMIN')
+        .send({ ...validSupplier({ name: 'Header Cafe' }), role: 'ADMIN', isAdmin: true })
+        .expect(403);
+      expect(res.body.error.code).toBe('FORBIDDEN');
+    }
+    expect(await countSuppliers()).toBe(before);
   });
 });
