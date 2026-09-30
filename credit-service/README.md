@@ -18,6 +18,17 @@ credit-economy invariants in [ADR 0007](../docs/adr/0007-credit-invariant-and-do
   reused order ID with different requester/amount is rejected and appended to the audit-alert table.
 - A missing wallet is retried because activation may still be in flight. Invalid amount and
   insufficient funds are recorded terminal business outcomes.
+- `order.completion-requested` consumes the matching reservation and atomically debits the
+  requester's reserved account, credits the courier's available account, and records both resulting
+  balances in `credit.transferred`.
+- `order.release-requested` atomically moves the matching reservation back to the requester's
+  available account and records the result in `credit.released`.
+- Transfer and release lock the reservation and share a database-enforced terminal-operation key, so
+  they are mutually exclusive even when received concurrently. A mismatched or second terminal
+  operation changes no balance and appends an audit alert.
+- Request/reply consumers retain their inbox record but deliberately re-run the business-idempotent
+  handler on transport replay. This reproduces a lost reply from the immutable recorded result while
+  the order/operation constraints prevent a second movement.
 
 The service owns its PostgreSQL database. Migrations under `drizzle/` are applied by the discrete
 `credit-service-migrate` Compose container; the application never migrates at boot.
@@ -42,8 +53,10 @@ wire contract is [`contracts/credit-service.openapi.yaml`](../contracts/credit-s
 | -------------------------------- | ----------------------------- | ---------------- | -------------------------------------------------- |
 | `foc.credit.wallet-provisioning` | `user.activated`              | `user-service`   | wallet + `ISSUE` transaction                       |
 | `foc.credit.reservations`        | `order.reservation-requested` | `order-service`  | `credit.reserved` or `credit.reservation-rejected` |
+| `foc.credit.completions`         | `order.completion-requested`  | `order-service`  | `credit.transferred`                               |
+| `foc.credit.releases`            | `order.release-requested`     | `order-service`  | `credit.released`                                  |
 
-Both queues use bounded retry and a dead-letter queue. Every handler uses the transactional inbox.
+All queues use bounded retry and a dead-letter queue. Every handler uses the transactional inbox.
 The outbox relay publishes committed replies with at-least-once delivery.
 
 ## Commands

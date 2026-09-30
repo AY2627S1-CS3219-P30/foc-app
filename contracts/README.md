@@ -72,12 +72,12 @@ in the reply so Order can compare the response to the command it recorded. Resul
 snapshots captured in the same transaction as the movement and are replayed unchanged when a reply
 is lost.
 
-| `eventType`                  | Producer         | Payload                                                                                                      |
-| ---------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------ |
-| `order.completion-requested` | `order-service`  | `{ orderId, requesterId, courierId, amount }`                                                                |
-| `credit.transferred`         | `credit-service` | Request facts plus `{ transactionId, requesterBalance, courierBalance }`                                    |
-| `order.release-requested`    | `order-service`  | `{ orderId, requesterId, amount }`                                                                           |
-| `credit.released`            | `credit-service` | Request facts plus `{ transactionId, requesterBalance }`                                                     |
+| `eventType`                  | Producer         | Payload                                                                  |
+| ---------------------------- | ---------------- | ------------------------------------------------------------------------ |
+| `order.completion-requested` | `order-service`  | `{ orderId, requesterId, courierId, amount }`                            |
+| `credit.transferred`         | `credit-service` | Request facts plus `{ transactionId, requesterBalance, courierBalance }` |
+| `order.release-requested`    | `order-service`  | `{ orderId, requesterId, amount }`                                       |
+| `credit.released`            | `credit-service` | Request facts plus `{ transactionId, requesterBalance }`                 |
 
 Each balance is `{ available, reserved, total }`, with non-negative whole numbers and
 `total = available + reserved`. Credit accepts both commands only from an envelope claiming
