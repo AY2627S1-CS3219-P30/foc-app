@@ -4,7 +4,7 @@ import type { ChannelModel, ConsumeMessage, Options } from 'amqplib';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { userActivatedPayload } from './catalogue.js';
 import { BrokerConnection } from './connection.js';
-import { EventConsumer, type SubscribeOptions } from './consumer.js';
+import { EventConsumer, UnparseableMessageError, type SubscribeOptions } from './consumer.js';
 import { createEnvelope } from './envelope.js';
 import {
   DLX,
@@ -167,7 +167,13 @@ function subscription(
   queue: string,
   handler: SubscribeOptions<{ userId: string }>['handler'],
 ): SubscribeOptions<{ userId: string }> {
-  return { queue, eventType: 'user.activated', payloadSchema: userActivatedPayload, handler };
+  return {
+    queue,
+    eventType: 'user.activated',
+    expectedProducer: 'user-service',
+    payloadSchema: userActivatedPayload,
+    handler,
+  };
 }
 
 /** Lets every pending promise chain run to completion. */
@@ -352,6 +358,60 @@ describe('retry routing', () => {
       deadLetterRoutingKey: WORK.queue,
     });
     expect(channel().queues.has(deadLetterQueueName(WORK.queue))).toBe(true);
+  });
+});
+
+describe('subscription trust boundary', () => {
+  it('dead-letters an envelope whose event type does not match the handler', async () => {
+    const { broker, consumer, channel } = setup();
+    await broker.connect();
+    const handler = vi.fn();
+    await consumer.subscribe(subscription(WORK.queue, handler));
+
+    const wrongType = { ...activation(), eventType: 'user.suspended' };
+    const message = channel().deliver(WORK.queue, wrongType);
+    await settle();
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(channel().published).toEqual([
+      { exchange: DLX, routingKey: WORK.queue, headers: expect.any(Object) },
+    ]);
+    expect(channel().acked).toEqual([message]);
+  });
+
+  it('dead-letters an event from a producer the subscription does not trust', async () => {
+    const { broker, consumer, channel } = setup();
+    await broker.connect();
+    const handler = vi.fn();
+    await consumer.subscribe(subscription(WORK.queue, handler));
+
+    const forged = { ...activation(), producer: 'order-service' };
+    const message = channel().deliver(WORK.queue, forged);
+    await settle();
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(channel().published).toEqual([
+      { exchange: DLX, routingKey: WORK.queue, headers: expect.any(Object) },
+    ]);
+    expect(channel().acked).toEqual([message]);
+  });
+
+  it('dead-letters a handler-discovered permanent contract violation without retrying', async () => {
+    const { broker, consumer, channel } = setup();
+    await broker.connect();
+    await consumer.subscribe(
+      subscription(WORK.queue, () => {
+        throw new UnparseableMessageError('aggregate does not match payload');
+      }),
+    );
+
+    const message = channel().deliver(WORK.queue, activation());
+    await settle();
+
+    expect(channel().published).toEqual([
+      { exchange: DLX, routingKey: WORK.queue, headers: expect.any(Object) },
+    ]);
+    expect(channel().acked).toEqual([message]);
   });
 });
 

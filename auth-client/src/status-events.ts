@@ -64,7 +64,8 @@ export class UserStatusInvalidation implements OnApplicationBootstrap {
     // One queue bound to every routing key: the handler does the same thing for each.
     await this.consumer.subscribe({
       queue: this.queue,
-      eventType: IDENTITY_CHANGE_EVENTS.join('|'),
+      eventType: IDENTITY_CHANGE_EVENTS,
+      expectedProducer: 'user-service',
       payloadSchema: identityChangedPayload,
       handler: (envelope) => this.handle(envelope),
     });
