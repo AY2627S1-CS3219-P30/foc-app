@@ -20,11 +20,11 @@ info:
     ## Concurrency
     Each supplier carries a `version`, also sent as the `ETag` header. `PUT` and `DELETE` require
     `If-Match: <version>`; a stale value is `412 STALE_VERSION` and changes nothing. `POST` honours an
-    optional `Idempotency-Key`: a replay returns the original supplier with `200`.
+    optional `Idempotency-Key`: a replay returns the supplier's current state with `200`.
 
     ## Status
-    `GET /suppliers` search, filters and pagination are SUP-02. SUP-01 returns every active supplier
-    as a bare array ordered by name, then building; SUP-02 moves it to the page shape below.
+    `GET /suppliers` follows SUP-02: lean list items in a page, with search, filters and sorting.
+    `GET /suppliers/{supplierId}` returns the full detail view.
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -60,19 +60,31 @@ paths:
       summary: List active suppliers (SS-FR3.1.1)
       description: |
         Active suppliers only. `q` matches name, building, location description and tags,
-        case-insensitively. Filters combine with AND. Ordered by `name`, then `building`, then
-        `supplierId`, so pages are stable.
+        case-insensitively, within each tag independently. Filters combine with AND. Default ordering
+        is case-insensitive name ascending, then supplierId ascending. Other sorts use their chosen
+        direction, then name and supplierId ascending. Empty filters are ignored; repeated filters
+        return 422. Unknown query parameters are ignored. NUL characters in text are rejected.
       parameters:
         - name: q
           in: query
-          schema: { type: string, minLength: 1, maxLength: 100 }
+          description: Trimmed; at most 200 characters. An empty value means no search.
+          schema: { type: string, maxLength: 200 }
         - name: type
           in: query
+          description: Case-insensitive; an empty value means no filter.
           schema: { $ref: '#/components/schemas/SupplierType' }
         - name: building
           in: query
-          description: Exact match on the canonical building name.
-          schema: { type: string, minLength: 1, maxLength: 200 }
+          description: Canonicalized as on create, then matched case-insensitively. Empty means no filter.
+          schema: { type: string }
+        - name: sort
+          in: query
+          description: Trimmed and case-insensitive; unknown or repeated values default to name.
+          schema: { type: string, enum: [name, type, building, updatedAt], default: name }
+        - name: order
+          in: query
+          description: Trimmed and case-insensitive; unknown or repeated values default to asc.
+          schema: { type: string, enum: [asc, desc], default: asc }
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
       responses:
@@ -108,6 +120,7 @@ paths:
               locationDescription: Beside the Central Library, facing Kent Ridge Road.
               openingHours: [{ day: MON, opens: '08:00', closes: '20:00' }]
       responses:
+        '400': { $ref: '#/components/responses/BadRequest' }
         '201':
           description: Created.
           headers:
@@ -118,7 +131,7 @@ paths:
               examples:
                 supplier: { $ref: '#/components/examples/Supplier' }
         '200':
-          description: A replay of an earlier create with the same `Idempotency-Key`.
+          description: A replay with the same key and body returns the supplier's current state.
           headers:
             ETag: { $ref: '#/components/headers/ETag' }
           content:
@@ -174,7 +187,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Supplier' }
-        '400': { $ref: '#/components/responses/BadIfMatch' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -187,7 +200,10 @@ paths:
       tags: [Suppliers]
       operationId: deactivateSupplier
       summary: Deactivate a supplier (admin)
-      description: Soft. The supplier leaves listings but stays resolvable by id. Idempotent at the same version.
+      description: |
+        Soft. The supplier leaves listings but stays resolvable by id. Deactivation increments
+        version, so retrying with the previous version returns 412. Already inactive at the
+        current version is a successful no-op.
       parameters:
         - $ref: '#/components/parameters/IfMatch'
       responses:
@@ -198,11 +214,12 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Supplier' }
-        '400': { $ref: '#/components/responses/BadIfMatch' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '412': { $ref: '#/components/responses/StaleVersion' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
         '503': { $ref: '#/components/responses/IdentityUnavailable' }
 
@@ -218,20 +235,26 @@ components:
       name: supplierId
       in: path
       required: true
+      description: Invalid UUIDs return 422 with details[].field set to id.
       schema: { type: string, format: uuid }
     Page:
       name: page
       in: query
-      schema: { type: integer, minimum: 1, default: 1 }
+      description: Plain decimal integer (up to nine digits), clamped to at least 1. Invalid or repeated values default to 1.
+      schema: { type: integer, default: 1 }
     PageSize:
       name: pageSize
       in: query
-      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      description: Plain decimal integer (up to nine digits), clamped to 1–100. Invalid or repeated values default to 20.
+      schema: { type: integer, default: 20 }
     IdempotencyKey:
       name: Idempotency-Key
       in: header
-      description: Makes a create safe to retry. A reused key with a different body is `422 IDEMPOTENCY_KEY_REUSED`.
-      schema: { type: string, minLength: 1, maxLength: 200 }
+      description: |
+        Trimmed; blank means no key. Over 200 characters returns 400 BAD_REQUEST. A replay
+        returns the current supplier. Reusing a key with a different body returns
+        422 IDEMPOTENCY_KEY_REUSED without field-level details.
+      schema: { type: string, maxLength: 200 }
     IfMatch:
       name: If-Match
       in: header
@@ -356,11 +379,21 @@ components:
         imageUrl: { $ref: '#/components/schemas/SupplierInput/properties/imageUrl' }
         tags: { $ref: '#/components/schemas/SupplierInput/properties/tags' }
 
+    SupplierListItem:
+      type: object
+      required: [supplierId, name, type, building, imageUrl]
+      properties:
+        supplierId: { type: string, format: uuid }
+        name: { type: string }
+        type: { $ref: '#/components/schemas/SupplierType' }
+        building: { type: string }
+        imageUrl: { type: [string, 'null'], format: uri }
+
     SupplierPage:
       type: object
       required: [items, page, pageSize, total]
       properties:
-        items: { type: array, items: { $ref: '#/components/schemas/Supplier' } }
+        items: { type: array, items: { $ref: '#/components/schemas/SupplierListItem' } }
         page: { type: integer, minimum: 1 }
         pageSize: { type: integer, minimum: 1, maximum: 100 }
         total: { type: integer, minimum: 0 }
@@ -391,7 +424,7 @@ components:
 
   examples:
     Supplier:
-      value: &supplier
+      value:
         supplierId: 3f0c9a52-8a8e-5f5c-9d7e-1b6a2c4e8f10
         name: The Deck
         type: FOOD
@@ -408,7 +441,12 @@ components:
         createdAt: '2026-09-21T08:30:00Z'
         updatedAt: '2026-09-21T08:30:00Z'
     SupplierPage:
-      value: { items: [*supplier], page: 1, pageSize: 20, total: 1 }
+      value:
+        items:
+          - { supplierId: 3f0c9a52-8a8e-5f5c-9d7e-1b6a2c4e8f10, name: The Deck, type: FOOD, building: The Deck, imageUrl: null }
+        page: 1
+        pageSize: 20
+        total: 1
 
   responses:
     Unauthenticated:
@@ -440,7 +478,7 @@ components:
           example:
             error: { code: NOT_FOUND, message: Supplier not found., correlationId: 5c1f2a9e }
     ValidationFailed:
-      description: Every invalid field at once, including a duplicate active name in the same building.
+      description: Invalid fields (including duplicate active name/building); idempotency key reuse returns IDEMPOTENCY_KEY_REUSED without details.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -452,8 +490,8 @@ components:
               details:
                 - { field: type, code: INVALID_VALUE, message: 'Invalid option: expected one of "FOOD"|"CAFE"|"PRINTING"|"SHOPPING"|"LANDMARK"' }
                 - { field: name, code: DUPLICATE_NAME_BUILDING, message: An active supplier with this name already exists in this building. }
-    BadIfMatch:
-      description: '`If-Match` is not a positive integer version.'
+    BadRequest:
+      description: Malformed JSON, an invalid If-Match version, or an oversized Idempotency-Key.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }

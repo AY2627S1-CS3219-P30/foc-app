@@ -28,8 +28,10 @@ export interface paths {
         /**
          * List active suppliers (SS-FR3.1.1)
          * @description Active suppliers only. `q` matches name, building, location description and tags,
-         *     case-insensitively. Filters combine with AND. Ordered by `name`, then `building`, then
-         *     `supplierId`, so pages are stable.
+         *     case-insensitively, within each tag independently. Filters combine with AND. Default ordering
+         *     is case-insensitive name ascending, then supplierId ascending. Other sorts use their chosen
+         *     direction, then name and supplierId ascending. Empty filters are ignored; repeated filters
+         *     return 422. Unknown query parameters are ignored. NUL characters in text are rejected.
          */
         get: operations["listSuppliers"];
         put?: never;
@@ -46,6 +48,7 @@ export interface paths {
             query?: never;
             header?: never;
             path: {
+                /** @description Invalid UUIDs return 422 with details[].field set to id. */
                 supplierId: components["parameters"]["SupplierId"];
             };
             cookie?: never;
@@ -63,7 +66,9 @@ export interface paths {
         post?: never;
         /**
          * Deactivate a supplier (admin)
-         * @description Soft. The supplier leaves listings but stays resolvable by id. Idempotent at the same version.
+         * @description Soft. The supplier leaves listings but stays resolvable by id. Deactivation increments
+         *     version, so retrying with the previous version returns 412. Already inactive at the
+         *     current version is a successful no-op.
          */
         delete: operations["deactivateSupplier"];
         options?: never;
@@ -151,8 +156,17 @@ export interface components {
             imageUrl?: components["schemas"]["SupplierInput"]["imageUrl"];
             tags?: components["schemas"]["SupplierInput"]["tags"];
         };
+        SupplierListItem: {
+            /** Format: uuid */
+            supplierId: string;
+            name: string;
+            type: components["schemas"]["SupplierType"];
+            building: string;
+            /** Format: uri */
+            imageUrl: string | null;
+        };
         SupplierPage: {
-            items: components["schemas"]["Supplier"][];
+            items: components["schemas"]["SupplierListItem"][];
             page: number;
             pageSize: number;
             total: number;
@@ -246,7 +260,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description Every invalid field at once, including a duplicate active name in the same building. */
+        /** @description Invalid fields (including duplicate active name/building); idempotency key reuse returns IDEMPOTENCY_KEY_REUSED without details. */
         ValidationFailed: {
             headers: {
                 [name: string]: unknown;
@@ -276,8 +290,8 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description `If-Match` is not a positive integer version. */
-        BadIfMatch: {
+        /** @description Malformed JSON, an invalid If-Match version, or an oversized Idempotency-Key. */
+        BadRequest: {
             headers: {
                 [name: string]: unknown;
             };
@@ -350,10 +364,17 @@ export interface components {
         };
     };
     parameters: {
+        /** @description Invalid UUIDs return 422 with details[].field set to id. */
         SupplierId: string;
+        /** @description Plain decimal integer (up to nine digits), clamped to at least 1. Invalid or repeated values default to 1. */
         Page: number;
+        /** @description Plain decimal integer (up to nine digits), clamped to 1–100. Invalid or repeated values default to 20. */
         PageSize: number;
-        /** @description Makes a create safe to retry. A reused key with a different body is `422 IDEMPOTENCY_KEY_REUSED`. */
+        /**
+         * @description Trimmed; blank means no key. Over 200 characters returns 400 BAD_REQUEST. A replay
+         *     returns the current supplier. Reusing a key with a different body returns
+         *     422 IDEMPOTENCY_KEY_REUSED without field-level details.
+         */
         IdempotencyKey: string;
         /** @description The supplier `version` last read, bare or quoted as an ETag (`3` or `"3"`). */
         IfMatch: string;
@@ -398,11 +419,19 @@ export interface operations {
     listSuppliers: {
         parameters: {
             query?: {
+                /** @description Trimmed; at most 200 characters. An empty value means no search. */
                 q?: string;
+                /** @description Case-insensitive; an empty value means no filter. */
                 type?: components["schemas"]["SupplierType"];
-                /** @description Exact match on the canonical building name. */
+                /** @description Canonicalized as on create, then matched case-insensitively. Empty means no filter. */
                 building?: string;
+                /** @description Trimmed and case-insensitive; unknown or repeated values default to name. */
+                sort?: "name" | "type" | "building" | "updatedAt";
+                /** @description Trimmed and case-insensitive; unknown or repeated values default to asc. */
+                order?: "asc" | "desc";
+                /** @description Plain decimal integer (up to nine digits), clamped to at least 1. Invalid or repeated values default to 1. */
                 page?: components["parameters"]["Page"];
+                /** @description Plain decimal integer (up to nine digits), clamped to 1–100. Invalid or repeated values default to 20. */
                 pageSize?: components["parameters"]["PageSize"];
             };
             header?: never;
@@ -430,7 +459,11 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                /** @description Makes a create safe to retry. A reused key with a different body is `422 IDEMPOTENCY_KEY_REUSED`. */
+                /**
+                 * @description Trimmed; blank means no key. Over 200 characters returns 400 BAD_REQUEST. A replay
+                 *     returns the current supplier. Reusing a key with a different body returns
+                 *     422 IDEMPOTENCY_KEY_REUSED without field-level details.
+                 */
                 "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
             };
             path?: never;
@@ -458,7 +491,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description A replay of an earlier create with the same `Idempotency-Key`. */
+            /** @description A replay with the same key and body returns the supplier's current state. */
             200: {
                 headers: {
                     ETag: components["headers"]["ETag"];
@@ -478,6 +511,7 @@ export interface operations {
                     "application/json": components["schemas"]["Supplier"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationFailed"];
@@ -489,6 +523,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                /** @description Invalid UUIDs return 422 with details[].field set to id. */
                 supplierId: components["parameters"]["SupplierId"];
             };
             cookie?: never;
@@ -520,6 +555,7 @@ export interface operations {
                 "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
+                /** @description Invalid UUIDs return 422 with details[].field set to id. */
                 supplierId: components["parameters"]["SupplierId"];
             };
             cookie?: never;
@@ -546,7 +582,7 @@ export interface operations {
                     "application/json": components["schemas"]["Supplier"];
                 };
             };
-            400: components["responses"]["BadIfMatch"];
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -564,6 +600,7 @@ export interface operations {
                 "If-Match": components["parameters"]["IfMatch"];
             };
             path: {
+                /** @description Invalid UUIDs return 422 with details[].field set to id. */
                 supplierId: components["parameters"]["SupplierId"];
             };
             cookie?: never;
@@ -580,11 +617,12 @@ export interface operations {
                     "application/json": components["schemas"]["Supplier"];
                 };
             };
-            400: components["responses"]["BadIfMatch"];
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             412: components["responses"]["StaleVersion"];
+            422: components["responses"]["ValidationFailed"];
             428: components["responses"]["PreconditionRequired"];
             503: components["responses"]["IdentityUnavailable"];
         };

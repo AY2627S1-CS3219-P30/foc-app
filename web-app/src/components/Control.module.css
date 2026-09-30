@@ -61,6 +61,7 @@
 
 .range {
   flex: 1;
+  min-height: var(--size-control);
   accent-color: var(--color-primary);
 }
 
