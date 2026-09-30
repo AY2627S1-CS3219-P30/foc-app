@@ -1,5 +1,4 @@
-import type { z } from 'zod';
-import { PAYLOAD_SCHEMAS } from '@foc/platform';
+import { insertOutboxEvent, type CataloguedEventType, type NewOutboxEvent } from '@foc/platform';
 import type { Queryable } from '../db/db.js';
 
 export type AccountStatus = 'PENDING_ACTIVATION' | 'ACTIVE' | 'SUSPENDED';
@@ -98,26 +97,17 @@ export const usersRepository = {
   },
 
   /**
-   * Writes an event to the outbox in the caller's transaction. The type and payload must match the
-   * shared catalogue (`@foc/platform` EVENTS / PAYLOAD_SCHEMAS): the payload is validated here, so a
-   * shape a consumer would dead-letter fails the change that produced it instead of reaching the broker.
+   * Writes an event to the outbox in the caller's transaction, through the platform's
+   * `insertOutboxEvent`. The type and payload must match the shared catalogue (`@foc/platform`
+   * EVENTS / PAYLOAD_SCHEMAS): the payload is validated here, so a shape a consumer would
+   * dead-letter fails the change that produced it instead of reaching the broker. The platform's
+   * OutboxRelay publishes the row once the transaction commits (EVT-02).
    */
-  async insertOutboxEvent<K extends keyof typeof PAYLOAD_SCHEMAS>(
+  async insertOutboxEvent<K extends CataloguedEventType>(
     q: Queryable,
-    e: {
-      id: string;
-      eventType: K;
-      aggregateId: string;
-      payload: z.input<(typeof PAYLOAD_SCHEMAS)[K]>;
-      correlationId: string;
-    },
+    e: NewOutboxEvent<K> & { id: string },
   ): Promise<void> {
-    const payload: unknown = PAYLOAD_SCHEMAS[e.eventType].parse(e.payload);
-    await q.query(
-      `INSERT INTO outbox_events (id, event_type, aggregate_id, payload, correlation_id)
-       VALUES ($1, $2, $3, $4::jsonb, $5)`,
-      [e.id, e.eventType, e.aggregateId, JSON.stringify(payload), e.correlationId],
-    );
+    await insertOutboxEvent(q, e);
   },
 
   /** Login lookup. The only place a password hash is read, and it never leaves the auth service. */

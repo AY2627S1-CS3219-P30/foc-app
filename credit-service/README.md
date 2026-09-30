@@ -76,3 +76,18 @@ logs — [CRD-01](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/133)
 replaces it with real wallet issuance, which **must be idempotent on `userId`**:
 `CS-FR1.1.2` requires a repeated activation to return the existing wallet rather
 than issue more credits, and this message can legitimately arrive more than once.
+
+### Delivery guarantees
+
+Delivery is at least once. Each handler that changes state (from CRD-01 on)
+runs through the inbox (`withInbox` from `@foc/platform`), which records the
+event id in the same transaction as the ledger change, so a duplicate delivery
+changes nothing. Each reply (`credit.reserved`, `credit.reservation-rejected`,
+`credit.transferred`, `credit.released`) is written with `insertOutboxEvent` in
+that same transaction, and the platform's outbox relay publishes it after the
+commit: a reply is never lost to a crash, and never sent for a change that
+rolled back.
+The Order Service holds an errand in a `*_PENDING_CREDIT` state until the reply
+arrives, so this is what keeps it from waiting forever. See
+[Asynchronous workflows](../README.md#publishing-with-a-database-write-the-outbox-and-inbox)
+for the API.

@@ -140,11 +140,12 @@ m = 19 MiB, t = 2, p = 1, fresh salt per hash.
 - **Trade-off:** minimum, not maximum, cost — chosen so login stays fast on a laptop during the demo.
   The encoded hash carries its parameters, so they can be raised later without invalidating old hashes.
 
-### S6. Events go to an outbox table in the same transaction — 🟡
-`UserActivated` is inserted into `outbox_events` in the activation transaction, so an account can never
-activate without its event.
-- **Trade-off:** nothing drains the table until EVT-02 (Jonus), which may reshape it. Until then the
-  event is durable but unpublished, so Credit Service will not yet issue starting balances.
+### S6. Events go to an outbox table in the same transaction — ✅
+`user.activated` is inserted into `outbox_events` in the activation transaction, so an account can never
+activate without its event; suspensions and reactivations do the same.
+- **Drained by EVT-02:** the platform's `OutboxRelay` publishes committed rows (it runs whenever
+  `RABBITMQ_URL` is set). Migration 006 added its columns (`seq`, `attempts`, `last_error`, …) to the
+  existing table; rows written before it are relayed like new ones, in the order they happened.
 
 ### S7. Password policy: 12–128 characters, no composition rules — ✅
 Length over complexity (current NIST guidance). The 128 cap bounds Argon2 cost per request.
@@ -288,7 +289,7 @@ Recorded because they are the honest answer to "what went wrong?" and each has a
 - USR-05 — single-flight refresh across tabs.
 - ~~USR-06~~ — built (see §10). Consuming services must still add the dependency, the two env vars and the Dockerfile lines.
 - PLT-06 — remove the dev default `INTERNAL_SERVICE_KEYS`.
-- EVT-02 — drain `outbox_events`.
+- ~~EVT-02 — drain `outbox_events`~~ — the platform relay publishes it (S6).
 - Gateway work — configure `trust proxy` so per-IP limits mean per client.
 
 **Not yet automated**

@@ -36,16 +36,23 @@ export interface NewEventInput<T> {
   correlationId: string;
   /** Defaults to the correlation id when this event starts a workflow. */
   causationId?: string;
+  /**
+   * Default to a fresh id and the current time. The outbox relay sets both from
+   * the stored row, so an event published twice (a crash between publishing and
+   * marking it published) reaches a consumer's inbox as the same event.
+   */
+  eventId?: string;
+  occurredAt?: string;
   payload: T;
 }
 
 export function createEnvelope<T>(input: NewEventInput<T>): Envelope<T> {
   return {
-    eventId: randomUUID(),
+    eventId: input.eventId ?? randomUUID(),
     eventType: input.eventType,
     schemaVersion: input.schemaVersion,
     aggregateId: input.aggregateId,
-    occurredAt: new Date().toISOString(),
+    occurredAt: input.occurredAt ?? new Date().toISOString(),
     producer: input.producer,
     correlationId: input.correlationId,
     causationId: input.causationId ?? input.correlationId,
