@@ -4,8 +4,14 @@ import { sql } from 'drizzle-orm';
 import { ApiException } from '@foc/platform';
 import { DB, type Database } from '../db/db.js';
 import { isUniqueViolation, suppliersRepository as repo } from './suppliers.repository.js';
-import { validationFailed } from './validation.js';
-import { toSupplierView, type SupplierInput, type SupplierView } from './types.js';
+import { validationFailed, type SupplierListQuery } from './validation.js';
+import {
+  toSupplierListItem,
+  toSupplierView,
+  type SupplierInput,
+  type SupplierListItem,
+  type SupplierView,
+} from './types.js';
 
 const NAME_BUILDING_INDEX = 'suppliers_name_building_active_key';
 
@@ -49,6 +55,14 @@ export interface CreateResult {
   replayed: boolean;
 }
 
+/** One page of a listing. `total` is the full match count, so an empty page still says how many matched. */
+export interface SupplierPage {
+  page: number;
+  pageSize: number;
+  total: number;
+  items: SupplierListItem[];
+}
+
 /**
  * Supplier catalogue operations (SUP-01). Every mutation runs in one
  * transaction, so a row commits fully or not at all: a failure leaves nothing
@@ -58,9 +72,14 @@ export interface CreateResult {
 export class SuppliersService {
   constructor(@Inject(DB) private readonly db: Database) {}
 
-  async list(): Promise<SupplierView[]> {
-    const rows = await repo.listActive(this.db);
-    return rows.map(toSupplierView);
+  async list(query: SupplierListQuery): Promise<SupplierPage> {
+    const { rows, total } = await repo.list(this.db, query);
+    return {
+      page: query.page,
+      pageSize: query.pageSize,
+      total,
+      items: rows.map(toSupplierListItem),
+    };
   }
 
   async getById(id: string): Promise<SupplierView> {

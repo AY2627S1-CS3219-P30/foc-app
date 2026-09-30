@@ -61,6 +61,32 @@ export interface SupplierView {
   updatedAt: string;
 }
 
+/**
+ * The lean shape a listing returns per supplier (SUP-02): enough to render a
+ * card and to open the detail view, no more. Floor, location description,
+ * opening hours and coordinates belong to `GET /suppliers/:id`.
+ */
+export interface SupplierListItem {
+  supplierId: string;
+  name: string;
+  type: SupplierType;
+  building: string;
+  imageUrl: string | null;
+}
+
+export type SupplierListRow = Pick<
+  SupplierRow,
+  'supplierId' | 'name' | 'type' | 'building' | 'imageUrl'
+>;
+
+export const toSupplierListItem = (r: SupplierListRow): SupplierListItem => ({
+  supplierId: r.supplierId,
+  name: r.name,
+  type: r.type,
+  building: r.building,
+  imageUrl: r.imageUrl,
+});
+
 // Coordinates are `double precision`, which both `pg` and PGlite return as JS
 // numbers; the `string` case is belt-and-braces for any driver that maps them
 // as text.

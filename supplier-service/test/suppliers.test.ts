@@ -132,6 +132,15 @@ describe('idempotent create (Idempotency-Key)', () => {
     await create(validSupplier(), asAdmin, { 'Idempotency-Key': 'key-1' }).expect(201);
     await create(validSupplier(), asAdmin, { 'Idempotency-Key': 'key-2' }).expect(422);
   });
+
+  it('rejects a key over 200 characters with 400 and creates nothing', async () => {
+    await create(validSupplier(), asAdmin, { 'Idempotency-Key': 'k'.repeat(200) }).expect(201);
+    const res = await create(validSupplier({ name: 'Other' }), asAdmin, {
+      'Idempotency-Key': 'k'.repeat(201),
+    }).expect(400);
+    expect(res.body.error.code).toBe('BAD_REQUEST');
+    expect(await countSuppliers()).toBe(1);
+  });
 });
 
 describe('optimistic locking (If-Match / version)', () => {
@@ -217,7 +226,7 @@ describe('soft deactivation', () => {
 
     const list = (await http(t).get('/suppliers').set('Authorization', asAdmin).expect(200)).body;
     expect(
-      list.find((s: { supplierId: string }) => s.supplierId === created.supplierId),
+      list.items.find((s: { supplierId: string }) => s.supplierId === created.supplierId),
     ).toBeUndefined();
 
     const byId = (
@@ -247,6 +256,19 @@ describe('soft deactivation', () => {
       .expect(200);
     // the freed name can be created again while the old row remains fetchable
     await create(validSupplier({ name: 'Kopi', building: 'COM1' })).expect(201);
+  });
+
+  it('refuses a retry at the pre-deactivation version as stale (412)', async () => {
+    const created = (await create(validSupplier({ name: 'Retry', building: 'COM1' })).expect(201))
+      .body;
+    const del = () =>
+      http(t)
+        .delete(`/suppliers/${created.supplierId}`)
+        .set('Authorization', asAdmin)
+        .set('If-Match', String(created.version));
+    await del().expect(200);
+    const retry = await del().expect(412);
+    expect(retry.body.error.code).toBe('STALE_VERSION');
   });
 
   it('requires If-Match and refuses a stale version', async () => {
