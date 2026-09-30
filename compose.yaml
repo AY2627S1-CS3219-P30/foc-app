@@ -153,6 +153,17 @@ services:
     ports: ['${ORDER_SERVICE_PORT:-3003}:3003']
     depends_on: *consumer-deps
 
+  credit-service-migrate:
+    build: { context: ., dockerfile: credit-service/Dockerfile }
+    command: ['node', 'credit-service/dist/db/migrate.js']
+    restart: 'no'
+    environment:
+      DATABASE_URL: postgres://credit_service:credit_service_dev@postgres:5432/foc_credit
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [foc]
+
   credit-service:
     <<: *service-base
     build: { context: ., dockerfile: credit-service/Dockerfile }
@@ -166,7 +177,10 @@ services:
       USER_SERVICE_URL: http://user-service:3001
       INTERNAL_SERVICE_KEY: ${CREDIT_INTERNAL_KEY:-dev-only-internal-service-key-change-me}
     ports: ['${CREDIT_SERVICE_PORT:-3004}:3004']
-    depends_on: *consumer-deps
+    depends_on:
+      <<: *consumer-deps
+      credit-service-migrate:
+        condition: service_completed_successfully
 
   # ---- web ------------------------------------------------------------------
   web-app:

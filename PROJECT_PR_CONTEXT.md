@@ -2,7 +2,7 @@
 
 > Living context for work assigned to `isaacchua0309` in `AY2627S1-CS3219-P30/foc-app`.
 >
-> **Snapshot:** 2026-09-30 (Asia/Singapore), `main` at `98e34d145ab81ae9e8c33881c3b37a7e00dfbba2`.
+> **Snapshot:** refreshed 2026-10-01 (Asia/Singapore), `main` at `13ec0a398bd3c3e2f8ef8cb73a495d91717deec9`.
 > GitHub state and repository code should be rechecked before beginning any issue because both can change after this snapshot.
 
 ## Source handling and precedence
@@ -26,7 +26,7 @@ This context file was produced with Codex by summarizing the repository, live Gi
 - **0 open pull requests** are assigned to `isaacchua0309`.
 - All 11 assigned issues have no issue comments and no directly linked closing PR at this snapshot.
 - Three assigned Sprint 1 issues (#132, #133, #183) have a milestone due date of 2026-09-25 and remain open.
-- The Credit Service's current tests could not be executed in this checkout because workspace dependencies are not installed (`vitest: command not found`). No production code was changed during this analysis.
+- Implementation for #183, #132, #133, #140 and #143 is on branch `feat/183-132-133-140-143-credit-foundation`; review, CI and merge remain pending.
 
 # 1. Project Overview
 
@@ -38,43 +38,43 @@ Friend on Campus is a TypeScript/Node 22 monorepo using NestJS services, Postgre
 4. Order opens or rejects the errand from that result.
 5. Later completion transfers the reservation to the courier; cancellation or expiry releases it to the requester.
 
-This model is already reflected in `order-service/README.md` and the reservation schemas in `platform/src/events/catalogue.ts`, but it has not yet been ratified in the ADR pack required by #183. The submitted D1 backlog still describes synchronous reserve-before-save behavior. DOC-02 (#186) is intended to update that backlog after #183 confirms the asynchronous decision.
+This model is reflected in `order-service/README.md`, the event catalogue and ADR 0002 on the feature branch. The submitted D1 backlog still describes synchronous reserve-before-save behavior. DOC-02 (#186) owns the historical backlog revision. ADR approval remains pending, so #183 cannot be closed yet.
 
 ## Current implementation state
 
-- `credit-service/` is a scaffold. It has health/auth wiring and a `user.activated` subscription, but `WalletProvisioning.handle` only logs the event. There are no credit migrations, database provider, wallet/ledger repository, controllers, reservation/transfer/release handlers, or domain tests.
+- `credit-service/` now has Drizzle migrations, isolated database wiring, wallet issuance, an immutable double-entry ledger, inbox/outbox-backed asynchronous reservation, owner/admin read APIs, audit records, an OpenAPI contract and PGlite tests. A real-PostgreSQL concurrency test runs in CI.
 - `order-service/` is also a scaffold beyond its documented state/transition model and auth-status wiring.
-- `platform/src/db.ts` already provides the `Db`/`Queryable` interfaces, `PgDb`, and forward-only `runMigrations` used by other services.
+- `platform/src/db.ts` provides the `Db`/`Queryable` interfaces, `PgDb`, and Drizzle migration runner used by persisted services.
 - `platform/src/events/inbox.ts` and `platform/src/events/outbox.ts` already provide `INBOX_TABLE_SQL`, `OUTBOX_TABLE_SQL`, `withInbox`, `insertOutboxEvent`, `OutboxRelay`, and `provideOutboxRelay`.
 - The reusable EVT-02 code and User Service outbox relay reached `main` through merged PR #195, but issue #135 remains open because Order and Credit have not adopted those primitives.
-- `platform/src/events/catalogue.ts` has complete schemas for reservation request/success/rejection. It only has names, not payload schemas, for completion, transfer, release, and order-status events.
-- `auth-client/src/nest.ts` provides `@Authenticated()`, `@AdminOnly()`, and `@CurrentUser()`. Ownership checks and admin-read auditing remain Credit Service responsibilities.
+- `platform/src/events/catalogue.ts` has complete reservation schemas, including a conflicting-request rejection. Consumers now verify their declared event type and expected producer before invoking handlers. Completion, transfer, release, and order-status payload schemas remain future work.
+- `auth-client/src/nest.ts` provides `@Authenticated()`, `@AdminOnly()`, and `@CurrentUser()`. Credit derives owner access from the verified subject and appends every admin wallet/ledger read attempt to an immutable audit table.
 - `compose.yaml` and `postgres-init.sql` already provision one PostgreSQL server with one isolated database and role per service, plus RabbitMQ.
-- There is no Credit Service OpenAPI contract in `contracts/`; only the User Service contract exists.
+- `contracts/credit-service.openapi.yaml` defines the implemented read-only HTTP surface and generated web-app types.
 
 ## Important source discrepancies
 
 1. **Saga direction:** the D1 backlog says synchronous reserve-before-save; current issues, the event catalogue, and the Order README say asynchronous save-pending-then-reserve. #183 must formally settle and document this; #186 must update the backlog.
 2. **EVT-02 status:** #135 is open, but PR #195 merged the reusable inbox/outbox implementation and User Service relay. Remaining work is Order/Credit adoption and missing event schemas, not creation of the base mechanism.
 3. **Execution-plan numbering:** `docs/EXECUTION-PLAN.md` combines/simplifies credit tickets differently from current GitHub. Current GitHub issue numbers and descriptions take precedence.
-4. **Wallet API overlap:** #133 includes `GET /wallets/me` and admin reads, while #143 separately owns the wallet/ledger read surface. Ownership of the minimal #133 endpoint versus the complete #143 API is **UNRESOLVED**.
-5. **Ledger terminology:** #132 describes transaction types `ISSUE`, `RESERVE`, `RELEASE`, `TRANSFER`; #141 asks for linked `DEBIT_RESERVED` and `CREDIT_EARNED` ledger entries. The distinction between business transaction type and ledger-entry direction/type must be fixed by #132 rather than invented during implementation.
+4. **Wallet API overlap:** implemented once as the complete #143 surface: #133 supplies the aggregate and `/wallets/me`; #143 supplies ledger pagination and audited admin routes.
+5. **Ledger terminology:** ADR 0007 separates business transaction type (`ISSUE`, `RESERVE`, `RELEASE`, `TRANSFER`) from ledger account (`PLATFORM_ISSUANCE`, `AVAILABLE`, `RESERVED`) and direction (`DEBIT`, `CREDIT`).
 
 # 2. Assigned Work
 
-| Issue                                                             | Feature                                                  | Status                                | Classification             | Dependencies                                                               | Blockers                                                                         | Relevant code                                                                                                                                                                  |
-| ----------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------- | -------------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [#183](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/183) | FND-02 decision records and glossary                     | Open; P0; Sprint 1; jointly assigned  | Foundation / prerequisite  | None stated                                                                | Completion requires five-member approval and non-author review                   | `docs/adr/0001-runtime-and-service-framework.md`, `order-service/README.md`, `postgres-init.sql`, `platform/src/errors.ts`, `auth-client/`, `platform/src/events/catalogue.ts` |
-| [#132](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/132) | CRD-00 credit invariant and ledger ADR                   | Open; P0; Sprint 1                    | Foundation / prerequisite  | None stated                                                                | None technical; review by Order owner and Jonus required                         | `docs/adr/`, `platform/src/db.ts`, `platform/src/events/inbox.ts`, `platform/src/events/outbox.ts`                                                                             |
-| [#133](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/133) | CRD-01 wallet creation and initial issuance              | Open; P1; Sprint 1                    | Depends on another issue   | Explicit: #120 closed, #119 closed, #132 open; amended note adds #135 open | #132; nominally #135, although required shared code/User relay is already merged | `credit-service/src/wallet-provisioning.ts`, `credit-service/src/app.module.ts`, `platform/src/db.ts`, `platform/src/events/inbox.ts`, User Service outbox                     |
-| [#140](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/140) | CRD-02 asynchronous credit reservation                   | Open; P0; Sprint 2; D3-critical       | Depends on another issue   | #132, #133, #119/#184, #135, #183                                          | #132, #133, #183, remaining #135 adoption                                        | `platform/src/events/catalogue.ts`, inbox/outbox helpers, future Credit DB/domain modules                                                                                      |
-| [#141](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/141) | CRD-03 atomic completion transfer                        | Open; P0; Sprint 2; D3-critical       | Depends on another issue   | #140; uses EVT-02/#135                                                     | #140; completion event schemas are absent                                        | Future Credit transaction/ledger code, `platform/src/events/catalogue.ts`, outbox/inbox helpers                                                                                |
-| [#142](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/142) | CRD-04 reservation release                               | Open; P0; Sprint 2; D3-critical       | Depends on another issue   | #140                                                                       | #140; release event schemas are absent                                           | Same reservation/transaction state and ledger code as #140/#141                                                                                                                |
-| [#143](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/143) | CRD-05 wallet balance and ledger API                     | Open; P0; Sprint 2; security          | Depends on another issue   | #133                                                                       | #133; endpoint ownership overlap with #133 is unresolved                         | `auth-client/src/nest.ts`, future Credit controllers/query repository, `platform/src/errors.ts`                                                                                |
-| [#151](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/151) | CRD-06 transaction status query and closed-economy guard | Open; P0; Sprint 3; D3-critical       | Integration / finalization | #141, #142                                                                 | #141 and #142; internal-service authentication approach unresolved               | Future transaction repository/query controller, contracts, deployed API audit                                                                                                  |
-| [#152](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/152) | CRD-07 credit reconciliation job                         | Open; P1; Sprint 3; N2H               | Blocked                    | #151, external #150 ORD-09                                                 | #151 and #150; job ownership across service boundary unresolved                  | #151 status API, Order pending-state recovery, idempotent event commands                                                                                                       |
-| [#165](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/165) | NTH-05 concurrency/load/conservation evidence            | Open; P1; Sprint 4; N2H               | Blocked                    | #141, #142, external #145 TST-01; inferred #138 ORD-03                     | All named dependencies remain open; full runnable lifecycle absent               | Test harness, Compose, Credit ledger/domain code, Order acceptance path                                                                                                        |
-| [#172](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/172) | CRD-08 reservation timeout compensation                  | Open; P1; Sprint 2; likely superseded | Blocked                    | #140; closure depends on #183 confirmation; related #186                   | Do not implement unless #183 reverses the async decision                         | No current code should be added; async design moves timeout handling to #150/#152                                                                                              |
+| Issue                                                             | Feature                                                  | Status                                | Classification             | Dependencies                                                        | Blockers                                                               | Relevant code                                                                                                        |
+| ----------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------- | -------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| [#183](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/183) | FND-02 decision records and glossary                     | Implemented on branch; issue open     | Foundation / prerequisite  | None stated                                                         | Five-member approval, non-author review and #186 backlog update remain | `docs/adr/0002`–`0007`, `docs/domain-glossary.md`, `order-service/README.md`                                         |
+| [#132](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/132) | CRD-00 credit invariant and ledger ADR                   | Implemented on branch; issue open     | Foundation / prerequisite  | None stated                                                         | Approval by Order owner and Jonus remains                              | `docs/adr/0007-credit-invariant-and-double-entry-ledger.md`, `credit-service/src/db/schema.ts`                       |
+| [#133](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/133) | CRD-01 wallet creation and initial issuance              | Implemented on branch; issue open     | Depends on another issue   | #120/#119 satisfied; #132 implemented; #135 base merged             | Review, CI and merge                                                   | `credit-service/src/wallet-provisioning.ts`, `credit-service/src/credits/credit.repository.ts`, migrations and tests |
+| [#140](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/140) | CRD-02 asynchronous credit reservation                   | Implemented on branch; issue open     | Depends on another issue   | #132/#133/#183 implemented on same branch; #119/#135 base satisfied | Order-side #137 integration; review, CI and merge                      | `credit-service/src/reservation-consumer.ts`, `credit.repository.ts`, event catalogue, inbox/outbox                  |
+| [#141](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/141) | CRD-03 atomic completion transfer                        | Open; P0; Sprint 2; D3-critical       | Depends on another issue   | #140; uses EVT-02/#135                                              | #140; completion event schemas are absent                              | Future Credit transaction/ledger code, `platform/src/events/catalogue.ts`, outbox/inbox helpers                      |
+| [#142](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/142) | CRD-04 reservation release                               | Open; P0; Sprint 2; D3-critical       | Depends on another issue   | #140                                                                | #140; release event schemas are absent                                 | Same reservation/transaction state and ledger code as #140/#141                                                      |
+| [#143](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/143) | CRD-05 wallet balance and ledger API                     | Implemented on branch; issue open     | Depends on another issue   | #133 implemented on same branch                                     | Review, CI and merge                                                   | `credit-service/src/credits/wallets.controller.ts`, `wallets.service.ts`, `contracts/credit-service.openapi.yaml`    |
+| [#151](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/151) | CRD-06 transaction status query and closed-economy guard | Open; P0; Sprint 3; D3-critical       | Integration / finalization | #141, #142                                                          | #141 and #142; internal-service authentication approach unresolved     | Future transaction repository/query controller, contracts, deployed API audit                                        |
+| [#152](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/152) | CRD-07 credit reconciliation job                         | Open; P1; Sprint 3; N2H               | Blocked                    | #151, external #150 ORD-09                                          | #151 and #150; job ownership across service boundary unresolved        | #151 status API, Order pending-state recovery, idempotent event commands                                             |
+| [#165](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/165) | NTH-05 concurrency/load/conservation evidence            | Open; P1; Sprint 4; N2H               | Blocked                    | #141, #142, external #145 TST-01; inferred #138 ORD-03              | All named dependencies remain open; full runnable lifecycle absent     | Test harness, Compose, Credit ledger/domain code, Order acceptance path                                              |
+| [#172](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/172) | CRD-08 reservation timeout compensation                  | Open; P1; Sprint 2; likely superseded | Blocked                    | #140; closure depends on #183 confirmation; related #186            | Do not implement unless #183 reverses the async decision               | No current code should be added; async design moves timeout handling to #150/#152                                    |
 
 # 3. Dependency Graph
 
@@ -155,7 +155,7 @@ Ratify the decisions shared by Order, Credit, platform, auth, and data ownership
 **Relevant architecture and files**
 
 - `docs/adr/0001-runtime-and-service-framework.md` is the required ADR shape and already records Node/NestJS/layout plus the RabbitMQ-client amendment.
-- `order-service/README.md` currently documents the asynchronous `PENDING_CREDIT -> OPEN | REJECTED` model, but its transition table lacks explicit precondition and emitted-event columns.
+- `order-service/README.md` documents the asynchronous model and its transition table names trigger, actor, guard, result and emitted events.
 - `platform/src/events/catalogue.ts` names the six asynchronous workflows and includes reservation schemas.
 - `postgres-init.sql` implements database-per-service isolation but no ADR records its trade-off.
 - `platform/src/errors.ts` defines the shared HTTP error envelope and default codes.
@@ -163,7 +163,7 @@ Ratify the decisions shared by Order, Credit, platform, auth, and data ownership
 
 **Expected implementation**
 
-Documentation only: add short ADRs under `docs/adr/`, update the Order transition table, add a glossary/trigger table, identify superseded D1 text, and collect approvals. DOC-02 #186 should then apply the chosen semantics to the submitted backlog.
+ADRs 0002–0007, the glossary/trigger table, explicit D1 supersession note and approval register are present on the feature branch. DOC-02 #186 must still revise the submitted backlog, and the named humans must record their own approvals.
 
 **Dependencies and related work**
 
@@ -202,14 +202,14 @@ Freeze the Credit Service's wallet, ledger, transaction, idempotency, concurrenc
 
 **Relevant architecture and files**
 
-- No Credit DB schema exists yet.
-- `platform/src/db.ts` supplies the DB abstraction and transaction/migration mechanism used by User and Supplier services.
+- `credit-service/src/db/schema.ts` and its Drizzle migrations implement the ADR's fixed wallet, transaction, operation, ledger, audit, inbox and outbox model.
+- `platform/src/db.ts` supplies the DB abstraction and transaction/migration mechanism used by User, Supplier and Credit services.
 - `platform/src/events/inbox.ts` and `outbox.ts` define the atomic message-processing boundaries the ADR must assume.
 - `docs/EXECUTION-PLAN.md` records the intended ACID Credit DB transaction plus immutable ledger, balances, inbox, and outbox, but it is a plan rather than an accepted ADR.
 
 **Expected implementation**
 
-Create an ADR in `docs/adr/` that is precise enough to drive the later migration and repository design. Do not add Credit production code in this ticket unless its scope is explicitly changed.
+ADR 0007 fixes the model; the same branch implements it so the decision and migration cannot drift before review.
 
 **Dependencies**
 
@@ -219,10 +219,7 @@ Create an ADR in `docs/adr/` that is precise enough to drive the later migration
 
 **Blockers and uncertainties**
 
-- **UNRESOLVED:** transaction type versus ledger-entry type/direction (`TRANSFER` versus `DEBIT_RESERVED`/`CREDIT_EARNED`).
-- **UNRESOLVED:** how issuance, which has no order ID, fits an `(orderId, transactionType)` uniqueness rule.
-- **UNRESOLVED:** whether `total` is stored or derived. Requirements only fix the invariant, not the storage choice.
-- **UNRESOLVED:** exact transaction and ledger table keys/names. These are architecture decisions for the team to ratify.
+- Human approval is still required. The branch resolves the technical questions in ADR 0007: transaction type is separate from account/direction, issuance has a wallet-scoped uniqueness key, `total` is derived, and schema names are fixed by the migration.
 
 **Testing considerations**
 
@@ -244,16 +241,16 @@ Replace the logging-only activation handler with idempotent wallet issuance of 1
 
 **Relevant architecture and files**
 
-- `credit-service/src/wallet-provisioning.ts`: current `WalletProvisioning` subscribes correctly but only logs.
-- `credit-service/src/app.module.ts`: wires the broker and auth cache but has no DB provider or relay.
-- `credit-service/src/config.ts`: does not currently validate `DATABASE_URL`, even though Compose supplies it.
+- `credit-service/src/wallet-provisioning.ts`: validates User Service provenance and aggregate identity, then issues through `withInbox`.
+- `credit-service/src/app.module.ts`: wires the database, both durable consumers and the outbox relay.
+- `credit-service/src/config.ts`: validates `DATABASE_URL` alongside auth configuration.
 - `platform/src/events/inbox.ts`: `withInbox` must wrap the issuance effect so the inbox record, wallet, and ledger commit together.
 - `user-service/src/app.module.ts` and migrations `005`/`006`: the activation outbox is now relayed in the catalogue's shape.
 - PR #177 implemented activation/outbox writes; PR #184 implemented the broker workflow; PR #195 implemented the relay.
 
 **Expected implementation**
 
-Following the repository's existing service pattern, add Credit migrations, a DB token/provider, wallet/ledger repository and service, guarded controller(s), PGlite test support, and replace `WalletProvisioning.handle` with a transactional inbox-backed handler. Exact schema and names must come from #132.
+Implemented on the feature branch with generated Drizzle migrations, a transactional repository, owner/admin controllers and PGlite tests.
 
 **Dependencies**
 
@@ -263,9 +260,7 @@ Following the repository's existing service pattern, add Credit migrations, a DB
 
 **Blockers and uncertainties**
 
-- #132 must freeze the data model first.
-- **UNRESOLVED:** how much read API belongs in #133 versus #143.
-- Credit lacks `pg` and test DB dependencies/wiring present in the implemented User/Supplier services.
+- No technical blocker remains on the feature branch. Human review, CI and merge remain.
 
 **Testing considerations**
 
@@ -294,12 +289,12 @@ Consume `order.reservation-requested`, atomically reserve one to five available 
 - `platform/src/events/catalogue.ts` already defines `order.reservation-requested`, `credit.reserved`, `credit.reservation-rejected`, and their payload schemas.
 - `platform/src/events/inbox.ts` and `outbox.ts` provide the required atomic consumer/reply pattern.
 - `platform/src/db.ts` supports the conditional SQL transaction.
-- `credit-service/src/app.module.ts` currently subscribes only to activation and auth-status events.
+- `credit-service/src/app.module.ts` declares activation, reservation and auth-status queues and registers the relay.
 - `order-service/README.md` defines `PENDING_CREDIT`, `OPEN`, and `REJECTED`.
 
 **Expected implementation**
 
-Add a durable reservation transaction/state, subscribe a dedicated Credit queue, validate the event's business rules, wrap handling with `withInbox`, perform a conditional debit from available to reserved, write ledger/business transaction and reply outbox in one DB transaction, and register `provideOutboxRelay`.
+Implemented by `ReservationConsumer` and `CreditRepository.reserve`, including recorded duplicate outcomes, conflict alerts, terminal rejections and retryable missing-wallet behavior.
 
 **Dependencies**
 
@@ -309,15 +304,13 @@ Add a durable reservation transaction/state, subscribe a dedicated Credit queue,
 
 **Blockers and uncertainties**
 
-- #132, #133, and #183 are open.
-- Credit adoption of #135 is not present.
-- "Accept only from Order Service" is not strongly enforced by the current broker: all services share one RabbitMQ credential and the envelope `producer` value is not authenticated. At minimum the handler can validate event type/producer, but stronger trust requires the #183 auth/boundary decision.
-- The current generic `EventConsumer` validates envelope shape and payload, but does not assert that `envelope.eventType` equals the subscription's declared type.
+- The implementation dependencies are present on the same branch. Order-side #137 is still needed for an end-to-end saga.
+- Consumers now reject wrong event types and unexpected producer claims. Broker credentials remain shared, so cryptographic/ACL-grade producer provenance is a documented hardening item rather than a false guarantee.
 
 **Testing considerations**
 
 - Duplicate, concurrent conditional-update, conflict-reuse, insufficient balance, and missing-wallet retry tests.
-- Real PostgreSQL concurrency test; PGlite alone is insufficient evidence for lock/update behavior.
+- Real PostgreSQL concurrency runs in CI through `reservations.postgres.test.ts`; PGlite covers the fast matrix.
 - Failure injection around inbox, wallet update, ledger insert, outbox insert, relay publish, and broker acknowledgement.
 
 ## #141 CRD-03 Atomic completion transfer
@@ -655,14 +648,11 @@ This must precede reservation and the full read API because both depend on the p
 
 ## Unresolved shared decisions to settle before affected code
 
-- Exact Credit schema, table/column names, ledger-entry model, transaction state model, and idempotency keys (#132).
 - Broker trust model for "only Order may initiate a movement" while shared credentials remain (#183/#140).
 - Completion and release event payload schemas, schema versions, and recorded duplicate responses (#141/#142).
-- Credit OpenAPI/internal status contract and service-to-service authentication (#143/#151).
-- Audit-alert persistence and operator visibility for conflicting requests.
-- Division of read API scope between #133 and #143.
+- Internal transaction-status contract and service authentication for #151. The #143 owner/admin read contract is implemented.
+- Operator presentation/alerting for persisted conflicting-request audit rows.
 - Ownership and contract for reconciliation scheduling between #150 and #152.
-- Whether `total` is stored or always derived.
 - AI-policy compliance and disclosure for any use of this analysis in assessed requirements, architecture, or planning work.
 
 ## Testing conventions to reuse
@@ -678,11 +668,11 @@ This must precede reservation and the full read API because both depend on the p
 # 7. Progress Tracker
 
 ```ini
-[ ] #183 — FND-02 Decision records and domain glossary
-[ ] #132 — CRD-00 Credit invariant and double-entry ledger decision record
-[ ] #133 — CRD-01 Wallet creation and initial credit allocation
-[ ] #140 — CRD-02 Asynchronous credit reservation
-[ ] #143 — CRD-05 Wallet balance and ledger API
+[ ] #183 — FND-02 Decision records and domain glossary — implementation complete; approvals/backlog update pending
+[ ] #132 — CRD-00 Credit invariant and double-entry ledger decision record — implementation complete; approvals pending
+[ ] #133 — CRD-01 Wallet creation and initial credit allocation — implementation complete; review/CI/merge pending
+[ ] #140 — CRD-02 Asynchronous credit reservation — implementation complete; Order integration/review/CI/merge pending
+[ ] #143 — CRD-05 Wallet balance and ledger API — implementation complete; review/CI/merge pending
 [ ] #141 — CRD-03 Atomic completion transfer
 [ ] #142 — CRD-04 Reservation release
 [ ] #151 — CRD-06 Transaction status query and closed-economy guard

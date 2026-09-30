@@ -80,8 +80,9 @@ npm run dev:credit     # http://localhost:3004
 ```
 
 Supplier, Order and Credit verify callers through the User Service, so they also
-need `USER_SERVICE_URL` and `INTERNAL_SERVICE_KEY` (and Supplier its `DATABASE_URL`)
-in your `.env` or shell; see `.env.example`. A missing one stops the service at
+need `USER_SERVICE_URL` and `INTERNAL_SERVICE_KEY`. User, Supplier and Credit own
+persistence and require their service-specific `DATABASE_URL` too. Put them in
+your `.env` or shell; see `.env.example`. A missing value stops the service at
 boot and names it.
 
 Check it is alive:
@@ -142,9 +143,9 @@ their defaults, because a locally installed copy usually holds 5432 and 5672 and
 at <http://localhost:15672> (`foc` / `foc_dev`).
 
 **Connections.** Compose gives each service its own `DATABASE_URL` and the shared
-`RABBITMQ_URL`, whether or not it uses them yet, so a service that starts using
-one needs no Compose change. Services talk to the browser directly with CORS; a
-thin gateway is a later ticket.
+`RABBITMQ_URL`. User, Supplier and Credit apply their own migrations through
+one-shot containers before starting. Services talk to the browser directly with
+CORS; a thin gateway is a later ticket.
 
 ### 7. Check your setup
 

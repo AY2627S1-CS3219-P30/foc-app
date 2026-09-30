@@ -23,10 +23,9 @@ review is collected. The author cannot record approval on another team member's 
 | Isaac Chua (`@isaacchua0309`) | #132, #183 | Authored; self-review pending | — |
 | Zhang Yuan (`@volleyballkickedme`) | #132, #183; Order owner | Pending | — |
 | Jonus (`@jonushzw`) | #132, #183 | Pending | — |
-| Fourth Group 30 member | #183 | Pending | — |
-| Fifth Group 30 member | #183 | Pending | — |
+| Anselm Long (`@anselmlong`) | #183 | Pending | — |
+| Patrick Thomas (`@pastchum`) | #183 | Pending | — |
 
 At least one non-author must approve the pull request before merge. After all five members have read
 the pack, replace each pending row with `Approved` and the approval date, then change ADRs 0002–0007
 to `Accepted`.
-
