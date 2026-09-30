@@ -17,10 +17,8 @@ export { LOGGER, PlatformModule, type PlatformModuleOptions } from './platform.m
 export { startService } from './bootstrap.js';
 export {
   PgDb,
-  runMigrations,
   type Db,
   type DrizzleDatabase,
-  type Migration,
   type PgDbOptions,
   type Queryable,
   type Row,
