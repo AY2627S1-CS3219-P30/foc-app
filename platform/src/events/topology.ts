@@ -9,11 +9,13 @@
  * longer. After the last attempt it goes to the consuming queue's dead-letter
  * queue with the reason attached (EI-FR2.1.2).
  *
- * Each delay level has its own **fanout** exchange. That matters: a message
- * dead-lettered out of a retry queue keeps whatever routing key it carried, so
- * the key must remain the original event type all the way through. Routing a
- * message *into* a retry queue therefore cannot use the routing key — hence
- * fanout, where the key is ignored on the way in and preserved on the way out.
+ * Each delay level has its own **fanout** exchange, and its queue dead-letters
+ * onto the **default** exchange. A failed message is published into the retry
+ * exchange with the name of the queue it failed on as its routing key: fanout
+ * ignores the key on the way in and preserves it on the way out, and the
+ * default exchange routes by queue name. So a retry goes back to that one queue
+ * only — never to every other queue bound to the same event type, which would
+ * make another service handle the event twice.
  */
 
 export const EXCHANGE = 'foc.events';
@@ -36,7 +38,28 @@ export interface SubscriptionSpec {
   queue: string;
   /** Routing keys this queue binds to on the main exchange. */
   routingKeys: string[];
+  /**
+   * Private to this instance: only its own connection may consume it, and the
+   * broker deletes it when that connection closes (it is declared again on every
+   * reconnect). For messages every replica must see — dropping a cache entry —
+   * rather than one replica per message. The name must be unique per instance.
+   */
+  exclusive?: boolean;
+  /** Deleted by the broker once its last consumer goes. */
+  autoDelete?: boolean;
+  /** A message still queued after this long is discarded (`x-message-ttl`). */
+  messageTtlMs?: number;
+  /** Holds at most this many messages, discarding the oldest (`x-max-length`). */
+  maxLength?: number;
 }
+
+/**
+ * An exclusive or auto-delete queue is transient: not durable, and given no
+ * retry or dead-letter topology. A message its handler fails on is dropped, so
+ * its handler must be idempotent and its effect must have another fallback.
+ */
+export const isTransient = (spec: SubscriptionSpec): boolean =>
+  Boolean(spec.exclusive || spec.autoDelete);
 
 /**
  * Fanout exchange and queue for a given attempt, scoped to one service.
@@ -46,11 +69,15 @@ export interface SubscriptionSpec {
  * named retry queues would therefore force every service onto one backoff
  * forever, and changing it would mean deleting the queues first. Scoping them
  * to the consuming service removes that coupling.
+ *
+ * Named `delay`, not `retry` as first released: those queues dead-lettered onto
+ * the topic exchange, and for the same reason their arguments cannot be changed
+ * in place. A broker that still has `foc.<service>.retry.N` can delete them.
  */
 export const retryExchangeName = (namespace: string, attempt: number): string =>
-  `foc.${namespace}.retry.${attempt}`;
+  `foc.${namespace}.delay.${attempt}`;
 export const retryQueueName = (namespace: string, attempt: number): string =>
-  `foc.${namespace}.retry.${attempt}`;
+  `foc.${namespace}.delay.${attempt}`;
 export const deadLetterQueueName = (queue: string): string => `${queue}.dlq`;
 
 /**

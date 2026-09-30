@@ -21,6 +21,11 @@ export const EVENTS = {
   USER_SUSPENDED: 'user.suspended',
   USER_REACTIVATED: 'user.reactivated',
   /**
+   * An administrator role granted or revoked (USR-07), so a service that caches
+   * a caller's roles drops them at once rather than when its cache expires.
+   */
+  USER_ROLE_CHANGED: 'user.role-changed',
+  /**
    * Workflow 3 — reserve an errand's reward before couriers can see it. The
    * errand is saved first and stays hidden until one of the two replies
    * arrives, so creating one never depends on the Credit Service being up.
@@ -53,6 +58,15 @@ export const userStatusChangedPayload = z.object({
   occurredAt: z.iso.datetime(),
 });
 export type UserStatusChangedPayload = z.infer<typeof userStatusChangedPayload>;
+
+/** The user's roles after the change. `reasonRef` is the audit record's id. */
+export const userRoleChangedPayload = z.object({
+  userId: z.string().min(1),
+  roles: z.array(z.enum(['STUDENT', 'ADMIN'])),
+  reasonRef: z.string().optional(),
+  occurredAt: z.iso.datetime(),
+});
+export type UserRoleChangedPayload = z.infer<typeof userRoleChangedPayload>;
 
 /**
  * One reservation: which errand, whose credits, how many. The request carries
@@ -105,6 +119,7 @@ export const PAYLOAD_SCHEMAS = {
   [EVENTS.USER_ACTIVATED]: userActivatedPayload,
   [EVENTS.USER_SUSPENDED]: userStatusChangedPayload,
   [EVENTS.USER_REACTIVATED]: userStatusChangedPayload,
+  [EVENTS.USER_ROLE_CHANGED]: userRoleChangedPayload,
   [EVENTS.CREDIT_RESERVATION_REQUESTED]: creditReservationRequestedPayload,
   [EVENTS.CREDITS_RESERVED]: creditsReservedPayload,
   [EVENTS.CREDIT_RESERVATION_REJECTED]: creditReservationRejectedPayload,

@@ -12,7 +12,13 @@ import { RATE_LIMITERS, type AuthRateLimiters, type RateLimiter } from '../auth/
 import { SessionsService, type IssuedSession } from '../auth/sessions.service.js';
 import { normalizeEmail } from './email.js';
 import { UsersService } from './users.service.js';
-import { activateSchema, loginSchema, parseOrThrow, registerSchema } from './validation.js';
+import {
+  activateSchema,
+  changePasswordSchema,
+  loginSchema,
+  parseOrThrow,
+  registerSchema,
+} from './validation.js';
 
 export const AUTH_COOKIE_SETTINGS = Symbol('AUTH_COOKIE_SETTINGS');
 export interface AuthCookieSettings {
@@ -61,6 +67,24 @@ export class AuthController {
     this.limit(res, this.limiters.loginPerIp, req.ip ?? 'unknown');
     this.limit(res, this.limiters.loginPerEmail, normalizeEmail(email));
     return this.withCookie(res, await this.sessions.login(email, password));
+  }
+
+  /**
+   * Changes a password by proving the current one. It is a password oracle exactly like login,
+   * so it shares login's per-IP and per-email limits and its origin check.
+   */
+  @Post('password')
+  @HttpCode(204)
+  async changePassword(
+    @Body() body: unknown,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    assertCsrfSafe(req, this.cookies.allowedOrigins);
+    const { email, currentPassword, newPassword } = parseOrThrow(changePasswordSchema, body);
+    this.limit(res, this.limiters.loginPerIp, req.ip ?? 'unknown');
+    this.limit(res, this.limiters.loginPerEmail, normalizeEmail(email));
+    await this.sessions.changePassword(email, currentPassword, newPassword);
   }
 
   @Post('refresh')

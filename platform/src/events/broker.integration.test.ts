@@ -1,3 +1,4 @@
+import amqp from 'amqplib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BrokerConnection } from './connection.js';
 import { EventConsumer } from './consumer.js';
@@ -29,6 +30,25 @@ const waitFor = async <T>(fn: () => T | undefined, ms = 8000): Promise<T> => {
   }
 };
 
+/**
+ * Deletes queues (and their dead-letter queues) over a throwaway connection. Call it only after the
+ * connection consuming them is closed: deleting a queue that still has a consumer makes the broker
+ * cancel it, and the consumer then recycles its channel, so a cleanup sharing that channel would
+ * fail with "Channel closing".
+ */
+async function deleteQueues(queues: string[]): Promise<void> {
+  const conn = await amqp.connect(URL as string);
+  try {
+    const ch = await conn.createChannel();
+    for (const q of queues) {
+      await ch.deleteQueue(q);
+      await ch.deleteQueue(deadLetterQueueName(q));
+    }
+  } finally {
+    await conn.close();
+  }
+}
+
 suite('broker integration', () => {
   let broker: BrokerConnection;
   let publisher: EventPublisher;
@@ -50,14 +70,8 @@ suite('broker integration', () => {
 
   afterAll(async () => {
     // Leave no queues behind for the next run.
-    try {
-      const ch = broker.getChannel();
-      await ch.deleteQueue(QUEUE);
-      await ch.deleteQueue(deadLetterQueueName(QUEUE));
-    } catch {
-      /* already gone */
-    }
     await broker?.close();
+    if (URL) await deleteQueues([QUEUE]);
   });
 
   it('declares its topology against an empty broker', async () => {
@@ -123,10 +137,8 @@ suite('broker integration', () => {
     expect(attempts[0]).toBe(1);
     expect(attempts).toContain(2);
 
-    const ch = b.getChannel();
-    await ch.deleteQueue(queue);
-    await ch.deleteQueue(deadLetterQueueName(queue));
     await b.close();
+    await deleteQueues([queue]);
   }, 25_000);
 
   it('sets a malformed message aside, with the reason, instead of crashing', async () => {
@@ -169,10 +181,93 @@ suite('broker integration', () => {
       /payload invalid|envelope invalid/,
     );
 
-    const ch = b.getChannel();
-    await ch.deleteQueue(queue);
-    await ch.deleteQueue(dlq);
     await b.close();
+    await deleteQueues([queue]);
+  }, 25_000);
+
+  it('retries a failure back to the failing queue only, not to another bound to the same key', async () => {
+    const key = `test.shared-${RUN}`;
+    const [qa, qb] = [`foc.test-${RUN}.shared-a`, `foc.test-${RUN}.shared-b`];
+    const b = new BrokerConnection(
+      URL as string,
+      `test-${RUN}-shared`,
+      [
+        { queue: qa, routingKeys: [key] },
+        { queue: qb, routingKeys: [key] },
+      ],
+      [60, 60],
+    );
+    await b.connect();
+    const consumer = new EventConsumer(b);
+    const seenA: number[] = [];
+    const seenB: number[] = [];
+    await consumer.subscribe({
+      queue: qa,
+      eventType: key,
+      payloadSchema: userActivatedPayload,
+      handler: (_e, ctx) => {
+        seenA.push(ctx.attempt);
+        if (ctx.attempt < 2) throw new Error('not yet');
+      },
+    });
+    await consumer.subscribe({
+      queue: qb,
+      eventType: key,
+      payloadSchema: userActivatedPayload,
+      handler: (_e, ctx) => void seenB.push(ctx.attempt),
+    });
+    await new EventPublisher(b, 'test').publish({
+      eventType: key,
+      schemaVersion: 1,
+      aggregateId: 'a-1',
+      correlationId: 'shared-trace',
+      payload: { userId: 'a-1', activatedAt: new Date().toISOString() },
+    });
+
+    await waitFor(() => (seenA.includes(2) ? seenA : undefined));
+    await new Promise((r) => setTimeout(r, 500)); // room for a stray redelivery to show up
+    expect(seenB).toEqual([1]);
+
+    await b.close();
+    await deleteQueues([qa, qb]);
+  }, 25_000);
+
+  it('keeps consuming after the server closes the channel', async () => {
+    const queue = `foc.test-${RUN}.recover`;
+    const b = new BrokerConnection(
+      URL as string,
+      `test-${RUN}-recover`,
+      [{ queue, routingKeys: ['test.recover'] }],
+      [60, 60],
+    );
+    await b.connect();
+    const seen: string[] = [];
+    await new EventConsumer(b).subscribe({
+      queue,
+      eventType: 'test.recover',
+      payloadSchema: userActivatedPayload,
+      handler: (e) => void seen.push(e.payload.userId),
+    });
+
+    // A passive check of a queue that does not exist makes the server close the channel.
+    await b
+      .getChannel()
+      .checkQueue(`foc.test-${RUN}.missing`)
+      .catch(() => undefined);
+    await waitFor(() => (b.isConnected() ? undefined : true)); // it noticed ...
+    await waitFor(() => (b.isConnected() ? true : undefined)); // ... and came back
+
+    await new EventPublisher(b, 'test').publish({
+      eventType: 'test.recover',
+      schemaVersion: 1,
+      aggregateId: 'a-2',
+      correlationId: 'recover-trace',
+      payload: { userId: 'a-2', activatedAt: new Date().toISOString() },
+    });
+    expect(await waitFor(() => (seen.length ? seen : undefined))).toEqual(['a-2']);
+
+    await b.close();
+    await deleteQueues([queue]);
   }, 25_000);
 
   it('keeps the publisher usable while a workflow is still in flight', async () => {

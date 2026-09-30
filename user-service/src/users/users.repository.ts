@@ -1,3 +1,4 @@
+import { insertOutboxEvent, type CataloguedEventType, type NewOutboxEvent } from '@foc/platform';
 import type { Queryable } from '../db/db.js';
 
 export type AccountStatus = 'PENDING_ACTIVATION' | 'ACTIVE' | 'SUSPENDED';
@@ -95,21 +96,18 @@ export const usersRepository = {
     return rows.length > 0;
   },
 
-  async insertOutboxEvent(
+  /**
+   * Writes an event to the outbox in the caller's transaction, through the platform's
+   * `insertOutboxEvent`. The type and payload must match the shared catalogue (`@foc/platform`
+   * EVENTS / PAYLOAD_SCHEMAS): the payload is validated here, so a shape a consumer would
+   * dead-letter fails the change that produced it instead of reaching the broker. The platform's
+   * OutboxRelay publishes the row once the transaction commits (EVT-02).
+   */
+  async insertOutboxEvent<K extends CataloguedEventType>(
     q: Queryable,
-    e: {
-      id: string;
-      eventType: string;
-      aggregateId: string;
-      payload: unknown;
-      correlationId: string;
-    },
+    e: NewOutboxEvent<K> & { id: string },
   ): Promise<void> {
-    await q.query(
-      `INSERT INTO outbox_events (id, event_type, aggregate_id, payload, correlation_id)
-       VALUES ($1, $2, $3, $4::jsonb, $5)`,
-      [e.id, e.eventType, e.aggregateId, JSON.stringify(e.payload), e.correlationId],
-    );
+    await insertOutboxEvent(q, e);
   },
 
   /** Login lookup. The only place a password hash is read, and it never leaves the auth service. */
@@ -120,6 +118,8 @@ export const usersRepository = {
     id: string;
     passwordHash: string;
     status: AccountStatus;
+    mustChangePassword: boolean;
+    isSeededAdmin: boolean;
     displayName: string;
     roles: Role[];
   } | null> {
@@ -127,10 +127,13 @@ export const usersRepository = {
       id: string;
       password_hash: string;
       status: AccountStatus;
+      must_change_password: boolean;
+      is_seeded_admin: boolean;
       display_name: string;
       roles: Role[];
     }>(
-      `SELECT u.id, u.password_hash, u.status, coalesce(p.display_name, '') AS display_name,
+      `SELECT u.id, u.password_hash, u.status, u.must_change_password, u.is_seeded_admin,
+              coalesce(p.display_name, '') AS display_name,
               array(SELECT r.role FROM user_roles r WHERE r.user_id = u.id ORDER BY r.role) AS roles
        FROM users u LEFT JOIN profiles p ON p.user_id = u.id
        WHERE lower(u.email) = lower($1)`,
@@ -142,10 +145,31 @@ export const usersRepository = {
           id: r.id,
           passwordHash: r.password_hash,
           status: r.status,
+          mustChangePassword: r.must_change_password,
+          isSeededAdmin: r.is_seeded_admin,
           displayName: r.display_name,
           roles: r.roles,
         }
       : null;
+  },
+
+  /**
+   * Compare-and-swap on the stored hash: it succeeds only if the password is still the one the
+   * caller just proved, so two simultaneous changes cannot both win. Clears the forced-change flag.
+   */
+  async replacePassword(
+    q: Queryable,
+    userId: string,
+    expectedHash: string,
+    newHash: string,
+  ): Promise<boolean> {
+    const { rows } = await q.query(
+      `UPDATE users SET password_hash = $3, must_change_password = false, updated_at = now()
+       WHERE id = $1 AND password_hash = $2
+       RETURNING id`,
+      [userId, expectedHash, newHash],
+    );
+    return rows.length > 0;
   },
 
   /** The caller's own account for `GET /users/me`. */

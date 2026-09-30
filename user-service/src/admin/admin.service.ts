@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { ApiException } from '@foc/platform';
+import { ApiException, EVENTS } from '@foc/platform';
 import { sessionsRepository as sessions } from '../auth/sessions.repository.js';
 import { DB, type Db, type Queryable } from '../db/db.js';
 import {
@@ -8,7 +8,12 @@ import {
   type AccountStatus,
   type Role,
 } from '../users/users.repository.js';
-import { adminRepository as admin, type AdminUserRow, type AuditRow } from './admin.repository.js';
+import {
+  adminRepository as admin,
+  type AdminUserRow,
+  type AuditAction,
+  type AuditRow,
+} from './admin.repository.js';
 
 export interface AdminUserView {
   id: string;
@@ -47,6 +52,7 @@ export const toAdminUserView = (r: AdminUserRow): AdminUserView => ({
 const toAuditView = (r: AuditRow) => ({
   id: r.id,
   actorId: r.actor_id,
+  actorType: r.actor_type,
   targetUserId: r.target_user_id,
   action: r.action,
   reason: r.reason,
@@ -55,6 +61,14 @@ const toAuditView = (r: AuditRow) => ({
 });
 
 const notFound = () => new ApiException(404, 'NOT_FOUND', 'User not found.');
+
+/**
+ * The id as stored, never as typed in the URL. A UUID is case-insensitive, so `/admin/users/ABC…`
+ * finds the same row, but tokens (`sub`) and every event carry the stored lower-case form: an event
+ * naming the user in another case would miss every cache keyed on it, and a self-check comparing
+ * against the raw path parameter could be sidestepped by changing its case.
+ */
+const canonicalId = (target: { id: string }): string => target.id.toLowerCase();
 
 /**
  * Administration: suspend, reactivate and role changes (US-FR3.1.2–3.1.3.1).
@@ -96,7 +110,8 @@ export class AdminService {
     await this.db.transaction(async (tx) => {
       const target = await admin.lockUser(tx, targetId);
       if (!target) throw notFound();
-      if (actorId === targetId) {
+      const userId = canonicalId(target);
+      if (actorId === userId) {
         throw new ApiException(409, 'SELF_SUSPENSION_FORBIDDEN', 'You cannot suspend yourself.');
       }
       if (target.roles.includes('ADMIN') && !(await admin.isSeededAdmin(tx, actorId))) {
@@ -115,14 +130,19 @@ export class AdminService {
         );
       }
 
-      await admin.setStatus(tx, targetId, 'SUSPENDED');
-      await sessions.revokeAllForUser(tx, targetId);
-      const auditId = await this.record(tx, actorId, targetId, 'SUSPEND', reason, correlationId);
+      await admin.setStatus(tx, userId, 'SUSPENDED');
+      await sessions.revokeAllForUser(tx, userId);
+      const auditId = await this.record(tx, actorId, userId, 'SUSPEND', reason, correlationId);
       await users.insertOutboxEvent(tx, {
         id: randomUUID(),
-        eventType: 'UserSuspended',
-        aggregateId: targetId,
-        payload: { userId: targetId, status: 'SUSPENDED', reasonRef: auditId },
+        eventType: EVENTS.USER_SUSPENDED,
+        aggregateId: userId,
+        payload: {
+          userId,
+          status: 'SUSPENDED',
+          reasonRef: auditId,
+          occurredAt: new Date().toISOString(),
+        },
         correlationId,
       });
     });
@@ -134,6 +154,7 @@ export class AdminService {
     await this.db.transaction(async (tx) => {
       const target = await admin.lockUser(tx, targetId);
       if (!target) throw notFound();
+      const userId = canonicalId(target);
       if (target.status === 'ACTIVE') return; // idempotent
       if (target.status !== 'SUSPENDED') {
         throw new ApiException(
@@ -142,13 +163,18 @@ export class AdminService {
           'Only a suspended account can be reactivated.',
         );
       }
-      await admin.setStatus(tx, targetId, 'ACTIVE');
-      const auditId = await this.record(tx, actorId, targetId, 'REACTIVATE', reason, correlationId);
+      await admin.setStatus(tx, userId, 'ACTIVE');
+      const auditId = await this.record(tx, actorId, userId, 'REACTIVATE', reason, correlationId);
       await users.insertOutboxEvent(tx, {
         id: randomUUID(),
-        eventType: 'UserReactivated',
-        aggregateId: targetId,
-        payload: { userId: targetId, status: 'ACTIVE', reasonRef: auditId },
+        eventType: EVENTS.USER_REACTIVATED,
+        aggregateId: userId,
+        payload: {
+          userId,
+          status: 'ACTIVE',
+          reasonRef: auditId,
+          occurredAt: new Date().toISOString(),
+        },
         correlationId,
       });
     });
@@ -177,6 +203,7 @@ export class AdminService {
       }
       const target = await admin.lockUser(tx, targetId);
       if (!target) throw notFound();
+      const userId = canonicalId(target);
 
       if (role === 'ADMIN') {
         if (target.roles.includes('ADMIN')) return; // idempotent
@@ -187,14 +214,16 @@ export class AdminService {
             'Only an active account can be made an administrator.',
           );
         }
-        await admin.grantAdmin(tx, targetId, actorId);
-        await this.record(tx, actorId, targetId, 'ROLE_GRANT', reason, correlationId);
+        await admin.grantAdmin(tx, userId, actorId);
+        const auditId = await this.record(tx, actorId, userId, 'ROLE_GRANT', reason, correlationId);
+        const roles: Role[] = [...target.roles, 'ADMIN'];
+        await this.roleChanged(tx, userId, roles, auditId, correlationId);
         return;
       }
 
       // role === 'STUDENT': downgrade
       if (!target.roles.includes('ADMIN')) return; // idempotent
-      if (actorId === targetId) {
+      if (actorId === userId) {
         throw new ApiException(
           409,
           'SELF_DEMOTION_FORBIDDEN',
@@ -215,17 +244,44 @@ export class AdminService {
       if (adminIds.length <= 1) {
         throw new ApiException(409, 'LAST_ADMIN', 'At least one administrator must remain.');
       }
-      await admin.revokeAdmin(tx, targetId);
-      await this.record(tx, actorId, targetId, 'ROLE_REVOKE', reason, correlationId);
+      await admin.revokeAdmin(tx, userId);
+      const auditId = await this.record(tx, actorId, userId, 'ROLE_REVOKE', reason, correlationId);
+      const roles = target.roles.filter((r) => r !== 'ADMIN');
+      await this.roleChanged(tx, userId, roles, auditId, correlationId);
     });
     return this.getUser(targetId);
+  }
+
+  /**
+   * Tells other services that cache a caller's roles to drop them now (USR-07), rather than let a
+   * demoted administrator keep admin rights there until the cache expires.
+   */
+  private roleChanged(
+    tx: Queryable,
+    userId: string,
+    roles: Role[],
+    auditId: string,
+    correlationId: string,
+  ): Promise<void> {
+    return users.insertOutboxEvent(tx, {
+      id: randomUUID(),
+      eventType: EVENTS.USER_ROLE_CHANGED,
+      aggregateId: userId,
+      payload: {
+        userId,
+        roles: [...roles].sort(),
+        reasonRef: auditId,
+        occurredAt: new Date().toISOString(),
+      },
+      correlationId,
+    });
   }
 
   private async record(
     tx: Queryable,
     actorId: string,
     targetUserId: string,
-    action: 'SUSPEND' | 'REACTIVATE' | 'ROLE_GRANT' | 'ROLE_REVOKE',
+    action: Exclude<AuditAction, 'ADMIN_BOOTSTRAP'>,
     reason: string,
     correlationId: string,
   ): Promise<string> {

@@ -179,6 +179,15 @@ textarea {
   background: var(--color-surface);
 }
 
+/* A visible focus ring for keyboard users on every interactive element (USR-05). */
+a:focus-visible,
+button:focus-visible,
+input[type="radio"]:focus-visible + label,
+select:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
 .text-input:focus {
   outline: 2px solid var(--color-primary);
   outline-offset: 1px;

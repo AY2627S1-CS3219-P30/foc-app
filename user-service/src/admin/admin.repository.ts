@@ -1,7 +1,11 @@
 import type { Queryable } from '../db/db.js';
 import type { AccountStatus, Role } from '../users/users.repository.js';
 
-export type AuditAction = 'SUSPEND' | 'REACTIVATE' | 'ROLE_GRANT' | 'ROLE_REVOKE';
+export type AuditAction =
+  'SUSPEND' | 'REACTIVATE' | 'ROLE_GRANT' | 'ROLE_REVOKE' | 'ADMIN_BOOTSTRAP';
+
+/** `SYSTEM` is the boot-time bootstrap; every other row has a human actor. */
+export type AuditActorType = 'USER' | 'SYSTEM';
 
 export interface LockedUser {
   id: string;
@@ -73,11 +77,12 @@ export const adminRepository = {
     await q.query(`DELETE FROM user_roles WHERE user_id = $1 AND role = 'ADMIN'`, [userId]);
   },
 
+  /** `actorId: null` records the SYSTEM as the actor (the bootstrap); the table enforces that pairing. */
   async insertAudit(
     q: Queryable,
     a: {
       id: string;
-      actorId: string;
+      actorId: string | null;
       targetUserId: string;
       action: AuditAction;
       reason: string;
@@ -85,9 +90,17 @@ export const adminRepository = {
     },
   ): Promise<void> {
     await q.query(
-      `INSERT INTO audit_records (id, actor_id, target_user_id, action, reason, correlation_id)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [a.id, a.actorId, a.targetUserId, a.action, a.reason, a.correlationId],
+      `INSERT INTO audit_records (id, actor_id, actor_type, target_user_id, action, reason, correlation_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        a.id,
+        a.actorId,
+        a.actorId === null ? 'SYSTEM' : 'USER',
+        a.targetUserId,
+        a.action,
+        a.reason,
+        a.correlationId,
+      ],
     );
   },
 
@@ -143,7 +156,7 @@ export const adminRepository = {
       params,
     );
     const { rows } = await q.query<AuditRow>(
-      `SELECT id, actor_id, target_user_id, action, reason, occurred_at, correlation_id
+      `SELECT id, actor_id, actor_type, target_user_id, action, reason, occurred_at, correlation_id
        FROM audit_records ${clause}
        ORDER BY occurred_at DESC, id
        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
@@ -152,14 +165,18 @@ export const adminRepository = {
     return { rows, total: total.rows[0]?.n ?? 0 };
   },
 
-  /** Boot-time bootstrap. Returns false if the address already has an account (never escalated). */
+  /**
+   * Boot-time bootstrap. Returns false if the address already has an account (never escalated).
+   * The account must change its password before its first session: the bootstrap secret is shared
+   * configuration and must not become anyone's permanent credential.
+   */
   async insertSeededAdmin(
     q: Queryable,
     u: { id: string; email: string; passwordHash: string; displayName: string },
   ): Promise<boolean> {
     const { rows } = await q.query(
-      `INSERT INTO users (id, email, password_hash, status, is_seeded_admin, activated_at)
-       VALUES ($1, $2, $3, 'ACTIVE', true, now())
+      `INSERT INTO users (id, email, password_hash, status, is_seeded_admin, must_change_password, activated_at)
+       VALUES ($1, $2, $3, 'ACTIVE', true, true, now())
        ON CONFLICT ((lower(email))) DO NOTHING
        RETURNING id`,
       [u.id, u.email, u.passwordHash],
@@ -193,7 +210,8 @@ export interface AdminUserRow extends Record<string, unknown> {
 
 export interface AuditRow extends Record<string, unknown> {
   id: string;
-  actor_id: string;
+  actor_id: string | null;
+  actor_type: AuditActorType;
   target_user_id: string;
   action: AuditAction;
   reason: string;

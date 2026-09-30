@@ -147,11 +147,26 @@ limiting is in memory, so it is per instance. Refresh lifetime is sliding: each 
 | `GET /admin/users`, `GET /admin/users/:id`      | ADMIN                                                                                                     |
 | `POST /admin/users/:id/suspend`, `…/reactivate` | ADMIN. Reason required; audit row + event; suspension revokes all sessions                                |
 | `PUT /admin/users/:id/role`                     | ADMIN. Appoint or downgrade; only a seeded admin may downgrade; never yourself; never the last admin      |
+| `POST /auth/password`                           | Anyone who proves the current password. Replaces it and revokes every session; login's rate limits apply  |
 | `GET /admin/audit-records`                      | ADMIN. Read-only, append-only                                                                             |
 
-**First admin.** Set `ADMIN_SEED_EMAILS` and `ADMIN_SEED_PASSWORD`; the accounts are created at boot. An
-address that already has an account is skipped, never promoted. In Compose the dev default is
-`admin@u.nus.edu` / `dev-only-admin-password-change-me` — change it for anything beyond a laptop.
+**First admin.** Set `ADMIN_SEED_EMAILS` and `ADMIN_SEED_PASSWORD`; the accounts are created at boot, each
+with an `ADMIN_BOOTSTRAP` audit row (actor `SYSTEM`). An address that already has an account is skipped,
+never promoted. The bootstrap password cannot start a session: logging in with it returns
+`403 PASSWORD_CHANGE_REQUIRED`, and the admin must first set their own password. Do it as soon as the
+account exists — the secret is shared by every seeded address and proves no mailbox, so until then anyone
+who knows it can claim the account:
+
+```bash
+curl -s localhost:3001/auth/password -H 'content-type: application/json' \
+  -d '{"email":"admin@u.nus.edu","currentPassword":"dev-only-admin-password-change-me","newPassword":"<your own>"}'
+```
+
+In Compose the dev default is `admin@u.nus.edu` / `dev-only-admin-password-change-me`. To recover from a
+misbehaving appointed admin when no bootstrap admin is reachable, add a new address to `ADMIN_SEED_EMAILS`,
+rotate `ADMIN_SEED_PASSWORD`, redeploy and claim the account at once (roles.md §4). The address must never
+have been registered: the seed skips an existing account, even an unactivated one someone registered to
+squat it. If the boot log reports it as skipped, pick another address.
 
 Authorisation reads the caller's role from the database on every request, never from the token or a header.
 `test/matrix.test.ts` runs every protected endpoint as four actors and fails if a route is added without a
