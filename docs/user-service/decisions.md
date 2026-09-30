@@ -296,7 +296,7 @@ Recorded because they are the honest answer to "what went wrong?" and each has a
 **Deferred, with an owner**
 - ~~Bootstrap secret stays valid; bootstrap unaudited~~ — fixed in §11 (D1 feedback on USR-03).
 - ~~USR-03~~ — built: admin endpoints, suspension revoking sessions, audit table, seeded admins, profile edits (see §9).
-- USR-05 — single-flight refresh across tabs.
+- ~~USR-05 — single-flight refresh across tabs~~ — built (§14).
 - ~~USR-06~~ — built (see §10). Consuming services must still add the dependency, the two env vars and the Dockerfile lines.
 - PLT-06 — remove the dev default `INTERNAL_SERVICE_KEYS`.
 - ~~EVT-02 — drain `outbox_events`~~ — the platform relay publishes it (S6).
@@ -596,3 +596,49 @@ Two gaps in `@foc/platform`'s events layer surfaced once a second service bound 
 - **A reconnect lost every consumer.** The connection re-declared the topology but never re-registered consumers, and a
   channel the server closed on its own was not noticed at all. Consumers are now remembered and re-registered on every new
   channel, and losing the channel alone reconnects too.
+
+---
+
+## 14. Account screens (USR-05, #123)
+
+### W1. The session lives in a React context; the access token never leaves memory — ✅
+`web-app/src/lib/session.ts` (plain TypeScript, unit-tested with a fake `fetch` and fake locks) holds the access token in memory
+and exposes `authed(fn)`, which retries once through `/auth/refresh` on a `401`; `web-app/src/lib/auth.tsx` wraps it in a React
+context and loads `/users/me`. No credential is written to `localStorage` (A3). The one thing that is: a non-secret
+`foc-logout-pending` flag, set when a sign-out could not reach the service, so the next load revokes the still-live cookie instead
+of refreshing it (otherwise the next person at a shared computer is signed in).
+- Only a refused refresh (`401`/`403`) signs the user out. A network error, a timeout (10 s per call) or a `5xx` is shown with a
+  retry: a blip must not end a session.
+
+### W2. Refresh is single-flight across tabs with the Web Locks API — ✅ (the A5 follow-up)
+Rotation plus reuse detection means two tabs refreshing with the same cookie end the session for both. Verified in Chromium against
+the real User Service with each refresh response held on the wire: **without** the lock, tab B presented the same cookie as tab A,
+got `401`, and both tabs were signed out; **with** it, B waited, presented A's new cookie, and both stayed signed in.
+- **Rejected:** a `BroadcastChannel` "leader" tab (more code, and a closing leader loses the refresh) and `localStorage` mutexes (racy).
+- **Fallback:** a browser without `navigator.locks` still gets the in-tab single-flight; only simultaneous multi-tab restore is exposed.
+
+### W3. One responsive tree for account screens — ✅
+The existing screens render a mobile tree and a desktop tree and let CSS pick one. A form must not: two copies would duplicate ids,
+split typed input between hidden and visible copies, and confuse assistive technology. `AuthCard` is one tree, full-bleed at 360 px
+and a centred card from 768 px. The profile screen holds a form too, so it uses `ResponsiveShell`: one tree whose app bar, top
+bar and sidebar CSS shows or hides by width.
+
+### W4. Errors stay beside the field; input is never cleared — ✅
+Controlled inputs, `aria-invalid` + `aria-describedby`, and a `role="alert"` summary that stays mounted (empty until needed), so
+a message is announced when it arrives. The server's `details[]` map onto fields, so `EMAIL_DOMAIN_NOT_ALLOWED` and
+`EMAIL_ALREADY_REGISTERED` appear on the email field. Client checks mirror the server's rules
+(12–128 characters, no composition rules) but the server stays authoritative.
+
+### W5. Bootstrap admins land on "Choose your password" — ✅
+`PASSWORD_CHANGE_REQUIRED` at login routes to `/change-password?email=…&required=1`; success signs in with the new password.
+
+### W6. Verification — ✅ (browser run by hand, not in CI)
+26 checks in Chromium against the real User Service code (on PGlite, since this environment has no Docker daemon): signed-out
+redirect with `next`, register with client and server errors and input preserved, activation via the dev mailbox link,
+**keyboard-only** login with a visible focus outline, wrong-password alert, profile edit, the mode switch persisting across a
+reload, two-tab restore, logout propagating to another tab, the bootstrap-admin flow, and **axe: 0 critical and 0 serious** on
+login, register, activate, change-password and profile at 360, 768 and 1440 px.
+- **Limit:** that browser suite is not committed. The project has no browser-test harness yet (TST-01/TST-02), and adding
+  Playwright to the web app's Bun lockfile is a decision for that ticket. The `bun test` unit tests do run in CI.
+- **Not verified:** the full `docker compose` stack (no Docker daemon here).
+- The admin page (`/admin`) is outside the `(app)` group and still unprotected mock UI — USR-08 / Patrick's shell.
