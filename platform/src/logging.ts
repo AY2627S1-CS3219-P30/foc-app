@@ -60,21 +60,23 @@ const ERROR_FIELDS = [
 
 type ErrorLike = Error & Record<string, unknown>;
 
-/**
- * An error's message, masked. A Drizzle query error appends every bound value (`params: …`),
- * which can be any column of the row, so only its statement is kept.
- */
-function errorMessage(err: Error): string {
-  const { query, params } = err as Error & { query?: unknown; params?: unknown };
-  return maskPersonalData(
-    typeof query === 'string' && params !== undefined ? `Failed query: ${query}` : err.message,
-  );
-}
-
 const isErrorLike = (value: unknown): value is ErrorLike =>
   typeof value === 'object' &&
   value !== null &&
   typeof (value as { message?: unknown }).message === 'string';
+
+/**
+ * An error's message, safe for any sink, masked. A Drizzle query error appends every bound value
+ * (`params: …`), which can be any column of the row, so its statement is kept with the driver's
+ * reason instead.
+ */
+export function errorMessage(err: unknown): string {
+  if (!isErrorLike(err)) return maskPersonalData(String(err));
+  const { query, params, cause } = err;
+  if (typeof query !== 'string' || params === undefined) return maskPersonalData(err.message);
+  const reason = isErrorLike(cause) ? `: ${cause.message}` : '';
+  return maskPersonalData(`Failed query: ${query}${reason}`);
+}
 
 /**
  * Replaces pino's default `err` serializer, which copies every field of an error and runs before
@@ -95,7 +97,7 @@ export function serializeError(err: unknown, seen = new WeakSet<object>()): unkn
     message,
   };
   if (typeof err.stack === 'string') {
-    out.stack = maskPersonalData(err.stack.replace(err.message, message));
+    out.stack = maskPersonalData(err.stack.replace(err.message, () => message));
   }
   for (const key of ERROR_FIELDS) {
     const value = err[key];

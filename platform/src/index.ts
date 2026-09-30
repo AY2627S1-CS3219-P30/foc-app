@@ -5,7 +5,7 @@ export {
   echoCorrelationId,
   resolveCorrelationId,
 } from './correlation.js';
-export { createLogger, PinoLoggerService, requestLogger } from './logging.js';
+export { createLogger, errorMessage, PinoLoggerService, requestLogger } from './logging.js';
 export { ApiException, ErrorEnvelopeFilter, type ErrorEnvelope } from './errors.js';
 export {
   HealthController,
@@ -23,4 +23,5 @@ export {
   type Queryable,
   type Row,
 } from './db.js';
+export { assertJournalOrdered, runDrizzleMigrations } from './migrations.js';
 export * from './events/index.js';

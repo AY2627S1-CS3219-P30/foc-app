@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { createLogger, PinoLoggerService, startService } from '@foc/platform';
+import { createLogger, errorMessage, PinoLoggerService, startService } from '@foc/platform';
 import { DB, type Database } from './db/db.js';
 import { loadSeedSuppliers } from './admin/seed-data.js';
 import { seedSuppliers } from './admin/seed.js';
@@ -33,6 +33,6 @@ async function main(): Promise<void> {
 
 main().catch((err: unknown) => {
   // Configuration errors happen before a logger exists, so this must use console.
-  console.error(err instanceof Error ? err.message : String(err));
+  console.error(errorMessage(err));
   process.exit(1);
 });

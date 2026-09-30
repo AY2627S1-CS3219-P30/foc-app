@@ -9,9 +9,12 @@ import { defineConfig } from 'drizzle-kit';
  * They are applied by `npm run db:migrate` or the compose migrate container,
  * never at boot.
  */
+const url = process.env.DATABASE_URL;
+
 export default defineConfig({
   dialect: 'postgresql',
   schema: './src/db/schema.ts',
   out: './drizzle',
-  dbCredentials: { url: process.env.DATABASE_URL ?? 'postgres://localhost:5432/postgres' },
+  // Left out when unset so push/studio fail rather than hit another database; generate needs none.
+  ...(url && { dbCredentials: { url } }),
 });

@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import type { z } from 'zod';
 import type { Db, Queryable } from '../db.js';
+import { errorMessage } from '../logging.js';
 import { PAYLOAD_SCHEMAS } from './catalogue.js';
 import { EVENT_PUBLISHER } from './events.module.js';
 import type { EventPublisher } from './publisher.js';
@@ -398,7 +399,7 @@ export class OutboxRelay implements OnApplicationBootstrap, BeforeApplicationShu
   }
 
   private async recordFailure(tx: Queryable, row: OutboxRow, err: unknown): Promise<void> {
-    const reason = (err instanceof Error ? err.message : String(err)).slice(0, 500);
+    const reason = errorMessage(err).slice(0, 500);
     const retryInMs = Math.min(this.maxBackoffMs, this.backoffMs * 2 ** row.attempts);
     await tx.query(
       `UPDATE outbox_events
