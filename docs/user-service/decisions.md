@@ -126,13 +126,6 @@ The platform filter derived `code` from the HTTP status only (409 → `CONFLICT`
 - **Rejected:** MongoDB (flexibility not needed, weaker cross-row invariants), Redis (cache, not a
   system of record), a hosted identity provider (would hide the RBAC and credential storage the course asks us to explain).
 
-### S2. `pg` with hand-written, forward-only SQL migrations — 🟡
-- **Chosen:** plain `pg`, a ~40-line migrator, and migrations as TypeScript strings so `tsc` carries
-  them into `dist/` with no copy step.
-- **Rejected:** Drizzle / Prisma. An ORM would give typed queries, but adds a dependency, a codegen or
-  shadow-database step, and a second description of the schema to explain at D2.
-- **Trade-off:** SQL is written and typed by hand. Every later service copies whichever approach lands first.
-
 ### S3. `text` email with a unique index on `lower(email)`, not `citext` — ✅
 - **Why:** no dependency on an extension being available to the service's role; the service normalises
   before insert anyway, and the index still enforces uniqueness if a row is ever written another way.
