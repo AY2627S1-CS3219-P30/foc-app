@@ -112,16 +112,24 @@ and a trigger raises on any `UPDATE` or `DELETE`. No API edits or deletes an aud
 ### `outbox_events`
 | Column | Type | Notes |
 | --- | --- | --- |
-| `id` | uuid PK | |
-| `event_type` | text | `UserActivated`, later `UserSuspended` / `UserReactivated` |
+| `id` | uuid PK | Also the envelope's `eventId`, on every publish attempt |
+| `seq` | bigint identity | Insertion order, which the relay publishes in (migration 006) |
+| `event_type` | text | A catalogue routing key: `user.activated`, `user.suspended`, `user.reactivated`, `user.role-changed` (legacy names rewritten by migration 005) |
+| `schema_version` | integer | Default 1 |
 | `aggregate_id` | uuid | the user |
-| `payload` | jsonb | |
+| `payload` | jsonb | Validated against the catalogue's schema on insert |
 | `correlation_id` | text | |
+| `causation_id` | text NULL | Defaults to the correlation id in the envelope |
 | `occurred_at` | timestamptz | |
-| `published_at` | timestamptz NULL | set by the publisher once the broker has confirmed |
+| `published_at` | timestamptz NULL | Set by the relay once the broker has confirmed |
+| `attempts` | integer | Publish attempts so far |
+| `last_error` | text NULL | Why the last attempt failed |
+| `next_attempt_at` | timestamptz | Backoff after a failure: 1 s doubling to 60 s |
 
 Events are inserted in the same transaction as the change that caused them, so an activation can never
-commit without its event. EVT-02 (Jonus) owns the publisher that drains this table and may reshape it.
+commit without its event. The platform's `OutboxRelay` (EVT-02) publishes committed rows whenever
+`RABBITMQ_URL` is set; migration 006 added the relay's columns and kept every existing row. It
+matches `@foc/platform`'s shared `OUTBOX_TABLE_SQL`, except that `aggregate_id` is a uuid.
 
 ## 3. How credentials are stored (D2 §2)
 

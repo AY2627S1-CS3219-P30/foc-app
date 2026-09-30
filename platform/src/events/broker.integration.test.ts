@@ -175,6 +175,97 @@ suite('broker integration', () => {
     await b.close();
   }, 25_000);
 
+  it('retries a failure back to the failing queue only, not to another bound to the same key', async () => {
+    const key = `test.shared-${RUN}`;
+    const [qa, qb] = [`foc.test-${RUN}.shared-a`, `foc.test-${RUN}.shared-b`];
+    const b = new BrokerConnection(
+      URL as string,
+      `test-${RUN}-shared`,
+      [
+        { queue: qa, routingKeys: [key] },
+        { queue: qb, routingKeys: [key] },
+      ],
+      [60, 60],
+    );
+    await b.connect();
+    const consumer = new EventConsumer(b);
+    const seenA: number[] = [];
+    const seenB: number[] = [];
+    await consumer.subscribe({
+      queue: qa,
+      eventType: key,
+      payloadSchema: userActivatedPayload,
+      handler: (_e, ctx) => {
+        seenA.push(ctx.attempt);
+        if (ctx.attempt < 2) throw new Error('not yet');
+      },
+    });
+    await consumer.subscribe({
+      queue: qb,
+      eventType: key,
+      payloadSchema: userActivatedPayload,
+      handler: (_e, ctx) => void seenB.push(ctx.attempt),
+    });
+    await new EventPublisher(b, 'test').publish({
+      eventType: key,
+      schemaVersion: 1,
+      aggregateId: 'a-1',
+      correlationId: 'shared-trace',
+      payload: { userId: 'a-1', activatedAt: new Date().toISOString() },
+    });
+
+    await waitFor(() => (seenA.includes(2) ? seenA : undefined));
+    await new Promise((r) => setTimeout(r, 500)); // room for a stray redelivery to show up
+    expect(seenB).toEqual([1]);
+
+    const ch = b.getChannel();
+    for (const q of [qa, qb]) {
+      await ch.deleteQueue(q);
+      await ch.deleteQueue(deadLetterQueueName(q));
+    }
+    await b.close();
+  }, 25_000);
+
+  it('keeps consuming after the server closes the channel', async () => {
+    const queue = `foc.test-${RUN}.recover`;
+    const b = new BrokerConnection(
+      URL as string,
+      `test-${RUN}-recover`,
+      [{ queue, routingKeys: ['test.recover'] }],
+      [60, 60],
+    );
+    await b.connect();
+    const seen: string[] = [];
+    await new EventConsumer(b).subscribe({
+      queue,
+      eventType: 'test.recover',
+      payloadSchema: userActivatedPayload,
+      handler: (e) => void seen.push(e.payload.userId),
+    });
+
+    // A passive check of a queue that does not exist makes the server close the channel.
+    await b
+      .getChannel()
+      .checkQueue(`foc.test-${RUN}.missing`)
+      .catch(() => undefined);
+    await waitFor(() => (b.isConnected() ? undefined : true)); // it noticed ...
+    await waitFor(() => (b.isConnected() ? true : undefined)); // ... and came back
+
+    await new EventPublisher(b, 'test').publish({
+      eventType: 'test.recover',
+      schemaVersion: 1,
+      aggregateId: 'a-2',
+      correlationId: 'recover-trace',
+      payload: { userId: 'a-2', activatedAt: new Date().toISOString() },
+    });
+    expect(await waitFor(() => (seen.length ? seen : undefined))).toEqual(['a-2']);
+
+    const ch = b.getChannel();
+    await ch.deleteQueue(queue);
+    await ch.deleteQueue(deadLetterQueueName(queue));
+    await b.close();
+  }, 25_000);
+
   it('keeps the publisher usable while a workflow is still in flight', async () => {
     // EI-FR1.1.2: the action returns its own result without waiting.
     const started = Date.now();

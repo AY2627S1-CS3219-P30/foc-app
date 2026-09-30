@@ -79,6 +79,11 @@ npm run dev:order      # http://localhost:3003
 npm run dev:credit     # http://localhost:3004
 ```
 
+Supplier, Order and Credit verify callers through the User Service, so they also
+need `USER_SERVICE_URL` and `INTERNAL_SERVICE_KEY` (and Supplier its `DATABASE_URL`)
+in your `.env` or shell; see `.env.example`. A missing one stops the service at
+boot and names it.
+
 Check it is alive:
 
 ```bash
@@ -287,13 +292,27 @@ job is to hold it for a TTL and then route it back.
 
 Two details that are easy to get wrong, and are commented in the code:
 
-- Each delay level has a **fanout** exchange, not a topic one. A message
-  dead-lettered out of a retry queue keeps whatever routing key it carries, so
-  that key must stay the original event type the whole way round.
-- Retry queues are **namespaced per service** (`foc.<service>.retry.N`). A
+- A retry goes back to **the queue that failed**, not to the event's routing
+  key: several services can bind one event type, and each must not handle
+  another's retries. Each delay level is a **fanout** exchange whose queue
+  dead-letters onto the default exchange; the failed message travels with its
+  queue's name as routing key, which fanout ignores on the way in and the
+  default exchange delivers by on the way out.
+- Delay queues are **namespaced per service** (`foc.<service>.delay.N`). A
   queue's TTL is fixed at declaration, so globally named retry queues would
   force every service onto one backoff forever and require deleting queues to
-  change it.
+  change it. (The first release named them `foc.<service>.retry.N` and routed
+  retries by event type; a broker that still has those can delete them.)
+
+A consumer survives the broker: if the connection or its channel goes, the
+service reconnects with backoff, declares its topology again and re-registers
+every subscription.
+
+A subscription can also be **per instance** (`exclusive`, `autoDelete`,
+`messageTtlMs`, `maxLength` on its `SubscriptionSpec`) when every replica must
+see every message — the auth cache invalidation of USR-07. Such a queue goes
+with its connection and has no retry or dead-letter queue: a failed message is
+dropped, so its handler must be idempotent and have a fallback.
 
 ### Inspecting it
 
@@ -316,13 +335,84 @@ docker compose up -d rabbitmq
 RABBITMQ_URL=amqp://foc:foc_dev@localhost:55672 npm test -w @foc/platform
 ```
 
-### Not done here
+### Publishing with a database write: the outbox and inbox
 
-Publishing is **not yet atomic with a database write**. A crash between commit
-and publish loses the event — which is exactly the gap the transactional outbox
-in [EVT-02](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/135) closes.
-Until then, do not treat a published event as a durable consequence of a
-committed transaction.
+An event that records a state change is never published straight from the
+code that made the change: a crash between the commit and the publish would
+lose it. It is written to the service's `outbox_events` table **in the same
+transaction as the change**, and the platform's relay publishes it after the
+commit ([EVT-02](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/135)).
+The event exists exactly when the change does — a rollback discards both, and a
+crash after the commit only delays the event until the relay next runs.
+
+```ts
+import {
+  INBOX_TABLE_SQL,
+  OUTBOX_TABLE_SQL,
+  insertOutboxEvent,
+  provideOutboxRelay,
+  withInbox,
+} from '@foc/platform';
+
+// 1. Migrations: the shared tables. Both snippets are frozen, like any migration.
+{ id: '002_outbox', sql: OUTBOX_TABLE_SQL },
+{ id: '003_inbox', sql: INBOX_TABLE_SQL },
+
+// 2. Producing: in the transaction that changes state. The payload is checked
+//    against the catalogue here, so a bad shape fails the change, not a consumer.
+await db.transaction(async (tx) => {
+  await orders.save(tx, order); // PENDING_CREDIT
+  await insertOutboxEvent(tx, {
+    eventType: EVENTS.CREDIT_RESERVATION_REQUESTED,
+    aggregateId: order.id,
+    correlationId,
+    payload: { orderId: order.id, requesterId, amount },
+  });
+});
+
+// 3. Relaying: next to EventsModule, so it runs only when RABBITMQ_URL is set.
+providers: env.RABBITMQ_URL ? [provideOutboxRelay({ db: DB })] : [],
+
+// 4. Consuming: the effect, any reply, and the inbox record commit together.
+handler: withInbox(db, RESERVATION_QUEUE, async (event, tx) => {
+  await wallets.reserve(tx, event.payload);
+  await insertOutboxEvent(tx, {
+    eventType: EVENTS.CREDITS_RESERVED,
+    aggregateId: event.payload.orderId,
+    correlationId: event.correlationId,
+    causationId: event.eventId,
+    payload: event.payload,
+  });
+}),
+```
+
+| Property                                | How                                                                                                                     |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Crash after commit still publishes      | The relay polls at boot, then every 500 ms, for rows with no `published_at`                                             |
+| A redelivery is recognisably the same   | The row's id is the envelope's `eventId` on every attempt, with its `occurredAt` and `correlationId`                    |
+| Duplicates have one effect              | The inbox (`processed_events`, keyed by consumer and event id) is written in the effect's own transaction               |
+| One aggregate's events stay in order    | A row waits while an earlier row for the same aggregate is unpublished; other aggregates are not held up                |
+| Several instances can relay at once     | Rows are claimed with `FOR UPDATE SKIP LOCKED`                                                                          |
+| The broker is down or refuses a message | The row stays unpublished, with `attempts`, `last_error` and a backoff of 1 s doubling to 60 s; nothing is ever dropped |
+
+Delivery is therefore **at least once**, and every consumer must go through the
+inbox (or be naturally idempotent, like dropping a cache entry).
+
+**Metrics** are structured log lines: `outbox relay stats` every minute
+(`published`, `failed`, `backlog`, `oldestUnpublishedAgeMs`), `outbox publish
+failed; will retry` per failed attempt, and `duplicate event skipped` per
+duplicate an inbox absorbs. `OutboxRelay.stats` returns the same numbers. A
+growing `oldestUnpublishedAgeMs` is the signal that events are stuck.
+
+The relay's concurrency test needs real PostgreSQL, since PGlite runs one
+transaction at a time:
+
+```bash
+docker compose up -d postgres
+TEST_DATABASE_URL=postgres://postgres:postgres_dev@localhost:55432/postgres npm test -w @foc/platform
+```
+
+Not done yet: published outbox rows and old inbox rows are never pruned.
 
 ## Continuous integration
 

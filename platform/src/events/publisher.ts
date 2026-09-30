@@ -7,10 +7,14 @@ import { EXCHANGE } from './topology.js';
  * Publishes a domain event.
  *
  * Awaits the broker's confirmation rather than resolving on write, so a caller
- * that needs to know the message is durable can. It does not, however, make
- * publishing atomic with a database write — that is the outbox in EVT-02.
- * Until then a crash between commit and publish loses the event, which is
- * precisely the gap EVT-02 exists to close.
+ * that needs to know the message is durable can.
+ *
+ * A service does not call this directly for an event that records a state
+ * change: publishing here is not atomic with a database write, and a crash
+ * between the commit and the publish would lose the event. Such an event goes
+ * through the outbox instead (`insertOutboxEvent` in the same transaction as
+ * the change, see outbox.ts), and the `OutboxRelay` calls this to deliver
+ * it, passing the row's id so a redelivery is the same event to a consumer.
  */
 export class EventPublisher {
   private readonly logger = new Logger(EventPublisher.name);
