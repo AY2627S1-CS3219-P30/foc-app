@@ -274,10 +274,11 @@ describe('log privacy across auth and admin paths (US-NFR4.1.1)', () => {
       .slice(start)
       .map((line) => JSON.parse(line) as { context?: string; err?: Record<string, unknown> })
       .filter((line) => line.context === 'ErrorEnvelopeFilter');
-    // Drizzle wraps the driver error, which is logged as its cause.
+    // Drizzle wraps the driver error, which is logged as its cause; the bound values are dropped.
     expect(logged.map((line) => line.err)).toEqual([
       expect.objectContaining({
         type: 'DrizzleQueryError',
+        message: expect.stringMatching(/^Failed query: [^\n]*$/),
         cause: expect.objectContaining({
           code: '23505',
           table: 'users',

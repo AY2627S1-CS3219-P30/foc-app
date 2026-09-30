@@ -10,8 +10,8 @@ export type Database = DrizzleDatabase<typeof schema>;
 
 /**
  * Nest DI tokens. Kept in the service layer (a Nest concern, not shared
- * runtime). `DB` is the Drizzle {@link Database}; `RAW_DB` is the raw `Db` port
- * it shares a pool with, for migrations. Tests override both with PGlite.
+ * runtime). `DB` is the Drizzle {@link Database}; `RAW_DB` owns the pool it
+ * queries through and closes it on shutdown. Tests override both with PGlite.
  */
 export const DB = Symbol('DB');
 export const RAW_DB = Symbol('RAW_DB');

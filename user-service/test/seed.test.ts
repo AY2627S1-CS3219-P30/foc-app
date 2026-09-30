@@ -1,6 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { reportSeed, seedAdmins, type SeedResult } from '../src/admin/seed.js';
-import { createTestApp, type TestApp } from './helpers/app.js';
+import { REFRESH_COOKIE } from '../src/auth/cookies.js';
+import { JWT, type JwtService } from '../src/auth/jwt.service.js';
+import { sessionsRepository } from '../src/auth/sessions.repository.js';
+import { newOpaqueToken, sha256Hex } from '../src/auth/tokens.js';
+import { createTestApp, SERVICE_KEY, type TestApp } from './helpers/app.js';
 import {
   activeStudent,
   BOOTSTRAP_PASSWORD,
@@ -202,6 +207,43 @@ describe('the bootstrap secret is retired at first sign-in (US-FR3.1.3.2)', () =
     // An ordinary account is not told whether its choice happens to be the secret.
     await activeStudent(t, 'alex@u.nus.edu');
     await changePassword(t, 'alex@u.nus.edu', PASSWORD, BOOTSTRAP_PASSWORD).expect(204);
+  });
+
+  it('a session a flagged account still holds is refused by refresh, the guard and introspection', async () => {
+    // Login never starts one, so write it directly, as a session that predates the flag.
+    await seed(['root@u.nus.edu']);
+    const { id } = (await t.db.query<{ id: string }>('SELECT id FROM users')).rows[0]!;
+    const token = newOpaqueToken();
+    const sid = randomUUID();
+    await sessionsRepository.insert(t.orm, {
+      id: sid,
+      familyId: randomUUID(),
+      userId: id,
+      tokenHash: sha256Hex(token),
+      ttlDays: 7,
+    });
+
+    const accessToken = t.app.get<JwtService>(JWT).sign({ sub: id, sid });
+    const guarded = await http(t)
+      .get('/admin/users')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .expect(401);
+    expect(guarded.body.error.code).toBe('UNAUTHENTICATED');
+    const introspected = await http(t)
+      .get(`/internal/introspect?sid=${sid}&sub=${id}`)
+      .set('x-service-key', SERVICE_KEY)
+      .expect(200);
+    expect(introspected.body).toEqual({ active: false });
+
+    const refreshed = await http(t)
+      .post('/auth/refresh')
+      .set('Cookie', `${REFRESH_COOKIE}=${token}`)
+      .set('Origin', ORIGIN)
+      .set('Content-Type', 'application/json')
+      .expect(403);
+    expect(refreshed.body.error.code).toBe('PASSWORD_CHANGE_REQUIRED');
+    const left = await t.db.query('SELECT 1 FROM refresh_sessions WHERE revoked_at IS NULL');
+    expect(left.rows).toHaveLength(0);
   });
 });
 

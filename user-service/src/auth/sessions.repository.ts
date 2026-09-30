@@ -1,5 +1,5 @@
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import type { Database } from '../db/db.js';
+import { execute, type Database } from '../db/db.js';
 import { refreshSessions, users } from '../db/schema.js';
 import type { AccountStatus } from '../users/users.repository.js';
 
@@ -40,23 +40,21 @@ export const sessionsRepository = {
     s: { id: string; familyId: string; userId: string; tokenHash: string; ttlDays: number },
     verifiedPasswordHash: string,
   ): Promise<boolean> {
-    return db.transaction(async (tx) => {
-      const loginable = await tx
-        .select({ id: users.id })
-        .from(users)
-        .where(
-          and(
-            eq(users.id, s.userId),
-            eq(users.passwordHash, verifiedPasswordHash),
-            eq(users.status, 'ACTIVE'),
-            eq(users.mustChangePassword, false),
-          ),
-        )
-        .for('share');
-      if (loginable.length === 0) return false;
-      await sessionsRepository.insert(tx, s);
-      return true;
-    });
+    // One statement; Drizzle's insert-select would have to list every column.
+    const inserted = await execute(
+      db,
+      sql`
+      INSERT INTO ${refreshSessions} (id, family_id, user_id, token_hash, expires_at)
+      SELECT ${s.id}, ${s.familyId}, ${s.userId}, ${s.tokenHash},
+             now() + make_interval(days => ${s.ttlDays})
+      WHERE EXISTS (
+        SELECT 1 FROM ${users}
+        WHERE id = ${s.userId} AND password_hash = ${verifiedPasswordHash}
+          AND status = 'ACTIVE' AND NOT must_change_password
+        FOR SHARE)
+      RETURNING id`,
+    );
+    return inserted.length > 0;
   },
 
   /**

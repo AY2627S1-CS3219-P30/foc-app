@@ -1,12 +1,7 @@
 import { and, eq, sql, type SQL } from 'drizzle-orm';
-import type { Database } from '../db/db.js';
+import { execute, type Database } from '../db/db.js';
 import { auditRecords, profiles, userRoles, users } from '../db/schema.js';
-import {
-  EMAIL_UNIQUE_INDEX,
-  isUniqueViolation,
-  type AccountStatus,
-  type Role,
-} from '../users/users.repository.js';
+import { rolesOf, type AccountStatus, type Role } from '../users/users.repository.js';
 
 export type AuditAction =
   'SUSPEND' | 'REACTIVATE' | 'ROLE_GRANT' | 'ROLE_REVOKE' | 'ADMIN_BOOTSTRAP';
@@ -20,11 +15,6 @@ export interface LockedUser {
   isSeededAdmin: boolean;
   roles: Role[];
 }
-
-/** A user's roles as a sorted array, correlated to the outer `users` row. */
-const rolesOf = sql<
-  Role[]
->`array(SELECT r.role FROM user_roles r WHERE r.user_id = ${users.id} ORDER BY r.role)`;
 
 /** Escapes LIKE wildcards so a search for `50%` matches the text, not everything. */
 const likePrefix = (q: string) => q.replace(/[\\%_]/g, (c) => `\\${c}`).toLowerCase() + '%';
@@ -154,7 +144,7 @@ export const adminRepository = {
     if (f.q) {
       const like = likePrefix(f.q);
       conditions.push(
-        sql`(lower(${users.email}) LIKE ${like} ESCAPE '\' OR lower(${profiles.displayName}) LIKE ${like} ESCAPE '\')`,
+        sql`(lower(${users.email}) LIKE ${like} ESCAPE '\\' OR lower(${profiles.displayName}) LIKE ${like} ESCAPE '\\')`,
       );
     }
     const where = conditions.length ? and(...conditions) : undefined;
@@ -213,22 +203,16 @@ export const adminRepository = {
     db: Database,
     u: { id: string; email: string; passwordHash: string; displayName: string },
   ): Promise<boolean> {
-    // An address that already has an account is skipped, never escalated; any
-    // other violation must surface (see insertUser).
-    try {
-      await db.insert(users).values({
-        id: u.id,
-        email: u.email,
-        passwordHash: u.passwordHash,
-        status: 'ACTIVE',
-        isSeededAdmin: true,
-        mustChangePassword: true,
-        activatedAt: sql`now()`,
-      });
-    } catch (err) {
-      if (isUniqueViolation(err, EMAIL_UNIQUE_INDEX)) return false;
-      throw err;
-    }
+    // An address that already has an account is skipped, never escalated (see insertUser).
+    const inserted = await execute(
+      db,
+      sql`INSERT INTO ${users}
+            (id, email, password_hash, status, is_seeded_admin, must_change_password, activated_at)
+          VALUES (${u.id}, ${u.email}, ${u.passwordHash}, 'ACTIVE', true, true, now())
+          ON CONFLICT ((lower(email))) DO NOTHING
+          RETURNING id`,
+    );
+    if (inserted.length === 0) return false;
     await db.insert(userRoles).values([
       { userId: u.id, role: 'STUDENT' },
       { userId: u.id, role: 'ADMIN' },

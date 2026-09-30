@@ -150,6 +150,22 @@ describe('logged errors', () => {
     expect(lines.join('')).not.toMatch(/argon2|\$2b\$/);
   });
 
+  it('keep a failed query but drop its bound values', () => {
+    const err = Object.assign(
+      new Error('Failed query: insert into "profiles" values ($1, $2)\nparams: 7f1c,Alice Tan'),
+      { query: 'insert into "profiles" values ($1, $2)', params: ['7f1c', 'Alice Tan'] },
+    );
+    const { logger, lines, parsed } = serviceLogger();
+    logger.error({ err });
+    new PinoLoggerService(logger).error(err, undefined, 'SomeService');
+
+    for (const line of parsed()) {
+      expect(line.msg).toBe('Failed query: insert into "profiles" values ($1, $2)');
+      expect(line.err.message).toBe(line.msg);
+    }
+    expect(lines.join('')).not.toContain('Alice Tan');
+  });
+
   it('mask a cause, and each error of an AggregateError', () => {
     const err = new Error('lookup failed', { cause: new Error('no row for bob@u.nus.edu') });
     const aggregate = new AggregateError([new Error('carol@u.nus.edu refused')], 'send failed');

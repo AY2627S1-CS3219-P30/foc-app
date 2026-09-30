@@ -26,7 +26,7 @@ export class SuppliersModule {
           inject: [RAW_DB],
         },
       ],
-      exports: [DB, RAW_DB, SuppliersService],
+      exports: [DB, SuppliersService],
     };
   }
 }

@@ -1,7 +1,7 @@
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 import { toOutboxRow, type CataloguedEventType, type NewOutboxEvent } from '@foc/platform';
-import type { Database } from '../db/db.js';
+import { execute, type Database } from '../db/db.js';
 import { activationTokens, outboxEvents, profiles, userRoles, users } from '../db/schema.js';
 
 export type AccountStatus = 'PENDING_ACTIVATION' | 'ACTIVE' | 'SUSPENDED';
@@ -20,28 +20,8 @@ export interface IdentityRow {
   displayName: string;
 }
 
-/** Postgres error code for a unique-constraint violation, shared by `pg` and PGlite. */
-const UNIQUE_VIOLATION = '23505';
-
-/** The unique index behind the case-insensitive email rule (`users (lower(email))`). */
-export const EMAIL_UNIQUE_INDEX = 'users_email_lower_key';
-
-/**
- * True when `err` is a unique-constraint violation (optionally on a named
- * constraint). Drizzle wraps the driver error, carrying `code`/`constraint` on
- * `.cause`; check both so it is recognised either way. Targeting the email index
- * lets a genuine primary-key collision surface instead of being mistaken for a
- * duplicate email.
- */
-export const isUniqueViolation = (err: unknown, constraint?: string): boolean => {
-  const driver = (err as { cause?: unknown })?.cause ?? err;
-  const e = driver as { code?: string; constraint?: string } | null;
-  if (!e || e.code !== UNIQUE_VIOLATION) return false;
-  return constraint ? e.constraint === constraint : true;
-};
-
 /** A user's roles as a sorted array, correlated to the outer `users` row. */
-const rolesOf = sql<
+export const rolesOf = sql<
   Role[]
 >`array(SELECT r.role FROM user_roles r WHERE r.user_id = ${users.id} ORDER BY r.role)`;
 
@@ -62,20 +42,17 @@ const PROFILE_KEYS = [
 export const usersRepository = {
   /** Inserts the user, or returns false if the email is taken (unique index, race-safe). */
   async insertUser(db: Database, user: NewUser): Promise<boolean> {
-    // Only a duplicate email is a "false" — any other violation (e.g. a
-    // primary-key collision) must surface, so target the email index rather than
-    // swallowing every conflict.
-    try {
-      await db.insert(users).values({
-        id: user.id,
-        email: user.email,
-        passwordHash: user.passwordHash,
-        status: 'PENDING_ACTIVATION',
-      });
-    } catch (err) {
-      if (isUniqueViolation(err, EMAIL_UNIQUE_INDEX)) return false;
-      throw err;
-    }
+    // DO NOTHING rather than catching the violation, which would abort the caller's transaction.
+    // Targeting the email index keeps any other conflict (a primary-key collision) an error;
+    // Drizzle cannot name an expression index, so the statement is written out.
+    const inserted = await execute(
+      db,
+      sql`INSERT INTO ${users} (id, email, password_hash, status)
+          VALUES (${user.id}, ${user.email}, ${user.passwordHash}, 'PENDING_ACTIVATION')
+          ON CONFLICT ((lower(email))) DO NOTHING
+          RETURNING id`,
+    );
+    if (inserted.length === 0) return false;
     await db.insert(userRoles).values({ userId: user.id, role: 'STUDENT' });
     await db.insert(profiles).values({ userId: user.id, displayName: user.displayName });
     return true;

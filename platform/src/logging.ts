@@ -60,6 +60,17 @@ const ERROR_FIELDS = [
 
 type ErrorLike = Error & Record<string, unknown>;
 
+/**
+ * An error's message, masked. A Drizzle query error appends every bound value (`params: …`),
+ * which can be any column of the row, so only its statement is kept.
+ */
+function errorMessage(err: Error): string {
+  const { query, params } = err as Error & { query?: unknown; params?: unknown };
+  return maskPersonalData(
+    typeof query === 'string' && params !== undefined ? `Failed query: ${query}` : err.message,
+  );
+}
+
 const isErrorLike = (value: unknown): value is ErrorLike =>
   typeof value === 'object' &&
   value !== null &&
@@ -78,11 +89,14 @@ export function serializeError(err: unknown, seen = new WeakSet<object>()): unkn
   if (seen.has(err)) return '[circular]';
   seen.add(err);
 
+  const message = errorMessage(err);
   const out: Record<string, unknown> = {
     type: typeof err.constructor === 'function' ? err.constructor.name : err.name,
-    message: maskPersonalData(err.message),
+    message,
   };
-  if (typeof err.stack === 'string') out.stack = maskPersonalData(err.stack);
+  if (typeof err.stack === 'string') {
+    out.stack = maskPersonalData(err.stack.replace(err.message, message));
+  }
   for (const key of ERROR_FIELDS) {
     const value = err[key];
     if (typeof value === 'string') out[key] = maskPersonalData(value);
@@ -118,7 +132,7 @@ export function createLogger(
                 : (first as { msg?: unknown }).msg === undefined
                   ? (first as { err?: unknown }).err
                   : undefined;
-            if (isErrorLike(err)) return method.apply(this, [first, maskPersonalData(err.message)]);
+            if (isErrorLike(err)) return method.apply(this, [first, errorMessage(err)]);
           }
           return method.apply(this, args);
         },
@@ -148,7 +162,7 @@ export class PinoLoggerService implements LoggerService {
   ): void {
     const ctx = typeof context === 'string' ? { context } : {};
     if (message instanceof Error)
-      this.logger[level]({ ...ctx, err: message }, maskPersonalData(message.message));
+      this.logger[level]({ ...ctx, err: message }, errorMessage(message));
     else if (typeof message === 'object' && message !== null)
       this.logger[level]({ ...ctx, ...message });
     else this.logger[level](ctx, String(message));

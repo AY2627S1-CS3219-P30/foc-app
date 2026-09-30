@@ -37,7 +37,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/platform/dist platform/dist
 COPY --from=build /app/auth-client/dist auth-client/dist
 COPY --from=build /app/supplier-service/dist supplier-service/dist
-# The Drizzle migrations the service applies at boot (main.ts reads ../drizzle).
+# The Drizzle migrations, applied by the one-shot migrate step (dist/db/migrate.js reads ../drizzle).
 COPY --from=build /app/supplier-service/drizzle supplier-service/drizzle
 # The seed reads these at boot; the service resolves them relative to dist/.
 COPY data/csv data/csv
