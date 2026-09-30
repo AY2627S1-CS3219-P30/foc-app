@@ -1,3 +1,4 @@
+import { userActivatedPayload } from '@foc/platform';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createTestApp, validRegistration, type TestApp } from './helpers/app.js';
@@ -114,7 +115,7 @@ describe('POST /auth/activate', () => {
     return t.mailbox.latestFor(email)!.token;
   };
   const events = async () =>
-    (await t.db.query("SELECT * FROM outbox_events WHERE event_type = 'UserActivated'")).rows;
+    (await t.db.query("SELECT * FROM outbox_events WHERE event_type = 'user.activated'")).rows;
 
   it('stores only a hash of the token', async () => {
     const token = await register();
@@ -124,7 +125,7 @@ describe('POST /auth/activate', () => {
     expect(JSON.stringify(rows)).not.toContain(token);
   });
 
-  it('activates the account and publishes exactly one UserActivated', async () => {
+  it('activates the account and publishes exactly one user.activated', async () => {
     const token = await register();
     const res = await http().post('/auth/activate').send({ token }).expect(200);
     expect(res.body).toMatchObject({ status: 'ACTIVE', alreadyActivated: false });
@@ -132,7 +133,12 @@ describe('POST /auth/activate', () => {
     expect((await t.db.query('SELECT status FROM users')).rows[0]!.status).toBe('ACTIVE');
     const emitted = await events();
     expect(emitted).toHaveLength(1);
-    expect(emitted[0]!.payload).toEqual({ userId: res.body.userId });
+    expect(emitted[0]!.payload).toEqual({
+      userId: res.body.userId,
+      activatedAt: expect.any(String),
+    });
+    expect(emitted[0]!.event_type).toBe('user.activated');
+    expect(userActivatedPayload.safeParse(emitted[0]!.payload).success).toBe(true);
     expect(emitted[0]!.aggregate_id).toBe(res.body.userId);
   });
 

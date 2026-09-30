@@ -18,6 +18,9 @@ const SENSITIVE_KEYS = [
   'refreshToken',
   'passwordHash',
   'email',
+  // A mail message's recipient, and the name a student chose: personal data like the email.
+  'to',
+  'displayName',
 ];
 
 /** Header and body fields that must never reach a log line (US-NFR4.1.1). */
@@ -29,6 +32,69 @@ export const REDACT_PATHS = [
   ...SENSITIVE_KEYS.flatMap((key) => [key, `*.${key}`, `*.*.${key}`]),
 ];
 
+/**
+ * An email address, plain or URL-encoded (`%40`). The bounds are the RFC maximums; they also keep
+ * the scan linear on a long URL path an attacker controls.
+ */
+const EMAIL_PATTERN = /[a-z0-9._%+-]{1,64}(?:@|%40)[a-z0-9.-]{1,253}\.[a-z]{2,63}/gi;
+/** An Argon2 or bcrypt password hash, as a database row or a PostgreSQL error message quotes it. */
+const PASSWORD_HASH_PATTERN = /\$(?:argon2(?:id|i|d)|2[abxy])\$[\w$+/=,.-]*/g;
+
+/** Replaces email addresses and password hashes in free text (US-NFR4.1.1, US-NFR2.1.1). */
+export function maskPersonalData(text: string): string {
+  return text.replace(EMAIL_PATTERN, '[email]').replace(PASSWORD_HASH_PATTERN, '[hash]');
+}
+
+/** Error fields that locate a fault without quoting data: SQLSTATE, constraint, socket details. */
+const ERROR_FIELDS = [
+  'code',
+  'errno',
+  'syscall',
+  'address',
+  'port',
+  'constraint',
+  'table',
+  'column',
+  'schema',
+] as const;
+
+type ErrorLike = Error & Record<string, unknown>;
+
+const isErrorLike = (value: unknown): value is ErrorLike =>
+  typeof value === 'object' &&
+  value !== null &&
+  typeof (value as { message?: unknown }).message === 'string';
+
+/**
+ * Replaces pino's default `err` serializer, which copies every field of an error and runs before
+ * redaction can see inside a string. A PostgreSQL error's `detail` and `where` quote the row
+ * (`Key (lower(email))=(alice@u.nus.edu) already exists`, `Failing row contains (…, $argon2id$…)`),
+ * and a mailer's message names the recipient. This keeps the fields an operator needs to find
+ * the fault, masks email addresses and password hashes in them, and drops everything else.
+ */
+export function serializeError(err: unknown, seen = new WeakSet<object>()): unknown {
+  if (typeof err === 'string') return maskPersonalData(err);
+  if (!isErrorLike(err)) return err;
+  if (seen.has(err)) return '[circular]';
+  seen.add(err);
+
+  const out: Record<string, unknown> = {
+    type: typeof err.constructor === 'function' ? err.constructor.name : err.name,
+    message: maskPersonalData(err.message),
+  };
+  if (typeof err.stack === 'string') out.stack = maskPersonalData(err.stack);
+  for (const key of ERROR_FIELDS) {
+    const value = err[key];
+    if (typeof value === 'string') out[key] = maskPersonalData(value);
+    else if (typeof value === 'number') out[key] = value;
+  }
+  if (err.cause !== undefined) out.cause = serializeError(err.cause, seen);
+  if (Array.isArray(err.errors)) {
+    out.aggregateErrors = err.errors.map((inner: unknown) => serializeError(inner, seen));
+  }
+  return out;
+}
+
 export function createLogger(
   serviceName: string,
   level: string,
@@ -39,6 +105,24 @@ export function createLogger(
       level,
       base: { service: serviceName },
       redact: { paths: REDACT_PATHS, censor: '[redacted]' },
+      serializers: { err: serializeError },
+      hooks: {
+        // Given `{ err }` and no message, pino copies `err.message` into `msg` itself, past the
+        // serializer above. Hand it the masked message instead.
+        logMethod(args, method) {
+          const [first, message] = args as unknown[];
+          if (message === undefined && typeof first === 'object' && first !== null) {
+            const err =
+              first instanceof Error
+                ? first
+                : (first as { msg?: unknown }).msg === undefined
+                  ? (first as { err?: unknown }).err
+                  : undefined;
+            if (isErrorLike(err)) return method.apply(this, [first, maskPersonalData(err.message)]);
+          }
+          return method.apply(this, args);
+        },
+      },
       formatters: {
         // Emit `"level":"info"` rather than `"level":30` — an operator reads these.
         level: (label) => ({ level: label }),
@@ -63,7 +147,8 @@ export class PinoLoggerService implements LoggerService {
     context?: unknown,
   ): void {
     const ctx = typeof context === 'string' ? { context } : {};
-    if (message instanceof Error) this.logger[level]({ ...ctx, err: message }, message.message);
+    if (message instanceof Error)
+      this.logger[level]({ ...ctx, err: message }, maskPersonalData(message.message));
     else if (typeof message === 'object' && message !== null)
       this.logger[level]({ ...ctx, ...message });
     else this.logger[level](ctx, String(message));
@@ -100,8 +185,11 @@ export function requestLogger(logger: PinoLogger) {
     // /health is polled by Docker every few seconds; logging it drowns the rest.
     // Nest rewrites `req.url` relative to the middleware mount point, so the
     // full path is only reliable on `originalUrl`.
-    const fullPath = (req.originalUrl ?? req.url).split('?')[0];
+    const fullPath = (req.originalUrl ?? req.url).split('?')[0]!;
     if (fullPath === '/health') return next();
+    // The query string is dropped above; an address can still sit in the path
+    // (`/admin/users/alice@u.nus.edu`, or any mistyped route), raw or `%40`-encoded.
+    const loggedPath = maskPersonalData(fullPath);
 
     const startedAt = process.hrtime.bigint();
     res.on('finish', () => {
@@ -111,7 +199,7 @@ export function requestLogger(logger: PinoLogger) {
         {
           correlationId,
           method: req.method,
-          url: fullPath,
+          url: loggedPath,
           statusCode: res.statusCode,
           durationMs: Math.round(durationMs * 100) / 100,
         },

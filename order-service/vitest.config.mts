@@ -12,6 +12,9 @@ export default defineConfig({
       SERVICE_NAME: 'order-service',
       PORT: '3003',
       LOG_LEVEL: 'silent',
+      // Satisfy @foc/auth-client's config at import time; no test opens a connection to them.
+      USER_SERVICE_URL: 'http://user-service.test',
+      INTERNAL_SERVICE_KEY: 'test-internal-key-0123456789',
     },
   },
 });

@@ -16,9 +16,14 @@ export type Introspection =
       displayName: string;
     };
 
+/** How long an identity answer is reused when `cacheTtlMs` is not set. */
+export const DEFAULT_CACHE_TTL_MS = 5_000;
+
 interface Entry {
   value: Introspection;
   expiresAt: number;
+  /** Lower-cased, as {@link IdentityClient.keysByUser} is keyed. */
+  userId: string;
 }
 
 /**
@@ -30,9 +35,14 @@ interface Entry {
  * - **Single-flight.** A burst of requests for one session makes one call, not one each.
  * - **Fail closed.** A timeout, a network error, a non-200 or a malformed reply throws
  *   `IDENTITY_UNAVAILABLE` and is *not* cached, so the next request retries.
+ * - **Event-driven invalidation (USR-07).** {@link invalidateUser} drops everything known about a
+ *   user the moment a `user.suspended` / `user.reactivated` / `user.role-changed` event arrives, so
+ *   the window above is only the fallback when an event is late or lost.
  */
 export class IdentityClient {
   private readonly cache = new Map<string, Entry>();
+  /** The cache keys of each user (lower-cased id), so invalidating one user never scans the cache. */
+  private readonly keysByUser = new Map<string, Set<string>>();
   private readonly inflight = new Map<string, Promise<Introspection>>();
   private readonly ttl: number;
   private readonly timeout: number;
@@ -41,7 +51,7 @@ export class IdentityClient {
   private readonly fetchImpl: typeof fetch;
 
   constructor(private readonly config: AuthConfig) {
-    this.ttl = config.cacheTtlMs ?? 5_000;
+    this.ttl = config.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
     this.timeout = config.timeoutMs ?? 2_000;
     this.max = config.maxCacheEntries ?? 10_000;
     this.now = config.now ?? Date.now;
@@ -59,12 +69,30 @@ export class IdentityClient {
 
     const request = this.fetchFresh(sessionId, userId)
       .then((value) => {
-        this.remember(key, value);
+        // Cached only if this lookup is still the current one: invalidateUser() detaches a lookup
+        // that was in flight when it ran, because its answer may predate the event.
+        if (this.inflight.get(key) === request) this.remember(key, userId, value);
         return value;
       })
-      .finally(() => this.inflight.delete(key));
+      .finally(() => {
+        if (this.inflight.get(key) === request) this.inflight.delete(key);
+      });
     this.inflight.set(key, request);
     return request;
+  }
+
+  /**
+   * Forgets every cached answer for this user, across all their sessions, and detaches any lookup
+   * already in flight so the next request asks the User Service afresh. Cheap and idempotent.
+   */
+  invalidateUser(userId: string): void {
+    // A UUID is case-insensitive; token subjects are lower-case, and so is every index here.
+    const id = userId.toLowerCase();
+    for (const key of this.keysByUser.get(id) ?? []) this.cache.delete(key);
+    this.keysByUser.delete(id);
+    for (const key of this.inflight.keys()) {
+      if (key.toLowerCase().endsWith(`:${id}`)) this.inflight.delete(key);
+    }
   }
 
   private async fetchFresh(sessionId: string, userId: string): Promise<Introspection> {
@@ -86,16 +114,29 @@ export class IdentityClient {
     return parse(body);
   }
 
-  private remember(key: string, value: Introspection): void {
+  private remember(key: string, userId: string, value: Introspection): void {
     if (this.ttl <= 0) return;
     if (this.cache.size >= this.max) {
       // Drop expired entries first; if still full, drop the oldest. Insertion order is age order.
       const now = this.now();
-      for (const [k, e] of this.cache) if (e.expiresAt <= now) this.cache.delete(k);
+      for (const [k, e] of this.cache) if (e.expiresAt <= now) this.forget(k);
       const oldest = this.cache.keys().next().value;
-      if (this.cache.size >= this.max && oldest !== undefined) this.cache.delete(oldest);
+      if (this.cache.size >= this.max && oldest !== undefined) this.forget(oldest);
     }
-    this.cache.set(key, { value, expiresAt: this.now() + this.ttl });
+    const id = userId.toLowerCase();
+    this.cache.set(key, { value, userId: id, expiresAt: this.now() + this.ttl });
+    const keys = this.keysByUser.get(id);
+    if (keys) keys.add(key);
+    else this.keysByUser.set(id, new Set([key]));
+  }
+
+  private forget(key: string): void {
+    const entry = this.cache.get(key);
+    if (!entry) return;
+    this.cache.delete(key);
+    const keys = this.keysByUser.get(entry.userId);
+    keys?.delete(key);
+    if (keys?.size === 0) this.keysByUser.delete(entry.userId);
   }
 }
 
