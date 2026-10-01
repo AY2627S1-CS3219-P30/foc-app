@@ -105,6 +105,31 @@ the Order lifecycle implementation adds them.
 - **Receiving.** Each received message's id is recorded in the same transaction as the transition it causes, so a redelivered reply changes nothing (EVT-02).
 - **Dependency.** The User Service already writes catalogue-validated suspension events to its outbox, and the shared relay publishes them when RabbitMQ is configured (as it is in Compose). The remaining work is the Order Service consumer and its suspension transition handling; until those are implemented, suspension events do not change orders.
 
+## Persistence and projections
+
+The generated migration under `order-service/drizzle/` creates the Order-owned `orders`,
+`order_status_history`, and `order_idempotency_keys` tables. Database constraints enforce the closed
+status set, reward range, non-empty item list, version counter, terminal rejection shape, and the
+courier required by assigned/delivery states. `order_status_history` records the previous and new
+status, action, actor, order version, and timestamp; one history row is permitted per order version.
+
+`src/orders/order-state-machine.ts` is the executable source for transition, actor, guard, and emitted
+event rules. The generated matrix test evaluates every status × action × actor combination and checks
+reachability and exits, while the table above remains its human-readable counterpart. XState is not
+used: the lifecycle is a finite declarative table and introducing another runtime would add a second
+representation without improving the current guard model. Revisit this if parallel/nested states are
+introduced.
+
+`GET /orders/:id` returns an authenticated projection. Exact delivery instructions and participant IDs
+are visible only to the requester, assigned courier, or an administrator. `PENDING_CREDIT` and
+`REJECTED` errands are private to their requester (and administrators), and absent resources and
+private resources both return `404` to avoid revealing their existence. The complete schema is in
+`contracts/order-service.openapi.yaml`.
+
+The first migration includes a deterministic demonstration errand at
+`00000000-0000-4000-8000-000000000129`; after Compose is healthy, an authenticated caller can retrieve
+its projection from `/orders/00000000-0000-4000-8000-000000000129`.
+
 # UML Diagram
 ```mermaid
 stateDiagram-v2
@@ -188,13 +213,21 @@ Run these from the repository root.
 | `PORT`         | `3003`          | Bind port                               |
 | `NODE_ENV`     | `development`   | `development` \| `test` \| `production` |
 | `LOG_LEVEL`    | `info`          | Defaults to `info`                      |
+| `DATABASE_URL` | `postgres://…`   | Order-owned PostgreSQL database         |
 
 A missing required variable stops the service at boot and names the variable.
 Nothing falls back to an insecure default.
 
 ```bash
-SERVICE_NAME=order-service PORT=3003 npm run dev:order
+SERVICE_NAME=order-service PORT=3003 DATABASE_URL=postgres://order_service:order_service_dev@localhost:55432/foc_order npm run dev:order
 curl -i http://localhost:3003/health
+```
+
+Apply the same generated migrations used by Compose with:
+
+```bash
+DATABASE_URL=postgres://order_service:order_service_dev@localhost:55432/foc_order \
+  npm run db:migrate -w @foc/order-service
 ```
 
 ### What you get from `@foc/platform`
@@ -217,4 +250,4 @@ user and declares a `HEALTHCHECK`. `compose.yaml` runs it on port 3003.
 
 ### Next tickets
 
-ORD-01, ORD-02, ORD-03
+ORD-02, ORD-03

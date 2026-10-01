@@ -26,8 +26,8 @@ This context file was produced with Codex by summarizing the repository, live Gi
 - **PR [#201](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/201)** merged to `main` as `a3d9cda`; #133, #140 and #143 closed automatically.
 - **PR [#202](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/202)** merged to `main` as `d14a98f`; #141 and #142 closed automatically. The exact post-retarget matrix passed in [run 36807413107](https://github.com/AY2627S1-CS3219-P30/foc-app/actions/runs/36807413107).
 - **PR [#203](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/203)** merged to `main` as `5585a13`; #151 closed automatically. The full matrix passed in [run 36809124780](https://github.com/AY2627S1-CS3219-P30/foc-app/actions/runs/36809124780).
-- #132 is closed after its ADR implementation merged in PR #201 and the repository owner explicitly confirmed the remaining approval/review gate on 2026-10-01; #186's historical backlog revision is implemented and render-verified on `docs/186-revise-d1-backlog`, pending merge before #183 closes.
-- One assigned Sprint 1 governance issue (#183) remains open; #132 and #133 are closed after PR #201 and the recorded approval decision.
+- #186's historical backlog revision merged in PR #207 after structural and 40-page render verification; #186 and its dependent governance issue #183 are closed.
+- The Sprint 1 governance issues #132, #133 and #183 are closed after their merged implementations and recorded approval decision.
 - Implementation for #133, #140, #141, #142 and #143 is merged on `main`.
 - #151 is merged. #152, #165 and #172 were re-audited against live dependencies; their exact blockers are recorded below and on the issues.
 
@@ -41,12 +41,12 @@ Friend on Campus is a TypeScript/Node 22 monorepo using NestJS services, Postgre
 4. Order opens or rejects the errand from that result.
 5. Later completion transfers the reservation to the courier; cancellation or expiry releases it to the requester.
 
-This model is reflected in `order-service/README.md`, the event catalogue and merged ADR 0002. The repository owner confirmed the outstanding ADR approval/review gates on 2026-10-01. DOC-02 (#186) now updates the submitted D1 backlog to the same model on `docs/186-revise-d1-backlog`; #183 remains open until that revision merges.
+This model is reflected in `order-service/README.md`, the event catalogue, merged ADR 0002, and the D1 backlog revision merged through PR #207. The repository owner confirmed the outstanding ADR approval/review gates on 2026-10-01, and #183 is closed.
 
 ## Current implementation state
 
 - `credit-service/` now has Drizzle migrations, isolated database wiring, wallet issuance, an immutable double-entry ledger, inbox/outbox-backed reservation/transfer/release operations, an authoritative order-status query, owner/admin read APIs, audit records, OpenAPI contracts, PGlite tests, and real-PostgreSQL concurrency coverage.
-- `order-service/` remains a scaffold beyond its documented state/transition model and auth-status wiring.
+- `order-service/` has a generated Order schema/migration, constrained status/history/idempotency model, executable transition matrix, privacy-preserving read projection, and deterministic demonstration seed on `feat/129-order-schema-status-model`; this foundation is pending PR/merge before #137.
 - `platform/src/db.ts` provides the `Db`/`Queryable` interfaces, `PgDb`, and Drizzle migration runner used by persisted services.
 - `platform/src/events/inbox.ts` and `platform/src/events/outbox.ts` already provide `INBOX_TABLE_SQL`, `OUTBOX_TABLE_SQL`, `withInbox`, `insertOutboxEvent`, `OutboxRelay`, and `provideOutboxRelay`.
 - The reusable EVT-02 code and User Service outbox relay reached `main` through merged PR #195. Credit adopted those primitives in PRs #201 and #202; issue #135 remains open because Order has not adopted them.
@@ -57,7 +57,7 @@ This model is reflected in `order-service/README.md`, the event catalogue and me
 
 ## Important source discrepancies
 
-1. **Saga direction:** the accepted ADRs, current issues, event catalogue, and Order README use asynchronous save-pending-then-reserve. #186's pending document revision removes the historical D1 backlog contradiction and must merge before #183 closes.
+1. **Saga direction:** the accepted ADRs, current issues, event catalogue, Order README, and revised D1 backlog use asynchronous save-pending-then-reserve. #183 and #186 are closed.
 2. **EVT-02 status:** #135 is open, but PR #195 merged the reusable inbox/outbox implementation and User Service relay. Remaining work is Order/Credit adoption and missing event schemas, not creation of the base mechanism.
 3. **Execution-plan numbering:** `docs/EXECUTION-PLAN.md` combines/simplifies credit tickets differently from current GitHub. Current GitHub issue numbers and descriptions take precedence.
 4. **Wallet API overlap:** implemented once as the complete #143 surface: #133 supplies the aggregate and `/wallets/me`; #143 supplies ledger pagination and audited admin routes.
@@ -67,8 +67,9 @@ This model is reflected in `order-service/README.md`, the event catalogue and me
 
 | Issue                                                             | Feature                                                  | Status                                                               | Classification             | Dependencies                                          | Blockers                                                                     | Relevant code                                                                                                        |
 | ----------------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| [#186](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/186) | DOC-02 D1 backlog revision                               | Implemented and render-verified; pending PR/merge                     | Foundation / prerequisite  | #183 async decision satisfied                         | Merge required before #183 closes                                           | `docs/Project D1 Submission.docx`                                                                                     |
-| [#183](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/183) | FND-02 decision records and glossary                     | Implementation merged; approval gate confirmed; issue open           | Foundation / prerequisite  | None stated                                           | #186 must apply the historical D1 backlog revision                           | `docs/adr/0002`–`0007`, `docs/domain-glossary.md`, `order-service/README.md`                                         |
+| [#186](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/186) | DOC-02 D1 backlog revision                               | Closed via merged PR #207                                            | Foundation / prerequisite  | #183 async decision satisfied                         | None                                                                         | `docs/Project D1 Submission.docx`                                                                                    |
+| [#183](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/183) | FND-02 decision records and glossary                     | Closed; implementation in PR #201 and backlog alignment in PR #207   | Foundation / prerequisite  | Satisfied                                             | None                                                                         | `docs/adr/0002`–`0007`, `docs/domain-glossary.md`, `order-service/README.md`                                         |
+| [#129](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/129) | ORD-01 Order schema/status model and generated matrix    | Implemented and locally verified; pending PR/merge                   | Foundation / prerequisite  | #183 satisfied                                        | Merge required before #137                                                   | `order-service/src/db/schema.ts`, `order-service/src/orders/order-state-machine.ts`, migration and projection tests  |
 | [#132](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/132) | CRD-00 credit invariant and ledger ADR                   | Closed; implementation merged in PR #201 and approval gate confirmed | Foundation / prerequisite  | None stated                                           | None                                                                         | `docs/adr/0007-credit-invariant-and-double-entry-ledger.md`, `credit-service/src/db/schema.ts`                       |
 | [#133](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/133) | CRD-01 wallet creation and initial issuance              | Closed via merged PR #201                                            | Depends on another issue   | Satisfied                                             | None                                                                         | `credit-service/src/wallet-provisioning.ts`, `credit-service/src/credits/credit.repository.ts`, migrations and tests |
 | [#140](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/140) | CRD-02 asynchronous credit reservation                   | Closed via merged PR #201                                            | Depends on another issue   | Satisfied                                             | Order-side #137 integration remains external                                 | `credit-service/src/reservation-consumer.ts`, `credit.repository.ts`, event catalogue, inbox/outbox                  |
@@ -78,7 +79,7 @@ This model is reflected in `order-service/README.md`, the event catalogue and me
 | [#151](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/151) | CRD-06 transaction status query and closed-economy guard | Closed via merged PR #203                                            | Integration / finalization | #141 and #142 satisfied                               | None                                                                         | `credit-service/src/credits/status.*`, `closed-economy.ts`, OpenAPI and tests                                        |
 | [#152](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/152) | CRD-07 credit reconciliation job                         | Blocked after live audit                                             | Blocked                    | #151 satisfied; external #150 ORD-09 open             | #150 has no PR/code; ownership, pending-order contract and alerts unresolved | #151 status API, future Order pending-state recovery, idempotent event commands                                      |
 | [#165](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/165) | NTH-05 concurrency/load/conservation evidence            | Blocked after live audit                                             | Blocked                    | #141/#142 satisfied; #145 and inferred #138 open      | #138/#145 have no PR/code; complete runnable Order lifecycle absent          | Test harness, Compose, Credit ledger/domain code, future Order acceptance path                                       |
-| [#172](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/172) | CRD-08 reservation timeout compensation                  | Open; obsolete design, closure blocked                               | Blocked                    | #140 satisfied; #137/#150/#152/#186 evidence required | Actual atomic Order save/outbox and recovery ownership not implemented       | No compensation code; async guarantees must land in Order/recovery work                                              |
+| [#172](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/172) | CRD-08 reservation timeout compensation                  | Open; obsolete design, closure blocked                               | Blocked                    | #140/#186 satisfied; #137/#150/#152 evidence required | Actual atomic Order save/outbox and recovery ownership not implemented       | No compensation code; async guarantees must land in Order/recovery work                                              |
 
 # 3. Dependency Graph
 
@@ -98,6 +99,7 @@ EXTERNAL/SHARED GATES
 #119 EVT-01 [CLOSED] ─────────────────────────────> #133, #140
 #120 USR-01 [CLOSED] ─────────────────────────────> #133
 #135 EVT-02 [OPEN, base merged in PR #195] ───────> #133/#140/#141 adoption
+#129 ORD-01 Order schema/status model ─────────────> #137 ORD-02 creation/reservation
 
 CORE CREDIT PATH
 
@@ -124,7 +126,7 @@ SUPERSEDED BRANCH
 - **#132 -> #133/#140/#141/#142:** these tickets need stable wallet columns, transaction/ledger types, idempotency constraints, and conservation rules. Changing them after migrations and handlers exist would create destructive rework.
 - **#119 -> #133/#140:** the broker topology, envelope, retry/DLQ behavior, and reservation routing keys are required before Credit can safely consume events. #119 is closed via PR #184.
 - **#120 -> #133:** User activation must exist and write the activation event before Credit can issue wallets. #120 is closed via PR #177.
-- **#135 -> the Credit event handlers:** Credit needs a transactional inbox to deduplicate inputs and a transactional outbox/relay to publish replies without a commit/publish gap. PR #195 merged the base implementation, but Credit adoption remains.
+- **#135 -> event handlers:** Credit needs a transactional inbox to deduplicate inputs and a transactional outbox/relay to publish replies without a commit/publish gap. PR #195 merged the base implementation and PRs #201/#202 completed Credit adoption; Order adoption remains part of #137.
 - **#183 -> #140:** reservation cannot be implemented until the team formally chooses synchronous versus asynchronous semantics and aligns Order, Credit, and the backlog.
 - **#133 -> #140/#143:** reservation requires an existing wallet and ledger model; the read API requires wallet and ledger persistence to query.
 - **#140 -> #141/#142:** transfer and release both act on a previously recorded live reservation and must conflict with each other deterministically.
@@ -168,18 +170,18 @@ Ratify the decisions shared by Order, Credit, platform, auth, and data ownership
 
 **Expected implementation**
 
-ADRs 0002–0007, the glossary/trigger table, explicit D1 supersession note and approval register merged in PR #201. The repository owner confirmed the outstanding approval/review gates on 2026-10-01. DOC-02 #186 must still revise the submitted backlog; the Credit owner approved its drafted Credit and EC4 rows in [#186's coordination record](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/186#issuecomment-5924047302).
+ADRs 0002–0007, the glossary/trigger table, explicit D1 supersession note and approval register merged in PR #201. The repository owner confirmed the outstanding approval/review gates on 2026-10-01. DOC-02 #186 then aligned the historical D1 backlog through merged PR #207, and #183 closed.
 
 **Dependencies and related work**
 
 - Explicitly blocks #117, #137, and #140.
 - Related merged code: PR #184 already moved the event catalogue to asynchronous reservation.
-- Related open documentation: #186 contains drafted backlog replacements.
+- Related documentation: #186's drafted backlog replacements are applied in PR #207.
 
 **Blockers and uncertainties**
 
 - The approval/review gate is satisfied by the repository owner's explicit authorization.
-- #186's actual document edit is still missing and cannot be replaced by an approval assumption.
+- None; the document and governance gates are merged and closed.
 - ADR 0004 records configured service credentials and producer allow-lists as the accepted current trust boundary, with stronger broker permissions as a revisit trigger.
 
 **Testing/review considerations**
@@ -204,7 +206,25 @@ Align the submitted D1 backlog with the approved User, Supplier, Order, Credit, 
 
 **Dependency and disposition**
 
-#183 closes only after this document revision merges. The revision also satisfies the historical-document gate for #172, but #172 remains blocked on actual Order persistence and recovery evidence from #137/#150/#152.
+#183 closed after this revision merged. The revision also satisfies the historical-document gate for #172, but #172 remains blocked on actual Order persistence and recovery evidence from #137/#150/#152.
+
+## #129 ORD-01 Order schema, status model, and generated transition matrix
+
+**Goal and acceptance criteria**
+
+Establish the Order aggregate before lifecycle commands are implemented: all twelve states, optimistic versioning, immutable status history, supplier snapshots, idempotency records, public/participant projections, and one executable transition definition whose tests cover every status/action/actor combination. Every state must be reachable, each non-terminal state must have an exit, unrelated students must not see exact delivery instructions, and the containerized database must include a retrievable demonstration errand.
+
+**Implementation**
+
+- `order-service/src/db/schema.ts` defines database-enforced status, reward, item, projection-shape, version, history, and idempotency constraints.
+- `order-service/drizzle/` contains the generated migration plus deterministic seed order `00000000-0000-4000-8000-000000000129` and its initial status-history row.
+- `order-service/src/orders/order-state-machine.ts` is the shared runtime/test transition source, including actors, guards, results, release reasons, and emitted events.
+- `GET /orders/:id` returns participant fields only to the requester, assigned courier, or administrator; pending/rejected errands are hidden from unrelated callers with a non-enumerating 404.
+- Compose now runs `order-service-migrate` before Order starts; `contracts/order-service.openapi.yaml` and the service README document the read projection.
+
+**Dependencies and testing**
+
+#183 is satisfied. #129 must merge before #137 uses these tables and transition rules. PGlite migration/API tests cover the seed, projections, status history and shared errors; generated matrix tests cover all combinations plus reachability and terminality. Full CI and Compose remain merge gates.
 
 ## #132 CRD-00 Credit invariant and double-entry ledger decision record
 
@@ -588,7 +608,7 @@ Originally: find credits reserved before an errand was saved and return them aft
 
 **Expected implementation**
 
-Do not implement under the current asynchronous direction. Closure still requires evidence that Order atomically persists `PENDING_CREDIT` with its outbox request and that recovery ownership exists. As of this snapshot #137, #150, #152 and #186 remain open and Order is still a scaffold, so #172 remains open rather than claiming guarantees that are only documented.
+Do not implement under the current asynchronous direction. #186's document gate is satisfied, but closure still requires evidence that Order atomically persists `PENDING_CREDIT` with its outbox request and that recovery ownership exists. As of this snapshot #137, #150 and #152 remain open; #129's pending Order foundation does not itself provide those saga guarantees, so #172 remains open.
 
 **Dependencies and blockers**
 
@@ -607,12 +627,12 @@ None unless the synchronous design is restored. Async recovery tests belong to #
 1. **#132, #133, #140, and #143** merged in PR #201.
 2. **#141 and #142** merged in PR #202.
 3. **#151** merged in PR #203.
-4. The outstanding approval/review gates were confirmed by the repository owner; #132 closed and #183 now waits only for #186's actual document revision.
+4. The outstanding approval/review gates were confirmed by the repository owner; #132 closed, then PR #207 closed #186 and #183.
 
 ## Remaining dependency-driven sequence
 
-5. **#186 DOC-02** applies the approved backlog rows to `docs/Project D1 Submission.docx`; then close **#183**.
-6. **#137 ORD-02** lands atomic `PENDING_CREDIT` plus reservation-outbox persistence. This supplies the concrete no-orphan evidence required for **#172**.
+5. **#129 ORD-01** lands the Order schema, generated migration, transition matrix, history, idempotency record, and privacy projection needed by lifecycle work.
+6. **#137 ORD-02** then lands atomic `PENDING_CREDIT` plus reservation-outbox persistence. This supplies the concrete no-orphan evidence required for **#172** and completes Order adoption for **#135**.
 7. **#138 ORD-03** and **#145 TST-01** land the real one-winner Order acceptance path and isolated PostgreSQL/RabbitMQ harness.
 8. **#139/#148**, followed by **#150 ORD-09**, land terminal Order workflows, pending-state recovery, and the accepted scheduling/alert contract.
 9. Implement **#152 CRD-07** only after #150 is merged and the Order/Credit recovery boundary is explicit. It must replay normal idempotent commands rather than introduce a second mutation mechanism.
@@ -668,8 +688,9 @@ This order follows executable dependencies rather than issue number or creation 
 # 7. Progress Tracker
 
 ```ini
-[ ] #186 — DOC-02 D1 backlog revision — implemented and render-verified; pending PR/merge
-[ ] #183 — FND-02 Decision records and domain glossary — PR #201; approval gate confirmed, closes after #186 merges
+[x] #186 — DOC-02 D1 backlog revision — merged in PR #207
+[x] #183 — FND-02 Decision records and domain glossary — PRs #201/#207; closed
+[ ] #129 — ORD-01 Order schema/status model and generated transition matrix — implemented and locally verified; pending PR/merge
 [x] #132 — CRD-00 Credit invariant and double-entry ledger decision record — merged in PR #201; approval gate confirmed
 [x] #133 — CRD-01 Wallet creation and initial credit allocation — merged in PR #201
 [x] #140 — CRD-02 Asynchronous credit reservation — merged in PR #201
@@ -679,7 +700,7 @@ This order follows executable dependencies rather than issue number or creation 
 [x] #151 — CRD-06 Transaction status query and closed-economy guard — merged in PR #203
 [ ] #152 — CRD-07 Credit reconciliation job — blocked by unimplemented #150 and unresolved ownership/contracts
 [ ] #165 — NTH-05 Concurrency, load and credit-conservation evidence — blocked by unimplemented #138/#145
-[ ] #172 — CRD-08 Reservation timeout compensation — obsolete design; closure blocked by missing #137/#150/#152/#186 evidence
+[ ] #172 — CRD-08 Reservation timeout compensation — obsolete design; #186 satisfied, closure blocked by missing #137/#150/#152 evidence
 ```
 
 ## Update protocol for future sessions

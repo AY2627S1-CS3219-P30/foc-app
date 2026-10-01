@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { authStatusEvents, AuthModule } from '@foc/auth-client';
 import { EventsModule, PlatformModule } from '@foc/platform';
 import { authConfig, env, SERVICE_NAME, SERVICE_VERSION } from './config.js';
+import { OrdersModule } from './orders/orders.module.js';
 
 /**
  * Every mutating endpoint must use `@Authenticated()` (or `@AdminOnly()`) from `@foc/auth-client`,
@@ -33,6 +34,7 @@ const eventModules = env.RABBITMQ_URL
       logLevel: env.LOG_LEVEL,
     }),
     AuthModule.forRoot(authConfig),
+    OrdersModule.forRoot(),
     ...eventModules,
   ],
   providers: env.RABBITMQ_URL ? status.providers : [],

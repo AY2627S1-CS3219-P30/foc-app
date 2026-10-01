@@ -138,6 +138,17 @@ services:
       supplier-service-migrate:
         condition: service_completed_successfully
 
+  order-service-migrate:
+    build: { context: ., dockerfile: order-service/Dockerfile }
+    command: ['node', 'order-service/dist/db/migrate.js']
+    restart: 'no'
+    environment:
+      DATABASE_URL: postgres://order_service:order_service_dev@postgres:5432/foc_order
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [foc]
+
   order-service:
     <<: *service-base
     build: { context: ., dockerfile: order-service/Dockerfile }
@@ -151,7 +162,10 @@ services:
       USER_SERVICE_URL: http://user-service:3001
       INTERNAL_SERVICE_KEY: ${ORDER_INTERNAL_KEY:-dev-only-internal-service-key-change-me}
     ports: ['${ORDER_SERVICE_PORT:-3003}:3003']
-    depends_on: *consumer-deps
+    depends_on:
+      <<: *consumer-deps
+      order-service-migrate:
+        condition: service_completed_successfully
 
   credit-service-migrate:
     build: { context: ., dockerfile: credit-service/Dockerfile }

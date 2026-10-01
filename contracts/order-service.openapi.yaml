@@ -1,0 +1,140 @@
+openapi: 3.1.0
+info:
+  title: FoC Order Service API
+  version: 1.0.0
+  summary: Errand lifecycle API.
+servers:
+  - url: http://localhost:3003
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Service is healthy.
+  /orders/{orderId}:
+    get:
+      operationId: getOrder
+      summary: Read the caller-authorized projection of one errand.
+      description: |
+        Exact delivery instructions and participant IDs are returned only to the requester,
+        assigned courier, or an administrator. Pending-credit and rejected errands are private to
+        their requester and administrators; other callers receive the same 404 as an unknown ID.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The authorized order projection.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '404': { $ref: '#/components/responses/NotFound' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    SupplierSnapshot:
+      type: object
+      required: [supplierId, name, type, building, floor, locationDescription]
+      properties:
+        supplierId: { type: string, format: uuid }
+        name: { type: string }
+        type: { type: string }
+        building: { type: string }
+        floor: { type: string }
+        locationDescription: { type: string }
+    OrderItem:
+      type: object
+      required: [name, quantity]
+      properties:
+        name: { type: string }
+        quantity: { type: integer, minimum: 1 }
+        note: { type: string }
+    Order:
+      type: object
+      required:
+        - orderId
+        - supplier
+        - items
+        - deliveryZone
+        - reward
+        - status
+        - version
+        - acceptanceDeadlineAt
+        - createdAt
+        - updatedAt
+      properties:
+        orderId: { type: string, format: uuid }
+        supplier: { $ref: '#/components/schemas/SupplierSnapshot' }
+        items:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/OrderItem' }
+        deliveryZone: { type: string }
+        reward: { type: integer, minimum: 1, maximum: 5 }
+        status:
+          type: string
+          enum:
+            - PENDING_CREDIT
+            - OPEN
+            - ACCEPTED
+            - PICKED_UP
+            - DELIVERED
+            - DISPUTED
+            - COMPLETION_PENDING_CREDIT
+            - RELEASE_PENDING_CREDIT
+            - REJECTED
+            - COMPLETED
+            - CANCELLED
+            - EXPIRED
+        version: { type: integer, minimum: 1 }
+        acceptanceDeadlineAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        requesterId: { type: string }
+        courierId: { type: string }
+        deliveryInstructions: { type: string }
+        rejection:
+          type: object
+          required: [reason]
+          properties:
+            reason: { type: string }
+            available: { type: integer, minimum: 0 }
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, correlationId]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            correlationId: { type: string }
+  responses:
+    InvalidOrderId:
+      description: The order ID is not a UUID.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Unauthenticated:
+      description: Missing, invalid, expired, logged-out, or inactive session.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    NotFound:
+      description: The order is unknown or not visible to this caller.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
