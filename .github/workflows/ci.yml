@@ -146,9 +146,10 @@ jobs:
 
       - name: Test
         env:
-          # Read only by Credit's real-concurrency suite. Other matrix services
-          # ignore it; one shared job definition keeps the matrix simple.
+          # Read only by Credit's and Order's real-concurrency suites. Each matrix
+          # job gets its own Postgres container, so the services never share data.
           TEST_CREDIT_DATABASE_URL: postgres://postgres:postgres@localhost:5432/foc_credit_test
+          TEST_ORDER_DATABASE_URL: postgres://postgres:postgres@localhost:5432/foc_credit_test
         run: npm test -w @foc/${{ matrix.service }}
 
       - uses: docker/setup-buildx-action@v3

@@ -36,17 +36,22 @@ describe('Order schema and projections', () => {
     expect(response.body).not.toHaveProperty('requesterId');
   });
 
-  it('shows participant fields to the requester and an administrator', async () => {
-    for (const token of [asRequester, asAdmin]) {
-      const response = await http(t)
-        .get(`/orders/${SEEDED_ORDER}`)
-        .set('Authorization', token)
-        .expect(200);
-      expect(response.body).toMatchObject({
-        requesterId: 'seed-requester',
-        deliveryInstructions: 'Meet beside the security desk',
-      });
-    }
+  it('shows participant fields to the requester but not an unrelated administrator', async () => {
+    const requester = await http(t)
+      .get(`/orders/${SEEDED_ORDER}`)
+      .set('Authorization', asRequester)
+      .expect(200);
+    expect(requester.body).toMatchObject({
+      requesterId: 'seed-requester',
+      deliveryInstructions: 'Meet beside the security desk',
+    });
+
+    const admin = await http(t)
+      .get(`/orders/${SEEDED_ORDER}`)
+      .set('Authorization', asAdmin)
+      .expect(200);
+    expect(admin.body).not.toHaveProperty('deliveryInstructions');
+    expect(admin.body).not.toHaveProperty('requesterId');
   });
 
   it('hides pending and rejected errands from non-participants as not found', async () => {
