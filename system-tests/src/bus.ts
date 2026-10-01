@@ -25,7 +25,10 @@ export class InMemoryBus {
   readonly subscriptions: SubscribeOptions<unknown>[] = [];
   readonly deliveries: Delivery[] = [];
   readonly pending: Envelope<unknown>[] = [];
+  retries = 0;
   fault: (envelope: Envelope<unknown>, queue: string) => Fault = () => 'deliver';
+  /** Attempts per delivery before a transient failure is dead-lettered, as the broker does. */
+  maxAttempts = 5;
 
   /** The EventConsumer each service's consumers subscribe through. */
   readonly consumer = {
@@ -60,26 +63,38 @@ export class InMemoryBus {
     return count;
   }
 
-  private async deliver(sub: SubscribeOptions<unknown>, envelope: Envelope<unknown>) {
-    try {
-      if (sub.expectedProducer && envelope.producer !== sub.expectedProducer) {
-        throw new UnparseableMessageError(`producer ${envelope.producer} is not trusted`);
+  private async deliver(
+    sub: SubscribeOptions<unknown>,
+    envelope: Envelope<unknown>,
+  ): Promise<void> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        if (sub.expectedProducer && envelope.producer !== sub.expectedProducer) {
+          throw new UnparseableMessageError(`producer ${envelope.producer} is not trusted`);
+        }
+        const parsed = sub.payloadSchema.safeParse(envelope.payload);
+        if (!parsed.success) {
+          throw new UnparseableMessageError('payload does not match the catalogue');
+        }
+        await sub.handler({ ...envelope, payload: parsed.data }, { attempt, queue: sub.queue });
+        this.deliveries.push({ envelope, queue: sub.queue, outcome: 'handled' });
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        // Unparseable messages are dead-lettered at once; anything else is retried with the
+        // same envelope, as the broker's retry queues do, until the attempts run out.
+        if (error instanceof UnparseableMessageError || attempt >= this.maxAttempts) {
+          this.deliveries.push({
+            envelope,
+            queue: sub.queue,
+            outcome: 'dead-lettered',
+            error: message,
+          });
+          if (error instanceof UnparseableMessageError) return;
+          throw error;
+        }
+        this.retries += 1;
       }
-      const parsed = sub.payloadSchema.safeParse(envelope.payload);
-      if (!parsed.success)
-        throw new UnparseableMessageError('payload does not match the catalogue');
-      const payload = parsed.data;
-      await sub.handler({ ...envelope, payload }, { attempt: 1, queue: sub.queue });
-      this.deliveries.push({ envelope, queue: sub.queue, outcome: 'handled' });
-    } catch (error) {
-      this.deliveries.push({
-        envelope,
-        queue: sub.queue,
-        outcome: 'dead-lettered',
-        error: error instanceof Error ? error.message : String(error),
-      });
-      // A transient failure would be retried by the broker; here it surfaces as a test failure.
-      if (!(error instanceof UnparseableMessageError)) throw error;
     }
   }
 }

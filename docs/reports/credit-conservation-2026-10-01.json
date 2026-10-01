@@ -1,0 +1,736 @@
+{
+  "date": "2026-10-01",
+  "passed": true,
+  "commit": "0a75a6c6e812453f87812955ee4e47564b64d23e",
+  "startedAt": "2026-10-01T08:47:50.597Z",
+  "durationSeconds": 34,
+  "environment": {
+    "node": "v26.5.0",
+    "postgres": "PostgreSQL 17.11",
+    "rabbitmq": true
+  },
+  "options": {
+    "seeds": 20,
+    "firstSeed": 1001,
+    "steps": 150,
+    "users": 10
+  },
+  "totals": {
+    "orders": 804,
+    "operations": 3000,
+    "refused": 1001,
+    "deliveriesHandled": 2370,
+    "deliveriesDropped": 251,
+    "deliveriesDuplicated": 278,
+    "repairs": 230,
+    "finalStatuses": {
+      "ACCEPTED": 161,
+      "COMPLETED": 73,
+      "DELIVERED": 59,
+      "EXPIRED": 55,
+      "OPEN": 195,
+      "PICKED_UP": 65,
+      "REJECTED": 188,
+      "CANCELLED": 8
+    }
+  },
+  "checks": [
+    {
+      "name": "OS-FR3.1.2 contention (100 simultaneous acceptances, then completion)",
+      "passed": true,
+      "detail": "1 winner, 99 conflicts, 22 ms for all attempts"
+    },
+    {
+      "name": "RabbitMQ replay (every event published twice, then the whole run replayed)",
+      "passed": true,
+      "detail": "27 events, 81 publications; effects [RESERVE, TRANSFER, RESERVE, RELEASE]"
+    }
+  ],
+  "runs": [
+    {
+      "seed": 1001,
+      "steps": 150,
+      "orders": 35,
+      "operations": {
+        "create": 35,
+        "expire": 11,
+        "WITHDRAW": 5,
+        "CANCEL": 6,
+        "RECORD_PICKUP": 23,
+        "RECORD_DELIVERY": 23,
+        "CONFIRM_RECEIPT": 15,
+        "ACCEPT": 19,
+        "reconcile": 13
+      },
+      "refused": 56,
+      "deliveries": {
+        "handled": 108,
+        "dropped": 13,
+        "deadLettered": 0,
+        "duplicated": 13
+      },
+      "repairs": 10,
+      "finalStatuses": {
+        "ACCEPTED": 2,
+        "COMPLETED": 5,
+        "DELIVERED": 3,
+        "EXPIRED": 4,
+        "OPEN": 10,
+        "PICKED_UP": 2,
+        "REJECTED": 9
+      },
+      "violations": []
+    },
+    {
+      "seed": 1002,
+      "steps": 150,
+      "orders": 34,
+      "operations": {
+        "create": 34,
+        "ACCEPT": 26,
+        "RECORD_PICKUP": 23,
+        "RECORD_DELIVERY": 17,
+        "WITHDRAW": 7,
+        "reconcile": 13,
+        "expire": 9,
+        "CONFIRM_RECEIPT": 13,
+        "CANCEL": 8
+      },
+      "refused": 41,
+      "deliveries": {
+        "handled": 100,
+        "dropped": 13,
+        "deadLettered": 0,
+        "duplicated": 7
+      },
+      "repairs": 10,
+      "finalStatuses": {
+        "ACCEPTED": 6,
+        "COMPLETED": 7,
+        "DELIVERED": 3,
+        "EXPIRED": 1,
+        "OPEN": 8,
+        "PICKED_UP": 4,
+        "REJECTED": 5
+      },
+      "violations": []
+    },
+    {
+      "seed": 1003,
+      "steps": 150,
+      "orders": 44,
+      "operations": {
+        "create": 44,
+        "reconcile": 10,
+        "ACCEPT": 27,
+        "expire": 12,
+        "CANCEL": 3,
+        "WITHDRAW": 3,
+        "RECORD_PICKUP": 24,
+        "CONFIRM_RECEIPT": 7,
+        "RECORD_DELIVERY": 20
+      },
+      "refused": 37,
+      "deliveries": {
+        "handled": 122,
+        "dropped": 13,
+        "deadLettered": 0,
+        "duplicated": 14
+      },
+      "repairs": 12,
+      "finalStatuses": {
+        "ACCEPTED": 9,
+        "COMPLETED": 3,
+        "DELIVERED": 6,
+        "EXPIRED": 2,
+        "OPEN": 10,
+        "PICKED_UP": 4,
+        "REJECTED": 10
+      },
+      "violations": []
+    },
+    {
+      "seed": 1004,
+      "steps": 150,
+      "orders": 40,
+      "operations": {
+        "create": 40,
+        "RECORD_DELIVERY": 10,
+        "ACCEPT": 19,
+        "RECORD_PICKUP": 15,
+        "CANCEL": 11,
+        "expire": 18,
+        "reconcile": 9,
+        "WITHDRAW": 7,
+        "CONFIRM_RECEIPT": 21
+      },
+      "refused": 51,
+      "deliveries": {
+        "handled": 130,
+        "dropped": 11,
+        "deadLettered": 0,
+        "duplicated": 17
+      },
+      "repairs": 10,
+      "finalStatuses": {
+        "ACCEPTED": 9,
+        "CANCELLED": 2,
+        "COMPLETED": 3,
+        "DELIVERED": 1,
+        "EXPIRED": 5,
+        "OPEN": 9,
+        "PICKED_UP": 3,
+        "REJECTED": 8
+      },
+      "violations": []
+    },
+    {
+      "seed": 1005,
+      "steps": 150,
+      "orders": 38,
+      "operations": {
+        "create": 38,
+        "reconcile": 15,
+        "expire": 14,
+        "CONFIRM_RECEIPT": 14,
+        "ACCEPT": 23,
+        "RECORD_PICKUP": 19,
+        "RECORD_DELIVERY": 16,
+        "WITHDRAW": 7,
+        "CANCEL": 4
+      },
+      "refused": 41,
+      "deliveries": {
+        "handled": 119,
+        "dropped": 11,
+        "deadLettered": 0,
+        "duplicated": 17
+      },
+      "repairs": 11,
+      "finalStatuses": {
+        "ACCEPTED": 6,
+        "COMPLETED": 4,
+        "DELIVERED": 4,
+        "EXPIRED": 2,
+        "OPEN": 13,
+        "PICKED_UP": 4,
+        "REJECTED": 5
+      },
+      "violations": []
+    },
+    {
+      "seed": 1006,
+      "steps": 150,
+      "orders": 39,
+      "operations": {
+        "create": 39,
+        "ACCEPT": 26,
+        "RECORD_PICKUP": 19,
+        "CANCEL": 12,
+        "CONFIRM_RECEIPT": 16,
+        "WITHDRAW": 8,
+        "RECORD_DELIVERY": 12,
+        "reconcile": 11,
+        "expire": 7
+      },
+      "refused": 55,
+      "deliveries": {
+        "handled": 119,
+        "dropped": 10,
+        "deadLettered": 0,
+        "duplicated": 17
+      },
+      "repairs": 9,
+      "finalStatuses": {
+        "ACCEPTED": 7,
+        "CANCELLED": 1,
+        "COMPLETED": 4,
+        "DELIVERED": 2,
+        "EXPIRED": 2,
+        "OPEN": 10,
+        "PICKED_UP": 4,
+        "REJECTED": 9
+      },
+      "violations": []
+    },
+    {
+      "seed": 1007,
+      "steps": 150,
+      "orders": 38,
+      "operations": {
+        "create": 38,
+        "expire": 9,
+        "CONFIRM_RECEIPT": 16,
+        "ACCEPT": 26,
+        "reconcile": 9,
+        "RECORD_PICKUP": 20,
+        "RECORD_DELIVERY": 14,
+        "WITHDRAW": 7,
+        "CANCEL": 11
+      },
+      "refused": 62,
+      "deliveries": {
+        "handled": 111,
+        "dropped": 13,
+        "deadLettered": 0,
+        "duplicated": 12
+      },
+      "repairs": 13,
+      "finalStatuses": {
+        "ACCEPTED": 8,
+        "COMPLETED": 4,
+        "EXPIRED": 2,
+        "OPEN": 11,
+        "PICKED_UP": 4,
+        "REJECTED": 9
+      },
+      "violations": []
+    },
+    {
+      "seed": 1008,
+      "steps": 150,
+      "orders": 35,
+      "operations": {
+        "create": 35,
+        "ACCEPT": 19,
+        "RECORD_PICKUP": 25,
+        "reconcile": 8,
+        "RECORD_DELIVERY": 15,
+        "CONFIRM_RECEIPT": 11,
+        "CANCEL": 15,
+        "expire": 8,
+        "WITHDRAW": 14
+      },
+      "refused": 64,
+      "deliveries": {
+        "handled": 109,
+        "dropped": 10,
+        "deadLettered": 0,
+        "duplicated": 15
+      },
+      "repairs": 10,
+      "finalStatuses": {
+        "ACCEPTED": 5,
+        "CANCELLED": 1,
+        "COMPLETED": 4,
+        "DELIVERED": 3,
+        "OPEN": 7,
+        "PICKED_UP": 2,
+        "REJECTED": 13
+      },
+      "violations": []
+    },
+    {
+      "seed": 1009,
+      "steps": 150,
+      "orders": 41,
+      "operations": {
+        "create": 41,
+        "ACCEPT": 24,
+        "RECORD_PICKUP": 14,
+        "CANCEL": 7,
+        "RECORD_DELIVERY": 21,
+        "expire": 12,
+        "CONFIRM_RECEIPT": 13,
+        "reconcile": 13,
+        "WITHDRAW": 5
+      },
+      "refused": 54,
+      "deliveries": {
+        "handled": 117,
+        "dropped": 24,
+        "deadLettered": 0,
+        "duplicated": 11
+      },
+      "repairs": 23,
+      "finalStatuses": {
+        "ACCEPTED": 9,
+        "COMPLETED": 2,
+        "DELIVERED": 3,
+        "EXPIRED": 4,
+        "OPEN": 12,
+        "PICKED_UP": 2,
+        "REJECTED": 9
+      },
+      "violations": []
+    },
+    {
+      "seed": 1010,
+      "steps": 150,
+      "orders": 42,
+      "operations": {
+        "create": 42,
+        "reconcile": 13,
+        "ACCEPT": 29,
+        "RECORD_PICKUP": 21,
+        "RECORD_DELIVERY": 10,
+        "expire": 10,
+        "CANCEL": 10,
+        "WITHDRAW": 7,
+        "CONFIRM_RECEIPT": 8
+      },
+      "refused": 41,
+      "deliveries": {
+        "handled": 128,
+        "dropped": 15,
+        "deadLettered": 0,
+        "duplicated": 19
+      },
+      "repairs": 12,
+      "finalStatuses": {
+        "ACCEPTED": 14,
+        "CANCELLED": 1,
+        "COMPLETED": 3,
+        "DELIVERED": 4,
+        "EXPIRED": 4,
+        "OPEN": 9,
+        "PICKED_UP": 2,
+        "REJECTED": 5
+      },
+      "violations": []
+    },
+    {
+      "seed": 1011,
+      "steps": 150,
+      "orders": 45,
+      "operations": {
+        "create": 45,
+        "WITHDRAW": 9,
+        "CONFIRM_RECEIPT": 9,
+        "CANCEL": 8,
+        "ACCEPT": 23,
+        "reconcile": 9,
+        "RECORD_DELIVERY": 18,
+        "expire": 14,
+        "RECORD_PICKUP": 15
+      },
+      "refused": 51,
+      "deliveries": {
+        "handled": 121,
+        "dropped": 15,
+        "deadLettered": 0,
+        "duplicated": 11
+      },
+      "repairs": 14,
+      "finalStatuses": {
+        "ACCEPTED": 9,
+        "COMPLETED": 1,
+        "DELIVERED": 2,
+        "EXPIRED": 4,
+        "OPEN": 8,
+        "PICKED_UP": 5,
+        "REJECTED": 16
+      },
+      "violations": []
+    },
+    {
+      "seed": 1012,
+      "steps": 150,
+      "orders": 37,
+      "operations": {
+        "create": 37,
+        "RECORD_DELIVERY": 16,
+        "ACCEPT": 26,
+        "RECORD_PICKUP": 23,
+        "expire": 12,
+        "reconcile": 12,
+        "CONFIRM_RECEIPT": 9,
+        "CANCEL": 8,
+        "WITHDRAW": 7
+      },
+      "refused": 43,
+      "deliveries": {
+        "handled": 104,
+        "dropped": 14,
+        "deadLettered": 0,
+        "duplicated": 11
+      },
+      "repairs": 13,
+      "finalStatuses": {
+        "ACCEPTED": 6,
+        "COMPLETED": 3,
+        "DELIVERED": 6,
+        "EXPIRED": 3,
+        "OPEN": 8,
+        "PICKED_UP": 5,
+        "REJECTED": 6
+      },
+      "violations": []
+    },
+    {
+      "seed": 1013,
+      "steps": 150,
+      "orders": 39,
+      "operations": {
+        "create": 39,
+        "RECORD_PICKUP": 17,
+        "ACCEPT": 30,
+        "WITHDRAW": 7,
+        "CANCEL": 3,
+        "RECORD_DELIVERY": 16,
+        "CONFIRM_RECEIPT": 20,
+        "reconcile": 11,
+        "expire": 7
+      },
+      "refused": 44,
+      "deliveries": {
+        "handled": 115,
+        "dropped": 11,
+        "deadLettered": 0,
+        "duplicated": 12
+      },
+      "repairs": 10,
+      "finalStatuses": {
+        "ACCEPTED": 15,
+        "COMPLETED": 6,
+        "DELIVERED": 2,
+        "EXPIRED": 1,
+        "OPEN": 6,
+        "PICKED_UP": 2,
+        "REJECTED": 7
+      },
+      "violations": []
+    },
+    {
+      "seed": 1014,
+      "steps": 150,
+      "orders": 42,
+      "operations": {
+        "create": 42,
+        "ACCEPT": 23,
+        "RECORD_PICKUP": 20,
+        "RECORD_DELIVERY": 15,
+        "expire": 12,
+        "CONFIRM_RECEIPT": 11,
+        "CANCEL": 8,
+        "WITHDRAW": 8,
+        "reconcile": 11
+      },
+      "refused": 50,
+      "deliveries": {
+        "handled": 120,
+        "dropped": 9,
+        "deadLettered": 0,
+        "duplicated": 16
+      },
+      "repairs": 8,
+      "finalStatuses": {
+        "ACCEPTED": 9,
+        "CANCELLED": 1,
+        "COMPLETED": 2,
+        "DELIVERED": 4,
+        "EXPIRED": 2,
+        "OPEN": 7,
+        "PICKED_UP": 2,
+        "REJECTED": 15
+      },
+      "violations": []
+    },
+    {
+      "seed": 1015,
+      "steps": 150,
+      "orders": 40,
+      "operations": {
+        "create": 40,
+        "ACCEPT": 25,
+        "reconcile": 12,
+        "expire": 9,
+        "CANCEL": 13,
+        "RECORD_PICKUP": 14,
+        "RECORD_DELIVERY": 21,
+        "CONFIRM_RECEIPT": 10,
+        "WITHDRAW": 6
+      },
+      "refused": 51,
+      "deliveries": {
+        "handled": 116,
+        "dropped": 11,
+        "deadLettered": 0,
+        "duplicated": 12
+      },
+      "repairs": 11,
+      "finalStatuses": {
+        "ACCEPTED": 10,
+        "COMPLETED": 5,
+        "DELIVERED": 2,
+        "EXPIRED": 3,
+        "OPEN": 9,
+        "PICKED_UP": 1,
+        "REJECTED": 10
+      },
+      "violations": []
+    },
+    {
+      "seed": 1016,
+      "steps": 150,
+      "orders": 52,
+      "operations": {
+        "create": 52,
+        "reconcile": 6,
+        "ACCEPT": 25,
+        "RECORD_DELIVERY": 17,
+        "CANCEL": 7,
+        "RECORD_PICKUP": 16,
+        "expire": 13,
+        "CONFIRM_RECEIPT": 7,
+        "WITHDRAW": 7
+      },
+      "refused": 47,
+      "deliveries": {
+        "handled": 149,
+        "dropped": 18,
+        "deadLettered": 0,
+        "duplicated": 18
+      },
+      "repairs": 17,
+      "finalStatuses": {
+        "ACCEPTED": 11,
+        "COMPLETED": 1,
+        "DELIVERED": 3,
+        "EXPIRED": 6,
+        "OPEN": 13,
+        "PICKED_UP": 4,
+        "REJECTED": 14
+      },
+      "violations": []
+    },
+    {
+      "seed": 1017,
+      "steps": 150,
+      "orders": 46,
+      "operations": {
+        "create": 46,
+        "expire": 6,
+        "CONFIRM_RECEIPT": 9,
+        "ACCEPT": 30,
+        "RECORD_PICKUP": 21,
+        "reconcile": 3,
+        "RECORD_DELIVERY": 18,
+        "CANCEL": 9,
+        "WITHDRAW": 8
+      },
+      "refused": 53,
+      "deliveries": {
+        "handled": 137,
+        "dropped": 13,
+        "deadLettered": 0,
+        "duplicated": 15
+      },
+      "repairs": 12,
+      "finalStatuses": {
+        "ACCEPTED": 6,
+        "CANCELLED": 1,
+        "COMPLETED": 4,
+        "DELIVERED": 3,
+        "EXPIRED": 2,
+        "OPEN": 12,
+        "PICKED_UP": 5,
+        "REJECTED": 13
+      },
+      "violations": []
+    },
+    {
+      "seed": 1018,
+      "steps": 150,
+      "orders": 42,
+      "operations": {
+        "create": 42,
+        "RECORD_PICKUP": 12,
+        "CANCEL": 17,
+        "expire": 11,
+        "CONFIRM_RECEIPT": 13,
+        "RECORD_DELIVERY": 16,
+        "ACCEPT": 22,
+        "WITHDRAW": 12,
+        "reconcile": 5
+      },
+      "refused": 63,
+      "deliveries": {
+        "handled": 122,
+        "dropped": 8,
+        "deadLettered": 0,
+        "duplicated": 13
+      },
+      "repairs": 8,
+      "finalStatuses": {
+        "ACCEPTED": 8,
+        "CANCELLED": 1,
+        "COMPLETED": 3,
+        "DELIVERED": 2,
+        "EXPIRED": 3,
+        "OPEN": 14,
+        "PICKED_UP": 1,
+        "REJECTED": 10
+      },
+      "violations": []
+    },
+    {
+      "seed": 1019,
+      "steps": 150,
+      "orders": 35,
+      "operations": {
+        "create": 35,
+        "ACCEPT": 25,
+        "reconcile": 11,
+        "CONFIRM_RECEIPT": 13,
+        "RECORD_PICKUP": 23,
+        "RECORD_DELIVERY": 16,
+        "WITHDRAW": 6,
+        "CANCEL": 11,
+        "expire": 10
+      },
+      "refused": 56,
+      "deliveries": {
+        "handled": 104,
+        "dropped": 11,
+        "deadLettered": 0,
+        "duplicated": 12
+      },
+      "repairs": 10,
+      "finalStatuses": {
+        "ACCEPTED": 8,
+        "COMPLETED": 4,
+        "DELIVERED": 4,
+        "EXPIRED": 3,
+        "OPEN": 11,
+        "PICKED_UP": 1,
+        "REJECTED": 4
+      },
+      "violations": []
+    },
+    {
+      "seed": 1020,
+      "steps": 150,
+      "orders": 40,
+      "operations": {
+        "create": 40,
+        "CONFIRM_RECEIPT": 15,
+        "RECORD_PICKUP": 24,
+        "ACCEPT": 22,
+        "RECORD_DELIVERY": 14,
+        "expire": 13,
+        "WITHDRAW": 9,
+        "reconcile": 10,
+        "CANCEL": 3
+      },
+      "refused": 41,
+      "deliveries": {
+        "handled": 119,
+        "dropped": 8,
+        "deadLettered": 0,
+        "duplicated": 16
+      },
+      "repairs": 7,
+      "finalStatuses": {
+        "ACCEPTED": 4,
+        "COMPLETED": 5,
+        "DELIVERED": 2,
+        "EXPIRED": 2,
+        "OPEN": 8,
+        "PICKED_UP": 8,
+        "REJECTED": 11
+      },
+      "violations": []
+    }
+  ]
+}

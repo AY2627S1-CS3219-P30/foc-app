@@ -1,5 +1,13 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": { "noEmit": true, "rootDir": ".." },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  // The service sources are listed so tsx compiles them with this config (decorators enabled)
+  // when the load script imports them directly.
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "scripts/**/*.ts",
+    "../order-service/src/**/*.ts",
+    "../credit-service/src/**/*.ts"
+  ]
 }
