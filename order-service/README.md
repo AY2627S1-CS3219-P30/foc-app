@@ -156,6 +156,32 @@ event commit in the same transaction. Every loser receives `409` with the curren
 version. Authentication fails closed for suspended accounts, and acceptance deliberately performs
 no Credit balance check: a zero-credit student must be able to earn credits by delivering.
 
+### Fulfilment, completion and receipt (ORD-04)
+
+`POST /orders/:id/pickup` and `POST /orders/:id/deliver` (assigned courier) and
+`POST /orders/:id/confirm-receipt` (requester) each take `{ "expectedVersion" }`. Every lifecycle
+command after acceptance goes through one repository path: it locks the row, resolves the caller's
+role against the order (requester, assigned courier, other student, administrator), asks the
+executable transition table for a decision, and only then writes the version-checked update, the
+history row and every emitted event in one transaction. A caller who may never do the action gets
+`403 ACTION_FORBIDDEN`; a wrong state gets `409 INVALID_ORDER_STATE`; a stale version gets
+`409 ORDER_CHANGED`. Each carries the current status and version, and none of them changes anything.
+
+Confirmation moves the order to `COMPLETION_PENDING_CREDIT` and writes `order.completion-requested`
+(order, requester, courier, reward) to the outbox. No participant, administrator or timer action
+exists from that state in the transition table, so only Credit's reply can move it (OS-FR7.1.3).
+`credit.transferred` is accepted only from `credit-service`, through the transactional inbox, and
+only if it restates the recorded requester, courier and amount. A mismatch, an unknown order, or an
+order not waiting for a transfer changes nothing and is dead-lettered for an operator. Credit has
+no transfer-failure event, so an unconfirmed transfer simply stays pending. A confirmation repeated
+under a new event ID with the same transaction is a no-op; a different transaction is refused.
+
+The confirming transaction records `completed_at` and the Credit transaction ID, and writes the
+`order_receipts` row: order, requester, courier, supplier snapshot, reward, every state timestamp and
+the Credit transaction reference (OS-FR5.1.2). `GET /orders/:id/receipt` returns it to the
+participants and the referred administrator. Database triggers make `order_receipts` and
+`order_status_history` append-only.
+
 The first migration includes a deterministic demonstration errand at
 `00000000-0000-4000-8000-000000000129`; after Compose is healthy, an authenticated caller can retrieve
 its projection from `/orders/00000000-0000-4000-8000-000000000129`.
@@ -287,4 +313,4 @@ user and declares a `HEALTHCHECK`. `compose.yaml` runs it on port 3003.
 
 ### Next tickets
 
-ORD-02, ORD-03
+ORD-05 (#148) cancellation, withdrawal and expiry; ORD-09 (#150) recovery and privacy verification.

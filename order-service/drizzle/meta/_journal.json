@@ -22,6 +22,20 @@
       "when": 1790830315077,
       "tag": "0002_jazzy_whizzer",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790835882930,
+      "tag": "0003_fulfilment_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790835883233,
+      "tag": "0004_immutable_receipts",
+      "breakpoints": true
     }
   ]
 }

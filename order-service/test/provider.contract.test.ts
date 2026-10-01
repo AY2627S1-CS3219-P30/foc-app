@@ -89,4 +89,34 @@ describe('order-service honours its published contract', () => {
     contract.assert('post', template, await accept(asStranger));
     contract.assert('post', template, await accept(asStranger));
   });
+
+  it('fulfilment commands and the receipt (200, 403, 404, 409)', async () => {
+    const lifecycle = await createTestApp();
+    try {
+      const call = (path: string, auth: string, expectedVersion: number) =>
+        http(lifecycle)
+          .post(`/orders/${SEEDED_ORDER}/${path}`)
+          .set('Authorization', auth)
+          .send({ expectedVersion });
+      await call('accept', asStranger, 2);
+      contract.assert('post', '/orders/{orderId}/pickup', await call('pickup', asRequester, 3));
+      contract.assert('post', '/orders/{orderId}/deliver', await call('deliver', asStranger, 3));
+      contract.assert('post', '/orders/{orderId}/pickup', await call('pickup', asStranger, 3));
+      contract.assert('post', '/orders/{orderId}/deliver', await call('deliver', asStranger, 4));
+      contract.assert(
+        'post',
+        '/orders/{orderId}/confirm-receipt',
+        await call('confirm-receipt', asRequester, 5),
+      );
+      contract.assert(
+        'get',
+        '/orders/{orderId}/receipt',
+        await http(lifecycle)
+          .get(`/orders/${SEEDED_ORDER}/receipt`)
+          .set('Authorization', asRequester),
+      );
+    } finally {
+      await lifecycle.close();
+    }
+  });
 });

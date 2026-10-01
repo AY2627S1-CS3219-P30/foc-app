@@ -124,6 +124,114 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/AcceptanceConflict' }
         '422': { $ref: '#/components/responses/InvalidOrder' }
+  /orders/{orderId}/pickup:
+    post:
+      operationId: recordPickup
+      summary: Assigned courier records pickup (ACCEPTED → PICKED_UP).
+      description: |
+        Only the assigned courier may record pickup, and only from ACCEPTED at the stated version.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LifecycleCommand' }
+      responses:
+        '200':
+          description: The order after the transition, projected for the caller.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/ActionForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/LifecycleConflict' }
+        '422': { $ref: '#/components/responses/InvalidOrder' }
+  /orders/{orderId}/deliver:
+    post:
+      operationId: recordDelivery
+      summary: Assigned courier records delivery (PICKED_UP → DELIVERED).
+      description: |
+        Only the assigned courier may record delivery, and only from PICKED_UP at the stated version.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LifecycleCommand' }
+      responses:
+        '200':
+          description: The order after the transition, projected for the caller.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/ActionForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/LifecycleConflict' }
+        '422': { $ref: '#/components/responses/InvalidOrder' }
+  /orders/{orderId}/confirm-receipt:
+    post:
+      operationId: confirmReceipt
+      summary: Requester confirms receipt (DELIVERED → COMPLETION_PENDING_CREDIT).
+      description: |
+        Only the requester may confirm. The order waits in COMPLETION_PENDING_CREDIT, unchangeable by
+        any participant, administrator or timer, until the Credit Service confirms the transfer
+        requested by the `order.completion-requested` event written in the same transaction.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LifecycleCommand' }
+      responses:
+        '200':
+          description: The order after the transition, projected for the caller.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/ActionForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/LifecycleConflict' }
+        '422': { $ref: '#/components/responses/InvalidOrder' }
+  /orders/{orderId}/receipt:
+    get:
+      operationId: getOrderReceipt
+      summary: Read the immutable completion receipt.
+      description: |
+        Available once the Credit Service has confirmed the transfer. Readable by the requester,
+        the courier, and the administrator named by a referral.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The receipt, including the Credit Service transaction reference.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderReceipt' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/PrivateForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 components:
   securitySchemes:
     bearerAuth:
@@ -222,7 +330,19 @@ components:
         reward: { type: integer, minimum: 1, maximum: 5 }
     OpenOrderSummary:
       type: object
-      required: [orderId, supplier, itemSummary, deliveryZone, reward, status, version, acceptanceDeadlineAt, timeRemainingSeconds, createdAt]
+      required:
+        [
+          orderId,
+          supplier,
+          itemSummary,
+          deliveryZone,
+          reward,
+          status,
+          version,
+          acceptanceDeadlineAt,
+          timeRemainingSeconds,
+          createdAt,
+        ]
       properties:
         orderId: { type: string, format: uuid }
         supplier: { $ref: '#/components/schemas/SupplierSnapshot' }
@@ -247,6 +367,33 @@ components:
       required: [expectedVersion]
       properties:
         expectedVersion: { type: integer, minimum: 1 }
+    LifecycleCommand:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion]
+      properties:
+        expectedVersion: { type: integer, minimum: 1 }
+    OrderReceipt:
+      type: object
+      required: [orderId, requesterId, courierId, supplier, reward, creditTransactionId, timestamps]
+      properties:
+        orderId: { type: string, format: uuid }
+        requesterId: { type: string }
+        courierId: { type: string }
+        supplier: { $ref: '#/components/schemas/SupplierSnapshot' }
+        reward: { type: integer, minimum: 1, maximum: 5 }
+        creditTransactionId: { type: string, format: uuid }
+        timestamps:
+          type: object
+          required:
+            [createdAt, acceptedAt, pickedUpAt, deliveredAt, completionRequestedAt, completedAt]
+          properties:
+            createdAt: { type: string, format: date-time }
+            acceptedAt: { type: string, format: date-time }
+            pickedUpAt: { type: string, format: date-time }
+            deliveredAt: { type: string, format: date-time }
+            completionRequestedAt: { type: string, format: date-time }
+            completedAt: { type: string, format: date-time }
     ErrorEnvelope:
       type: object
       required: [error]
@@ -296,6 +443,21 @@ components:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     InvalidOrder:
       description: Invalid fields, inactive/unknown supplier, or conflicting idempotency reuse.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    ActionForbidden:
+      description: |
+        This caller may never perform this action on this order (for example, a requester recording
+        pickup). `details` carries the current status and version. Nothing changes.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    LifecycleConflict:
+      description: |
+        `INVALID_ORDER_STATE` (the order is not in a state that allows this action) or
+        `ORDER_CHANGED` (stale expectedVersion). `details` carries the current status and version.
+        Nothing changes.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
