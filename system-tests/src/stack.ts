@@ -93,7 +93,15 @@ export class Stack {
   async settle(maxRounds = 50): Promise<void> {
     for (let round = 0; round < maxRounds; round++) {
       let moved = 0;
-      for (const relay of this.relays) moved += await relay.tick();
+      for (const relay of this.relays) {
+        try {
+          moved += await relay.tick();
+        } catch {
+          // The claim rolled back; its rows stay unpublished and the next tick resends them,
+          // exactly as the running relay does after a failed poll.
+          moved += 1;
+        }
+      }
       moved += await this.bus.drain();
       if (moved === 0) return;
     }
