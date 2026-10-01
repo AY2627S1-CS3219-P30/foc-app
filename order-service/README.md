@@ -137,8 +137,8 @@ opening but never rejects or loses the errand. Credit's validated reply moves th
 its acceptance deadline or to terminal `REJECTED` with the recorded reason and available balance.
 The transactional inbox and business-state check make 100 duplicate replies one transition.
 
-`CREDIT_WAIT_TIMEOUT_MS` defines when #150 reconciliation must consider a `PENDING_CREDIT` row stale;
-creation never rejects it merely because the timer passes. `created_at`, status, and the existing
+`CREDIT_WAIT_TIMEOUT_MS` defines when a `PENDING_CREDIT` row is surfaced to an operator (ORD-09,
+below); creation never rejects it merely because the timer passes. `created_at`, status, and the existing
 `orders_status_created_idx` provide the durable discovery boundary that recovery will consume.
 
 `GET /orders` returns at most 100 unexpired `OPEN` errands ordered by acceptance deadline. Its
@@ -207,6 +207,35 @@ recorded reason. It records `released_at` and the Credit transaction ID, with th
 dead-lettering and duplicate rules as a transfer. A release for a completed order, or a transfer for
 a released one, is refused, so transfer and release are mutually exclusive outcomes. ORD-06 (#149)
 owns the courier-suspension path (reopen with the deadline extended).
+
+### Recovery and privacy verification (ORD-09)
+
+- **Kill after commit (OS-NFR4.1.1).** Every transition writes its events to the outbox in its own
+  transaction, and the relay publishes each row under the row's ID as the event ID.
+  `order-recovery.postgres.test.ts` SIGKILLs a real process right after it commits a creation and a
+  cancellation. A relay started afterwards publishes each committed event exactly once. A process
+  SIGKILLed after the broker accepted an event, but before marking it published, has that event
+  resent under the same ID, and a consumer's inbox applies it once.
+- **Pending credit survives restarts (OS-NFR4.1.2).** A `PENDING_CREDIT` order is ordinary committed
+  state. Its requester can read it at any age, and its reservation request is republished by the
+  relay, so the order opens when Credit replies, with no manual step.
+- **Operator surfacing (OS-FR1.1.3).** Each lifecycle sweep raises one `CREDIT_WAIT_EXCEEDED` alert
+  for every order waiting longer than `CREDIT_WAIT_TIMEOUT_MS`. The alert is recorded once in the
+  append-only `order_operator_alerts` table and logged as a structured `warn` line (`alert`,
+  `orderId`, `waitingMs`). `GET /admin/orders/pending-credit` (administrators only) lists every such
+  order with how long it has waited. The order is never rejected for waiting.
+- **Privacy (OS-NFR5.1).** `GET /orders/:id/history` returns the private status history to the
+  requester, the current courier and the referred administrator only. `order-privacy.test.ts` checks
+  every read surface (detail, private view, history, receipt, open list) for anonymous, requester,
+  current courier, former courier (withdrawn or timed out), unrelated student, referred
+  administrator and unreferred administrator at every lifecycle state. It looks for the delivery
+  instructions, item notes and every participant ID, and asserts status events carry no private
+  fields.
+- **Refused mutations (OS-NFR5.1.2).** `order-mutation-matrix.test.ts` tries every command endpoint as
+  every caller (plus a suspended account) in every reachable state. Whatever the transition table
+  refuses returns `403` or `409` and leaves the order, history and outbox unchanged. The one
+  exception is deliberate: an order whose existence is private (`PENDING_CREDIT`, `REJECTED`)
+  answers anyone but its requester with the non-enumerating `404` used by every read.
 
 The first migration includes a deterministic demonstration errand at
 `00000000-0000-4000-8000-000000000129`; after Compose is healthy, an authenticated caller can retrieve
@@ -283,7 +312,7 @@ Run these from the repository root.
 | ----------------------------------------- | ----------------------------- |
 | `npm run dev:order`                       | Start with reload on change   |
 | `npm run build -w @foc/order-service`     | Compile TypeScript to `dist/` |
-| `npm test -w @foc/order-service`          | Run PGlite tests and, with `TEST_ORDER_DATABASE_URL`, the real PostgreSQL 100-courier race |
+| `npm test -w @foc/order-service`          | Run PGlite tests and, with `TEST_POSTGRES_URL`, the real-PostgreSQL race, recovery and SIGKILL suites on ephemeral databases (docs/testing.md) |
 | `npm run typecheck -w @foc/order-service` | Type-check without emitting   |
 | `npm run lint`                            | Lint every service            |
 
@@ -297,7 +326,7 @@ Run these from the repository root.
 | `LOG_LEVEL`    | `info`          | Defaults to `info`                      |
 | `DATABASE_URL` | `postgres://…`   | Order-owned PostgreSQL database         |
 | `SUPPLIER_SERVICE_URL` | `http://localhost:3002` | Supplier validation and snapshot reads |
-| `CREDIT_WAIT_TIMEOUT_MS` | `300000` | Age at which pending credit needs reconciliation |
+| `CREDIT_WAIT_TIMEOUT_MS` | `300000` | Age at which a PENDING_CREDIT order is surfaced to an operator |
 | `ACCEPTANCE_WINDOW_MS` | `3600000` | Deadline started when reservation succeeds |
 | `PICKUP_TIMEOUT_MS` | `1800000` | Courier removed if no pickup this long after acceptance |
 | `LIFECYCLE_SWEEP_INTERVAL_MS` | `10000` | Timer sweep interval; at most `60000` |
@@ -342,4 +371,4 @@ user and declares a `HEALTHCHECK`. `compose.yaml` runs it on port 3003.
 
 ### Next tickets
 
-ORD-09 (#150) recovery and privacy verification; ORD-06 (#149) suspension handling.
+ORD-06 (#149) suspension handling; ORD-10 delivery disputes and auto-confirmation; CRD-07 (#152) reconciliation.

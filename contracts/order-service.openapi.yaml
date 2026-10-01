@@ -270,6 +270,46 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/LifecycleConflict' }
         '422': { $ref: '#/components/responses/InvalidOrder' }
+  /orders/{orderId}/history:
+    get:
+      operationId: getOrderHistory
+      summary: Read the private status history of an errand.
+      description: |
+        Every status change with its previous and new status, action, actor and time (OS-FR7.1.2).
+        Readable only by the requester, the current courier and the administrator named by a
+        referral; a former courier is an unrelated student. Hidden (pending/rejected) errands are
+        a 404 for everyone else.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The history, oldest first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderHistory' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/PrivateForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/orders/pending-credit:
+    get:
+      operationId: listCreditWaitExceeded
+      summary: Operator view of errands waiting for the Credit Service too long.
+      description: |
+        Errands still in PENDING_CREDIT after CREDIT_WAIT_TIMEOUT_MS (5 minutes by default,
+        OS-FR1.1.3), oldest first, with when the operator alert was raised. Listing an errand does not
+        reject it; it still opens if the reservation arrives. Administrators only.
+      responses:
+        '200':
+          description: Waiting errands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreditWaitList' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/AdminOnly' }
   /orders/{orderId}/receipt:
     get:
       operationId: getOrderReceipt
@@ -454,6 +494,40 @@ components:
             deliveredAt: { type: string, format: date-time }
             completionRequestedAt: { type: string, format: date-time }
             completedAt: { type: string, format: date-time }
+    OrderHistory:
+      type: object
+      required: [orderId, entries]
+      properties:
+        orderId: { type: string, format: uuid }
+        entries:
+          type: array
+          items:
+            type: object
+            required: [previousStatus, newStatus, action, actorType, actorId, version, occurredAt]
+            properties:
+              previousStatus: { type: [string, 'null'] }
+              newStatus: { type: string }
+              action: { type: string }
+              actorType: { type: string }
+              actorId: { type: [string, 'null'] }
+              version: { type: integer, minimum: 1 }
+              occurredAt: { type: string, format: date-time }
+    CreditWaitList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [orderId, requesterId, reward, createdAt, waitingMs, alertRaisedAt]
+            properties:
+              orderId: { type: string, format: uuid }
+              requesterId: { type: string }
+              reward: { type: integer }
+              createdAt: { type: string, format: date-time }
+              waitingMs: { type: number, minimum: 0 }
+              alertRaisedAt: { type: [string, 'null'], format: date-time }
     ErrorEnvelope:
       type: object
       required: [error]
@@ -503,6 +577,11 @@ components:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     InvalidOrder:
       description: Invalid fields, inactive/unknown supplier, or conflicting idempotency reuse.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    AdminOnly:
+      description: The caller is not an administrator.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }

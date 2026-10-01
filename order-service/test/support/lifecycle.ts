@@ -70,27 +70,28 @@ export const deliver = (t: TestApp, queue: string, envelope: unknown) =>
 export async function advance(
   t: TestApp,
   to: 'ACCEPTED' | 'PICKED_UP' | 'DELIVERED' | 'COMPLETION_PENDING_CREDIT',
+  orderId = SEEDED_ORDER,
 ): Promise<void> {
   await http(t)
-    .post(`/orders/${SEEDED_ORDER}/accept`)
+    .post(`/orders/${orderId}/accept`)
     .set('Authorization', asStranger)
     .send({ expectedVersion: 2 })
     .expect(201);
   if (to === 'ACCEPTED') return;
   await http(t)
-    .post(`/orders/${SEEDED_ORDER}/pickup`)
+    .post(`/orders/${orderId}/pickup`)
     .set('Authorization', asStranger)
     .send({ expectedVersion: 3 })
     .expect(200);
   if (to === 'PICKED_UP') return;
   await http(t)
-    .post(`/orders/${SEEDED_ORDER}/deliver`)
+    .post(`/orders/${orderId}/deliver`)
     .set('Authorization', asStranger)
     .send({ expectedVersion: 4 })
     .expect(200);
   if (to === 'DELIVERED') return;
   await http(t)
-    .post(`/orders/${SEEDED_ORDER}/confirm-receipt`)
+    .post(`/orders/${orderId}/confirm-receipt`)
     .set('Authorization', asRequester)
     .send({ expectedVersion: 5 })
     .expect(200);
@@ -191,4 +192,66 @@ export async function outboxOf(t: TestApp, eventType: string, orderId = SEEDED_O
     [orderId, eventType],
   );
   return result.rows.map((row) => row.payload);
+}
+
+export const SECRET = {
+  instructions: 'SECRET-INSTRUCTIONS-meet-at-locker-42',
+  note: 'SECRET-NOTE-no-onions',
+};
+
+/** Creates a PENDING_CREDIT order through the API, carrying the private markers above. */
+export async function createPending(t: TestApp): Promise<string> {
+  const response = await http(t)
+    .post('/orders')
+    .set('Authorization', asRequester)
+    .set('Idempotency-Key', randomUUID())
+    .send({
+      supplierId: '00000000-0000-4000-8000-000000000125',
+      items: [{ name: 'Coffee', quantity: 1, note: SECRET.note }],
+      deliveryZone: 'COM2 Lobby',
+      deliveryInstructions: SECRET.instructions,
+      reward: SEEDED_REWARD,
+    })
+    .expect(201);
+  return response.body.orderId as string;
+}
+
+/** Delivers Credit's reservation reply for an order created by {@link createPending}. */
+export async function reservationReply(t: TestApp, orderId: string, rejected = false) {
+  const { ReservationResultsConsumer, RESERVATION_RESULTS_QUEUE } =
+    await import('../../src/reservation-results.consumer.js');
+  const recorder = new RecordingConsumer();
+  await new ReservationResultsConsumer(
+    recorder as unknown as EventConsumer,
+    t.db,
+    t.orders,
+  ).onApplicationBootstrap();
+  await recorder.subscriptions[0]!.handler(
+    createEnvelope({
+      eventId: randomUUID(),
+      eventType: rejected ? EVENTS.CREDIT_RESERVATION_REJECTED : EVENTS.CREDITS_RESERVED,
+      schemaVersion: 1,
+      aggregateId: orderId,
+      producer: 'credit-service',
+      correlationId: 'corr-reservation',
+      payload: rejected
+        ? {
+            orderId,
+            requesterId: REQUESTER,
+            amount: SEEDED_REWARD,
+            reason: 'INSUFFICIENT_CREDITS',
+            available: 0,
+          }
+        : { orderId, requesterId: REQUESTER, amount: SEEDED_REWARD },
+    }),
+    { attempt: 1, queue: RESERVATION_RESULTS_QUEUE },
+  );
+}
+
+/** Records the administrator a dispute was referred to. ORD-11 (#171) owns doing this for real. */
+export async function referTo(t: TestApp, adminId: string, orderId = SEEDED_ORDER) {
+  await t.db.query(`UPDATE orders SET referred_admin_id = $2 WHERE order_id = $1`, [
+    orderId,
+    adminId,
+  ]);
 }

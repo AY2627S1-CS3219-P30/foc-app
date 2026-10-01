@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, it } from 'vitest';
 import { ContractValidator } from '@foc/test-harness';
-import { asRequester, asStranger, createTestApp, http, type TestApp } from './helpers/app.js';
+import {
+  asAdmin,
+  asRequester,
+  asStranger,
+  createTestApp,
+  http,
+  type TestApp,
+} from './helpers/app.js';
 
 const SEEDED_ORDER = '00000000-0000-4000-8000-000000000129';
 const order = {
@@ -137,5 +144,23 @@ describe('order-service honours its published contract', () => {
     } finally {
       await lifecycle.close();
     }
+  });
+
+  it('history and the operator pending-credit view (200, 401, 403)', async () => {
+    const history = '/orders/{orderId}/history';
+    contract.assert(
+      'get',
+      history,
+      await http(app).get(`/orders/${SEEDED_ORDER}/history`).set('Authorization', asRequester),
+    );
+    contract.assert(
+      'get',
+      history,
+      await http(app).get(`/orders/${SEEDED_ORDER}/history`).set('Authorization', asStranger),
+    );
+    const view = '/admin/orders/pending-credit';
+    contract.assert('get', view, await http(app).get(view).set('Authorization', asAdmin));
+    contract.assert('get', view, await http(app).get(view).set('Authorization', asStranger));
+    contract.assert('get', view, await http(app).get(view));
   });
 });

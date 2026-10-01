@@ -44,7 +44,11 @@ suite('accept versus expire on real PostgreSQL (OS-NFR3.1.2)', () => {
   };
 
   const sweeper = () =>
-    new LifecycleScheduler(orders, { pickupTimeoutMs: 1_800_000, intervalMs: 10_000 });
+    new LifecycleScheduler(orders, {
+      pickupTimeoutMs: 1_800_000,
+      creditWaitTimeoutMs: 300_000,
+      intervalMs: 10_000,
+    });
 
   it('never both accepts and expires an order racing its deadline', async () => {
     const outcomes = { ACCEPTED: 0, RELEASE_PENDING_CREDIT: 0 } as Record<string, number>;

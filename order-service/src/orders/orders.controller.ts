@@ -73,6 +73,12 @@ export class OrdersController {
     );
   }
 
+  @Get(':id/history')
+  @Authenticated()
+  history(@Param('id') id: string, @CurrentUser() caller: AuthContext) {
+    return this.orders.history(parseOrderId(id), caller);
+  }
+
   @Get(':id/receipt')
   @Authenticated()
   receipt(@Param('id') id: string, @CurrentUser() caller: AuthContext) {

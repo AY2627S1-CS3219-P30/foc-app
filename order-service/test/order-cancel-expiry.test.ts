@@ -34,7 +34,11 @@ const post = (t: TestApp, path: string, auth: string, expectedVersion: number) =
     .set('Authorization', auth)
     .send({ expectedVersion });
 const scheduler = (t: TestApp, pickupTimeoutMs = 30 * MINUTE) =>
-  new LifecycleScheduler(t.orders, { pickupTimeoutMs, intervalMs: 10_000 });
+  new LifecycleScheduler(t.orders, {
+    pickupTimeoutMs,
+    creditWaitTimeoutMs: 5 * MINUTE,
+    intervalMs: 10_000,
+  });
 const releaseRequest = { orderId: SEEDED_ORDER, requesterId: REQUESTER, amount: SEEDED_REWARD };
 
 describe('cancellation, withdrawal and expiry (ORD-05)', () => {
@@ -200,7 +204,12 @@ describe('lifecycle scheduler (OS-FR6.1.2, OS-FR6.1.3, OS-NFR3.1)', () => {
   it('leaves an OPEN order alone before its deadline', async () => {
     t = await createTestApp();
     const before = await footprint(t);
-    expect(await scheduler(t).sweep()).toEqual({ expired: 0, pickupTimedOut: 0, skipped: 0 });
+    expect(await scheduler(t).sweep()).toEqual({
+      expired: 0,
+      pickupTimedOut: 0,
+      skipped: 0,
+      creditWaitAlerts: 0,
+    });
     expect(await footprint(t)).toEqual(before);
   });
 
