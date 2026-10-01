@@ -1,24 +1,34 @@
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { EVENTS, PgDb, runDrizzleMigrations } from '@foc/platform';
+import { EVENTS } from '@foc/platform';
+import type { PgDb } from '@foc/platform';
+import {
+  createEphemeralPostgres,
+  TEST_POSTGRES_URL,
+  type EphemeralPostgres,
+} from '@foc/test-harness';
 import { LifecycleScheduler } from '../src/orders/lifecycle.scheduler.js';
 import { OrdersRepository } from '../src/orders/orders.repository.js';
 
-const DATABASE = process.env.TEST_ORDER_DATABASE_URL;
-const suite = DATABASE ? describe : describe.skip;
+const suite = TEST_POSTGRES_URL ? describe : describe.skip;
 const SEEDED_ORDER = '00000000-0000-4000-8000-000000000129';
 
 suite('accept versus expire on real PostgreSQL (OS-NFR3.1.2)', () => {
+  let database: EphemeralPostgres;
   let db: PgDb;
   let orders: OrdersRepository;
 
   beforeAll(async () => {
-    db = new PgDb(DATABASE!);
-    await runDrizzleMigrations(DATABASE!, fileURLToPath(new URL('../drizzle', import.meta.url)));
+    database = await createEphemeralPostgres({
+      adminUrl: TEST_POSTGRES_URL!,
+      label: 'order_expiry',
+      migrationsFolder: fileURLToPath(new URL('../drizzle', import.meta.url)),
+    });
+    db = database.db;
     orders = new OrdersRepository(db);
   });
-  afterAll(async () => db?.close());
+  afterAll(async () => database?.dispose());
 
   const openOrder = async (deadlineInMs: number): Promise<string> => {
     const orderId = randomUUID();

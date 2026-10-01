@@ -119,4 +119,23 @@ describe('order-service honours its published contract', () => {
       await lifecycle.close();
     }
   });
+
+  it('cancel and withdraw (200, 403, 409)', async () => {
+    const lifecycle = await createTestApp();
+    try {
+      const call = (path: string, auth: string, expectedVersion: number) =>
+        http(lifecycle)
+          .post(`/orders/${SEEDED_ORDER}/${path}`)
+          .set('Authorization', auth)
+          .send({ expectedVersion });
+      contract.assert('post', '/orders/{orderId}/withdraw', await call('withdraw', asStranger, 2));
+      contract.assert('post', '/orders/{orderId}/cancel', await call('cancel', asStranger, 2));
+      await call('accept', asStranger, 2);
+      contract.assert('post', '/orders/{orderId}/withdraw', await call('withdraw', asStranger, 3));
+      contract.assert('post', '/orders/{orderId}/cancel', await call('cancel', asRequester, 4));
+      contract.assert('post', '/orders/{orderId}/cancel', await call('cancel', asRequester, 5));
+    } finally {
+      await lifecycle.close();
+    }
+  });
 });
