@@ -1,8 +1,13 @@
 import { Module } from '@nestjs/common';
 import { authStatusEvents, AuthModule } from '@foc/auth-client';
-import { EventsModule, PlatformModule } from '@foc/platform';
+import { EVENTS, EventsModule, PlatformModule, provideOutboxRelay } from '@foc/platform';
 import { authConfig, env, SERVICE_NAME, SERVICE_VERSION } from './config.js';
 import { OrdersModule } from './orders/orders.module.js';
+import { ORDER_DB } from './db/db.js';
+import {
+  RESERVATION_RESULTS_QUEUE,
+  ReservationResultsConsumer,
+} from './reservation-results.consumer.js';
 
 /**
  * Every mutating endpoint must use `@Authenticated()` (or `@AdminOnly()`) from `@foc/auth-client`,
@@ -21,7 +26,13 @@ const eventModules = env.RABBITMQ_URL
       EventsModule.forRoot({
         url: env.RABBITMQ_URL,
         producer: SERVICE_NAME,
-        subscriptions: [status.subscription],
+        subscriptions: [
+          {
+            queue: RESERVATION_RESULTS_QUEUE,
+            routingKeys: [EVENTS.CREDITS_RESERVED, EVENTS.CREDIT_RESERVATION_REJECTED],
+          },
+          status.subscription,
+        ],
       }),
     ]
   : [];
@@ -37,6 +48,8 @@ const eventModules = env.RABBITMQ_URL
     OrdersModule.forRoot(),
     ...eventModules,
   ],
-  providers: env.RABBITMQ_URL ? status.providers : [],
+  providers: env.RABBITMQ_URL
+    ? [ReservationResultsConsumer, provideOutboxRelay({ db: ORDER_DB }), ...status.providers]
+    : [],
 })
 export class AppModule {}

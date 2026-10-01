@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  bigint,
   check,
   index,
   integer,
@@ -110,4 +111,42 @@ export const orderIdempotencyKeys = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.requesterId, t.idempotencyKey] })],
+);
+
+export const processedEvents = pgTable(
+  'processed_events',
+  {
+    consumer: text('consumer').notNull(),
+    eventId: uuid('event_id').notNull(),
+    eventType: text('event_type').notNull(),
+    processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.consumer, t.eventId] })],
+);
+
+export const outboxEvents = pgTable(
+  'outbox_events',
+  {
+    id: uuid('id').primaryKey(),
+    seq: bigint('seq', { mode: 'number' }).generatedAlwaysAsIdentity(),
+    eventType: text('event_type').notNull(),
+    schemaVersion: integer('schema_version').notNull().default(1),
+    aggregateId: text('aggregate_id').notNull(),
+    payload: jsonb('payload').notNull(),
+    correlationId: text('correlation_id').notNull(),
+    causationId: text('causation_id'),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    attempts: integer('attempts').notNull().default(0),
+    lastError: text('last_error'),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('outbox_events_pending_idx')
+      .on(t.seq)
+      .where(sql`${t.publishedAt} IS NULL`),
+    index('outbox_events_pending_aggregate_idx')
+      .on(t.aggregateId, t.seq)
+      .where(sql`${t.publishedAt} IS NULL`),
+  ],
 );

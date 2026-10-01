@@ -158,6 +158,32 @@ export const creditsReleasedPayload = z.object({
 });
 export type CreditsReleasedPayload = z.infer<typeof creditsReleasedPayload>;
 
+export const orderStatus = z.enum([
+  'PENDING_CREDIT',
+  'OPEN',
+  'ACCEPTED',
+  'PICKED_UP',
+  'DELIVERED',
+  'DISPUTED',
+  'COMPLETION_PENDING_CREDIT',
+  'RELEASE_PENDING_CREDIT',
+  'REJECTED',
+  'COMPLETED',
+  'CANCELLED',
+  'EXPIRED',
+]);
+
+/** Public lifecycle fact. It deliberately carries no participant or delivery details. */
+export const orderStatusChangedPayload = z
+  .object({
+    orderId: z.uuid(),
+    previousStatus: orderStatus.nullable(),
+    newStatus: orderStatus,
+    occurredAt: z.iso.datetime(),
+  })
+  .strict();
+export type OrderStatusChangedPayload = z.infer<typeof orderStatusChangedPayload>;
+
 /**
  * Payload schemas, keyed by event type. An event missing from here has no
  * agreed shape yet — the ticket that first publishes it adds one — so a
@@ -176,4 +202,5 @@ export const PAYLOAD_SCHEMAS = {
   [EVENTS.CREDITS_TRANSFERRED]: creditsTransferredPayload,
   [EVENTS.CREDIT_RELEASE_REQUESTED]: creditReleaseRequestedPayload,
   [EVENTS.CREDITS_RELEASED]: creditsReleasedPayload,
+  [EVENTS.ORDER_STATUS_CHANGED]: orderStatusChangedPayload,
 } as const satisfies Partial<Record<EventType, z.ZodType>>;

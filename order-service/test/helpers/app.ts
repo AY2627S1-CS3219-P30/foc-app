@@ -5,6 +5,9 @@ import { AUTHENTICATOR, AuthModule, authFailure, type AuthContext } from '@foc/a
 import { ErrorEnvelopeFilter, PlatformModule } from '@foc/platform';
 import { ORDER_DB } from '../../src/db/db.js';
 import { OrdersModule } from '../../src/orders/orders.module.js';
+import { OrdersRepository } from '../../src/orders/orders.repository.js';
+import { OrdersService } from '../../src/orders/orders.service.js';
+import { SUPPLIER_FETCH } from '../../src/orders/supplier.client.js';
 import { applyMigrations } from './migrate.js';
 import { PgliteDb } from './pglite-db.js';
 
@@ -50,10 +53,24 @@ const fakeAuthenticator = {
 export interface TestApp {
   app: INestApplication;
   db: PgliteDb;
+  orders: OrdersRepository;
+  orderService: OrdersService;
   close(): Promise<void>;
 }
 
-export async function createTestApp(): Promise<TestApp> {
+const activeSupplier = {
+  supplierId: '00000000-0000-4000-8000-000000000125',
+  name: 'The Deck',
+  type: 'FOOD',
+  building: 'COM2',
+  floor: '1',
+  locationDescription: 'Level 1 canteen',
+  active: true,
+};
+
+export async function createTestApp(
+  supplierFetch: typeof fetch = async () => Response.json(activeSupplier),
+): Promise<TestApp> {
   const db = await PgliteDb.create();
   await applyMigrations(db);
   const builder = Test.createTestingModule({
@@ -73,7 +90,9 @@ export async function createTestApp(): Promise<TestApp> {
     .overrideProvider(ORDER_DB)
     .useValue(db)
     .overrideProvider(AUTHENTICATOR)
-    .useValue(fakeAuthenticator);
+    .useValue(fakeAuthenticator)
+    .overrideProvider(SUPPLIER_FETCH)
+    .useValue(supplierFetch);
   const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication();
   app.useGlobalFilters(new ErrorEnvelopeFilter());
@@ -81,6 +100,8 @@ export async function createTestApp(): Promise<TestApp> {
   return {
     app,
     db,
+    orders: moduleRef.get(OrdersRepository),
+    orderService: moduleRef.get(OrdersService),
     close: async () => {
       await app.close();
       await db.close();

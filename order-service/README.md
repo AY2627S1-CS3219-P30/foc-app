@@ -96,7 +96,7 @@ the Order lifecycle implementation adds them.
 | `credit.transferred` | Received | request facts, transfer reference, and both resulting wallet balances (D1 OS-FR5.1.3) | In catalogue |
 | `order.release-requested` | Sent | order, requester, amount | In catalogue |
 | `credit.released` | Received | request facts, release reference, and requester resulting balance | In catalogue |
-| `order.status-changed` | Sent | order, previous status, new status, when | Proposed |
+| `order.status-changed` | Sent | order, previous status, new status, when; no private fields | In catalogue |
 | `user.suspended` | Received | user | In catalogue |
 
 ## Sending and receiving safely
@@ -108,7 +108,8 @@ the Order lifecycle implementation adds them.
 ## Persistence and projections
 
 The generated migration under `order-service/drizzle/` creates the Order-owned `orders`,
-`order_status_history`, and `order_idempotency_keys` tables. Database constraints enforce the closed
+`order_status_history`, `order_idempotency_keys`, `processed_events`, and `outbox_events` tables.
+Database constraints enforce the closed
 status set, reward range, non-empty item list, version counter, terminal rejection shape, and the
 courier required by assigned/delivery states. `order_status_history` records the previous and new
 status, action, actor, order version, and timestamp; one history row is permitted per order version.
@@ -125,6 +126,20 @@ are visible only to the requester, assigned courier, or an administrator. `PENDI
 `REJECTED` errands are private to their requester (and administrators), and absent resources and
 private resources both return `404` to avoid revealing their existence. The complete schema is in
 `contracts/order-service.openapi.yaml`.
+
+`POST /orders` requires an active authenticated requester and an `Idempotency-Key`. It validates the
+entire request, fetches an active Supplier and captures its snapshot, then commits the private
+`PENDING_CREDIT` row, initial history, idempotency claim, public status fact, and
+`order.reservation-requested` outbox row in one transaction. A replay with the same requester, key,
+and body returns the recorded order without contacting Supplier again; reuse with different facts is
+refused. The shared relay publishes committed rows after the transaction, so Credit downtime delays
+opening but never rejects or loses the errand. Credit's validated reply moves the row to `OPEN` with
+its acceptance deadline or to terminal `REJECTED` with the recorded reason and available balance.
+The transactional inbox and business-state check make 100 duplicate replies one transition.
+
+`CREDIT_WAIT_TIMEOUT_MS` defines when #150 reconciliation must consider a `PENDING_CREDIT` row stale;
+creation never rejects it merely because the timer passes. `created_at`, status, and the existing
+`orders_status_created_idx` provide the durable discovery boundary that recovery will consume.
 
 The first migration includes a deterministic demonstration errand at
 `00000000-0000-4000-8000-000000000129`; after Compose is healthy, an authenticated caller can retrieve
@@ -214,12 +229,19 @@ Run these from the repository root.
 | `NODE_ENV`     | `development`   | `development` \| `test` \| `production` |
 | `LOG_LEVEL`    | `info`          | Defaults to `info`                      |
 | `DATABASE_URL` | `postgres://…`   | Order-owned PostgreSQL database         |
+| `SUPPLIER_SERVICE_URL` | `http://localhost:3002` | Supplier validation and snapshot reads |
+| `CREDIT_WAIT_TIMEOUT_MS` | `300000` | Age at which pending credit needs reconciliation |
+| `ACCEPTANCE_WINDOW_MS` | `3600000` | Deadline started when reservation succeeds |
 
 A missing required variable stops the service at boot and names the variable.
 Nothing falls back to an insecure default.
 
 ```bash
-SERVICE_NAME=order-service PORT=3003 DATABASE_URL=postgres://order_service:order_service_dev@localhost:55432/foc_order npm run dev:order
+SERVICE_NAME=order-service PORT=3003 \
+  DATABASE_URL=postgres://order_service:order_service_dev@localhost:55432/foc_order \
+  SUPPLIER_SERVICE_URL=http://localhost:3002 \
+  CREDIT_WAIT_TIMEOUT_MS=300000 ACCEPTANCE_WINDOW_MS=3600000 \
+  npm run dev:order
 curl -i http://localhost:3003/health
 ```
 
