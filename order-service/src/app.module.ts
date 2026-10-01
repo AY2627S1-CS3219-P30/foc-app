@@ -63,6 +63,7 @@ const eventModules = env.RABBITMQ_URL
       provide: LIFECYCLE_SCHEDULER_OPTIONS,
       useValue: {
         pickupTimeoutMs: env.PICKUP_TIMEOUT_MS,
+        creditWaitTimeoutMs: env.CREDIT_WAIT_TIMEOUT_MS,
         intervalMs: env.LIFECYCLE_SWEEP_INTERVAL_MS,
       },
     },

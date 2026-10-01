@@ -190,6 +190,35 @@ export class OrdersService {
     );
   }
 
+  /** The private status history, for the order's participants and its referred administrator. */
+  async history(orderId: string, caller: AuthContext) {
+    const order = await this.orders.findById(orderId);
+    const projected = order ? projectOrder(order, caller) : null;
+    if (!order || !projected) throw notFound();
+    if (!projected.deliveryInstructions) {
+      throw new ApiException(
+        403,
+        'PRIVATE_ORDER_FORBIDDEN',
+        'Only an order participant or its referred administrator may read the status history.',
+      );
+    }
+    return { orderId, entries: await this.orders.findHistory(orderId) };
+  }
+
+  /** Orders waiting for Credit beyond the configured period, for operators (OS-FR1.1.3). */
+  async creditWaitExceeded(creditWaitTimeoutMs: number) {
+    const now = await this.orders.databaseNow();
+    const items = await this.orders.listCreditWaitExceeded(
+      new Date(now.getTime() - creditWaitTimeoutMs),
+    );
+    return {
+      items: items.map((item) => ({
+        ...item,
+        waitingMs: now.getTime() - new Date(item.createdAt).getTime(),
+      })),
+    };
+  }
+
   /** The completion receipt, for the order's participants and its referred administrator. */
   async receipt(orderId: string, caller: AuthContext): Promise<OrderReceipt> {
     const order = await this.orders.findById(orderId);

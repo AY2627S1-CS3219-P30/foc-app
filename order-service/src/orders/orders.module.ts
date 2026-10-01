@@ -2,6 +2,7 @@ import { Module, type DynamicModule } from '@nestjs/common';
 import { LOGGER, PgDb, type PgDbOptions } from '@foc/platform';
 import { env } from '../config.js';
 import { ORDER_DB } from '../db/db.js';
+import { AdminOrdersController } from './admin-orders.controller.js';
 import { OrdersController } from './orders.controller.js';
 import { OrdersRepository } from './orders.repository.js';
 import { OrdersService } from './orders.service.js';
@@ -12,7 +13,7 @@ export class OrdersModule {
   static forRoot(): DynamicModule {
     return {
       module: OrdersModule,
-      controllers: [OrdersController],
+      controllers: [OrdersController, AdminOrdersController],
       providers: [
         OrdersRepository,
         OrdersService,

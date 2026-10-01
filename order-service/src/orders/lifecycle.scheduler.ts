@@ -14,6 +14,8 @@ export const LIFECYCLE_SCHEDULER_OPTIONS = Symbol('LIFECYCLE_SCHEDULER_OPTIONS')
 
 export interface LifecycleSchedulerOptions {
   pickupTimeoutMs: number;
+  /** After this long in PENDING_CREDIT an order is surfaced to an operator (OS-FR1.1.3). */
+  creditWaitTimeoutMs: number;
   intervalMs: number;
   batchSize?: number;
 }
@@ -22,6 +24,7 @@ export interface SweepResult {
   expired: number;
   pickupTimedOut: number;
   skipped: number;
+  creditWaitAlerts: number;
 }
 
 /** Thrown inside a transition to skip an order whose timer is no longer due once locked. */
@@ -65,7 +68,7 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
     this.running = this.sweep();
     try {
       const result = await this.running;
-      if (result.expired + result.pickupTimedOut > 0) {
+      if (result.expired + result.pickupTimedOut + result.creditWaitAlerts > 0) {
         this.logger.log({ ...result, msg: 'lifecycle timers applied' });
       }
     } catch (err) {
@@ -78,7 +81,7 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
   async sweep(): Promise<SweepResult> {
     const now = await this.orders.databaseNow();
     const limit = this.options.batchSize ?? 100;
-    const result: SweepResult = { expired: 0, pickupTimedOut: 0, skipped: 0 };
+    const result: SweepResult = { expired: 0, pickupTimedOut: 0, skipped: 0, creditWaitAlerts: 0 };
 
     for (const orderId of await this.orders.findOverdueOpen(now, limit)) {
       const applied = await this.fire(orderId, 'ACCEPTANCE_DEADLINE_PASSED', now, (order) => {
@@ -96,6 +99,19 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
         if (!order.acceptedAt || new Date(order.acceptedAt) > cutoff) throw new NotDue();
       });
       result[applied ? 'pickupTimedOut' : 'skipped'] += 1;
+    }
+
+    // Surfaced, never rejected: the reservation may still arrive and open the order.
+    const waitCutoff = new Date(now.getTime() - this.options.creditWaitTimeoutMs);
+    for (const alert of await this.orders.raiseCreditWaitAlerts(waitCutoff, limit)) {
+      result.creditWaitAlerts += 1;
+      this.logger.warn({
+        orderId: alert.orderId,
+        createdAt: alert.createdAt,
+        waitingMs: now.getTime() - new Date(alert.createdAt).getTime(),
+        alert: 'CREDIT_WAIT_EXCEEDED',
+        msg: 'order still waiting for the Credit Service; operator attention needed',
+      });
     }
     return result;
   }

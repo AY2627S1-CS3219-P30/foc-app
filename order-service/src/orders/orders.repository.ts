@@ -223,6 +223,98 @@ export class OrdersRepository {
     return result.rows.map((row) => row.order_id);
   }
 
+  /**
+   * Raises the CREDIT_WAIT_EXCEEDED operator alert for every order that has waited in
+   * PENDING_CREDIT since before `cutoff` and has none yet (OS-FR1.1.3). Returns only the alerts
+   * raised by this call, so each order is surfaced once. The order itself is never changed:
+   * the reservation may still arrive.
+   */
+  async raiseCreditWaitAlerts(
+    cutoff: Date,
+    limit = 100,
+  ): Promise<Array<{ orderId: string; createdAt: string; raisedAt: string }>> {
+    const result = await this.db.query<
+      { order_id: string; created_at: Date | string; raised_at: Date | string } & Row
+    >(
+      `INSERT INTO order_operator_alerts (order_id, kind, raised_at, detail)
+       SELECT order_id, 'CREDIT_WAIT_EXCEEDED', now(),
+              jsonb_build_object('createdAt', created_at, 'requesterId', requester_id)
+         FROM orders
+        WHERE status = 'PENDING_CREDIT' AND created_at <= $1
+          AND NOT EXISTS (
+            SELECT 1 FROM order_operator_alerts a
+             WHERE a.order_id = orders.order_id AND a.kind = 'CREDIT_WAIT_EXCEEDED')
+        ORDER BY created_at, order_id
+        LIMIT $2
+       ON CONFLICT (order_id, kind) DO NOTHING
+       RETURNING order_id, (detail->>'createdAt')::timestamptz AS created_at, raised_at`,
+      [cutoff.toISOString(), limit],
+    );
+    return result.rows.map((row) => ({
+      orderId: row.order_id,
+      createdAt: iso(row.created_at),
+      raisedAt: iso(row.raised_at),
+    }));
+  }
+
+  /** Orders still waiting for Credit since before `cutoff`, for the operator view. */
+  async listCreditWaitExceeded(cutoff: Date, limit = 100) {
+    const result = await this.db.query<
+      {
+        order_id: string;
+        requester_id: string;
+        reward: number;
+        created_at: Date | string;
+        raised_at: Date | string | null;
+      } & Row
+    >(
+      `SELECT o.order_id, o.requester_id, o.reward, o.created_at, a.raised_at
+         FROM orders o
+         LEFT JOIN order_operator_alerts a
+           ON a.order_id = o.order_id AND a.kind = 'CREDIT_WAIT_EXCEEDED'
+        WHERE o.status = 'PENDING_CREDIT' AND o.created_at <= $1
+        ORDER BY o.created_at, o.order_id
+        LIMIT $2`,
+      [cutoff.toISOString(), limit],
+    );
+    return result.rows.map((row) => ({
+      orderId: row.order_id,
+      requesterId: row.requester_id,
+      reward: Number(row.reward),
+      createdAt: iso(row.created_at),
+      alertRaisedAt: row.raised_at ? iso(row.raised_at) : null,
+    }));
+  }
+
+  async findHistory(orderId: string) {
+    const result = await this.db.query<
+      {
+        previous_status: OrderStatus | null;
+        new_status: OrderStatus;
+        action: string;
+        actor_type: string;
+        actor_id: string | null;
+        order_version: number;
+        occurred_at: Date | string;
+      } & Row
+    >(
+      `SELECT previous_status, new_status, action, actor_type, actor_id, order_version, occurred_at
+         FROM order_status_history
+        WHERE order_id = $1
+        ORDER BY order_version`,
+      [orderId],
+    );
+    return result.rows.map((row) => ({
+      previousStatus: row.previous_status,
+      newStatus: row.new_status,
+      action: row.action,
+      actorType: row.actor_type,
+      actorId: row.actor_id,
+      version: Number(row.order_version),
+      occurredAt: iso(row.occurred_at),
+    }));
+  }
+
   /** Durable discovery boundary for #150; it never changes or rejects the order itself. */
   async findStalePendingCredit(
     cutoff: Date,
