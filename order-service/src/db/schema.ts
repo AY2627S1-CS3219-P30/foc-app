@@ -40,6 +40,8 @@ export const orders = pgTable(
     deliveredAt: timestamp('delivered_at', { withTimezone: true }),
     completionRequestedAt: timestamp('completion_requested_at', { withTimezone: true }),
     completedAt: timestamp('completed_at', { withTimezone: true }),
+    releaseRequestedAt: timestamp('release_requested_at', { withTimezone: true }),
+    releasedAt: timestamp('released_at', { withTimezone: true }),
     creditTransactionId: uuid('credit_transaction_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -71,6 +73,10 @@ export const orders = pgTable(
       sql`${t.status} <> 'COMPLETED' OR (${t.completedAt} IS NOT NULL AND ${t.creditTransactionId} IS NOT NULL)`,
     ),
     check(
+      'orders_released_shape',
+      sql`${t.status} NOT IN ('CANCELLED', 'EXPIRED') OR (${t.releasedAt} IS NOT NULL AND ${t.creditTransactionId} IS NOT NULL AND ${t.releaseReason} IS NOT NULL)`,
+    ),
+    check(
       'orders_rejection_shape',
       sql`(${t.status} = 'REJECTED') = (${t.rejectionReason} IS NOT NULL)`,
     ),
@@ -78,6 +84,9 @@ export const orders = pgTable(
     index('orders_requester_created_idx').on(t.requesterId, t.createdAt),
     index('orders_courier_created_idx').on(t.courierId, t.createdAt),
     index('orders_referred_admin_created_idx').on(t.referredAdminId, t.createdAt),
+    index('orders_accepted_at_idx')
+      .on(t.acceptedAt)
+      .where(sql`${t.status} = 'ACCEPTED'`),
     index('orders_open_deadline_idx')
       .on(t.acceptanceDeadlineAt, t.createdAt)
       .where(sql`${t.status} = 'OPEN'`),
