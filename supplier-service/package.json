@@ -2,7 +2,7 @@
   "name": "@foc/supplier-service",
   "version": "0.1.0",
   "private": true,
-  "description": "FoC Supplier Service — campus supplier catalogue",
+  "description": "FoC Supplier Service \u2014 campus supplier catalogue",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -29,6 +29,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
+    "@foc/test-harness": "*",
     "@nestjs/testing": "^12.0.3",
     "@types/papaparse": "^5.5.2",
     "@types/supertest": "^6.0.2",

@@ -95,7 +95,9 @@ Run from the repository root after `npm ci`:
 | `npm run build -w @foc/credit-service`       | Build runtime and migration entry point        |
 
 Required variables are `SERVICE_NAME`, `PORT`, `DATABASE_URL`, `USER_SERVICE_URL`,
-`INTERNAL_SERVICE_KEY` (outbound User lookup) and `INTERNAL_SERVICE_KEYS` (inbound Credit callers);
+`INTERNAL_SERVICE_KEY` (outbound User lookup) and `INTERNAL_SERVICE_KEYS` (inbound Credit callers;
+it must include Order's `INTERNAL_SERVICE_KEY`, which Order's reconciliation job (CRD-07) presents
+to read `/internal/orders/{orderId}/credit-status`);
 `RABBITMQ_URL` enables consumption and outbox relay. Shared variables are
 documented in [`.env.example`](../.env.example). A missing required value stops startup.
 
@@ -113,9 +115,11 @@ docker build -f credit-service/Dockerfile -t foc/credit-service .
 ```
 
 The normal suite uses PGlite and skips the separate-connection concurrency case. Run that case
-against a disposable real PostgreSQL database (CI does this automatically):
+against real PostgreSQL by pointing `TEST_POSTGRES_URL` at a role that may create databases; the
+shared test harness creates, migrates and drops a uniquely named database per run (CI does this
+automatically, see [docs/testing.md](../docs/testing.md)):
 
 ```bash
-TEST_CREDIT_DATABASE_URL=postgres://postgres:postgres_dev@localhost:55432/foc_credit_test \
+TEST_POSTGRES_URL=postgres://postgres:postgres_dev@localhost:55432/postgres \
   npm test -w @foc/credit-service
 ```

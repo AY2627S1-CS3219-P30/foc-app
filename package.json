@@ -7,15 +7,20 @@
   },
   "workspaces": [
     "platform",
+    "test-harness",
     "user-service",
     "auth-client",
     "supplier-service",
     "order-service",
-    "credit-service"
+    "credit-service",
+    "system-tests"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:contract": "npm run contracts:compat -w @foc/test-harness && npm test -w @foc/test-harness -- contracts compat && npm test --workspaces --if-present -- --passWithNoTests .contract.test",
+    "test:concurrency": "npm test --workspaces --if-present -- --passWithNoTests .postgres.test",
+    "contracts:events": "npm run contracts:events -w @foc/test-harness",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,mjs,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,mjs,json,md}\"",

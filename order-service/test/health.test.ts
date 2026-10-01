@@ -1,15 +1,18 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CORRELATION_HEADER, ErrorEnvelopeFilter } from '@foc/platform';
 import { AppModule } from '../src/app.module.js';
+import { LifecycleScheduler } from '../src/orders/lifecycle.scheduler.js';
 
 describe('order-service', () => {
   let app: INestApplication;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    // There is no database here; the scheduler has its own tests.
+    vi.spyOn(moduleRef.get(LifecycleScheduler), 'onApplicationBootstrap').mockReturnValue();
     app = moduleRef.createNestApplication();
     app.useGlobalFilters(new ErrorEnvelopeFilter());
     await app.init();

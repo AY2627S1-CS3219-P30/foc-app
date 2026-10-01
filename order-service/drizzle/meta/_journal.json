@@ -15,6 +15,62 @@
       "when": 1790828210814,
       "tag": "0001_tricky_spiral",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790830315077,
+      "tag": "0002_jazzy_whizzer",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790835882930,
+      "tag": "0003_fulfilment_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790835883233,
+      "tag": "0004_immutable_receipts",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790836415333,
+      "tag": "0005_release_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790836829571,
+      "tag": "0006_operator_alerts",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790836829873,
+      "tag": "0007_operator_alerts_append_only",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790838996653,
+      "tag": "0008_reconciliation",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790838997111,
+      "tag": "0009_reconciliation_append_only",
+      "breakpoints": true
     }
   ]
 }

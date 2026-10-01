@@ -21,6 +21,8 @@ export const createOrderSchema = z
 
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 
+const acceptOrderSchema = z.object({ expectedVersion: z.number().int().positive() }).strict();
+
 export function parseCreateOrder(value: unknown): CreateOrderInput {
   const result = createOrderSchema.safeParse(value);
   if (result.success) return result.data;
@@ -34,6 +36,19 @@ export function parseCreateOrder(value: unknown): CreateOrderInput {
       message: issue.message,
     })),
   );
+}
+
+export function parseAcceptOrder(value: unknown): { expectedVersion: number } {
+  const result = acceptOrderSchema.safeParse(value);
+  if (!result.success) {
+    throw new ApiException(
+      422,
+      'VALIDATION_FAILED',
+      'The acceptance request is invalid.',
+      result.error.issues,
+    );
+  }
+  return result.data;
 }
 
 export function parseIdempotencyKey(value: string | undefined): string {

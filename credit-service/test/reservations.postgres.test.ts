@@ -1,25 +1,35 @@
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PgDb, runDrizzleMigrations } from '@foc/platform';
+import type { PgDb } from '@foc/platform';
+import {
+  createEphemeralPostgres,
+  TEST_POSTGRES_URL,
+  type EphemeralPostgres,
+} from '@foc/test-harness';
 import { CreditRepository } from '../src/credits/credit.repository.js';
 
-const DATABASE = process.env.TEST_CREDIT_DATABASE_URL;
-const suite = DATABASE ? describe : describe.skip;
+const suite = TEST_POSTGRES_URL ? describe : describe.skip;
 
 suite('reservation concurrency on real PostgreSQL', () => {
+  let database: EphemeralPostgres;
   let db: PgDb;
   let credits: CreditRepository;
 
   beforeAll(async () => {
-    db = new PgDb(DATABASE!);
-    await runDrizzleMigrations(DATABASE!, fileURLToPath(new URL('../drizzle', import.meta.url)));
+    // A fresh migrated database per run: no shared developer data, safe to rerun (#145).
+    database = await createEphemeralPostgres({
+      adminUrl: TEST_POSTGRES_URL!,
+      label: 'credit',
+      migrationsFolder: fileURLToPath(new URL('../drizzle', import.meta.url)),
+    });
+    db = database.db;
     // Nest normally supplies this token; this focused integration test drives
     // the same repository against a real pool with several connections.
     credits = new CreditRepository(db);
   });
 
-  afterAll(async () => db?.close());
+  afterAll(async () => database?.dispose());
 
   it('serializes conditional debits so only one overspending request succeeds', async () => {
     const userId = randomUUID();

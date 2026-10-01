@@ -16,6 +16,11 @@ export default defineConfig({
       SUPPLIER_SERVICE_URL: 'http://supplier-service.test',
       CREDIT_WAIT_TIMEOUT_MS: '300000',
       ACCEPTANCE_WINDOW_MS: '3600000',
+      PICKUP_TIMEOUT_MS: '1800000',
+      LIFECYCLE_SWEEP_INTERVAL_MS: '10000',
+      CREDIT_SERVICE_URL: 'http://credit-service.test',
+      RECONCILE_INTERVAL_MS: '60000',
+      RECONCILE_RETRY_MS: '300000',
       // Satisfy @foc/auth-client's config at import time; no test opens a connection to them.
       USER_SERVICE_URL: 'http://user-service.test',
       INTERNAL_SERVICE_KEY: 'test-internal-key-0123456789',

@@ -14,6 +14,19 @@ export const env = loadEnv({
   SUPPLIER_SERVICE_URL: z.url(),
   CREDIT_WAIT_TIMEOUT_MS: z.coerce.number().int().positive(),
   ACCEPTANCE_WINDOW_MS: z.coerce.number().int().positive(),
+  /** An ACCEPTED order with no pickup this long after acceptance loses its courier (OS-FR6.1.3). */
+  PICKUP_TIMEOUT_MS: z.coerce.number().int().positive(),
+  /**
+   * How often the lifecycle scheduler looks for due timers. At most 60 s, so a rule that fell due
+   * while the service was down takes effect within 60 s of it becoming ready (OS-NFR3.1.1).
+   */
+  LIFECYCLE_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().max(60_000),
+  /** Credit's base URL, for its read-only /internal/orders/{id}/credit-status (CRD-07). */
+  CREDIT_SERVICE_URL: z.url(),
+  /** How often the reconciliation job looks for workflows stuck waiting on Credit. */
+  RECONCILE_INTERVAL_MS: z.coerce.number().int().positive(),
+  /** The least time between two repair attempts for the same order. */
+  RECONCILE_RETRY_MS: z.coerce.number().int().positive(),
   ...authEnvSchema,
 });
 

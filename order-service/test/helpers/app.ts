@@ -28,6 +28,14 @@ const identities: Record<string, AuthContext> = {
     status: 'ACTIVE',
     isAdmin: false,
   },
+  bystander: {
+    userId: 'bystander-student',
+    sessionId: 'bystander-session',
+    displayName: 'Bystander Student',
+    roles: ['STUDENT'],
+    status: 'ACTIVE',
+    isAdmin: false,
+  },
   admin: {
     userId: 'admin-1',
     sessionId: 'admin-session',
@@ -36,6 +44,22 @@ const identities: Record<string, AuthContext> = {
     status: 'ACTIVE',
     isAdmin: true,
   },
+  'other-admin': {
+    userId: 'admin-2',
+    sessionId: 'other-admin-session',
+    displayName: 'Other Admin',
+    roles: ['STUDENT', 'ADMIN'],
+    status: 'ACTIVE',
+    isAdmin: true,
+  },
+  suspended: {
+    userId: 'suspended-student',
+    sessionId: 'suspended-session',
+    displayName: 'Suspended Student',
+    roles: ['STUDENT'],
+    status: 'SUSPENDED',
+    isAdmin: false,
+  },
 };
 
 const fakeAuthenticator = {
@@ -43,7 +67,10 @@ const fakeAuthenticator = {
     if (!header) throw authFailure('TOKEN_MISSING');
     const token = /^Bearer\s+(\S+)$/i.exec(header)?.[1];
     if (!token || !identities[token]) throw authFailure('TOKEN_INVALID');
-    return identities[token];
+    const identity = identities[token];
+    if (identity.status === 'SUSPENDED') throw authFailure('ACCOUNT_SUSPENDED');
+    if (identity.status !== 'ACTIVE') throw authFailure('ACCOUNT_NOT_ACTIVATED');
+    return identity;
   },
   requireAdmin(context: AuthContext): void {
     if (!context.isAdmin) throw authFailure('FORBIDDEN');
@@ -112,4 +139,7 @@ export async function createTestApp(
 export const http = (testApp: TestApp) => request(testApp.app.getHttpServer());
 export const asRequester = 'Bearer requester';
 export const asStranger = 'Bearer stranger';
+export const asBystander = 'Bearer bystander';
 export const asAdmin = 'Bearer admin';
+export const asOtherAdmin = 'Bearer other-admin';
+export const asSuspended = 'Bearer suspended';
