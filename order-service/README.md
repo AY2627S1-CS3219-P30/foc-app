@@ -122,9 +122,9 @@ representation without improving the current guard model. Revisit this if parall
 introduced.
 
 `GET /orders/:id` returns an authenticated projection. Exact delivery instructions and participant IDs
-are visible only to the requester, assigned courier, or an administrator. `PENDING_CREDIT` and
-`REJECTED` errands are private to their requester (and administrators), and absent resources and
-private resources both return `404` to avoid revealing their existence. The complete schema is in
+are visible only to the requester, assigned courier, or the administrator named by a referral.
+`PENDING_CREDIT` and `REJECTED` errands are private to their requester, and absent resources and
+hidden private resources both return `404` to avoid revealing their existence. The complete schema is in
 `contracts/order-service.openapi.yaml`.
 
 `POST /orders` requires an active authenticated requester and an `Idempotency-Key`. It validates the
@@ -140,6 +140,21 @@ The transactional inbox and business-state check make 100 duplicate replies one 
 `CREDIT_WAIT_TIMEOUT_MS` defines when #150 reconciliation must consider a `PENDING_CREDIT` row stale;
 creation never rejects it merely because the timer passes. `created_at`, status, and the existing
 `orders_status_created_idx` provide the durable discovery boundary that recovery will consume.
+
+`GET /orders` returns at most 100 unexpired `OPEN` errands ordered by acceptance deadline. Its
+structured item summary omits item notes, exact delivery instructions, participant IDs, and every
+pending or rejected order. `GET /orders/:id` gives that same public projection to an unrelated
+student. A caller can explicitly request `?view=private`; only the requester, assigned courier, or
+the administrator named in `referred_admin_id` receives it, and every other caller receives `403`.
+ORD-11 (#171) owns setting the referral owner and deciding the dispute; this read surface only
+enforces the authorization boundary.
+
+`POST /orders/:id/accept` requires the version observed during discovery. A single conditional
+`UPDATE` checks `OPEN`, that exact version, a live deadline, and that the courier is not the
+requester. The winner becomes the sole courier at version + 1; history and the privacy-safe status
+event commit in the same transaction. Every loser receives `409` with the current status and
+version. Authentication fails closed for suspended accounts, and acceptance deliberately performs
+no Credit balance check: a zero-credit student must be able to earn credits by delivering.
 
 The first migration includes a deterministic demonstration errand at
 `00000000-0000-4000-8000-000000000129`; after Compose is healthy, an authenticated caller can retrieve
@@ -216,7 +231,7 @@ Run these from the repository root.
 | ----------------------------------------- | ----------------------------- |
 | `npm run dev:order`                       | Start with reload on change   |
 | `npm run build -w @foc/order-service`     | Compile TypeScript to `dist/` |
-| `npm test -w @foc/order-service`          | Run this service's tests      |
+| `npm test -w @foc/order-service`          | Run PGlite tests and, with `TEST_ORDER_DATABASE_URL`, the real PostgreSQL 100-courier race |
 | `npm run typecheck -w @foc/order-service` | Type-check without emitting   |
 | `npm run lint`                            | Lint every service            |
 

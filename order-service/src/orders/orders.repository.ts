@@ -8,13 +8,20 @@ import {
   type Row,
 } from '@foc/platform';
 import { ORDER_DB, type OrderDatabase } from '../db/db.js';
-import type { OrderRow, OrderStatus, SupplierSnapshot, OrderItem } from './types.js';
+import type {
+  OpenOrderSummary,
+  OrderRow,
+  OrderStatus,
+  SupplierSnapshot,
+  OrderItem,
+} from './types.js';
 import type { CreateOrderInput } from './validation.js';
 
 type StoredOrder = Row & {
   order_id: string;
   requester_id: string;
   courier_id: string | null;
+  referred_admin_id: string | null;
   supplier_snapshot: SupplierSnapshot;
   items: OrderItem[];
   delivery_zone: string;
@@ -39,6 +46,7 @@ const mapOrder = (row: StoredOrder): OrderRow => ({
   orderId: row.order_id,
   requesterId: row.requester_id,
   courierId: row.courier_id,
+  referredAdminId: row.referred_admin_id,
   supplierSnapshot: row.supplier_snapshot,
   items: row.items,
   deliveryZone: row.delivery_zone,
@@ -103,7 +111,7 @@ export class OrdersRepository {
 
   private async findByIdUsing(db: Queryable, orderId: string): Promise<OrderRow | undefined> {
     const result = await db.query<StoredOrder>(
-      `SELECT order_id, requester_id, courier_id, supplier_snapshot, items, delivery_zone,
+      `SELECT order_id, requester_id, courier_id, referred_admin_id, supplier_snapshot, items, delivery_zone,
               delivery_instructions, reward, status, release_reason, rejection_reason,
               available_at_rejection, version, acceptance_deadline_at, created_at, updated_at
          FROM orders
@@ -111,6 +119,38 @@ export class OrdersRepository {
       [orderId],
     );
     return result.rows[0] ? mapOrder(result.rows[0]) : undefined;
+  }
+
+  async listOpen(now = new Date()): Promise<OpenOrderSummary[]> {
+    const result = await this.db.query<StoredOrder>(
+      `SELECT order_id, requester_id, courier_id, referred_admin_id, supplier_snapshot, items,
+              delivery_zone, delivery_instructions, reward, status, release_reason,
+              rejection_reason, available_at_rejection, version, acceptance_deadline_at,
+              created_at, updated_at
+         FROM orders
+        WHERE status = 'OPEN' AND acceptance_deadline_at > $1
+        ORDER BY acceptance_deadline_at, created_at, order_id
+        LIMIT 100`,
+      [now.toISOString()],
+    );
+    return result.rows.map((stored) => {
+      const order = mapOrder(stored);
+      return {
+        orderId: order.orderId,
+        supplier: order.supplierSnapshot,
+        itemSummary: order.items.map(({ name, quantity }) => ({ name, quantity })),
+        deliveryZone: order.deliveryZone,
+        reward: order.reward,
+        status: 'OPEN',
+        version: order.version,
+        acceptanceDeadlineAt: order.acceptanceDeadlineAt!,
+        timeRemainingSeconds: Math.max(
+          0,
+          Math.ceil((new Date(order.acceptanceDeadlineAt!).getTime() - now.getTime()) / 1000),
+        ),
+        createdAt: order.createdAt,
+      };
+    });
   }
 
   async findIdempotent(
@@ -230,7 +270,7 @@ export class OrdersRepository {
 
   async applyReservationResult(tx: Queryable, input: ReservationResultInput): Promise<boolean> {
     const result = await tx.query<StoredOrder>(
-      `SELECT order_id, requester_id, courier_id, supplier_snapshot, items, delivery_zone,
+      `SELECT order_id, requester_id, courier_id, referred_admin_id, supplier_snapshot, items, delivery_zone,
               delivery_instructions, reward, status, release_reason, rejection_reason,
               available_at_rejection, version, acceptance_deadline_at, created_at, updated_at
          FROM orders
@@ -309,5 +349,52 @@ export class OrdersRepository {
       },
     });
     return true;
+  }
+
+  async accept(
+    orderId: string,
+    courierId: string,
+    expectedVersion: number,
+    correlationId: string,
+  ): Promise<{ accepted: true; order: OrderRow } | { accepted: false; order?: OrderRow }> {
+    return this.db.transaction(async (tx) => {
+      const updated = await tx.query<StoredOrder>(
+        `UPDATE orders
+            SET courier_id = $2, status = 'ACCEPTED', version = version + 1,
+                updated_at = now()
+          WHERE order_id = $1
+            AND status = 'OPEN'
+            AND version = $3
+            AND requester_id <> $2
+            AND acceptance_deadline_at > now()
+        RETURNING *`,
+        [orderId, courierId, expectedVersion],
+      );
+      if (!updated.rows[0]) {
+        return { accepted: false, order: await this.findByIdUsing(tx, orderId) };
+      }
+
+      const order = mapOrder(updated.rows[0]);
+      const occurredAt = order.updatedAt;
+      await tx.query(
+        `INSERT INTO order_status_history
+           (history_id, order_id, previous_status, new_status, action, actor_type, actor_id,
+            order_version, occurred_at)
+         VALUES ($1, $2, 'OPEN', 'ACCEPTED', 'ACCEPT', 'STUDENT', $3, $4, $5)`,
+        [randomUUID(), orderId, courierId, order.version, occurredAt],
+      );
+      await insertOutboxEvent(tx, {
+        eventType: EVENTS.ORDER_STATUS_CHANGED,
+        aggregateId: orderId,
+        correlationId,
+        payload: {
+          orderId,
+          previousStatus: 'OPEN',
+          newStatus: 'ACCEPTED',
+          occurredAt,
+        },
+      });
+      return { accepted: true, order };
+    });
   }
 }

@@ -4,7 +4,7 @@ import type { AuthContext } from '@foc/auth-client';
 import { ApiException } from '@foc/platform';
 import { IdempotencyKeyReusedError, OrdersRepository } from './orders.repository.js';
 import { SupplierClient } from './supplier.client.js';
-import type { OrderRow, OrderView } from './types.js';
+import type { OpenOrderSummary, OrderRow, OrderView } from './types.js';
 import type { CreateOrderInput } from './validation.js';
 
 const notFound = () => new ApiException(404, 'NOT_FOUND', 'Order not found.');
@@ -15,13 +15,14 @@ export function projectOrder(
 ): OrderView | null {
   const isRequester = caller.userId === order.requesterId;
   const isCourier = caller.userId === order.courierId;
-  const isParticipant = isRequester || isCourier || caller.isAdmin;
+  const isReferredAdmin = caller.isAdmin && caller.userId === order.referredAdminId;
+  const canReadPrivate = isRequester || isCourier || isReferredAdmin;
 
   // Pending and rejected requests are private to their requester (and admins).
   if (
     (order.status === 'PENDING_CREDIT' || order.status === 'REJECTED') &&
     !isRequester &&
-    !caller.isAdmin
+    !isReferredAdmin
   ) {
     return null;
   }
@@ -29,7 +30,9 @@ export function projectOrder(
   return {
     orderId: order.orderId,
     supplier: order.supplierSnapshot,
-    items: order.items,
+    items: canReadPrivate
+      ? order.items
+      : order.items.map(({ name, quantity }) => ({ name, quantity })),
     deliveryZone: order.deliveryZone,
     reward: order.reward,
     status: order.status,
@@ -37,14 +40,14 @@ export function projectOrder(
     acceptanceDeadlineAt: order.acceptanceDeadlineAt,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
-    ...(isParticipant
+    ...(canReadPrivate
       ? {
           requesterId: order.requesterId,
           ...(order.courierId ? { courierId: order.courierId } : {}),
           deliveryInstructions: order.deliveryInstructions,
         }
       : {}),
-    ...(order.status === 'REJECTED' && isParticipant && order.rejectionReason
+    ...(order.status === 'REJECTED' && canReadPrivate && order.rejectionReason
       ? {
           rejection: {
             reason: order.rejectionReason,
@@ -64,12 +67,75 @@ export class OrdersService {
     @Inject(SupplierClient) private readonly suppliers: SupplierClient,
   ) {}
 
-  async getById(orderId: string, caller: AuthContext): Promise<OrderView> {
+  async listOpen(): Promise<OpenOrderSummary[]> {
+    return this.orders.listOpen();
+  }
+
+  async getById(orderId: string, caller: AuthContext, privateView = false): Promise<OrderView> {
     const order = await this.orders.findById(orderId);
     if (!order) throw notFound();
     const projected = projectOrder(order, caller);
     if (!projected) throw notFound();
+    if (privateView && !projected.deliveryInstructions) {
+      throw new ApiException(
+        403,
+        'PRIVATE_ORDER_FORBIDDEN',
+        'Only an order participant or its referred administrator may read private details.',
+      );
+    }
     return projected;
+  }
+
+  async accept(
+    orderId: string,
+    expectedVersion: number,
+    caller: AuthContext,
+    correlationId: string,
+  ): Promise<OrderView> {
+    const attempt = await this.orders.accept(
+      orderId,
+      caller.userId,
+      expectedVersion,
+      correlationId,
+    );
+    if (attempt.accepted) {
+      const projected = projectOrder(attempt.order, caller);
+      if (!projected) throw notFound();
+      return projected;
+    }
+
+    const current = attempt.order;
+    // A pending or rejected request is private to its requester: refuse it as missing rather
+    // than reveal that it exists, or its status, to anyone else.
+    if (!current || !projectOrder(current, caller)) throw notFound();
+    if (current.requesterId === caller.userId) {
+      throw new ApiException(
+        403,
+        'SELF_ACCEPTANCE_FORBIDDEN',
+        'A requester cannot accept their own order.',
+      );
+    }
+    const details = { status: current.status, version: current.version };
+    if (current.status !== 'OPEN') {
+      throw new ApiException(409, 'ORDER_NOT_OPEN', 'The order is no longer open.', details);
+    }
+    if (
+      !current.acceptanceDeadlineAt ||
+      new Date(current.acceptanceDeadlineAt).getTime() <= Date.now()
+    ) {
+      throw new ApiException(
+        409,
+        'ACCEPTANCE_DEADLINE_PASSED',
+        'The acceptance deadline has passed.',
+        details,
+      );
+    }
+    throw new ApiException(
+      409,
+      'ORDER_CHANGED',
+      'The order changed before it could be accepted.',
+      details,
+    );
   }
 
   async create(

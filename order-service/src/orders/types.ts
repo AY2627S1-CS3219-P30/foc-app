@@ -36,6 +36,7 @@ export interface OrderRow {
   orderId: string;
   requesterId: string;
   courierId: string | null;
+  referredAdminId: string | null;
   supplierSnapshot: SupplierSnapshot;
   items: OrderItem[];
   deliveryZone: string;
@@ -66,4 +67,17 @@ export interface OrderView {
   courierId?: string;
   deliveryInstructions?: string;
   rejection?: { reason: string; available?: number };
+}
+
+export interface OpenOrderSummary {
+  orderId: string;
+  supplier: SupplierSnapshot;
+  itemSummary: Array<Pick<OrderItem, 'name' | 'quantity'>>;
+  deliveryZone: string;
+  reward: number;
+  status: 'OPEN';
+  version: number;
+  acceptanceDeadlineAt: string;
+  timeRemainingSeconds: number;
+  createdAt: string;
 }

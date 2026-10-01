@@ -23,6 +23,7 @@ export const orders = pgTable(
     orderId: uuid('order_id').primaryKey(),
     requesterId: text('requester_id').notNull(),
     courierId: text('courier_id'),
+    referredAdminId: text('referred_admin_id'),
     supplierSnapshot: jsonb('supplier_snapshot').notNull().$type<SupplierSnapshot>(),
     items: jsonb('items').notNull().$type<OrderItem[]>(),
     deliveryZone: text('delivery_zone').notNull(),
@@ -66,6 +67,10 @@ export const orders = pgTable(
     index('orders_status_created_idx').on(t.status, t.createdAt),
     index('orders_requester_created_idx').on(t.requesterId, t.createdAt),
     index('orders_courier_created_idx').on(t.courierId, t.createdAt),
+    index('orders_referred_admin_created_idx').on(t.referredAdminId, t.createdAt),
+    index('orders_open_deadline_idx')
+      .on(t.acceptanceDeadlineAt, t.createdAt)
+      .where(sql`${t.status} = 'OPEN'`),
   ],
 );
 

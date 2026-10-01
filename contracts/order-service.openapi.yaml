@@ -24,13 +24,19 @@ paths:
       summary: Read the caller-authorized projection of one errand.
       description: |
         Exact delivery instructions and participant IDs are returned only to the requester,
-        assigned courier, or an administrator. Pending-credit and rejected errands are private to
-        their requester and administrators; other callers receive the same 404 as an unknown ID.
+        assigned courier, or the administrator specifically named by a referral. Other students
+        and unrelated administrators receive the open-list projection. Pending-credit and rejected
+        errands are private to their requester; other callers receive the same 404 as an unknown ID.
       parameters:
         - name: orderId
           in: path
           required: true
           schema: { type: string, format: uuid }
+        - name: view
+          in: query
+          required: false
+          description: Request private participant detail; unauthorized callers receive 403.
+          schema: { type: string, enum: [private] }
       responses:
         '200':
           description: The authorized order projection.
@@ -39,8 +45,23 @@ paths:
               schema: { $ref: '#/components/schemas/Order' }
         '400': { $ref: '#/components/responses/InvalidOrderId' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/PrivateForbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
   /orders:
+    get:
+      operationId: listOpenOrders
+      summary: Discover currently acceptable errands.
+      description: Returns only unexpired OPEN orders and never exposes delivery instructions or participant IDs.
+      responses:
+        '200':
+          description: Privacy-safe open-order summaries ordered by acceptance deadline.
+          content:
+            application/json:
+              schema:
+                type: array
+                maxItems: 100
+                items: { $ref: '#/components/schemas/OpenOrderSummary' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
     post:
       operationId: createOrder
       summary: Submit an errand for asynchronous credit reservation.
@@ -73,6 +94,36 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '422': { $ref: '#/components/responses/InvalidOrder' }
         '503': { $ref: '#/components/responses/DependencyUnavailable' }
+  /orders/{orderId}/accept:
+    post:
+      operationId: acceptOrder
+      summary: Atomically accept an OPEN errand.
+      description: |
+        One conditional database update checks OPEN state, expected version, requester inequality,
+        and the live deadline. It chooses one courier under contention and emits one status event.
+        No Credit balance is consulted.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AcceptOrder' }
+      responses:
+        '201':
+          description: The accepted order with participant detail for its courier.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/AcceptanceForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/AcceptanceConflict' }
+        '422': { $ref: '#/components/responses/InvalidOrder' }
 components:
   securitySchemes:
     bearerAuth:
@@ -169,6 +220,33 @@ components:
         deliveryZone: { type: string, minLength: 1, maxLength: 200 }
         deliveryInstructions: { type: string, minLength: 1, maxLength: 1000 }
         reward: { type: integer, minimum: 1, maximum: 5 }
+    OpenOrderSummary:
+      type: object
+      required: [orderId, supplier, itemSummary, deliveryZone, reward, status, version, acceptanceDeadlineAt, timeRemainingSeconds, createdAt]
+      properties:
+        orderId: { type: string, format: uuid }
+        supplier: { $ref: '#/components/schemas/SupplierSnapshot' }
+        itemSummary:
+          type: array
+          items:
+            type: object
+            required: [name, quantity]
+            properties:
+              name: { type: string }
+              quantity: { type: integer, minimum: 1 }
+        deliveryZone: { type: string }
+        reward: { type: integer, minimum: 1, maximum: 5 }
+        status: { type: string, const: OPEN }
+        version: { type: integer, minimum: 1 }
+        acceptanceDeadlineAt: { type: string, format: date-time }
+        timeRemainingSeconds: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+    AcceptOrder:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion]
+      properties:
+        expectedVersion: { type: integer, minimum: 1 }
     ErrorEnvelope:
       type: object
       required: [error]
@@ -198,6 +276,21 @@ components:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     NotFound:
       description: The order is unknown or not visible to this caller.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    PrivateForbidden:
+      description: The caller is not a participant or the administrator named by the referral.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    AcceptanceForbidden:
+      description: The caller is suspended or is the requester attempting self-acceptance.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    AcceptanceConflict:
+      description: The order is not OPEN, changed version, was already won, or its deadline passed.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }

@@ -15,6 +15,13 @@
       "when": 1790828210814,
       "tag": "0001_tricky_spiral",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790830315077,
+      "tag": "0002_jazzy_whizzer",
+      "breakpoints": true
     }
   ]
 }

@@ -74,4 +74,19 @@ describe('order-service honours its published contract', () => {
         .send({ ...order, reward: 0 }),
     );
   });
+
+  it('GET /orders and POST /orders/{orderId}/accept (201, 403, 404, 409)', async () => {
+    contract.assert(
+      'get',
+      '/orders',
+      await http(app).get('/orders').set('Authorization', asStranger),
+    );
+    const accept = (auth: string, id = SEEDED_ORDER, expectedVersion = 2) =>
+      http(app).post(`/orders/${id}/accept`).set('Authorization', auth).send({ expectedVersion });
+    const template = '/orders/{orderId}/accept';
+    contract.assert('post', template, await accept(asRequester));
+    contract.assert('post', template, await accept(asStranger, randomUUID()));
+    contract.assert('post', template, await accept(asStranger));
+    contract.assert('post', template, await accept(asStranger));
+  });
 });
