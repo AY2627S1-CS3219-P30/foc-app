@@ -13,6 +13,7 @@ TST-01 #145). Each service fills the suites with its own cases.
 | Contract                | `*.contract.test.ts` + compatibility check    | git history              | `npm run test:contract`                                 |
 | Concurrency (real DB)   | `*.postgres.test.ts`                          | `TEST_POSTGRES_URL`      | `TEST_POSTGRES_URL=… npm run test:concurrency`          |
 | Broker integration      | `*.integration.test.ts`                       | `RABBITMQ_URL`           | `RABBITMQ_URL=… npm test -w @foc/platform`              |
+| System (cross-service)  | `system-tests/test/*.test.ts`                 | `TEST_POSTGRES_URL`      | `TEST_POSTGRES_URL=… npm test -w @foc/system-tests`     |
 | End-to-end              | Owned by TST-02 (#160)                        | the Compose stack        | `./scripts-smoke.sh --up` today; journeys arrive in #160 |
 | Load                    | Owned by NTH-05 (#165)                        | the Compose stack        | Separate from CI; arrives in #165                       |
 
@@ -40,6 +41,15 @@ export TEST_POSTGRES_URL=postgres://postgres:postgres_dev@localhost:55432/postgr
 export RABBITMQ_URL=amqp://foc:foc_dev@localhost:55672
 npm test
 ```
+
+## System tests
+
+[`system-tests/`](../system-tests) runs the real Order and Credit code together. Each service gets
+its own freshly migrated PostgreSQL database, as deployed. Their outbox relays and consumers are
+connected through an in-memory bus that enforces the same producer and catalogue checks as
+RabbitMQ, and that can drop or duplicate any delivery. `Stack.start(TEST_POSTGRES_URL, label)` boots
+the pair; `settle()` relays and delivers until nothing is in flight. CI runs the suite in the
+`Shared packages` job.
 
 ## Contract checks (EI-NFR3.1.1)
 

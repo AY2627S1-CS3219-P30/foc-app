@@ -95,7 +95,9 @@ Run from the repository root after `npm ci`:
 | `npm run build -w @foc/credit-service`       | Build runtime and migration entry point        |
 
 Required variables are `SERVICE_NAME`, `PORT`, `DATABASE_URL`, `USER_SERVICE_URL`,
-`INTERNAL_SERVICE_KEY` (outbound User lookup) and `INTERNAL_SERVICE_KEYS` (inbound Credit callers);
+`INTERNAL_SERVICE_KEY` (outbound User lookup) and `INTERNAL_SERVICE_KEYS` (inbound Credit callers;
+it must include Order's `INTERNAL_SERVICE_KEY`, which Order's reconciliation job (CRD-07) presents
+to read `/internal/orders/{orderId}/credit-status`);
 `RABBITMQ_URL` enables consumption and outbox relay. Shared variables are
 documented in [`.env.example`](../.env.example). A missing required value stops startup.
 
