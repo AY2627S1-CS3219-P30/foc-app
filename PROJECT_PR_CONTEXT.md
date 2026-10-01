@@ -2,7 +2,7 @@
 
 > Living context for work assigned to `isaacchua0309` in `AY2627S1-CS3219-P30/foc-app`.
 >
-> **Snapshot:** refreshed 2026-10-01 (Asia/Singapore), `main` at `13ec0a398bd3c3e2f8ef8cb73a495d91717deec9`.
+> **Snapshot:** refreshed 2026-10-01 (Asia/Singapore), `main` at `d14a98f39eae03e439b3856329f10d8b104d8670`.
 > GitHub state and repository code should be rechecked before beginning any issue because both can change after this snapshot.
 
 ## Source handling and precedence
@@ -22,13 +22,13 @@ This context file was produced with Codex by summarizing the repository, live Gi
 
 ## GitHub inventory
 
-- **11 open issues** are assigned to `isaacchua0309`.
-- **PR [#201](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/201)** is open from `feat/183-132-133-140-143-credit-foundation` to `main`; the full CI matrix passed on implementation commit `45958eb` in [run 36767780173](https://github.com/AY2627S1-CS3219-P30/foc-app/actions/runs/36767780173), and requested human reviews are pending.
-- **Stacked PR [#202](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/202)** implements #141/#142 from `feat/141-142-credit-terminal-operations` into #201's branch. The complete manually dispatched matrix passed in [run 36771599571](https://github.com/AY2627S1-CS3219-P30/foc-app/actions/runs/36771599571). It must be retargeted to `main` after #201 merges; human review remains pending.
-- #133, #140 and #143 are linked to close on merge. #132 and #183 link the implementation but remain open for their required human approvals; #183 also awaits #186's backlog revision.
-- Three assigned Sprint 1 issues (#132, #133, #183) have a milestone due date of 2026-09-25 and remain open.
-- Implementation for #183, #132, #133, #140 and #143 is on branch `feat/183-132-133-140-143-credit-foundation`; review and merge remain pending.
-- Implementation for #141 and #142 is stacked on that foundation in `feat/141-142-credit-terminal-operations`; PR #202 is open and not merged.
+- **6 open issues** are assigned to `isaacchua0309` after #133, #140, #141, #142 and #143 closed through merged PRs.
+- **PR [#201](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/201)** merged to `main` as `a3d9cda`; #133, #140 and #143 closed automatically.
+- **PR [#202](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/202)** merged to `main` as `d14a98f`; #141 and #142 closed automatically. The exact post-retarget matrix passed in [run 36807413107](https://github.com/AY2627S1-CS3219-P30/foc-app/actions/runs/36807413107).
+- #132 and #183 remain open so their governance/documentation evidence is not falsely represented, but the repository owner explicitly authorized proceeding with the dependency tree on 2026-10-01.
+- Two assigned Sprint 1 governance issues (#132 and #183) remain open; #133 closed through PR #201.
+- Implementation for #133, #140, #141, #142 and #143 is merged on `main`.
+- #151 is in progress on `feat/151-credit-status-closed-economy` from `d14a98f`.
 
 # 1. Project Overview
 
@@ -64,19 +64,19 @@ This model is reflected in `order-service/README.md`, the event catalogue and AD
 
 # 2. Assigned Work
 
-| Issue                                                             | Feature                                                  | Status                                    | Classification             | Dependencies                                                        | Blockers                                                               | Relevant code                                                                                                        |
-| ----------------------------------------------------------------- | -------------------------------------------------------- | ----------------------------------------- | -------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| [#183](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/183) | FND-02 decision records and glossary                     | Implemented on branch; issue open         | Foundation / prerequisite  | None stated                                                         | Five-member approval, non-author review and #186 backlog update remain | `docs/adr/0002`–`0007`, `docs/domain-glossary.md`, `order-service/README.md`                                         |
-| [#132](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/132) | CRD-00 credit invariant and ledger ADR                   | Implemented on branch; issue open         | Foundation / prerequisite  | None stated                                                         | Approval by Order owner and Jonus remains                              | `docs/adr/0007-credit-invariant-and-double-entry-ledger.md`, `credit-service/src/db/schema.ts`                       |
-| [#133](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/133) | CRD-01 wallet creation and initial issuance              | Implemented on branch; issue open         | Depends on another issue   | #120/#119 satisfied; #132 implemented; #135 base merged             | Review and merge                                                       | `credit-service/src/wallet-provisioning.ts`, `credit-service/src/credits/credit.repository.ts`, migrations and tests |
-| [#140](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/140) | CRD-02 asynchronous credit reservation                   | Implemented on branch; issue open         | Depends on another issue   | #132/#133/#183 implemented on same branch; #119/#135 base satisfied | Order-side #137 integration; review and merge                          | `credit-service/src/reservation-consumer.ts`, `credit.repository.ts`, event catalogue, inbox/outbox                  |
-| [#141](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/141) | CRD-03 atomic completion transfer                        | Implemented in stacked PR #202; CI passed | Depends on another issue   | #140; uses EVT-02/#135                                              | #201 merge; #202 review/retarget/merge                                 | `credit-service/src/terminal-consumers.ts`, `credits/credit.repository.ts`, migrations and terminal-operation tests  |
-| [#142](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/142) | CRD-04 reservation release                               | Implemented in stacked PR #202; CI passed | Depends on another issue   | #140                                                                | #201 merge; #202 review/retarget/merge                                 | Same terminal consumer/repository, event contracts, migrations and concurrency tests                                 |
-| [#143](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/143) | CRD-05 wallet balance and ledger API                     | Implemented on branch; issue open         | Depends on another issue   | #133 implemented on same branch                                     | Review and merge                                                       | `credit-service/src/credits/wallets.controller.ts`, `wallets.service.ts`, `contracts/credit-service.openapi.yaml`    |
-| [#151](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/151) | CRD-06 transaction status query and closed-economy guard | Open; P0; Sprint 3; D3-critical           | Integration / finalization | #141, #142                                                          | #141 and #142; internal-service authentication approach unresolved     | Future transaction repository/query controller, contracts, deployed API audit                                        |
-| [#152](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/152) | CRD-07 credit reconciliation job                         | Open; P1; Sprint 3; N2H                   | Blocked                    | #151, external #150 ORD-09                                          | #151 and #150; job ownership across service boundary unresolved        | #151 status API, Order pending-state recovery, idempotent event commands                                             |
-| [#165](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/165) | NTH-05 concurrency/load/conservation evidence            | Open; P1; Sprint 4; N2H                   | Blocked                    | #141, #142, external #145 TST-01; inferred #138 ORD-03              | All named dependencies remain open; full runnable lifecycle absent     | Test harness, Compose, Credit ledger/domain code, Order acceptance path                                              |
-| [#172](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/172) | CRD-08 reservation timeout compensation                  | Open; P1; Sprint 2; likely superseded     | Blocked                    | #140; closure depends on #183 confirmation; related #186            | Do not implement unless #183 reverses the async decision               | No current code should be added; async design moves timeout handling to #150/#152                                    |
+| Issue                                                             | Feature                                                  | Status                                | Classification             | Dependencies                                             | Blockers                                                           | Relevant code                                                                                                        |
+| ----------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------- | -------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| [#183](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/183) | FND-02 decision records and glossary                     | Implementation merged; issue open     | Foundation / prerequisite  | None stated                                              | Recorded five-member approval and #186 evidence remain             | `docs/adr/0002`–`0007`, `docs/domain-glossary.md`, `order-service/README.md`                                         |
+| [#132](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/132) | CRD-00 credit invariant and ledger ADR                   | Implementation merged; issue open     | Foundation / prerequisite  | None stated                                              | Recorded Order-owner and Jonus approval remains                    | `docs/adr/0007-credit-invariant-and-double-entry-ledger.md`, `credit-service/src/db/schema.ts`                       |
+| [#133](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/133) | CRD-01 wallet creation and initial issuance              | Closed via merged PR #201             | Depends on another issue   | Satisfied                                                | None                                                               | `credit-service/src/wallet-provisioning.ts`, `credit-service/src/credits/credit.repository.ts`, migrations and tests |
+| [#140](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/140) | CRD-02 asynchronous credit reservation                   | Closed via merged PR #201             | Depends on another issue   | Satisfied                                                | Order-side #137 integration remains external                       | `credit-service/src/reservation-consumer.ts`, `credit.repository.ts`, event catalogue, inbox/outbox                  |
+| [#141](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/141) | CRD-03 atomic completion transfer                        | Closed via merged PR #202             | Depends on another issue   | #140 satisfied                                           | Order-side #139 remains external                                   | `credit-service/src/terminal-consumers.ts`, `credits/credit.repository.ts`, migrations and terminal-operation tests  |
+| [#142](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/142) | CRD-04 reservation release                               | Closed via merged PR #202             | Depends on another issue   | #140 satisfied                                           | Order-side #148 remains external                                   | Same terminal consumer/repository, event contracts, migrations and concurrency tests                                 |
+| [#143](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/143) | CRD-05 wallet balance and ledger API                     | Closed via merged PR #201             | Depends on another issue   | #133 satisfied                                           | None                                                               | `credit-service/src/credits/wallets.controller.ts`, `wallets.service.ts`, `contracts/credit-service.openapi.yaml`    |
+| [#151](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/151) | CRD-06 transaction status query and closed-economy guard | In progress on feature branch         | Integration / finalization | #141 and #142 merged                                     | None; ADR-0004 service-key mechanism selected                      | `credit-service/src/credits/status.*`, `closed-economy.ts`, OpenAPI and tests                                        |
+| [#152](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/152) | CRD-07 credit reconciliation job                         | Open; P1; Sprint 3; N2H               | Blocked                    | #151, external #150 ORD-09                               | #151 and #150; job ownership across service boundary unresolved    | #151 status API, Order pending-state recovery, idempotent event commands                                             |
+| [#165](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/165) | NTH-05 concurrency/load/conservation evidence            | Open; P1; Sprint 4; N2H               | Blocked                    | #141, #142, external #145 TST-01; inferred #138 ORD-03   | All named dependencies remain open; full runnable lifecycle absent | Test harness, Compose, Credit ledger/domain code, Order acceptance path                                              |
+| [#172](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/172) | CRD-08 reservation timeout compensation                  | Open; P1; Sprint 2; likely superseded | Blocked                    | #140; closure depends on #183 confirmation; related #186 | Do not implement unless #183 reverses the async decision           | No current code should be added; async design moves timeout handling to #150/#152                                    |
 
 # 3. Dependency Graph
 
@@ -452,7 +452,7 @@ Provide the authoritative Credit status for an order and prove that the deployed
 
 **Expected implementation**
 
-Add an authenticated internal status contract/controller backed by the transaction repository, document every mutation path, and add a test/audit that enumerates exposed HTTP routes and broker consumers to prove there is no bypass.
+In progress on `feat/151-credit-status-closed-economy`: an `X-Service-Key`-guarded internal controller reads the authoritative operation/transaction projection, while an explicit economic-input manifest and runtime GET-only route inventory enforce the closed-economy surface.
 
 **Dependencies**
 
@@ -461,8 +461,8 @@ Add an authenticated internal status contract/controller backed by the transacti
 
 **Blockers and uncertainties**
 
-- **UNRESOLVED:** authentication mechanism for the Order-to-Credit internal query. Reusing the User Service's key is not automatically an inbound Credit trust model.
-- `NONE` semantics must distinguish genuinely absent work from activation/reservation still in flight without inventing an economic outcome.
+- Resolved: Credit has its own inbound key allow-list and reuses ADR 0004's constant-time `X-Service-Key` mechanism. Compose supplies approved Order credentials separately from Credit's outbound User-Service key.
+- Resolved: unknown, in-flight and rejected work all have economic state `NONE`, with an explicit `detail`; only committed economic transactions receive references.
 
 **Testing considerations**
 
@@ -651,7 +651,7 @@ This must precede reservation and the full read API because both depend on the p
 
 - Broker trust model for "only Order may initiate a movement" while shared credentials remain (#183/#140).
 - Completion and release v1 payloads and recorded duplicate responses are implemented in PR #202; producer/consumer owner review is still required.
-- Internal transaction-status contract and service authentication for #151. The #143 owner/admin read contract is implemented.
+- #151 uses the accepted ADR-0004 configured service-key mechanism and exposes a read-only order-status contract; no new authentication model was introduced.
 - Operator presentation/alerting for persisted conflicting-request audit rows.
 - Ownership and contract for reconciliation scheduling between #150 and #152.
 - AI-policy compliance and disclosure for any use of this analysis in assessed requirements, architecture, or planning work.
@@ -671,12 +671,12 @@ This must precede reservation and the full read API because both depend on the p
 ```ini
 [ ] #183 — FND-02 Decision records and domain glossary — PR #201; approvals/#186 backlog update pending
 [ ] #132 — CRD-00 Credit invariant and double-entry ledger decision record — PR #201; approvals pending
-[ ] #133 — CRD-01 Wallet creation and initial credit allocation — PR #201; CI passed; review/merge pending
-[ ] #140 — CRD-02 Asynchronous credit reservation — PR #201; CI passed; Order integration/review/merge pending
-[ ] #143 — CRD-05 Wallet balance and ledger API — PR #201; CI passed; review/merge pending
-[ ] #141 — CRD-03 Atomic completion transfer — stacked PR #202; CI passed; review/#201 merge/retarget pending
-[ ] #142 — CRD-04 Reservation release — stacked PR #202; CI passed; review/#201 merge/retarget pending
-[ ] #151 — CRD-06 Transaction status query and closed-economy guard
+[x] #133 — CRD-01 Wallet creation and initial credit allocation — merged in PR #201
+[x] #140 — CRD-02 Asynchronous credit reservation — merged in PR #201
+[x] #143 — CRD-05 Wallet balance and ledger API — merged in PR #201
+[x] #141 — CRD-03 Atomic completion transfer — merged in PR #202
+[x] #142 — CRD-04 Reservation release — merged in PR #202
+[ ] #151 — CRD-06 Transaction status query and closed-economy guard — implementation in progress
 [ ] #152 — CRD-07 Credit reconciliation job
 [ ] #165 — NTH-05 Concurrency, load and credit-conservation evidence
 [ ] #172 — CRD-08 Reservation timeout compensation (expected closure as superseded)
