@@ -69,6 +69,45 @@ describe('Credit reservation result handling', () => {
     ).toBe(true);
   });
 
+  it('keeps every field of both reply shapes through the subscription schema the broker applies', async () => {
+    t = await createTestApp();
+    const sub = await subscription(t);
+    const base = { orderId: randomUUID(), requesterId: 'seed-requester', amount: 3 };
+    expect(sub.payloadSchema.parse(base)).toEqual(base);
+    const rejected = { ...base, reason: 'INSUFFICIENT_CREDITS', available: 1 };
+    expect(sub.payloadSchema.parse(rejected)).toEqual(rejected);
+  });
+
+  it('rejects an order when the rejection arrives through the schema, as from the broker', async () => {
+    t = await createTestApp();
+    const orderId = await pendingOrder(t);
+    const sub = await subscription(t);
+    const payload = sub.payloadSchema.parse({
+      orderId,
+      requesterId: 'seed-requester',
+      amount: 3,
+      reason: 'INSUFFICIENT_CREDITS',
+      available: 1,
+    });
+    await sub.handler(
+      createEnvelope({
+        eventId: randomUUID(),
+        eventType: EVENTS.CREDIT_RESERVATION_REJECTED,
+        schemaVersion: 1,
+        aggregateId: orderId,
+        producer: 'credit-service',
+        correlationId: 'corr-parsed-rejection',
+        payload,
+      }),
+      { attempt: 1, queue: RESERVATION_RESULTS_QUEUE },
+    );
+    expect(await t.orders.findById(orderId)).toMatchObject({
+      status: 'REJECTED',
+      rejectionReason: 'INSUFFICIENT_CREDITS',
+      availableAtRejection: 1,
+    });
+  });
+
   it('moves a pending order to OPEN once and starts its acceptance deadline', async () => {
     t = await createTestApp();
     const orderId = await pendingOrder(t);

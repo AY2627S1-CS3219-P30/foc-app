@@ -15,7 +15,7 @@ TST-01 #145). Each service fills the suites with its own cases.
 | Broker integration      | `*.integration.test.ts`                       | `RABBITMQ_URL`           | `RABBITMQ_URL=… npm test -w @foc/platform`              |
 | System (cross-service)  | `system-tests/test/*.test.ts`                 | `TEST_POSTGRES_URL`      | `TEST_POSTGRES_URL=… npm test -w @foc/system-tests`     |
 | End-to-end              | Owned by TST-02 (#160)                        | the Compose stack        | `./scripts-smoke.sh --up` today; journeys arrive in #160 |
-| Load                    | Owned by NTH-05 (#165)                        | the Compose stack        | Separate from CI; arrives in #165                       |
+| Load and report         | `system-tests/scripts/conservation-report.ts` | Docker (Compose)         | `npm run report:conservation` (not run in CI)           |
 
 Suites that need a real server skip themselves when their variable is unset, so `npm test` passes on
 a clean clone with nothing running. CI sets every variable, so nothing is skipped there.

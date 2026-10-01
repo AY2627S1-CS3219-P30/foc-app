@@ -28,7 +28,8 @@
     "dev:user": "npm run dev -w user-service",
     "dev:supplier": "npm run dev -w supplier-service",
     "dev:order": "npm run dev -w order-service",
-    "dev:credit": "npm run dev -w credit-service"
+    "dev:credit": "npm run dev -w credit-service",
+    "report:conservation": "docker compose up -d --wait postgres rabbitmq && TEST_POSTGRES_URL=postgres://postgres:${POSTGRES_PASSWORD:-postgres_dev}@localhost:${POSTGRES_PORT:-55432}/postgres RABBITMQ_URL=amqp://${RABBITMQ_USER:-foc}:${RABBITMQ_PASSWORD:-foc_dev}@localhost:${RABBITMQ_PORT:-55672} npm run load -w @foc/system-tests"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",

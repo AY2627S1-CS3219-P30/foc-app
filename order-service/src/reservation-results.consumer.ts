@@ -19,7 +19,10 @@ import { ORDER_DB } from './db/db.js';
 import { OrdersRepository } from './orders/orders.repository.js';
 
 export const RESERVATION_RESULTS_QUEUE = 'foc.order.reservation-results';
-const resultPayload = z.union([creditsReservedPayload, creditReservationRejectedPayload]);
+// Order matters: a union returns the first schema that accepts the payload, and a rejection also
+// satisfies the looser reserved shape, which would strip its reason and available balance. The
+// rejection schema requires `reason`, so a reserved payload falls through to the second member.
+const resultPayload = z.union([creditReservationRejectedPayload, creditsReservedPayload]);
 type ResultPayload = CreditsReservedPayload | CreditReservationRejectedPayload;
 
 @Injectable()
