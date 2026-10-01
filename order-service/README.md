@@ -312,7 +312,7 @@ Run these from the repository root.
 | ----------------------------------------- | ----------------------------- |
 | `npm run dev:order`                       | Start with reload on change   |
 | `npm run build -w @foc/order-service`     | Compile TypeScript to `dist/` |
-| `npm test -w @foc/order-service`          | Run PGlite tests and, with `TEST_ORDER_DATABASE_URL`, the real PostgreSQL 100-courier race |
+| `npm test -w @foc/order-service`          | Run PGlite tests and, with `TEST_POSTGRES_URL`, the real-PostgreSQL race, recovery and SIGKILL suites on ephemeral databases (docs/testing.md) |
 | `npm run typecheck -w @foc/order-service` | Type-check without emitting   |
 | `npm run lint`                            | Lint every service            |
 

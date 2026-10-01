@@ -8,21 +8,25 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   EVENTS,
   OutboxRelay,
-  PgDb,
   createEnvelope,
-  runDrizzleMigrations,
   withInbox,
   type EventConsumer,
   type NewEventInput,
 } from '@foc/platform';
+import type { PgDb } from '@foc/platform';
+import {
+  createEphemeralPostgres,
+  TEST_POSTGRES_URL,
+  type EphemeralPostgres,
+} from '@foc/test-harness';
 import {
   RESERVATION_RESULTS_QUEUE,
   ReservationResultsConsumer,
 } from '../src/reservation-results.consumer.js';
 import { OrdersRepository } from '../src/orders/orders.repository.js';
 
-const DATABASE = process.env.TEST_ORDER_DATABASE_URL;
-const suite = DATABASE ? describe : describe.skip;
+const suite = TEST_POSTGRES_URL ? describe : describe.skip;
+let databaseUrl = '';
 const SEEDED_ORDER = '00000000-0000-4000-8000-000000000129';
 const CHILD = fileURLToPath(new URL('./support/crash-child.ts', import.meta.url));
 
@@ -33,7 +37,7 @@ function crash(mode: 'after-commit' | 'mid-publish', env: Record<string, string>
     cwd: fileURLToPath(new URL('..', import.meta.url)),
     env: {
       ...process.env,
-      CRASH_DATABASE_URL: DATABASE!,
+      CRASH_DATABASE_URL: databaseUrl,
       CRASH_MODE: mode,
       CRASH_OUT: out,
       ...env,
@@ -46,17 +50,23 @@ function crash(mode: 'after-commit' | 'mid-publish', env: Record<string, string>
 }
 
 suite('kill-after-commit recovery on real PostgreSQL (OS-NFR4.1)', () => {
+  let database: EphemeralPostgres;
   let db: PgDb;
   let orders: OrdersRepository;
 
   beforeAll(async () => {
-    db = new PgDb(DATABASE!);
-    await runDrizzleMigrations(DATABASE!, fileURLToPath(new URL('../drizzle', import.meta.url)));
+    database = await createEphemeralPostgres({
+      adminUrl: TEST_POSTGRES_URL!,
+      label: 'order_recovery',
+      migrationsFolder: fileURLToPath(new URL('../drizzle', import.meta.url)),
+    });
+    db = database.db;
+    databaseUrl = database.url;
     orders = new OrdersRepository(db);
-    // Earlier suites may have left rows unpublished; the relays below must see only this suite's.
+    // The migration's seed rows are unpublished; the relays below must see only this suite's.
     await db.query(`UPDATE outbox_events SET published_at = now() WHERE published_at IS NULL`);
   });
-  afterAll(async () => db?.close());
+  afterAll(async () => database?.dispose());
 
   const openOrder = async () => {
     const orderId = randomUUID();
