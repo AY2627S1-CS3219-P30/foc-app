@@ -83,8 +83,11 @@ Service's address below.
 
 **Accounts are live (USR-05).** Register, activate, sign in, change password, profile and the
 requester↔courier switch call the real User Service (`src/lib/user-api.ts`, `src/lib/auth.tsx`).
-Errands, wallet and suppliers still run on the in-memory mock store (`src/lib/store.tsx`); replacing
-that is [WEB-01](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/146).
+The supplier listing calls the real Supplier Service through `src/lib/supplier-api.ts`.
+Search, type and building filters, sort order, and paging are sent to `GET /suppliers`;
+the page then retrieves each visible supplier by ID for the location and hours on its card.
+Admin create, edit, and delete use the same service with the signed-in access token.
+Errands and wallet still run on the in-memory mock store (`src/lib/store.tsx`).
 
 ### Sessions
 
@@ -115,6 +118,11 @@ holds the React state around them.
   takes it as an `ARG`; setting it on a running container does nothing). Unset, a development build
   uses `http://localhost:3001`; a production build shows a configuration error on the account
   screens rather than calling localhost. The build itself still succeeds.
+- `NEXT_PUBLIC_SUPPLIER_SERVICE_URL` is also inlined at build time. Local development defaults
+  to `http://localhost:3002`; production builds require it. The Compose build already supplies
+  the browser-facing address. To try the full stack, run `docker compose up --build` at the
+  repository root, open `http://localhost:3000/suppliers`, and sign in. Rebuild after changing
+  either service URL. The Supplier Service must allow the web app origin in `CORS_ORIGINS`.
 - **The web app and the User Service must be same-site** (same registrable domain, e.g.
   `app.example.com` and `api.example.com`; the port does not matter, so `localhost:3000` and
   `localhost:3001` are fine). The refresh cookie is `SameSite=Strict`
