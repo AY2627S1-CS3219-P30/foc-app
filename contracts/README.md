@@ -15,6 +15,12 @@ owner, one consumer owner, and Dev 3 or Dev 4 review; within v1, changes are add
 | `supplier-service.openapi.yaml` | Draft 1 — awaiting review | Patrick    |
 | `credit-service.openapi.yaml`   | Implemented               | Isaac      |
 | `order-service.openapi.yaml`    | Implemented (ORD-01 read) | Zhang Yuan |
+| `events.schema.json`            | Generated from catalogue  | —          |
+
+`events.schema.json` is generated from `platform/src/events/catalogue.ts` by `npm run
+contracts:events`; do not edit it by hand. CI fails a pull request that changes any file here
+incompatibly (removed or redefined required field, removed operation, newly required request
+field). See [docs/testing.md](../docs/testing.md#contract-checks-ei-nfr311).
 
 ## Cross-service proposals for approval (FND-03 scope)
 

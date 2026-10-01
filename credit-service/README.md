@@ -113,9 +113,11 @@ docker build -f credit-service/Dockerfile -t foc/credit-service .
 ```
 
 The normal suite uses PGlite and skips the separate-connection concurrency case. Run that case
-against a disposable real PostgreSQL database (CI does this automatically):
+against real PostgreSQL by pointing `TEST_POSTGRES_URL` at a role that may create databases; the
+shared test harness creates, migrates and drops a uniquely named database per run (CI does this
+automatically, see [docs/testing.md](../docs/testing.md)):
 
 ```bash
-TEST_CREDIT_DATABASE_URL=postgres://postgres:postgres_dev@localhost:55432/foc_credit_test \
+TEST_POSTGRES_URL=postgres://postgres:postgres_dev@localhost:55432/postgres \
   npm test -w @foc/credit-service
 ```
