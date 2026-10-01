@@ -9,11 +9,12 @@ owner, one consumer owner, and Dev 3 or Dev 4 review; within v1, changes are add
 
 ## Files
 
-| File                            | Status                    | Owner   |
-| ------------------------------- | ------------------------- | ------- |
-| `user-service.openapi.yaml`     | Draft 1 — awaiting review | Anselm  |
-| `supplier-service.openapi.yaml` | Draft 1 — awaiting review | Patrick |
-| `credit-service.openapi.yaml`   | Implemented               | Isaac   |
+| File                            | Status                    | Owner      |
+| ------------------------------- | ------------------------- | ---------- |
+| `user-service.openapi.yaml`     | Draft 1 — awaiting review | Anselm     |
+| `supplier-service.openapi.yaml` | Draft 1 — awaiting review | Patrick    |
+| `credit-service.openapi.yaml`   | Implemented               | Isaac      |
+| `order-service.openapi.yaml`    | Implemented (ORD-01 read) | Zhang Yuan |
 
 ## Cross-service proposals for approval (FND-03 scope)
 
