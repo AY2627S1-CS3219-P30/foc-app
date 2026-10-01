@@ -9,7 +9,13 @@ import { z } from 'zod';
  * Nothing here has a default: a missing value must stop the service at boot
  * rather than silently fall back to something insecure.
  */
-export const env = loadEnv({ DATABASE_URL: z.string().min(1), ...authEnvSchema });
+export const env = loadEnv({
+  DATABASE_URL: z.string().min(1),
+  SUPPLIER_SERVICE_URL: z.url(),
+  CREDIT_WAIT_TIMEOUT_MS: z.coerce.number().int().positive(),
+  ACCEPTANCE_WINDOW_MS: z.coerce.number().int().positive(),
+  ...authEnvSchema,
+});
 
 /** How this service verifies callers: the User Service URL and its own `/internal/**` key. */
 export const authConfig = authConfigFromEnv(env);

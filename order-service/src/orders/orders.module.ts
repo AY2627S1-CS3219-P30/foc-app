@@ -5,6 +5,7 @@ import { ORDER_DB } from '../db/db.js';
 import { OrdersController } from './orders.controller.js';
 import { OrdersRepository } from './orders.repository.js';
 import { OrdersService } from './orders.service.js';
+import { SUPPLIER_FETCH, SupplierClient } from './supplier.client.js';
 
 @Module({})
 export class OrdersModule {
@@ -15,6 +16,8 @@ export class OrdersModule {
       providers: [
         OrdersRepository,
         OrdersService,
+        SupplierClient,
+        { provide: SUPPLIER_FETCH, useValue: fetch },
         {
           provide: ORDER_DB,
           useFactory: (logger: PgDbOptions['logger']) => new PgDb(env.DATABASE_URL, { logger }),

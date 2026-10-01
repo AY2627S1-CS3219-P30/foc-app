@@ -9,6 +9,7 @@ import {
   creditsReservedPayload,
   creditsTransferredPayload,
   orderCompletionRequestedPayload,
+  orderStatusChangedPayload,
 } from './catalogue.js';
 
 const reservation = { orderId: 'order-1', requesterId: 'user-1', amount: 3 };
@@ -142,5 +143,27 @@ describe('credit terminal-operation payloads', () => {
       false,
     );
     expect(creditReleaseRequestedPayload.safeParse({ ...reservation, amount }).success).toBe(false);
+  });
+});
+
+describe('order status change payload', () => {
+  it('shares only the lifecycle fact and requires a UUID order identifier', () => {
+    expect(
+      orderStatusChangedPayload.safeParse({
+        orderId: 'c42e69d5-c1d0-41b5-9e6b-aedb026f7c91',
+        previousStatus: 'PENDING_CREDIT',
+        newStatus: 'OPEN',
+        occurredAt: new Date().toISOString(),
+      }).success,
+    ).toBe(true);
+    expect(
+      orderStatusChangedPayload.safeParse({
+        orderId: 'c42e69d5-c1d0-41b5-9e6b-aedb026f7c91',
+        previousStatus: null,
+        newStatus: 'PENDING_CREDIT',
+        occurredAt: new Date().toISOString(),
+        deliveryInstructions: 'must not be published',
+      }).success,
+    ).toBe(false);
   });
 });

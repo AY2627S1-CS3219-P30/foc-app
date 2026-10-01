@@ -1,7 +1,15 @@
+import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import type { Row } from '@foc/platform';
+import {
+  EVENTS,
+  UnparseableMessageError,
+  insertOutboxEvent,
+  type Queryable,
+  type Row,
+} from '@foc/platform';
 import { ORDER_DB, type OrderDatabase } from '../db/db.js';
 import type { OrderRow, OrderStatus, SupplierSnapshot, OrderItem } from './types.js';
+import type { CreateOrderInput } from './validation.js';
 
 type StoredOrder = Row & {
   order_id: string;
@@ -47,12 +55,54 @@ const mapOrder = (row: StoredOrder): OrderRow => ({
   updatedAt: iso(row.updated_at),
 });
 
+export type CreationBoundary =
+  | 'order-written'
+  | 'history-written'
+  | 'idempotency-written'
+  | 'status-outbox-written'
+  | 'reservation-outbox-written';
+
+export interface CreatePendingInput extends CreateOrderInput {
+  requesterId: string;
+  supplierSnapshot: SupplierSnapshot;
+  idempotencyKey: string;
+  requestHash: string;
+  correlationId: string;
+}
+
+export interface ReservationResultInput {
+  orderId: string;
+  requesterId: string;
+  amount: number;
+  correlationId: string;
+  causationId: string;
+  acceptanceWindowMs: number;
+  outcome:
+    | { kind: 'RESERVED' }
+    | {
+        kind: 'REJECTED';
+        reason: 'INSUFFICIENT_CREDITS' | 'AMOUNT_OUT_OF_RANGE' | 'CONFLICTING_REQUEST';
+        available?: number;
+      };
+}
+
+export class IdempotencyKeyReusedError extends Error {
+  constructor() {
+    super('Idempotency-Key was reused with a different order request.');
+    this.name = 'IdempotencyKeyReusedError';
+  }
+}
+
 @Injectable()
 export class OrdersRepository {
   constructor(@Inject(ORDER_DB) private readonly db: OrderDatabase) {}
 
   async findById(orderId: string): Promise<OrderRow | undefined> {
-    const result = await this.db.query<StoredOrder>(
+    return this.findByIdUsing(this.db, orderId);
+  }
+
+  private async findByIdUsing(db: Queryable, orderId: string): Promise<OrderRow | undefined> {
+    const result = await db.query<StoredOrder>(
       `SELECT order_id, requester_id, courier_id, supplier_snapshot, items, delivery_zone,
               delivery_instructions, reward, status, release_reason, rejection_reason,
               available_at_rejection, version, acceptance_deadline_at, created_at, updated_at
@@ -61,5 +111,203 @@ export class OrdersRepository {
       [orderId],
     );
     return result.rows[0] ? mapOrder(result.rows[0]) : undefined;
+  }
+
+  async findIdempotent(
+    requesterId: string,
+    idempotencyKey: string,
+  ): Promise<{ requestHash: string; order: OrderRow } | undefined> {
+    const result = await this.db.query<{ request_hash: string; order_id: string } & Row>(
+      `SELECT request_hash, order_id
+         FROM order_idempotency_keys
+        WHERE requester_id = $1 AND idempotency_key = $2`,
+      [requesterId, idempotencyKey],
+    );
+    if (!result.rows[0]) return undefined;
+    const order = await this.findById(result.rows[0].order_id);
+    return order ? { requestHash: result.rows[0].request_hash, order } : undefined;
+  }
+
+  /** Durable discovery boundary for #150; it never changes or rejects the order itself. */
+  async findStalePendingCredit(
+    cutoff: Date,
+    limit = 100,
+  ): Promise<Array<{ orderId: string; createdAt: string }>> {
+    const result = await this.db.query<{ order_id: string; created_at: Date | string } & Row>(
+      `SELECT order_id, created_at
+         FROM orders
+        WHERE status = 'PENDING_CREDIT' AND created_at <= $1
+        ORDER BY created_at, order_id
+        LIMIT $2`,
+      [cutoff.toISOString(), limit],
+    );
+    return result.rows.map((row) => ({ orderId: row.order_id, createdAt: iso(row.created_at) }));
+  }
+
+  async createPending(
+    input: CreatePendingInput,
+    fault?: (boundary: CreationBoundary) => void | Promise<void>,
+  ): Promise<{ order: OrderRow; replayed: boolean }> {
+    return this.db.transaction(async (tx) => {
+      await tx.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+        `${input.requesterId}:${input.idempotencyKey}`,
+      ]);
+      const existing = await tx.query<{ request_hash: string; order_id: string } & Row>(
+        `SELECT request_hash, order_id
+           FROM order_idempotency_keys
+          WHERE requester_id = $1 AND idempotency_key = $2`,
+        [input.requesterId, input.idempotencyKey],
+      );
+      if (existing.rows[0]) {
+        if (existing.rows[0].request_hash !== input.requestHash) {
+          throw new IdempotencyKeyReusedError();
+        }
+        const order = await this.findByIdUsing(tx, existing.rows[0].order_id);
+        if (!order) throw new Error('Idempotency record references a missing order.');
+        return { order, replayed: true };
+      }
+
+      const orderId = randomUUID();
+      const historyId = randomUUID();
+      const occurredAt = new Date().toISOString();
+      await tx.query(
+        `INSERT INTO orders
+           (order_id, requester_id, supplier_snapshot, items, delivery_zone,
+            delivery_instructions, reward, status, version, created_at, updated_at)
+         VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, $7, 'PENDING_CREDIT', 1, $8, $8)`,
+        [
+          orderId,
+          input.requesterId,
+          JSON.stringify(input.supplierSnapshot),
+          JSON.stringify(input.items),
+          input.deliveryZone,
+          input.deliveryInstructions,
+          input.reward,
+          occurredAt,
+        ],
+      );
+      await fault?.('order-written');
+      await tx.query(
+        `INSERT INTO order_status_history
+           (history_id, order_id, previous_status, new_status, action, actor_type, actor_id,
+            order_version, occurred_at)
+         VALUES ($1, $2, NULL, 'PENDING_CREDIT', 'CREATE', 'REQUESTER', $3, 1, $4)`,
+        [historyId, orderId, input.requesterId, occurredAt],
+      );
+      await fault?.('history-written');
+      await tx.query(
+        `INSERT INTO order_idempotency_keys
+           (requester_id, idempotency_key, order_id, request_hash)
+         VALUES ($1, $2, $3, $4)`,
+        [input.requesterId, input.idempotencyKey, orderId, input.requestHash],
+      );
+      await fault?.('idempotency-written');
+      await insertOutboxEvent(tx, {
+        eventType: EVENTS.ORDER_STATUS_CHANGED,
+        aggregateId: orderId,
+        correlationId: input.correlationId,
+        payload: {
+          orderId,
+          previousStatus: null,
+          newStatus: 'PENDING_CREDIT',
+          occurredAt,
+        },
+      });
+      await fault?.('status-outbox-written');
+      await insertOutboxEvent(tx, {
+        eventType: EVENTS.CREDIT_RESERVATION_REQUESTED,
+        aggregateId: orderId,
+        correlationId: input.correlationId,
+        payload: { orderId, requesterId: input.requesterId, amount: input.reward },
+      });
+      await fault?.('reservation-outbox-written');
+
+      const order = await this.findByIdUsing(tx, orderId);
+      if (!order) throw new Error('Newly inserted order could not be read.');
+      return { order, replayed: false };
+    });
+  }
+
+  async applyReservationResult(tx: Queryable, input: ReservationResultInput): Promise<boolean> {
+    const result = await tx.query<StoredOrder>(
+      `SELECT order_id, requester_id, courier_id, supplier_snapshot, items, delivery_zone,
+              delivery_instructions, reward, status, release_reason, rejection_reason,
+              available_at_rejection, version, acceptance_deadline_at, created_at, updated_at
+         FROM orders
+        WHERE order_id = $1
+        FOR UPDATE`,
+      [input.orderId],
+    );
+    const stored = result.rows[0];
+    if (!stored) throw new UnparseableMessageError('reservation result names an unknown order');
+    const order = mapOrder(stored);
+    if (order.requesterId !== input.requesterId || order.reward !== input.amount) {
+      throw new UnparseableMessageError('reservation result does not match the recorded request');
+    }
+
+    const target = input.outcome.kind === 'RESERVED' ? 'OPEN' : 'REJECTED';
+    if (order.status === target) {
+      if (
+        input.outcome.kind === 'REJECTED' &&
+        (order.rejectionReason !== input.outcome.reason ||
+          order.availableAtRejection !== (input.outcome.available ?? null))
+      ) {
+        throw new UnparseableMessageError(
+          'reservation rejection conflicts with the recorded outcome',
+        );
+      }
+      return false;
+    }
+    if (order.status !== 'PENDING_CREDIT') {
+      throw new UnparseableMessageError(
+        `reservation result cannot move order from ${order.status} to ${target}`,
+      );
+    }
+
+    const nextVersion = order.version + 1;
+    const occurredAt = new Date().toISOString();
+    const deadline =
+      input.outcome.kind === 'RESERVED'
+        ? new Date(Date.now() + input.acceptanceWindowMs).toISOString()
+        : null;
+    const rejectionReason = input.outcome.kind === 'REJECTED' ? input.outcome.reason : null;
+    const available =
+      input.outcome.kind === 'REJECTED' && 'available' in input.outcome
+        ? (input.outcome.available ?? null)
+        : null;
+    await tx.query(
+      `UPDATE orders
+          SET status = $2, rejection_reason = $3, available_at_rejection = $4,
+              acceptance_deadline_at = $5, version = $6, updated_at = $7
+        WHERE order_id = $1`,
+      [input.orderId, target, rejectionReason, available, deadline, nextVersion, occurredAt],
+    );
+    await tx.query(
+      `INSERT INTO order_status_history
+         (history_id, order_id, previous_status, new_status, action, actor_type, actor_id,
+          order_version, occurred_at)
+       VALUES ($1, $2, 'PENDING_CREDIT', $3, $4, 'CREDIT_SERVICE', 'credit-service', $5, $6)`,
+      [
+        randomUUID(),
+        input.orderId,
+        target,
+        input.outcome.kind === 'RESERVED' ? 'CREDIT_RESERVED' : 'CREDIT_REJECTED',
+        nextVersion,
+        occurredAt,
+      ],
+    );
+    await insertOutboxEvent(tx, {
+      eventType: EVENTS.ORDER_STATUS_CHANGED,
+      aggregateId: input.orderId,
+      correlationId: input.correlationId,
+      causationId: input.causationId,
+      payload: {
+        orderId: input.orderId,
+        previousStatus: 'PENDING_CREDIT',
+        newStatus: target,
+        occurredAt,
+      },
+    });
+    return true;
   }
 }

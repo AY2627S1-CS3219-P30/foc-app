@@ -13,6 +13,9 @@ export default defineConfig({
       PORT: '3003',
       LOG_LEVEL: 'silent',
       DATABASE_URL: 'postgres://order_service:test@localhost:5432/foc_order_test',
+      SUPPLIER_SERVICE_URL: 'http://supplier-service.test',
+      CREDIT_WAIT_TIMEOUT_MS: '300000',
+      ACCEPTANCE_WINDOW_MS: '3600000',
       // Satisfy @foc/auth-client's config at import time; no test opens a connection to them.
       USER_SERVICE_URL: 'http://user-service.test',
       INTERNAL_SERVICE_KEY: 'test-internal-key-0123456789',
