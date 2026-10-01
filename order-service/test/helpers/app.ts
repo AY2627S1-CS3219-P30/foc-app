@@ -28,6 +28,14 @@ const identities: Record<string, AuthContext> = {
     status: 'ACTIVE',
     isAdmin: false,
   },
+  bystander: {
+    userId: 'bystander-student',
+    sessionId: 'bystander-session',
+    displayName: 'Bystander Student',
+    roles: ['STUDENT'],
+    status: 'ACTIVE',
+    isAdmin: false,
+  },
   admin: {
     userId: 'admin-1',
     sessionId: 'admin-session',
@@ -131,6 +139,7 @@ export async function createTestApp(
 export const http = (testApp: TestApp) => request(testApp.app.getHttpServer());
 export const asRequester = 'Bearer requester';
 export const asStranger = 'Bearer stranger';
+export const asBystander = 'Bearer bystander';
 export const asAdmin = 'Bearer admin';
 export const asOtherAdmin = 'Bearer other-admin';
 export const asSuspended = 'Bearer suspended';
