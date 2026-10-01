@@ -21,6 +21,12 @@ export const env = loadEnv({
    * while the service was down takes effect within 60 s of it becoming ready (OS-NFR3.1.1).
    */
   LIFECYCLE_SWEEP_INTERVAL_MS: z.coerce.number().int().positive().max(60_000),
+  /** Credit's base URL, for its read-only /internal/orders/{id}/credit-status (CRD-07). */
+  CREDIT_SERVICE_URL: z.url(),
+  /** How often the reconciliation job looks for workflows stuck waiting on Credit. */
+  RECONCILE_INTERVAL_MS: z.coerce.number().int().positive(),
+  /** The least time between two repair attempts for the same order. */
+  RECONCILE_RETRY_MS: z.coerce.number().int().positive(),
   ...authEnvSchema,
 });
 

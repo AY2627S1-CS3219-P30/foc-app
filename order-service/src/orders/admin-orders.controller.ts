@@ -12,6 +12,13 @@ export class AdminOrdersController {
    * Orders that have waited in PENDING_CREDIT longer than CREDIT_WAIT_TIMEOUT_MS. Listing one
    * does not reject it: it still opens if the reservation arrives.
    */
+  /** The most recent reconciliation decisions (CRD-07), newest first. */
+  @Get('reconciliation-attempts')
+  @AdminOnly()
+  reconciliationAttempts() {
+    return this.orders.reconciliationAttempts();
+  }
+
   @Get('pending-credit')
   @AdminOnly()
   pendingCredit() {

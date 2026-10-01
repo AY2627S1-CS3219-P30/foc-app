@@ -3,6 +3,7 @@ import { authStatusEvents, AuthModule } from '@foc/auth-client';
 import { EVENTS, EventsModule, PlatformModule, provideOutboxRelay } from '@foc/platform';
 import { authConfig, env, SERVICE_NAME, SERVICE_VERSION } from './config.js';
 import { OrdersModule } from './orders/orders.module.js';
+import { CREDIT_RECONCILER_OPTIONS, CreditReconciler } from './orders/credit-reconciler.js';
 import { LIFECYCLE_SCHEDULER_OPTIONS, LifecycleScheduler } from './orders/lifecycle.scheduler.js';
 import { ORDER_DB } from './db/db.js';
 import {
@@ -65,6 +66,16 @@ const eventModules = env.RABBITMQ_URL
         pickupTimeoutMs: env.PICKUP_TIMEOUT_MS,
         creditWaitTimeoutMs: env.CREDIT_WAIT_TIMEOUT_MS,
         intervalMs: env.LIFECYCLE_SWEEP_INTERVAL_MS,
+      },
+    },
+    // Re-issued requests wait in the outbox like any other until the relay can publish them.
+    CreditReconciler,
+    {
+      provide: CREDIT_RECONCILER_OPTIONS,
+      useValue: {
+        staleAfterMs: env.CREDIT_WAIT_TIMEOUT_MS,
+        retryAfterMs: env.RECONCILE_RETRY_MS,
+        intervalMs: env.RECONCILE_INTERVAL_MS,
       },
     },
     ...(env.RABBITMQ_URL
