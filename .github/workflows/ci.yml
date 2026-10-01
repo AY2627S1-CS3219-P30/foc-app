@@ -89,6 +89,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The contract check reads contracts/ at the branch's merge base.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -96,6 +99,22 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run format:check
+      # EI-NFR3.1.1: v1 contracts are additive only. Compare against where this
+      # branch left main, so contract changes merged since are not read as removals.
+      - name: Contract compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE=$(git merge-base "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+          elif [[ -n "${{ github.event.before }}" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]] \
+            && git cat-file -e "${{ github.event.before }}^{commit}" 2>/dev/null; then
+            BASE="${{ github.event.before }}"
+          else
+            echo "No usable base commit; nothing to compare against."
+            exit 0
+          fi
+          npm run contracts:compat -w @foc/test-harness -- --base "$BASE"
 
   # ---------------------------------------------------------------------------
   # Per service: typecheck, test, and build the image. The image build is what
@@ -146,9 +165,10 @@ jobs:
 
       - name: Test
         env:
-          # Read only by Credit's real-concurrency suite. Other matrix services
-          # ignore it; one shared job definition keeps the matrix simple.
-          TEST_CREDIT_DATABASE_URL: postgres://postgres:postgres@localhost:5432/foc_credit_test
+          # Turns on the real-PostgreSQL suites (*.postgres.test.ts). The shared
+          # test harness creates, migrates and drops a fresh database per suite,
+          # so no suite shares data with another (docs/testing.md).
+          TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/postgres
         run: npm test -w @foc/${{ matrix.service }}
 
       - uses: docker/setup-buildx-action@v3
@@ -164,9 +184,10 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
   # ---------------------------------------------------------------------------
-  # Every shared package, read from the root workspaces: platform/ today, and
-  # any package added later without editing this file. RabbitMQ runs alongside
-  # so the broker integration tests run here instead of skipping themselves.
+  # Every shared package, read from the root workspaces: platform/, the test
+  # harness, auth-client, and any package added later without editing this file.
+  # RabbitMQ and PostgreSQL run alongside so the broker and real-database
+  # integration tests run here instead of skipping themselves.
   # ---------------------------------------------------------------------------
   packages:
     name: Shared packages
@@ -174,6 +195,17 @@ jobs:
     if: needs.detect.outputs.node == 'true'
     runs-on: ubuntu-latest
     services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
       rabbitmq:
         image: rabbitmq:4-management-alpine
         env:
@@ -200,6 +232,7 @@ jobs:
       - name: Build and test each shared package
         env:
           RABBITMQ_URL: amqp://foc:foc_dev@localhost:5672
+          TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/postgres
         run: |
           for pkg in $(jq -r '.workspaces[] | select(endswith("-service") | not)' package.json); do
             echo "::group::$pkg"
