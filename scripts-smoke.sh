@@ -145,12 +145,14 @@ for ex in foc.events foc.events.dlx foc.credit-service.delay.1 foc.user-service.
     fail "exchange $ex missing"
   fi
 done
-if docker compose exec -T rabbitmq rabbitmqctl -q list_queues name 2>/dev/null |
-  tr -d '\r' | grep -qx 'foc.credit.wallet-provisioning.dlq'; then
-  pass "wallet provisioning queue has a dead-letter queue"
-else
-  fail "wallet provisioning dead-letter queue missing"
-fi
+for queue in foc.credit.wallet-provisioning foc.credit.reservations; do
+  if docker compose exec -T rabbitmq rabbitmqctl -q list_queues name 2>/dev/null |
+    tr -d '\r' | grep -qx "${queue}.dlq"; then
+    pass "$queue has a dead-letter queue"
+  else
+    fail "$queue dead-letter queue missing"
+  fi
+done
 
 # ---- the web app serves ------------------------------------------------------
 code=$(curl -fsS -o /dev/null -w '%{http_code}' "http://localhost:${WEB_PORT}/" 2>/dev/null || echo 000)

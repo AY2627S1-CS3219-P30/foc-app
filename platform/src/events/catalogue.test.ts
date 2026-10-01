@@ -81,4 +81,13 @@ describe('credit reservation payloads', () => {
     const rejection = { ...reservation, reason: 'NO_WALLET' };
     expect(creditReservationRejectedPayload.safeParse(rejection).success).toBe(false);
   });
+
+  it('represents a reused order id whose requester or amount conflicts', () => {
+    expect(
+      creditReservationRejectedPayload.safeParse({
+        ...reservation,
+        reason: 'CONFLICTING_REQUEST',
+      }).success,
+    ).toBe(true);
+  });
 });

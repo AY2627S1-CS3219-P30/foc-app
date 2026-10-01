@@ -12,7 +12,11 @@ import { BROKER, EVENT_CONSUMER, type BrokerConnection, type EventConsumer } fro
 describe('identity-change invalidation is wired (USR-07)', () => {
   let app: INestApplication;
   let broker: BrokerConnection;
-  const subscribed: string[] = [];
+  const subscribed: Array<{
+    queue: string;
+    eventType: string | readonly string[];
+    expectedProducer?: string | readonly string[];
+  }> = [];
 
   beforeAll(async () => {
     vi.stubEnv('RABBITMQ_URL', 'amqp://broker.test');
@@ -24,7 +28,11 @@ describe('identity-change invalidation is wired (USR-07)', () => {
     const consumer = moduleRef.get<EventConsumer>(EVENT_CONSUMER);
     const subscribe = consumer.subscribe.bind(consumer);
     vi.spyOn(consumer, 'subscribe').mockImplementation((options) => {
-      subscribed.push(options.queue);
+      subscribed.push({
+        queue: options.queue,
+        eventType: options.eventType,
+        expectedProducer: options.expectedProducer,
+      });
       return subscribe(options);
     });
     app = moduleRef.createNestApplication();
@@ -37,8 +45,10 @@ describe('identity-change invalidation is wired (USR-07)', () => {
   });
 
   it('subscribes, at bootstrap, a queue of its own to every identity change', () => {
-    const queue = subscribed.find((q) => q.startsWith('foc.credit.auth-status.'));
-    expect(queue, `subscribed: ${subscribed.join(', ')}`).toBeDefined();
+    const queue = subscribed.find((item) =>
+      item.queue.startsWith('foc.credit.auth-status.'),
+    )?.queue;
+    expect(queue, `subscribed: ${subscribed.map((item) => item.queue).join(', ')}`).toBeDefined();
 
     // ... and that queue is declared, private to this instance, bound to every key.
     expect(broker.subscription(queue!)).toMatchObject({
@@ -47,5 +57,22 @@ describe('identity-change invalidation is wired (USR-07)', () => {
       messageTtlMs: expect.any(Number),
       maxLength: expect.any(Number),
     });
+  });
+
+  it('trusts only the owning producer for wallet and reservation mutations', () => {
+    expect(subscribed).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          queue: 'foc.credit.wallet-provisioning',
+          eventType: 'user.activated',
+          expectedProducer: 'user-service',
+        }),
+        expect.objectContaining({
+          queue: 'foc.credit.reservations',
+          eventType: 'order.reservation-requested',
+          expectedProducer: 'order-service',
+        }),
+      ]),
+    );
   });
 });

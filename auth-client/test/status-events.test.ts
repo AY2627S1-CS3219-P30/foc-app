@@ -14,6 +14,7 @@ import {
   authStatusEvents,
   AuthModule,
   createAuthenticator,
+  IDENTITY_CHANGE_EVENTS,
   UserStatusInvalidation,
   type AuthConfig,
   type Authenticator,
@@ -311,6 +312,8 @@ describe('authStatusEvents', () => {
       expect(subscribed).toHaveLength(1);
       const [options] = subscribed as [SubscribeOptions<{ userId: string }>];
       expect(options.queue).toBe(status.subscription.queue);
+      expect(options.eventType).toEqual(IDENTITY_CHANGE_EVENTS);
+      expect(options.expectedProducer).toBe('user-service');
       // It accepts both payload shapes the queue is bound to, and nothing else.
       const schema = options.payloadSchema;
       expect(schema.safeParse(statusEvent(randomUUID(), 'SUSPENDED').payload).success).toBe(true);

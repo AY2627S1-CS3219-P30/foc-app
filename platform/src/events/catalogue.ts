@@ -106,6 +106,7 @@ export const creditReservationRejectedPayload = z.discriminatedUnion('reason', [
     available: z.number().int().nonnegative(),
   }),
   z.object({ ...reservation, reason: z.literal('AMOUNT_OUT_OF_RANGE') }),
+  z.object({ ...reservation, reason: z.literal('CONFLICTING_REQUEST') }),
 ]);
 export type CreditReservationRejectedPayload = z.infer<typeof creditReservationRejectedPayload>;
 
