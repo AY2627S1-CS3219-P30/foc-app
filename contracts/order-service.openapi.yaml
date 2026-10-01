@@ -210,6 +210,66 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/LifecycleConflict' }
         '422': { $ref: '#/components/responses/InvalidOrder' }
+  /orders/{orderId}/cancel:
+    post:
+      operationId: cancelOrder
+      summary: Requester cancels an OPEN or ACCEPTED errand before pickup.
+      description: |
+        Moves the errand to RELEASE_PENDING_CREDIT (reason cancelled) and writes
+        `order.release-requested` in the same transaction. It becomes CANCELLED only when the Credit
+        Service confirms the release. PICKED_UP and later states refuse cancellation with 409.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LifecycleCommand' }
+      responses:
+        '200':
+          description: The order after the transition, projected for the caller.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/ActionForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/LifecycleConflict' }
+        '422': { $ref: '#/components/responses/InvalidOrder' }
+  /orders/{orderId}/withdraw:
+    post:
+      operationId: withdrawFromOrder
+      summary: Assigned courier withdraws before pickup.
+      description: |
+        The courier is removed. Before the acceptance deadline the errand returns to OPEN with its
+        deadline unchanged; after it, the errand moves to RELEASE_PENDING_CREDIT (reason expired) and
+        requests one release of the reward.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LifecycleCommand' }
+      responses:
+        '200':
+          description: The order after the transition, projected for the caller.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/ActionForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/LifecycleConflict' }
+        '422': { $ref: '#/components/responses/InvalidOrder' }
   /orders/{orderId}/receipt:
     get:
       operationId: getOrderReceipt

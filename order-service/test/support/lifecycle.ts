@@ -141,3 +141,54 @@ export function failAt(t: TestApp, boundary: RegExp): () => void {
     db.transaction = original;
   };
 }
+
+export { RELEASE_RESULTS_QUEUE } from '../../src/credit-terminal-results.consumer.js';
+
+export const released = (
+  overrides: Partial<{
+    orderId: string;
+    requesterId: string;
+    amount: number;
+    transactionId: string;
+    eventId: string;
+    aggregateId: string;
+  }> = {},
+) => {
+  const orderId = overrides.orderId ?? SEEDED_ORDER;
+  return createEnvelope({
+    eventId: overrides.eventId ?? randomUUID(),
+    eventType: EVENTS.CREDITS_RELEASED,
+    schemaVersion: 1,
+    aggregateId: overrides.aggregateId ?? orderId,
+    producer: 'credit-service',
+    correlationId: 'corr-release',
+    payload: {
+      orderId,
+      requesterId: overrides.requesterId ?? REQUESTER,
+      amount: overrides.amount ?? SEEDED_REWARD,
+      transactionId: overrides.transactionId ?? randomUUID(),
+      requesterBalance: { available: 10, reserved: 0, total: 10 },
+    },
+  });
+};
+
+/** Moves the seeded order's clocks so a timer is due without waiting for it. */
+export async function backdate(
+  t: TestApp,
+  column: 'acceptance_deadline_at' | 'accepted_at',
+  msAgo: number,
+  orderId = SEEDED_ORDER,
+): Promise<void> {
+  await t.db.query(
+    `UPDATE orders SET ${column} = now() - ($2 || ' milliseconds')::interval WHERE order_id = $1`,
+    [orderId, String(msAgo)],
+  );
+}
+
+export async function outboxOf(t: TestApp, eventType: string, orderId = SEEDED_ORDER) {
+  const result = await t.db.query<{ payload: unknown }>(
+    `SELECT payload FROM outbox_events WHERE aggregate_id = $1 AND event_type = $2 ORDER BY seq`,
+    [orderId, eventType],
+  );
+  return result.rows.map((row) => row.payload);
+}

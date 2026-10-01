@@ -115,6 +115,30 @@ export class OrdersController {
     return this.run(id, 'CONFIRM_RECEIPT', body, caller, request);
   }
 
+  @Post(':id/cancel')
+  @HttpCode(200)
+  @Authenticated()
+  cancel(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() caller: AuthContext,
+    @Req() request: Request & { correlationId?: string },
+  ) {
+    return this.run(id, 'CANCEL', body, caller, request);
+  }
+
+  @Post(':id/withdraw')
+  @HttpCode(200)
+  @Authenticated()
+  withdraw(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() caller: AuthContext,
+    @Req() request: Request & { correlationId?: string },
+  ) {
+    return this.run(id, 'WITHDRAW', body, caller, request);
+  }
+
   private run(
     id: string,
     action: OrderAction,

@@ -53,6 +53,8 @@ export interface OrderRow {
   deliveredAt: string | null;
   completionRequestedAt: string | null;
   completedAt: string | null;
+  releaseRequestedAt: string | null;
+  releasedAt: string | null;
   creditTransactionId: string | null;
   createdAt: string;
   updatedAt: string;

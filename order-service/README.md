@@ -182,6 +182,32 @@ the Credit transaction reference (OS-FR5.1.2). `GET /orders/:id/receipt` returns
 participants and the referred administrator. Database triggers make `order_receipts` and
 `order_status_history` append-only.
 
+### Cancellation, withdrawal and expiry (ORD-05)
+
+`POST /orders/:id/cancel` (requester, `OPEN` or `ACCEPTED`) and `POST /orders/:id/withdraw`
+(assigned courier, `ACCEPTED`) take `{ "expectedVersion" }` and use the same transition path.
+Cancelling moves the order to `RELEASE_PENDING_CREDIT` with reason `cancelled`. A withdrawal removes
+the courier: before the acceptance deadline the order reopens with its deadline unchanged, and
+after it the order moves to `RELEASE_PENDING_CREDIT` with reason `expired`. Every move into
+`RELEASE_PENDING_CREDIT` writes exactly one `order.release-requested` in the same transaction.
+`PICKED_UP` and later states refuse cancellation.
+
+The **lifecycle scheduler** owns every timer. It runs once as soon as the service is ready and then
+every `LIFECYCLE_SWEEP_INTERVAL_MS` (at most 60 s, enforced at boot). An `OPEN` order past its
+deadline expires. An `ACCEPTED` order whose `accepted_at` is older than `PICKUP_TIMEOUT_MS` loses
+its courier and follows the withdrawal path. Due timers are found with the database clock, then each
+one fires through the ordinary transition path: the row is locked and the timer is re-checked under
+the lock. So a timer that fell due during downtime fires within one interval of restart, overlapping
+sweeps or instances apply it exactly once, and accept-versus-expire is settled by the row's version:
+acceptance's conditional update requires `acceptance_deadline_at > now()`, and expiry requires
+`OPEN` at the locked version.
+
+`credit.released` from `credit-service` closes the order as `CANCELLED` or `EXPIRED` according to the
+recorded reason. It records `released_at` and the Credit transaction ID, with the same matching,
+dead-lettering and duplicate rules as a transfer. A release for a completed order, or a transfer for
+a released one, is refused, so transfer and release are mutually exclusive outcomes. ORD-06 (#149)
+owns the courier-suspension path (reopen with the deadline extended).
+
 The first migration includes a deterministic demonstration errand at
 `00000000-0000-4000-8000-000000000129`; after Compose is healthy, an authenticated caller can retrieve
 its projection from `/orders/00000000-0000-4000-8000-000000000129`.
@@ -273,6 +299,8 @@ Run these from the repository root.
 | `SUPPLIER_SERVICE_URL` | `http://localhost:3002` | Supplier validation and snapshot reads |
 | `CREDIT_WAIT_TIMEOUT_MS` | `300000` | Age at which pending credit needs reconciliation |
 | `ACCEPTANCE_WINDOW_MS` | `3600000` | Deadline started when reservation succeeds |
+| `PICKUP_TIMEOUT_MS` | `1800000` | Courier removed if no pickup this long after acceptance |
+| `LIFECYCLE_SWEEP_INTERVAL_MS` | `10000` | Timer sweep interval; at most `60000` |
 
 A missing required variable stops the service at boot and names the variable.
 Nothing falls back to an insecure default.
@@ -282,6 +310,7 @@ SERVICE_NAME=order-service PORT=3003 \
   DATABASE_URL=postgres://order_service:order_service_dev@localhost:55432/foc_order \
   SUPPLIER_SERVICE_URL=http://localhost:3002 \
   CREDIT_WAIT_TIMEOUT_MS=300000 ACCEPTANCE_WINDOW_MS=3600000 \
+  PICKUP_TIMEOUT_MS=1800000 LIFECYCLE_SWEEP_INTERVAL_MS=10000 \
   npm run dev:order
 curl -i http://localhost:3003/health
 ```
@@ -313,4 +342,4 @@ user and declares a `HEALTHCHECK`. `compose.yaml` runs it on port 3003.
 
 ### Next tickets
 
-ORD-05 (#148) cancellation, withdrawal and expiry; ORD-09 (#150) recovery and privacy verification.
+ORD-09 (#150) recovery and privacy verification; ORD-06 (#149) suspension handling.
