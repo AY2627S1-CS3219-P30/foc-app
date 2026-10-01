@@ -35,6 +35,12 @@ export const orders = pgTable(
     availableAtRejection: integer('available_at_rejection'),
     version: integer('version').notNull().default(1),
     acceptanceDeadlineAt: timestamp('acceptance_deadline_at', { withTimezone: true }),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    pickedUpAt: timestamp('picked_up_at', { withTimezone: true }),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    completionRequestedAt: timestamp('completion_requested_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    creditTransactionId: uuid('credit_transaction_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -59,6 +65,10 @@ export const orders = pgTable(
     check(
       'orders_release_reason_shape',
       sql`${t.releaseReason} IS NULL OR ${t.releaseReason} IN ('CANCELLED', 'EXPIRED')`,
+    ),
+    check(
+      'orders_completed_shape',
+      sql`${t.status} <> 'COMPLETED' OR (${t.completedAt} IS NOT NULL AND ${t.creditTransactionId} IS NOT NULL)`,
     ),
     check(
       'orders_rejection_shape',
@@ -102,6 +112,31 @@ export const orderStatusHistory = pgTable(
     uniqueIndex('order_history_order_version_key').on(t.orderId, t.orderVersion),
     index('order_history_order_time_idx').on(t.orderId, t.occurredAt),
   ],
+);
+
+/**
+ * The immutable completion receipt (OS-FR5.1.2), written in the same transaction as the Credit
+ * Service's transfer confirmation. A trigger makes it append-only, like the status history.
+ */
+export const orderReceipts = pgTable(
+  'order_receipts',
+  {
+    orderId: uuid('order_id')
+      .primaryKey()
+      .references(() => orders.orderId, { onDelete: 'restrict' }),
+    requesterId: text('requester_id').notNull(),
+    courierId: text('courier_id').notNull(),
+    supplierSnapshot: jsonb('supplier_snapshot').notNull().$type<SupplierSnapshot>(),
+    reward: integer('reward').notNull(),
+    creditTransactionId: uuid('credit_transaction_id').notNull().unique(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }).notNull(),
+    pickedUpAt: timestamp('picked_up_at', { withTimezone: true }).notNull(),
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }).notNull(),
+    completionRequestedAt: timestamp('completion_requested_at', { withTimezone: true }).notNull(),
+    completedAt: timestamp('completed_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [check('order_receipts_reward_range', sql`${t.reward} BETWEEN 1 AND 5`)],
 );
 
 export const orderIdempotencyKeys = pgTable(
