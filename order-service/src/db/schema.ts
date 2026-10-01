@@ -148,6 +148,27 @@ export const orderReceipts = pgTable(
   (t) => [check('order_receipts_reward_range', sql`${t.reward} BETWEEN 1 AND 5`)],
 );
 
+/**
+ * Operator alerts raised by the Order Service (OS-FR1.1.3). One row per order and kind, so an
+ * alert is raised once however many sweeps see the condition; append-only like the history.
+ */
+export const orderOperatorAlerts = pgTable(
+  'order_operator_alerts',
+  {
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.orderId, { onDelete: 'restrict' }),
+    kind: text('kind').notNull(),
+    raisedAt: timestamp('raised_at', { withTimezone: true }).notNull().defaultNow(),
+    detail: jsonb('detail').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.orderId, t.kind] }),
+    check('order_operator_alerts_kind_enum', sql`${t.kind} IN ('CREDIT_WAIT_EXCEEDED')`),
+    index('order_operator_alerts_raised_idx').on(t.raisedAt),
+  ],
+);
+
 export const orderIdempotencyKeys = pgTable(
   'order_idempotency_keys',
   {
