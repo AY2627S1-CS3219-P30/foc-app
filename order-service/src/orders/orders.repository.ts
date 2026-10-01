@@ -46,6 +46,8 @@ type StoredOrder = Row & {
   delivered_at: Date | string | null;
   completion_requested_at: Date | string | null;
   completed_at: Date | string | null;
+  release_requested_at: Date | string | null;
+  released_at: Date | string | null;
   credit_transaction_id: string | null;
   created_at: Date | string;
   updated_at: Date | string;
@@ -54,7 +56,8 @@ type StoredOrder = Row & {
 export const ORDER_COLUMNS = `order_id, requester_id, courier_id, referred_admin_id, supplier_snapshot,
   items, delivery_zone, delivery_instructions, reward, status, release_reason, rejection_reason,
   available_at_rejection, version, acceptance_deadline_at, accepted_at, picked_up_at, delivered_at,
-  completion_requested_at, completed_at, credit_transaction_id, created_at, updated_at`;
+  completion_requested_at, completed_at, release_requested_at, released_at, credit_transaction_id,
+  created_at, updated_at`;
 
 const iso = (value: Date | string): string =>
   value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -83,6 +86,8 @@ const mapOrder = (row: StoredOrder): OrderRow => ({
   deliveredAt: nullableIso(row.delivered_at),
   completionRequestedAt: nullableIso(row.completion_requested_at),
   completedAt: nullableIso(row.completed_at),
+  releaseRequestedAt: nullableIso(row.release_requested_at),
+  releasedAt: nullableIso(row.released_at),
   creditTransactionId: row.credit_transaction_id,
   createdAt: iso(row.created_at),
   updatedAt: iso(row.updated_at),
@@ -186,6 +191,36 @@ export class OrdersRepository {
     if (!result.rows[0]) return undefined;
     const order = await this.findById(result.rows[0].order_id);
     return order ? { requestHash: result.rows[0].request_hash, order } : undefined;
+  }
+
+  /** The database clock, so timers and the acceptance check compare against the same time. */
+  async databaseNow(): Promise<Date> {
+    const result = await this.db.query<{ now: Date | string } & Row>(`SELECT now() AS now`);
+    return new Date(result.rows[0]!.now);
+  }
+
+  /** OPEN orders whose acceptance deadline has passed (OS-FR6.1.2). */
+  async findOverdueOpen(now: Date, limit = 100): Promise<string[]> {
+    const result = await this.db.query<{ order_id: string } & Row>(
+      `SELECT order_id FROM orders
+        WHERE status = 'OPEN' AND acceptance_deadline_at <= $1
+        ORDER BY acceptance_deadline_at, order_id
+        LIMIT $2`,
+      [now.toISOString(), limit],
+    );
+    return result.rows.map((row) => row.order_id);
+  }
+
+  /** ACCEPTED orders with no pickup recorded within the pickup timeout (OS-FR6.1.3). */
+  async findPickupOverdue(cutoff: Date, limit = 100): Promise<string[]> {
+    const result = await this.db.query<{ order_id: string } & Row>(
+      `SELECT order_id FROM orders
+        WHERE status = 'ACCEPTED' AND accepted_at <= $1
+        ORDER BY accepted_at, order_id
+        LIMIT $2`,
+      [cutoff.toISOString(), limit],
+    );
+    return result.rows.map((row) => row.order_id);
   }
 
   /** Durable discovery boundary for #150; it never changes or rejects the order itself. */
@@ -625,11 +660,20 @@ function timestampPatch(
   decision: TransitionDecision,
   at: string,
 ): Record<string, unknown> {
+  // A withdrawing or timed-out courier loses the errand (and with it, private access to it).
+  const courierRemoved =
+    action === 'WITHDRAW' || action === 'PICKUP_TIMEOUT'
+      ? { courier_id: null, accepted_at: null }
+      : {};
   if (action === 'RECORD_PICKUP') return { picked_up_at: at };
   if (action === 'RECORD_DELIVERY') return { delivered_at: at };
   if (decision.to === 'COMPLETION_PENDING_CREDIT') return { completion_requested_at: at };
   if (decision.to === 'COMPLETED') return { completed_at: at };
-  return {};
+  if (decision.to === 'RELEASE_PENDING_CREDIT') {
+    return { ...courierRemoved, release_requested_at: at };
+  }
+  if (decision.to === 'CANCELLED' || decision.to === 'EXPIRED') return { released_at: at };
+  return courierRemoved;
 }
 
 function emittedEvent(eventType: string, before: OrderRow, after: OrderRow, occurredAt: string) {
