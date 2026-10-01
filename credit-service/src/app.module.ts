@@ -1,19 +1,13 @@
 import { Module } from '@nestjs/common';
 import { authStatusEvents, AuthModule } from '@foc/auth-client';
-import { EventsModule, EVENTS, PlatformModule, provideOutboxRelay } from '@foc/platform';
+import { EventsModule, PlatformModule, provideOutboxRelay } from '@foc/platform';
 import { authConfig, env, SERVICE_NAME, SERVICE_VERSION } from './config.js';
+import { CREDIT_ECONOMIC_SUBSCRIPTIONS } from './closed-economy.js';
 import { CreditModule } from './credit.module.js';
 import { RAW_DB } from './db/db.js';
-import { RESERVATION_QUEUE, ReservationConsumer } from './reservation-consumer.js';
-import {
-  COMPLETION_QUEUE,
-  RELEASE_QUEUE,
-  CompletionConsumer,
-  ReleaseConsumer,
-} from './terminal-consumers.js';
-import { WalletProvisioning } from './wallet-provisioning.js';
-
-const WALLET_QUEUE = 'foc.credit.wallet-provisioning';
+import { ReservationConsumer } from './reservation-consumer.js';
+import { CompletionConsumer, ReleaseConsumer } from './terminal-consumers.js';
+import { WALLET_QUEUE, WalletProvisioning } from './wallet-provisioning.js';
 
 /**
  * Every wallet endpoint must use `@Authenticated()` from `@foc/auth-client`, which reads the caller's
@@ -32,10 +26,10 @@ const eventModules = env.RABBITMQ_URL
         url: env.RABBITMQ_URL,
         producer: SERVICE_NAME,
         subscriptions: [
-          { queue: WALLET_QUEUE, routingKeys: [EVENTS.USER_ACTIVATED] },
-          { queue: RESERVATION_QUEUE, routingKeys: [EVENTS.CREDIT_RESERVATION_REQUESTED] },
-          { queue: COMPLETION_QUEUE, routingKeys: [EVENTS.ORDER_COMPLETION_REQUESTED] },
-          { queue: RELEASE_QUEUE, routingKeys: [EVENTS.CREDIT_RELEASE_REQUESTED] },
+          ...CREDIT_ECONOMIC_SUBSCRIPTIONS.map(({ queue, routingKeys }) => ({
+            queue,
+            routingKeys: [...routingKeys],
+          })),
           status.subscription,
         ],
       }),

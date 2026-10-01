@@ -100,6 +100,7 @@ export const http = (testApp: TestApp) => request(testApp.app.getHttpServer());
 export const asStudent = 'Bearer student';
 export const asOther = 'Bearer other';
 export const asAdmin = 'Bearer admin';
+export const asService = 'test-order-key-0123456789';
 
 export async function issue(testApp: TestApp, userId: string): Promise<void> {
   await testApp.db.transaction((tx) => testApp.credits.issueInitial(tx, userId));

@@ -85,6 +85,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/internal/orders/{orderId}/credit-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read Credit's authoritative state for one order.
+         * @description Read-only recovery endpoint. UNKNOWN, an uncommitted/in-flight reservation, and a durable
+         *     rejection all have economic status NONE and are distinguished by `detail`. Successful
+         *     reservations and terminal movements include immutable transaction references.
+         */
+        get: operations["getOrderCreditStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -125,6 +147,27 @@ export interface components {
         LedgerPage: {
             items: components["schemas"]["LedgerItem"][];
             nextCursor: string | null;
+        };
+        TransactionReference: {
+            /** Format: uuid */
+            transactionId: string;
+            /** @enum {string} */
+            type: "RESERVE" | "RELEASE" | "TRANSFER";
+            /** Format: date-time */
+            occurredAt: string;
+        };
+        OrderCreditStatus: {
+            orderId: string;
+            /** @enum {string} */
+            status: "NONE" | "RESERVED" | "RELEASED" | "TRANSFERRED";
+            /** @enum {string|null} */
+            detail: "UNKNOWN" | "IN_FLIGHT" | "REJECTED" | null;
+            /** @enum {string|null} */
+            rejectionReason: "INSUFFICIENT_CREDITS" | "AMOUNT_OUT_OF_RANGE" | "CONFLICTING_REQUEST" | null;
+            /** Format: date-time */
+            recordedAt: string | null;
+            reservation: components["schemas"]["TransactionReference"] | null;
+            terminal: components["schemas"]["TransactionReference"] | null;
         };
         Error: {
             error: {
@@ -181,9 +224,37 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /** @description Malformed order identifier. */
+        InvalidOrderId: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Missing or invalid internal service credential. */
+        ServiceUnauthenticated: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Internal query failure. Details are not exposed. */
+        InternalFailure: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
     };
     parameters: {
         UserId: string;
+        OrderId: string;
         Limit: number;
         /** @description Opaque cursor returned by the previous page. */
         Cursor: string;
@@ -322,6 +393,31 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["WalletNotFound"];
             503: components["responses"]["IdentityUnavailable"];
+        };
+    };
+    getOrderCreditStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: components["parameters"]["OrderId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current durable Credit state for the order. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderCreditStatus"];
+                };
+            };
+            400: components["responses"]["InvalidOrderId"];
+            401: components["responses"]["ServiceUnauthenticated"];
+            500: components["responses"]["InternalFailure"];
         };
     };
 }

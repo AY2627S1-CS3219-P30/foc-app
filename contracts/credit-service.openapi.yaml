@@ -89,18 +89,52 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/WalletNotFound' }
         '503': { $ref: '#/components/responses/IdentityUnavailable' }
+  /internal/orders/{orderId}/credit-status:
+    get:
+      operationId: getOrderCreditStatus
+      summary: Read Credit's authoritative state for one order.
+      description: |
+        Read-only recovery endpoint. UNKNOWN, an uncommitted/in-flight reservation, and a durable
+        rejection all have economic status NONE and are distinguished by `detail`. Successful
+        reservations and terminal movements include immutable transaction references.
+      security:
+        - serviceKey: []
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: Current durable Credit state for the order.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderCreditStatus' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/ServiceUnauthenticated' }
+        '500': { $ref: '#/components/responses/InternalFailure' }
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    serviceKey:
+      type: apiKey
+      in: header
+      name: X-Service-Key
   parameters:
     UserId:
       name: userId
       in: path
       required: true
       schema: { type: string, minLength: 1 }
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]*$'
     Limit:
       name: limit
       in: query
@@ -160,6 +194,41 @@ components:
           type: array
           items: { $ref: '#/components/schemas/LedgerItem' }
         nextCursor: { type: [string, 'null'] }
+    TransactionReference:
+      type: object
+      required: [transactionId, type, occurredAt]
+      properties:
+        transactionId: { type: string, format: uuid }
+        type: { type: string, enum: [RESERVE, RELEASE, TRANSFER] }
+        occurredAt: { type: string, format: date-time }
+    OrderCreditStatus:
+      type: object
+      required:
+        - orderId
+        - status
+        - detail
+        - rejectionReason
+        - recordedAt
+        - reservation
+        - terminal
+      properties:
+        orderId: { type: string }
+        status: { type: string, enum: [NONE, RESERVED, RELEASED, TRANSFERRED] }
+        detail:
+          type: [string, 'null']
+          enum: [UNKNOWN, IN_FLIGHT, REJECTED, null]
+        rejectionReason:
+          type: [string, 'null']
+          enum: [INSUFFICIENT_CREDITS, AMOUNT_OUT_OF_RANGE, CONFLICTING_REQUEST, null]
+        recordedAt: { type: [string, 'null'], format: date-time }
+        reservation:
+          oneOf:
+            - { $ref: '#/components/schemas/TransactionReference' }
+            - { type: 'null' }
+        terminal:
+          oneOf:
+            - { $ref: '#/components/schemas/TransactionReference' }
+            - { type: 'null' }
     Error:
       type: object
       required: [error]
@@ -195,6 +264,21 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
     IdentityUnavailable:
       description: Live identity could not be resolved safely.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InvalidOrderId:
+      description: Malformed order identifier.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ServiceUnauthenticated:
+      description: Missing or invalid internal service credential.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InternalFailure:
+      description: Internal query failure. Details are not exposed.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
