@@ -72,6 +72,16 @@ describe('identity-change invalidation is wired (USR-07)', () => {
           eventType: 'order.reservation-requested',
           expectedProducer: 'order-service',
         }),
+        expect.objectContaining({
+          queue: 'foc.credit.completions',
+          eventType: 'order.completion-requested',
+          expectedProducer: 'order-service',
+        }),
+        expect.objectContaining({
+          queue: 'foc.credit.releases',
+          eventType: 'order.release-requested',
+          expectedProducer: 'order-service',
+        }),
       ]),
     );
   });

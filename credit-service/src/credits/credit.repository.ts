@@ -1,14 +1,31 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import { EVENTS, insertOutboxEvent, type Db, type Queryable, type Row } from '@foc/platform';
+import {
+  EVENTS,
+  creditsReleasedPayload,
+  creditsTransferredPayload,
+  insertOutboxEvent,
+  type Db,
+  type Queryable,
+  type Row,
+} from '@foc/platform';
 import { RAW_DB } from '../db/db.js';
 import {
   INITIAL_CREDIT_ALLOCATION,
   type LedgerItem,
+  type ReleaseInput,
+  type ReleaseOutcome,
+  type ReleaseResult,
   type ReservationBoundary,
   type ReservationInput,
   type ReservationOutcome,
+  type ResultingBalance,
+  type TerminalBoundary,
+  type TerminalRejection,
   type TransactionType,
+  type TransferInput,
+  type TransferOutcome,
+  type TransferResult,
   type WalletView,
 } from './types.js';
 
@@ -21,12 +38,15 @@ type WalletRow = Row & {
 };
 
 type OperationRow = Row & {
+  operation_type: 'RESERVE' | 'RELEASE' | 'TRANSFER';
   requester_id: string;
+  courier_id: string | null;
   amount: number;
   outcome: 'PENDING' | 'SUCCEEDED' | 'REJECTED';
   rejection_reason: 'INSUFFICIENT_CREDITS' | 'AMOUNT_OUT_OF_RANGE' | null;
   available_at_decision: number | null;
   transaction_id: string | null;
+  result_payload: unknown | null;
 };
 
 type LedgerRow = Row & {
@@ -46,6 +66,13 @@ export class WalletNotReadyError extends Error {
   }
 }
 
+export class ReservationNotReadyError extends Error {
+  constructor(readonly orderId: string) {
+    super(`Reservation for ${orderId} is not ready yet.`);
+    this.name = 'ReservationNotReadyError';
+  }
+}
+
 const iso = (value: Date | string): string =>
   value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 
@@ -56,6 +83,12 @@ const walletView = (row: WalletRow): WalletView => ({
   total: Number(row.available) + Number(row.reserved),
   createdAt: iso(row.created_at),
   updatedAt: iso(row.updated_at),
+});
+
+const balance = (row: { available: number; reserved: number }): ResultingBalance => ({
+  available: Number(row.available),
+  reserved: Number(row.reserved),
+  total: Number(row.available) + Number(row.reserved),
 });
 
 /** Credit's single persistence boundary. Event handlers pass their inbox transaction in. */
@@ -197,6 +230,204 @@ export class CreditRepository {
     return outcome;
   }
 
+  /**
+   * Consumes one live reservation and pays its courier. Locking the reservation
+   * operation serializes transfer against release for the same order.
+   */
+  async transfer(
+    tx: Queryable,
+    input: TransferInput,
+    fault?: (boundary: TerminalBoundary) => void | Promise<void>,
+  ): Promise<TransferOutcome> {
+    const reservation = await this.lockReservation(tx, input.orderId);
+    await fault?.('reservation-locked');
+    const invalid = await this.validateReservation(tx, reservation, input, 'TRANSFER');
+    if (invalid) return invalid;
+    if (input.requesterId === input.courierId) {
+      return this.rejectTerminal(tx, input, 'TRANSFER', 'INVALID_PARTICIPANTS', {
+        reason: 'requester and courier must differ',
+      });
+    }
+
+    const prior = await this.findTerminalOperation(tx, input.orderId);
+    if (prior) return this.replayTransferOrReject(tx, prior, input);
+
+    const participants = await tx.query<{ user_id: string } & Row>(
+      `SELECT user_id
+         FROM wallets
+        WHERE user_id IN ($1, $2)
+        ORDER BY user_id
+        FOR UPDATE`,
+      [input.requesterId, input.courierId],
+    );
+    if (!participants.rows.some((row) => row.user_id === input.courierId)) {
+      throw new WalletNotReadyError(input.courierId);
+    }
+    if (!participants.rows.some((row) => row.user_id === input.requesterId)) {
+      throw new WalletNotReadyError(input.requesterId);
+    }
+
+    await tx.query(
+      `INSERT INTO credit_operations
+         (order_id, operation_type, requester_id, courier_id, amount, outcome)
+       VALUES ($1, 'TRANSFER', $2, $3, $4, 'PENDING')`,
+      [input.orderId, input.requesterId, input.courierId, input.amount],
+    );
+    await fault?.('operation-claimed');
+
+    const requester = await tx.query<{ available: number; reserved: number } & Row>(
+      `UPDATE wallets
+          SET reserved = reserved - $2, updated_at = now()
+        WHERE user_id = $1 AND reserved >= $2
+        RETURNING available, reserved`,
+      [input.requesterId, input.amount],
+    );
+    if (!requester.rows[0]) {
+      throw new Error(
+        `Recorded reservation for ${input.orderId} is not backed by reserved credit.`,
+      );
+    }
+    await fault?.('requester-wallet-updated');
+    const courier = await tx.query<{ available: number; reserved: number } & Row>(
+      `UPDATE wallets
+          SET available = available + $2, updated_at = now()
+        WHERE user_id = $1
+        RETURNING available, reserved`,
+      [input.courierId, input.amount],
+    );
+    if (!courier.rows[0]) throw new WalletNotReadyError(input.courierId);
+    await fault?.('courier-wallet-updated');
+
+    const transactionId = randomUUID();
+    await tx.query(
+      `INSERT INTO credit_transactions
+         (transaction_id, order_id, transaction_type, wallet_user_id, amount)
+       VALUES ($1, $2, 'TRANSFER', $3, $4)`,
+      [transactionId, input.orderId, input.requesterId, input.amount],
+    );
+    await fault?.('transaction-written');
+
+    const requesterBalance = balance(requester.rows[0]);
+    const courierBalance = balance(courier.rows[0]);
+    await tx.query(
+      `INSERT INTO ledger_entries
+         (entry_id, transaction_id, entry_no, wallet_user_id, account, direction, amount,
+          resulting_available, resulting_reserved)
+       VALUES
+         ($1, $2, 1, $3, 'RESERVED', 'DEBIT', $4, $5, $6),
+         ($7, $2, 2, $8, 'AVAILABLE', 'CREDIT', $4, $9, $10)`,
+      [
+        randomUUID(),
+        transactionId,
+        input.requesterId,
+        input.amount,
+        requesterBalance.available,
+        requesterBalance.reserved,
+        randomUUID(),
+        input.courierId,
+        courierBalance.available,
+        courierBalance.reserved,
+      ],
+    );
+    await fault?.('ledger-written');
+
+    const result: TransferResult = {
+      orderId: input.orderId,
+      requesterId: input.requesterId,
+      courierId: input.courierId,
+      amount: input.amount,
+      transactionId,
+      requesterBalance,
+      courierBalance,
+    };
+    await this.finishTerminal(tx, input.orderId, 'TRANSFER', transactionId, result);
+    await fault?.('operation-finalized');
+    await this.writeTransferOutcome(tx, input, result);
+    await fault?.('outbox-written');
+    return { status: 'TRANSFERRED', result };
+  }
+
+  /** Returns one live reservation to its requester exactly once. */
+  async release(
+    tx: Queryable,
+    input: ReleaseInput,
+    fault?: (boundary: TerminalBoundary) => void | Promise<void>,
+  ): Promise<ReleaseOutcome> {
+    const reservation = await this.lockReservation(tx, input.orderId);
+    await fault?.('reservation-locked');
+    const invalid = await this.validateReservation(tx, reservation, input, 'RELEASE');
+    if (invalid) return invalid;
+
+    const prior = await this.findTerminalOperation(tx, input.orderId);
+    if (prior) return this.replayReleaseOrReject(tx, prior, input);
+
+    await tx.query(
+      `INSERT INTO credit_operations
+         (order_id, operation_type, requester_id, amount, outcome)
+       VALUES ($1, 'RELEASE', $2, $3, 'PENDING')`,
+      [input.orderId, input.requesterId, input.amount],
+    );
+    await fault?.('operation-claimed');
+
+    const requester = await tx.query<{ available: number; reserved: number } & Row>(
+      `UPDATE wallets
+          SET available = available + $2,
+              reserved = reserved - $2,
+              updated_at = now()
+        WHERE user_id = $1 AND reserved >= $2
+        RETURNING available, reserved`,
+      [input.requesterId, input.amount],
+    );
+    if (!requester.rows[0]) {
+      throw new Error(
+        `Recorded reservation for ${input.orderId} is not backed by reserved credit.`,
+      );
+    }
+    await fault?.('requester-wallet-updated');
+
+    const transactionId = randomUUID();
+    await tx.query(
+      `INSERT INTO credit_transactions
+         (transaction_id, order_id, transaction_type, wallet_user_id, amount)
+       VALUES ($1, $2, 'RELEASE', $3, $4)`,
+      [transactionId, input.orderId, input.requesterId, input.amount],
+    );
+    await fault?.('transaction-written');
+
+    const requesterBalance = balance(requester.rows[0]);
+    await tx.query(
+      `INSERT INTO ledger_entries
+         (entry_id, transaction_id, entry_no, wallet_user_id, account, direction, amount,
+          resulting_available, resulting_reserved)
+       VALUES
+         ($1, $2, 1, $3, 'RESERVED', 'DEBIT', $4, $5, $6),
+         ($7, $2, 2, $3, 'AVAILABLE', 'CREDIT', $4, $5, $6)`,
+      [
+        randomUUID(),
+        transactionId,
+        input.requesterId,
+        input.amount,
+        requesterBalance.available,
+        requesterBalance.reserved,
+        randomUUID(),
+      ],
+    );
+    await fault?.('ledger-written');
+
+    const result: ReleaseResult = {
+      orderId: input.orderId,
+      requesterId: input.requesterId,
+      amount: input.amount,
+      transactionId,
+      requesterBalance,
+    };
+    await this.finishTerminal(tx, input.orderId, 'RELEASE', transactionId, result);
+    await fault?.('operation-finalized');
+    await this.writeReleaseOutcome(tx, input, result);
+    await fault?.('outbox-written');
+    return { status: 'RELEASED', result };
+  }
+
   async findWallet(userId: string, queryable: Queryable = this.db): Promise<WalletView | null> {
     const result = await queryable.query<WalletRow>(
       `SELECT user_id, available, reserved, created_at, updated_at
@@ -268,6 +499,191 @@ export class CreditRepository {
        VALUES ($1, $2, $3, $4, $5)`,
       [randomUUID(), adminUserId, targetUserId, resource, correlationId],
     );
+  }
+
+  private async lockReservation(tx: Queryable, orderId: string): Promise<OperationRow> {
+    const result = await tx.query<OperationRow>(
+      `SELECT operation_type, requester_id, courier_id, amount, outcome, rejection_reason,
+              available_at_decision, transaction_id, result_payload
+         FROM credit_operations
+        WHERE order_id = $1 AND operation_type = 'RESERVE'
+        FOR UPDATE`,
+      [orderId],
+    );
+    const reservation = result.rows[0];
+    if (!reservation || reservation.outcome === 'PENDING') {
+      throw new ReservationNotReadyError(orderId);
+    }
+    return reservation;
+  }
+
+  private async validateReservation(
+    tx: Queryable,
+    reservation: OperationRow,
+    input: ReleaseInput | TransferInput,
+    operationType: 'RELEASE' | 'TRANSFER',
+  ): Promise<{ status: 'REJECTED'; reason: TerminalRejection } | null> {
+    if (reservation.outcome !== 'SUCCEEDED' || !reservation.transaction_id) {
+      return this.rejectTerminal(tx, input, operationType, 'RESERVATION_NOT_ACTIVE', {
+        reservationOutcome: reservation.outcome,
+      });
+    }
+    if (
+      reservation.requester_id !== input.requesterId ||
+      Number(reservation.amount) !== input.amount
+    ) {
+      return this.rejectTerminal(tx, input, operationType, 'CONFLICTING_REQUEST', {
+        recorded: {
+          requesterId: reservation.requester_id,
+          amount: Number(reservation.amount),
+        },
+        received: { requesterId: input.requesterId, amount: input.amount },
+      });
+    }
+    return null;
+  }
+
+  private async findTerminalOperation(
+    tx: Queryable,
+    orderId: string,
+  ): Promise<OperationRow | null> {
+    const result = await tx.query<OperationRow>(
+      `SELECT operation_type, requester_id, courier_id, amount, outcome, rejection_reason,
+              available_at_decision, transaction_id, result_payload
+         FROM credit_operations
+        WHERE order_id = $1 AND operation_type IN ('RELEASE', 'TRANSFER')
+        FOR UPDATE`,
+      [orderId],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  private async replayTransferOrReject(
+    tx: Queryable,
+    prior: OperationRow,
+    input: TransferInput,
+  ): Promise<TransferOutcome> {
+    if (
+      prior.operation_type !== 'TRANSFER' ||
+      prior.requester_id !== input.requesterId ||
+      prior.courier_id !== input.courierId ||
+      Number(prior.amount) !== input.amount
+    ) {
+      const reason: TerminalRejection =
+        prior.operation_type === 'TRANSFER' ? 'CONFLICTING_REQUEST' : 'TERMINAL_OPERATION_CONFLICT';
+      return this.rejectTerminal(tx, input, 'TRANSFER', reason, {
+        recorded: {
+          operationType: prior.operation_type,
+          requesterId: prior.requester_id,
+          courierId: prior.courier_id,
+          amount: Number(prior.amount),
+        },
+      });
+    }
+    if (prior.outcome !== 'SUCCEEDED' || !prior.result_payload) {
+      throw new Error(`Transfer outcome for ${input.orderId} is not replayable.`);
+    }
+    const result = creditsTransferredPayload.parse(prior.result_payload);
+    await this.writeTransferOutcome(tx, input, result);
+    return { status: 'TRANSFERRED', result };
+  }
+
+  private async replayReleaseOrReject(
+    tx: Queryable,
+    prior: OperationRow,
+    input: ReleaseInput,
+  ): Promise<ReleaseOutcome> {
+    if (
+      prior.operation_type !== 'RELEASE' ||
+      prior.requester_id !== input.requesterId ||
+      Number(prior.amount) !== input.amount
+    ) {
+      const reason: TerminalRejection =
+        prior.operation_type === 'RELEASE' ? 'CONFLICTING_REQUEST' : 'TERMINAL_OPERATION_CONFLICT';
+      return this.rejectTerminal(tx, input, 'RELEASE', reason, {
+        recorded: {
+          operationType: prior.operation_type,
+          requesterId: prior.requester_id,
+          courierId: prior.courier_id,
+          amount: Number(prior.amount),
+        },
+      });
+    }
+    if (prior.outcome !== 'SUCCEEDED' || !prior.result_payload) {
+      throw new Error(`Release outcome for ${input.orderId} is not replayable.`);
+    }
+    const result = creditsReleasedPayload.parse(prior.result_payload);
+    await this.writeReleaseOutcome(tx, input, result);
+    return { status: 'RELEASED', result };
+  }
+
+  private async rejectTerminal(
+    tx: Queryable,
+    input: ReleaseInput | TransferInput,
+    operationType: 'RELEASE' | 'TRANSFER',
+    reason: TerminalRejection,
+    details: Record<string, unknown>,
+  ): Promise<{ status: 'REJECTED'; reason: TerminalRejection }> {
+    await tx.query(
+      `INSERT INTO credit_audit_alerts
+         (alert_id, order_id, operation_type, code, details, correlation_id)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6)`,
+      [
+        randomUUID(),
+        input.orderId,
+        operationType,
+        reason,
+        JSON.stringify({
+          ...details,
+          received: { ...input, correlationId: undefined, causationId: undefined },
+        }),
+        input.correlationId,
+      ],
+    );
+    return { status: 'REJECTED', reason };
+  }
+
+  private async finishTerminal(
+    tx: Queryable,
+    orderId: string,
+    operationType: 'RELEASE' | 'TRANSFER',
+    transactionId: string,
+    result: ReleaseResult | TransferResult,
+  ): Promise<void> {
+    await tx.query(
+      `UPDATE credit_operations
+          SET outcome = 'SUCCEEDED', transaction_id = $3, result_payload = $4::jsonb
+        WHERE order_id = $1 AND operation_type = $2`,
+      [orderId, operationType, transactionId, JSON.stringify(result)],
+    );
+  }
+
+  private async writeTransferOutcome(
+    tx: Queryable,
+    input: TransferInput,
+    result: TransferResult,
+  ): Promise<void> {
+    await insertOutboxEvent(tx, {
+      eventType: EVENTS.CREDITS_TRANSFERRED,
+      aggregateId: input.orderId,
+      payload: result,
+      correlationId: input.correlationId,
+      causationId: input.causationId,
+    });
+  }
+
+  private async writeReleaseOutcome(
+    tx: Queryable,
+    input: ReleaseInput,
+    result: ReleaseResult,
+  ): Promise<void> {
+    await insertOutboxEvent(tx, {
+      eventType: EVENTS.CREDITS_RELEASED,
+      aggregateId: input.orderId,
+      payload: result,
+      correlationId: input.correlationId,
+      causationId: input.causationId,
+    });
   }
 
   private async replayOrRejectConflict(

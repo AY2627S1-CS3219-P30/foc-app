@@ -5,6 +5,12 @@ import { authConfig, env, SERVICE_NAME, SERVICE_VERSION } from './config.js';
 import { CreditModule } from './credit.module.js';
 import { RAW_DB } from './db/db.js';
 import { RESERVATION_QUEUE, ReservationConsumer } from './reservation-consumer.js';
+import {
+  COMPLETION_QUEUE,
+  RELEASE_QUEUE,
+  CompletionConsumer,
+  ReleaseConsumer,
+} from './terminal-consumers.js';
 import { WalletProvisioning } from './wallet-provisioning.js';
 
 const WALLET_QUEUE = 'foc.credit.wallet-provisioning';
@@ -28,6 +34,8 @@ const eventModules = env.RABBITMQ_URL
         subscriptions: [
           { queue: WALLET_QUEUE, routingKeys: [EVENTS.USER_ACTIVATED] },
           { queue: RESERVATION_QUEUE, routingKeys: [EVENTS.CREDIT_RESERVATION_REQUESTED] },
+          { queue: COMPLETION_QUEUE, routingKeys: [EVENTS.ORDER_COMPLETION_REQUESTED] },
+          { queue: RELEASE_QUEUE, routingKeys: [EVENTS.CREDIT_RELEASE_REQUESTED] },
           status.subscription,
         ],
       }),
@@ -49,6 +57,8 @@ const eventModules = env.RABBITMQ_URL
     ? [
         WalletProvisioning,
         ReservationConsumer,
+        CompletionConsumer,
+        ReleaseConsumer,
         provideOutboxRelay({ db: RAW_DB }),
         ...status.providers,
       ]

@@ -145,7 +145,7 @@ for ex in foc.events foc.events.dlx foc.credit-service.delay.1 foc.user-service.
     fail "exchange $ex missing"
   fi
 done
-for queue in foc.credit.wallet-provisioning foc.credit.reservations; do
+for queue in foc.credit.wallet-provisioning foc.credit.reservations foc.credit.completions foc.credit.releases; do
   if docker compose exec -T rabbitmq rabbitmqctl -q list_queues name 2>/dev/null |
     tr -d '\r' | grep -qx "${queue}.dlq"; then
     pass "$queue has a dead-letter queue"

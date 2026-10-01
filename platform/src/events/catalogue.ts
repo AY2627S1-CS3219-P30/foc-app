@@ -111,6 +111,54 @@ export const creditReservationRejectedPayload = z.discriminatedUnion('reason', [
 export type CreditReservationRejectedPayload = z.infer<typeof creditReservationRejectedPayload>;
 
 /**
+ * Terminal credit movements always identify the reservation they settle. The
+ * requester and amount are restated so Credit can compare them with the
+ * recorded reservation before moving anything. A completion also names the
+ * courier whose wallet earns the reward; that identity is authoritative only
+ * because the message is accepted exclusively from Order Service.
+ */
+const terminalMovement = {
+  orderId: z.string().min(1),
+  requesterId: z.string().min(1),
+  amount: z.number().int().positive(),
+};
+
+export const orderCompletionRequestedPayload = z.object({
+  ...terminalMovement,
+  courierId: z.string().min(1),
+});
+export type OrderCompletionRequestedPayload = z.infer<typeof orderCompletionRequestedPayload>;
+
+const resultingBalance = z
+  .object({
+    available: z.number().int().nonnegative(),
+    reserved: z.number().int().nonnegative(),
+    total: z.number().int().nonnegative(),
+  })
+  .refine((balance) => balance.total === balance.available + balance.reserved, {
+    message: 'total must equal available plus reserved',
+  });
+
+export const creditsTransferredPayload = z.object({
+  ...terminalMovement,
+  courierId: z.string().min(1),
+  transactionId: z.uuid(),
+  requesterBalance: resultingBalance,
+  courierBalance: resultingBalance,
+});
+export type CreditsTransferredPayload = z.infer<typeof creditsTransferredPayload>;
+
+export const creditReleaseRequestedPayload = z.object(terminalMovement);
+export type CreditReleaseRequestedPayload = z.infer<typeof creditReleaseRequestedPayload>;
+
+export const creditsReleasedPayload = z.object({
+  ...terminalMovement,
+  transactionId: z.uuid(),
+  requesterBalance: resultingBalance,
+});
+export type CreditsReleasedPayload = z.infer<typeof creditsReleasedPayload>;
+
+/**
  * Payload schemas, keyed by event type. An event missing from here has no
  * agreed shape yet — the ticket that first publishes it adds one — so a
  * producer cannot invent a shape without changing this file, where a reviewer
@@ -124,4 +172,8 @@ export const PAYLOAD_SCHEMAS = {
   [EVENTS.CREDIT_RESERVATION_REQUESTED]: creditReservationRequestedPayload,
   [EVENTS.CREDITS_RESERVED]: creditsReservedPayload,
   [EVENTS.CREDIT_RESERVATION_REJECTED]: creditReservationRejectedPayload,
+  [EVENTS.ORDER_COMPLETION_REQUESTED]: orderCompletionRequestedPayload,
+  [EVENTS.CREDITS_TRANSFERRED]: creditsTransferredPayload,
+  [EVENTS.CREDIT_RELEASE_REQUESTED]: creditReleaseRequestedPayload,
+  [EVENTS.CREDITS_RELEASED]: creditsReleasedPayload,
 } as const satisfies Partial<Record<EventType, z.ZodType>>;
