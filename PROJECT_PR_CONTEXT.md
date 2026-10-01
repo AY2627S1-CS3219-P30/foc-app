@@ -26,7 +26,7 @@ This context file was produced with Codex by summarizing the repository, live Gi
 - **PR [#201](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/201)** merged to `main` as `a3d9cda`; #133, #140 and #143 closed automatically.
 - **PR [#202](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/202)** merged to `main` as `d14a98f`; #141 and #142 closed automatically. The exact post-retarget matrix passed in [run 36807413107](https://github.com/AY2627S1-CS3219-P30/foc-app/actions/runs/36807413107).
 - **PR [#203](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/203)** merged to `main` as `5585a13`; #151 closed automatically. The full matrix passed in [run 36809124780](https://github.com/AY2627S1-CS3219-P30/foc-app/actions/runs/36809124780).
-- #132 is closed after its ADR implementation merged in PR #201 and the repository owner explicitly confirmed the remaining approval/review gate on 2026-10-01; #183 remains open because #186's historical backlog revision is still absent.
+- #132 is closed after its ADR implementation merged in PR #201 and the repository owner explicitly confirmed the remaining approval/review gate on 2026-10-01; #186's historical backlog revision is implemented and render-verified on `docs/186-revise-d1-backlog`, pending merge before #183 closes.
 - One assigned Sprint 1 governance issue (#183) remains open; #132 and #133 are closed after PR #201 and the recorded approval decision.
 - Implementation for #133, #140, #141, #142 and #143 is merged on `main`.
 - #151 is merged. #152, #165 and #172 were re-audited against live dependencies; their exact blockers are recorded below and on the issues.
@@ -41,7 +41,7 @@ Friend on Campus is a TypeScript/Node 22 monorepo using NestJS services, Postgre
 4. Order opens or rejects the errand from that result.
 5. Later completion transfers the reservation to the courier; cancellation or expiry releases it to the requester.
 
-This model is reflected in `order-service/README.md`, the event catalogue and merged ADR 0002. The repository owner confirmed the outstanding ADR approval/review gates on 2026-10-01. The submitted D1 backlog still describes synchronous reserve-before-save behavior, so #183 remains open only until DOC-02 (#186) applies the historical backlog revision.
+This model is reflected in `order-service/README.md`, the event catalogue and merged ADR 0002. The repository owner confirmed the outstanding ADR approval/review gates on 2026-10-01. DOC-02 (#186) now updates the submitted D1 backlog to the same model on `docs/186-revise-d1-backlog`; #183 remains open until that revision merges.
 
 ## Current implementation state
 
@@ -57,7 +57,7 @@ This model is reflected in `order-service/README.md`, the event catalogue and me
 
 ## Important source discrepancies
 
-1. **Saga direction:** the accepted ADRs, current issues, event catalogue, and Order README use asynchronous save-pending-then-reserve, while the D1 backlog still says synchronous reserve-before-save. #186 must update that historical document before #183 closes.
+1. **Saga direction:** the accepted ADRs, current issues, event catalogue, and Order README use asynchronous save-pending-then-reserve. #186's pending document revision removes the historical D1 backlog contradiction and must merge before #183 closes.
 2. **EVT-02 status:** #135 is open, but PR #195 merged the reusable inbox/outbox implementation and User Service relay. Remaining work is Order/Credit adoption and missing event schemas, not creation of the base mechanism.
 3. **Execution-plan numbering:** `docs/EXECUTION-PLAN.md` combines/simplifies credit tickets differently from current GitHub. Current GitHub issue numbers and descriptions take precedence.
 4. **Wallet API overlap:** implemented once as the complete #143 surface: #133 supplies the aggregate and `/wallets/me`; #143 supplies ledger pagination and audited admin routes.
@@ -67,6 +67,7 @@ This model is reflected in `order-service/README.md`, the event catalogue and me
 
 | Issue                                                             | Feature                                                  | Status                                                               | Classification             | Dependencies                                          | Blockers                                                                     | Relevant code                                                                                                        |
 | ----------------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| [#186](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/186) | DOC-02 D1 backlog revision                               | Implemented and render-verified; pending PR/merge                     | Foundation / prerequisite  | #183 async decision satisfied                         | Merge required before #183 closes                                           | `docs/Project D1 Submission.docx`                                                                                     |
 | [#183](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/183) | FND-02 decision records and glossary                     | Implementation merged; approval gate confirmed; issue open           | Foundation / prerequisite  | None stated                                           | #186 must apply the historical D1 backlog revision                           | `docs/adr/0002`–`0007`, `docs/domain-glossary.md`, `order-service/README.md`                                         |
 | [#132](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/132) | CRD-00 credit invariant and ledger ADR                   | Closed; implementation merged in PR #201 and approval gate confirmed | Foundation / prerequisite  | None stated                                           | None                                                                         | `docs/adr/0007-credit-invariant-and-double-entry-ledger.md`, `credit-service/src/db/schema.ts`                       |
 | [#133](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/133) | CRD-01 wallet creation and initial issuance              | Closed via merged PR #201                                            | Depends on another issue   | Satisfied                                             | None                                                                         | `credit-service/src/wallet-provisioning.ts`, `credit-service/src/credits/credit.repository.ts`, migrations and tests |
@@ -186,6 +187,24 @@ ADRs 0002–0007, the glossary/trigger table, explicit D1 supersession note and 
 - Review every documented transition against the event catalogue and planned Order/Credit handlers.
 - Check that each transition includes actor, precondition, next state, and emitted event.
 - Search the backlog, README, issues, and ADRs for synchronous phrases after #186 is applied.
+
+## #186 DOC-02 Revise the product backlog after D1 feedback
+
+**Goal and acceptance criteria**
+
+Align the submitted D1 backlog with the approved User, Supplier, Order, Credit, Event Integration, Web UI, and edge-case requirements drafted in the live issue. Every drafted row must be present or explained, every edge-case table must contain a Requirements row, and the result must not contradict the service documentation or event catalogue.
+
+**Implementation and verification**
+
+- `docs/Project D1 Submission.docx` now contains the drafted replacement and addition rows, including asynchronous save-pending-then-reserve semantics, zero-credit courier behavior, supplier fields from the seed data, supplier UI requirements, and EC5.
+- All twelve newly introduced requirement IDs occur exactly once.
+- EC1 through EC5 each contain a Requirements row.
+- Searches confirm the obsolete synchronous and five-minute orphan-reservation phrases are absent.
+- The 40-page rendered document was inspected page by page with no clipping, overlap, missing glyphs, broken tables, or broken images.
+
+**Dependency and disposition**
+
+#183 closes only after this document revision merges. The revision also satisfies the historical-document gate for #172, but #172 remains blocked on actual Order persistence and recovery evidence from #137/#150/#152.
 
 ## #132 CRD-00 Credit invariant and double-entry ledger decision record
 
@@ -649,7 +668,8 @@ This order follows executable dependencies rather than issue number or creation 
 # 7. Progress Tracker
 
 ```ini
-[ ] #183 — FND-02 Decision records and domain glossary — PR #201; approval gate confirmed, #186 backlog update pending
+[ ] #186 — DOC-02 D1 backlog revision — implemented and render-verified; pending PR/merge
+[ ] #183 — FND-02 Decision records and domain glossary — PR #201; approval gate confirmed, closes after #186 merges
 [x] #132 — CRD-00 Credit invariant and double-entry ledger decision record — merged in PR #201; approval gate confirmed
 [x] #133 — CRD-01 Wallet creation and initial credit allocation — merged in PR #201
 [x] #140 — CRD-02 Asynchronous credit reservation — merged in PR #201
