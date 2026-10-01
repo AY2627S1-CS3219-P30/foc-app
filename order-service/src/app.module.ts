@@ -5,6 +5,10 @@ import { authConfig, env, SERVICE_NAME, SERVICE_VERSION } from './config.js';
 import { OrdersModule } from './orders/orders.module.js';
 import { ORDER_DB } from './db/db.js';
 import {
+  CreditTerminalResultsConsumer,
+  TRANSFER_RESULTS_QUEUE,
+} from './credit-terminal-results.consumer.js';
+import {
   RESERVATION_RESULTS_QUEUE,
   ReservationResultsConsumer,
 } from './reservation-results.consumer.js';
@@ -31,6 +35,7 @@ const eventModules = env.RABBITMQ_URL
             queue: RESERVATION_RESULTS_QUEUE,
             routingKeys: [EVENTS.CREDITS_RESERVED, EVENTS.CREDIT_RESERVATION_REJECTED],
           },
+          { queue: TRANSFER_RESULTS_QUEUE, routingKeys: [EVENTS.CREDITS_TRANSFERRED] },
           status.subscription,
         ],
       }),
@@ -49,7 +54,12 @@ const eventModules = env.RABBITMQ_URL
     ...eventModules,
   ],
   providers: env.RABBITMQ_URL
-    ? [ReservationResultsConsumer, provideOutboxRelay({ db: ORDER_DB }), ...status.providers]
+    ? [
+        ReservationResultsConsumer,
+        CreditTerminalResultsConsumer,
+        provideOutboxRelay({ db: ORDER_DB }),
+        ...status.providers,
+      ]
     : [],
 })
 export class AppModule {}

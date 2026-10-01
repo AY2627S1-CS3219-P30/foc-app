@@ -48,8 +48,32 @@ export interface OrderRow {
   availableAtRejection: number | null;
   version: number;
   acceptanceDeadlineAt: string | null;
+  acceptedAt: string | null;
+  pickedUpAt: string | null;
+  deliveredAt: string | null;
+  completionRequestedAt: string | null;
+  completedAt: string | null;
+  creditTransactionId: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Immutable record of a completed errand (OS-FR5.1.2). */
+export interface OrderReceipt {
+  orderId: string;
+  requesterId: string;
+  courierId: string;
+  supplier: SupplierSnapshot;
+  reward: number;
+  creditTransactionId: string;
+  timestamps: {
+    createdAt: string;
+    acceptedAt: string;
+    pickedUpAt: string;
+    deliveredAt: string;
+    completionRequestedAt: string;
+    completedAt: string;
+  };
 }
 
 export interface OrderView {

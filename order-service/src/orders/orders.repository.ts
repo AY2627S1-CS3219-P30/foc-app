@@ -8,8 +8,16 @@ import {
   type Row,
 } from '@foc/platform';
 import { ORDER_DB, type OrderDatabase } from '../db/db.js';
+import {
+  ORDER_TRANSITIONS,
+  decideTransition,
+  type OrderAction,
+  type OrderActor,
+  type TransitionDecision,
+} from './order-state-machine.js';
 import type {
   OpenOrderSummary,
+  OrderReceipt,
   OrderRow,
   OrderStatus,
   SupplierSnapshot,
@@ -33,9 +41,20 @@ type StoredOrder = Row & {
   available_at_rejection: number | null;
   version: number;
   acceptance_deadline_at: Date | string | null;
+  accepted_at: Date | string | null;
+  picked_up_at: Date | string | null;
+  delivered_at: Date | string | null;
+  completion_requested_at: Date | string | null;
+  completed_at: Date | string | null;
+  credit_transaction_id: string | null;
   created_at: Date | string;
   updated_at: Date | string;
 };
+
+export const ORDER_COLUMNS = `order_id, requester_id, courier_id, referred_admin_id, supplier_snapshot,
+  items, delivery_zone, delivery_instructions, reward, status, release_reason, rejection_reason,
+  available_at_rejection, version, acceptance_deadline_at, accepted_at, picked_up_at, delivered_at,
+  completion_requested_at, completed_at, credit_transaction_id, created_at, updated_at`;
 
 const iso = (value: Date | string): string =>
   value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -59,6 +78,12 @@ const mapOrder = (row: StoredOrder): OrderRow => ({
     row.available_at_rejection === null ? null : Number(row.available_at_rejection),
   version: Number(row.version),
   acceptanceDeadlineAt: nullableIso(row.acceptance_deadline_at),
+  acceptedAt: nullableIso(row.accepted_at),
+  pickedUpAt: nullableIso(row.picked_up_at),
+  deliveredAt: nullableIso(row.delivered_at),
+  completionRequestedAt: nullableIso(row.completion_requested_at),
+  completedAt: nullableIso(row.completed_at),
+  creditTransactionId: row.credit_transaction_id,
   createdAt: iso(row.created_at),
   updatedAt: iso(row.updated_at),
 });
@@ -111,9 +136,7 @@ export class OrdersRepository {
 
   private async findByIdUsing(db: Queryable, orderId: string): Promise<OrderRow | undefined> {
     const result = await db.query<StoredOrder>(
-      `SELECT order_id, requester_id, courier_id, referred_admin_id, supplier_snapshot, items, delivery_zone,
-              delivery_instructions, reward, status, release_reason, rejection_reason,
-              available_at_rejection, version, acceptance_deadline_at, created_at, updated_at
+      `SELECT ${ORDER_COLUMNS}
          FROM orders
         WHERE order_id = $1`,
       [orderId],
@@ -123,10 +146,7 @@ export class OrdersRepository {
 
   async listOpen(now = new Date()): Promise<OpenOrderSummary[]> {
     const result = await this.db.query<StoredOrder>(
-      `SELECT order_id, requester_id, courier_id, referred_admin_id, supplier_snapshot, items,
-              delivery_zone, delivery_instructions, reward, status, release_reason,
-              rejection_reason, available_at_rejection, version, acceptance_deadline_at,
-              created_at, updated_at
+      `SELECT ${ORDER_COLUMNS}
          FROM orders
         WHERE status = 'OPEN' AND acceptance_deadline_at > $1
         ORDER BY acceptance_deadline_at, created_at, order_id
@@ -270,9 +290,7 @@ export class OrdersRepository {
 
   async applyReservationResult(tx: Queryable, input: ReservationResultInput): Promise<boolean> {
     const result = await tx.query<StoredOrder>(
-      `SELECT order_id, requester_id, courier_id, referred_admin_id, supplier_snapshot, items, delivery_zone,
-              delivery_instructions, reward, status, release_reason, rejection_reason,
-              available_at_rejection, version, acceptance_deadline_at, created_at, updated_at
+      `SELECT ${ORDER_COLUMNS}
          FROM orders
         WHERE order_id = $1
         FOR UPDATE`,
@@ -361,13 +379,13 @@ export class OrdersRepository {
       const updated = await tx.query<StoredOrder>(
         `UPDATE orders
             SET courier_id = $2, status = 'ACCEPTED', version = version + 1,
-                updated_at = now()
+                accepted_at = now(), updated_at = now()
           WHERE order_id = $1
             AND status = 'OPEN'
             AND version = $3
             AND requester_id <> $2
             AND acceptance_deadline_at > now()
-        RETURNING *`,
+        RETURNING ${ORDER_COLUMNS}`,
         [orderId, courierId, expectedVersion],
       );
       if (!updated.rows[0]) {
@@ -397,4 +415,252 @@ export class OrdersRepository {
       return { accepted: true, order };
     });
   }
+
+  /**
+   * The single path for every lifecycle command after acceptance. It locks the row, resolves the
+   * caller's role relative to the order, asks the executable transition table for a decision and,
+   * only if one exists, applies it with a version-checked update, an immutable history row and
+   * every emitted event in the same transaction. A refused command changes nothing.
+   */
+  async transition(command: TransitionCommand, tx?: Queryable): Promise<TransitionResult> {
+    if (tx) return this.transitionUsing(tx, command);
+    return this.db.transaction((inner) => this.transitionUsing(inner, command));
+  }
+
+  private async transitionUsing(
+    tx: Queryable,
+    command: TransitionCommand,
+  ): Promise<TransitionResult> {
+    const locked = await tx.query<StoredOrder>(
+      `SELECT ${ORDER_COLUMNS} FROM orders WHERE order_id = $1 FOR UPDATE`,
+      [command.orderId],
+    );
+    if (!locked.rows[0]) return { kind: 'rejected', reason: 'NOT_FOUND' };
+    const order = mapOrder(locked.rows[0]);
+    const actor = resolveActor(order, command.actor);
+    const now = command.now ?? new Date();
+    const context = {
+      acceptanceDeadlinePassed:
+        order.acceptanceDeadlineAt !== null && new Date(order.acceptanceDeadlineAt) <= now,
+      releaseReason: order.releaseReason ?? undefined,
+    };
+
+    const decision = decideTransition(order.status, command.action, actor, context);
+    if (!decision) {
+      const allowedSomewhere = ORDER_TRANSITIONS.some(
+        (rule) => rule.action === command.action && rule.actors.includes(actor),
+      );
+      return {
+        kind: 'rejected',
+        reason: allowedSomewhere ? 'INVALID_STATE' : 'FORBIDDEN',
+        order,
+      };
+    }
+    if (command.expectedVersion !== undefined && command.expectedVersion !== order.version) {
+      return { kind: 'rejected', reason: 'VERSION_CONFLICT', order };
+    }
+    command.verify?.(order);
+
+    const occurredAt = now.toISOString();
+    const patch: Record<string, unknown> = {
+      status: decision.to,
+      version: order.version + 1,
+      updated_at: occurredAt,
+      ...(decision.releaseReason ? { release_reason: decision.releaseReason } : {}),
+      ...timestampPatch(command.action, decision, occurredAt),
+      ...(command.patch ?? {}),
+    };
+    const columns = Object.keys(patch);
+    const updated = await tx.query<StoredOrder>(
+      `UPDATE orders
+          SET ${columns.map((column, index) => `${column} = $${index + 3}`).join(', ')}
+        WHERE order_id = $1 AND version = $2
+        RETURNING ${ORDER_COLUMNS}`,
+      [order.orderId, order.version, ...columns.map((column) => patch[column])],
+    );
+    const next = updated.rows[0] ? mapOrder(updated.rows[0]) : undefined;
+    if (!next) return { kind: 'rejected', reason: 'VERSION_CONFLICT', order };
+
+    await tx.query(
+      `INSERT INTO order_status_history
+         (history_id, order_id, previous_status, new_status, action, actor_type, actor_id,
+          order_version, occurred_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        randomUUID(),
+        order.orderId,
+        order.status,
+        next.status,
+        command.action,
+        HISTORY_ACTOR[actor],
+        command.actor.id,
+        next.version,
+        occurredAt,
+      ],
+    );
+    await command.afterApply?.(tx, next);
+    for (const eventType of decision.emitted) {
+      await insertOutboxEvent(tx, {
+        ...emittedEvent(eventType, order, next, occurredAt),
+        aggregateId: order.orderId,
+        correlationId: command.correlationId,
+        ...(command.causationId ? { causationId: command.causationId } : {}),
+      } as Parameters<typeof insertOutboxEvent>[1]);
+    }
+    return { kind: 'applied', order: next, decision };
+  }
+
+  async insertReceipt(tx: Queryable, order: OrderRow): Promise<void> {
+    await tx.query(
+      `INSERT INTO order_receipts
+         (order_id, requester_id, courier_id, supplier_snapshot, reward, credit_transaction_id,
+          created_at, accepted_at, picked_up_at, delivered_at, completion_requested_at, completed_at)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [
+        order.orderId,
+        order.requesterId,
+        order.courierId,
+        JSON.stringify(order.supplierSnapshot),
+        order.reward,
+        order.creditTransactionId,
+        order.createdAt,
+        order.acceptedAt,
+        order.pickedUpAt,
+        order.deliveredAt,
+        order.completionRequestedAt,
+        order.completedAt,
+      ],
+    );
+  }
+
+  async findReceipt(orderId: string): Promise<OrderReceipt | undefined> {
+    const result = await this.db.query<
+      Row & {
+        order_id: string;
+        requester_id: string;
+        courier_id: string;
+        supplier_snapshot: SupplierSnapshot;
+        reward: number;
+        credit_transaction_id: string;
+        created_at: Date | string;
+        accepted_at: Date | string;
+        picked_up_at: Date | string;
+        delivered_at: Date | string;
+        completion_requested_at: Date | string;
+        completed_at: Date | string;
+      }
+    >(`SELECT * FROM order_receipts WHERE order_id = $1`, [orderId]);
+    const row = result.rows[0];
+    if (!row) return undefined;
+    return {
+      orderId: row.order_id,
+      requesterId: row.requester_id,
+      courierId: row.courier_id,
+      supplier: row.supplier_snapshot,
+      reward: Number(row.reward),
+      creditTransactionId: row.credit_transaction_id,
+      timestamps: {
+        createdAt: iso(row.created_at),
+        acceptedAt: iso(row.accepted_at),
+        pickedUpAt: iso(row.picked_up_at),
+        deliveredAt: iso(row.delivered_at),
+        completionRequestedAt: iso(row.completion_requested_at),
+        completedAt: iso(row.completed_at),
+      },
+    };
+  }
+}
+
+/** Who is asking: a person (resolved against the order) or a system actor. */
+export type CommandActor =
+  | { kind: 'USER'; id: string; isAdmin: boolean }
+  | { kind: 'SYSTEM'; id: string | null }
+  | { kind: 'CREDIT_SERVICE'; id: 'credit-service' };
+
+export interface TransitionCommand {
+  orderId: string;
+  action: OrderAction;
+  actor: CommandActor;
+  /** Participant commands must state the version they observed; system commands omit it. */
+  expectedVersion?: number;
+  correlationId: string;
+  causationId?: string;
+  now?: Date;
+  /** Throws to refuse the command after the transition is known to be legal (e.g. reply facts). */
+  verify?: (order: OrderRow) => void;
+  /** Extra column values written with the transition. */
+  patch?: Record<string, unknown>;
+  /** Extra writes in the same transaction, after the history row. */
+  afterApply?: (tx: Queryable, order: OrderRow) => Promise<void>;
+}
+
+export type TransitionResult =
+  | { kind: 'applied'; order: OrderRow; decision: TransitionDecision }
+  | {
+      kind: 'rejected';
+      reason: 'NOT_FOUND' | 'FORBIDDEN' | 'INVALID_STATE' | 'VERSION_CONFLICT';
+      order?: OrderRow;
+    };
+
+const HISTORY_ACTOR: Record<OrderActor, string> = {
+  REQUESTER: 'REQUESTER',
+  ASSIGNED_COURIER: 'COURIER',
+  OTHER_STUDENT: 'STUDENT',
+  ADMIN: 'ADMIN',
+  CREDIT_SERVICE: 'CREDIT_SERVICE',
+  SYSTEM: 'SYSTEM',
+};
+
+/** A requester or courier acts as that participant even if they are also an administrator. */
+function resolveActor(order: OrderRow, actor: CommandActor): OrderActor {
+  if (actor.kind === 'SYSTEM') return 'SYSTEM';
+  if (actor.kind === 'CREDIT_SERVICE') return 'CREDIT_SERVICE';
+  if (actor.id === order.requesterId) return 'REQUESTER';
+  if (order.courierId !== null && actor.id === order.courierId) return 'ASSIGNED_COURIER';
+  return actor.isAdmin ? 'ADMIN' : 'OTHER_STUDENT';
+}
+
+function timestampPatch(
+  action: OrderAction,
+  decision: TransitionDecision,
+  at: string,
+): Record<string, unknown> {
+  if (action === 'RECORD_PICKUP') return { picked_up_at: at };
+  if (action === 'RECORD_DELIVERY') return { delivered_at: at };
+  if (decision.to === 'COMPLETION_PENDING_CREDIT') return { completion_requested_at: at };
+  if (decision.to === 'COMPLETED') return { completed_at: at };
+  return {};
+}
+
+function emittedEvent(eventType: string, before: OrderRow, after: OrderRow, occurredAt: string) {
+  if (eventType === EVENTS.ORDER_STATUS_CHANGED) {
+    return {
+      eventType: EVENTS.ORDER_STATUS_CHANGED,
+      payload: {
+        orderId: after.orderId,
+        previousStatus: before.status,
+        newStatus: after.status,
+        occurredAt,
+      },
+    };
+  }
+  if (eventType === EVENTS.ORDER_COMPLETION_REQUESTED) {
+    if (!after.courierId) throw new Error('completion requested without an assigned courier');
+    return {
+      eventType: EVENTS.ORDER_COMPLETION_REQUESTED,
+      payload: {
+        orderId: after.orderId,
+        requesterId: after.requesterId,
+        courierId: after.courierId,
+        amount: after.reward,
+      },
+    };
+  }
+  if (eventType === EVENTS.CREDIT_RELEASE_REQUESTED) {
+    return {
+      eventType: EVENTS.CREDIT_RELEASE_REQUESTED,
+      payload: { orderId: after.orderId, requesterId: after.requesterId, amount: after.reward },
+    };
+  }
+  throw new Error(`transition emits an uncatalogued event: ${eventType}`);
 }

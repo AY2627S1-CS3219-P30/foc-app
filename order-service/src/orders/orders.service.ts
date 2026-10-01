@@ -3,8 +3,9 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { AuthContext } from '@foc/auth-client';
 import { ApiException } from '@foc/platform';
 import { IdempotencyKeyReusedError, OrdersRepository } from './orders.repository.js';
+import type { OrderAction } from './order-state-machine.js';
 import { SupplierClient } from './supplier.client.js';
-import type { OpenOrderSummary, OrderRow, OrderView } from './types.js';
+import type { OpenOrderSummary, OrderReceipt, OrderRow, OrderView } from './types.js';
 import type { CreateOrderInput } from './validation.js';
 
 const notFound = () => new ApiException(404, 'NOT_FOUND', 'Order not found.');
@@ -134,6 +135,76 @@ export class OrdersService {
       'The order changed before it could be accepted.',
       details,
     );
+  }
+
+  /**
+   * Runs a participant or administrator command through the transition table. A refused command
+   * changes nothing and returns 403 (this caller may never do this) or 409 (not in this state, or
+   * the order changed since the caller read it), with the current status and version.
+   */
+  async command(
+    orderId: string,
+    action: OrderAction,
+    expectedVersion: number,
+    caller: AuthContext,
+    correlationId: string,
+  ): Promise<OrderView> {
+    const result = await this.orders.transition({
+      orderId,
+      action,
+      expectedVersion,
+      actor: { kind: 'USER', id: caller.userId, isAdmin: caller.isAdmin },
+      correlationId,
+    });
+    if (result.kind === 'applied') {
+      const projected = projectOrder(result.order, caller);
+      if (!projected) throw notFound();
+      return projected;
+    }
+    // An order the caller may not even see stays indistinguishable from a missing one.
+    if (!result.order || !projectOrder(result.order, caller)) throw notFound();
+    const details = { status: result.order.status, version: result.order.version };
+    if (result.reason === 'FORBIDDEN') {
+      throw new ApiException(
+        403,
+        'ACTION_FORBIDDEN',
+        'You are not allowed to perform this action on this order.',
+        details,
+      );
+    }
+    if (result.reason === 'VERSION_CONFLICT') {
+      throw new ApiException(
+        409,
+        'ORDER_CHANGED',
+        'The order changed since you last read it.',
+        details,
+      );
+    }
+    throw new ApiException(
+      409,
+      'INVALID_ORDER_STATE',
+      'The order is not in a state that allows this action.',
+      details,
+    );
+  }
+
+  /** The completion receipt, for the order's participants and its referred administrator. */
+  async receipt(orderId: string, caller: AuthContext): Promise<OrderReceipt> {
+    const order = await this.orders.findById(orderId);
+    const projected = order ? projectOrder(order, caller) : null;
+    if (!order || !projected) throw notFound();
+    if (!projected.deliveryInstructions) {
+      throw new ApiException(
+        403,
+        'PRIVATE_ORDER_FORBIDDEN',
+        'Only an order participant or its referred administrator may read the receipt.',
+      );
+    }
+    const receipt = await this.orders.findReceipt(orderId);
+    if (!receipt) {
+      throw new ApiException(404, 'RECEIPT_NOT_FOUND', 'The order has not completed yet.');
+    }
+    return receipt;
   }
 
   async create(

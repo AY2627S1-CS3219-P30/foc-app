@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Headers,
+  HttpCode,
   Inject,
   Param,
   Post,
@@ -15,9 +16,16 @@ import { ApiException } from '@foc/platform';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { OrdersService } from './orders.service.js';
+import type { OrderAction } from './order-state-machine.js';
 import { parseAcceptOrder, parseCreateOrder, parseIdempotencyKey } from './validation.js';
 
 const orderIdSchema = z.uuid();
+
+const parseOrderId = (id: string): string => {
+  const parsed = orderIdSchema.safeParse(id);
+  if (!parsed.success) throw new ApiException(400, 'INVALID_ORDER_ID', 'Order ID must be a UUID.');
+  return parsed.data;
+};
 
 @Controller('orders')
 export class OrdersController {
@@ -59,6 +67,66 @@ export class OrdersController {
     const { expectedVersion } = parseAcceptOrder(body);
     return this.orders.accept(
       parsed.data,
+      expectedVersion,
+      caller,
+      request.correlationId ?? 'unknown',
+    );
+  }
+
+  @Get(':id/receipt')
+  @Authenticated()
+  receipt(@Param('id') id: string, @CurrentUser() caller: AuthContext) {
+    return this.orders.receipt(parseOrderId(id), caller);
+  }
+
+  @Post(':id/pickup')
+  @HttpCode(200)
+  @Authenticated()
+  pickup(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() caller: AuthContext,
+    @Req() request: Request & { correlationId?: string },
+  ) {
+    return this.run(id, 'RECORD_PICKUP', body, caller, request);
+  }
+
+  @Post(':id/deliver')
+  @HttpCode(200)
+  @Authenticated()
+  deliver(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() caller: AuthContext,
+    @Req() request: Request & { correlationId?: string },
+  ) {
+    return this.run(id, 'RECORD_DELIVERY', body, caller, request);
+  }
+
+  @Post(':id/confirm-receipt')
+  @HttpCode(200)
+  @Authenticated()
+  confirmReceipt(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() caller: AuthContext,
+    @Req() request: Request & { correlationId?: string },
+  ) {
+    return this.run(id, 'CONFIRM_RECEIPT', body, caller, request);
+  }
+
+  private run(
+    id: string,
+    action: OrderAction,
+    body: unknown,
+    caller: AuthContext,
+    request: Request & { correlationId?: string },
+  ) {
+    const orderId = parseOrderId(id);
+    const { expectedVersion } = parseAcceptOrder(body);
+    return this.orders.command(
+      orderId,
+      action,
       expectedVersion,
       caller,
       request.correlationId ?? 'unknown',
