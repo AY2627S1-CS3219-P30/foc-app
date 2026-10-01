@@ -2,7 +2,7 @@
   "name": "@foc/credit-service",
   "version": "0.1.0",
   "private": true,
-  "description": "FoC Credit Service — wallet and ledger",
+  "description": "FoC Credit Service \u2014 wallet and ledger",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
@@ -29,6 +29,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
+    "@foc/test-harness": "*",
     "@nestjs/testing": "^12.0.3",
     "@types/pg": "^8.23.1",
     "@types/supertest": "^6.0.2",
