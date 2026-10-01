@@ -12,7 +12,8 @@
     "auth-client",
     "supplier-service",
     "order-service",
-    "credit-service"
+    "credit-service",
+    "system-tests"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

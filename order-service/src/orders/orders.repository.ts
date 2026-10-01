@@ -315,6 +315,167 @@ export class OrdersRepository {
     }));
   }
 
+  /**
+   * Orders waiting on Credit since before `staleBefore` that no run has attempted since
+   * `retryAfter`, and whose original request has already left the outbox (otherwise the relay,
+   * not reconciliation, is what they are waiting for).
+   */
+  async findReconciliationCandidates(staleAfterMs: number, retryAfterMs: number, limit = 100) {
+    const result = await this.db.query<
+      { order_id: string; status: PendingCreditStatus; version: number } & Row
+    >(
+      `SELECT o.order_id, o.status, o.version
+         FROM orders o
+        WHERE ((o.status = 'PENDING_CREDIT' AND o.created_at <= now() - $1 * interval '1 millisecond')
+            OR (o.status = 'COMPLETION_PENDING_CREDIT'
+                AND o.completion_requested_at <= now() - $1 * interval '1 millisecond')
+            OR (o.status = 'RELEASE_PENDING_CREDIT'
+                AND o.release_requested_at <= now() - $1 * interval '1 millisecond'))
+          AND NOT EXISTS (
+            SELECT 1 FROM order_reconciliation_attempts a
+             WHERE a.order_id = o.order_id
+               AND a.attempted_at > now() - $2 * interval '1 millisecond')
+          AND NOT EXISTS (
+            SELECT 1 FROM outbox_events e
+             WHERE e.aggregate_id = o.order_id::text AND e.published_at IS NULL
+               AND e.event_type IN ($4, $5, $6))
+        ORDER BY o.updated_at, o.order_id
+        LIMIT $3`,
+      [
+        staleAfterMs,
+        retryAfterMs,
+        limit,
+        EVENTS.CREDIT_RESERVATION_REQUESTED,
+        EVENTS.ORDER_COMPLETION_REQUESTED,
+        EVENTS.CREDIT_RELEASE_REQUESTED,
+      ],
+    );
+    return result.rows.map((row) => ({
+      orderId: row.order_id,
+      status: row.status,
+      version: Number(row.version),
+    }));
+  }
+
+  /**
+   * Records one reconciliation decision under the order's row lock. Returns null — and changes
+   * nothing — if another run holds the order, the order moved on since it was read, or another run
+   * already attempted it within the retry window; so overlapping runs repair an order once.
+   */
+  async recordReconciliation(input: {
+    orderId: string;
+    observed: { status: PendingCreditStatus; version: number };
+    runId: string;
+    retryAfterMs: number;
+    credit: { status: string; detail: string | null } | null;
+    action: 'REISSUE' | 'ALERT' | 'CREDIT_UNAVAILABLE';
+    correlationId: string;
+  }): Promise<{
+    action: 'REISSUED' | 'ALERTED' | 'CREDIT_UNAVAILABLE';
+    eventId: string | null;
+    alertRaised: boolean;
+  } | null> {
+    return this.db.transaction(async (tx) => {
+      const locked = await tx.query<StoredOrder>(
+        `SELECT ${ORDER_COLUMNS} FROM orders WHERE order_id = $1 FOR UPDATE SKIP LOCKED`,
+        [input.orderId],
+      );
+      const stored = locked.rows[0];
+      if (!stored) return null;
+      const order = mapOrder(stored);
+      if (order.status !== input.observed.status || order.version !== input.observed.version) {
+        return null;
+      }
+      const recent = await tx.query(
+        `SELECT 1 FROM order_reconciliation_attempts
+          WHERE order_id = $1 AND attempted_at > now() - $2 * interval '1 millisecond'`,
+        [input.orderId, input.retryAfterMs],
+      );
+      if (recent.rows.length > 0) return null;
+
+      let eventId: string | null = null;
+      let alertRaised = false;
+      if (input.action === 'REISSUE') {
+        eventId = await insertOutboxEvent(tx, {
+          ...creditRequest(order),
+          aggregateId: order.orderId,
+          correlationId: input.correlationId,
+        } as Parameters<typeof insertOutboxEvent>[1]);
+      } else if (input.action === 'ALERT') {
+        const raised = await tx.query(
+          `INSERT INTO order_operator_alerts (order_id, kind, detail)
+           VALUES ($1, 'CREDIT_STATE_CONFLICT', $2::jsonb)
+           ON CONFLICT (order_id, kind) DO NOTHING
+           RETURNING order_id`,
+          [
+            order.orderId,
+            JSON.stringify({
+              orderStatus: order.status,
+              creditStatus: input.credit?.status ?? null,
+            }),
+          ],
+        );
+        alertRaised = raised.rows.length > 0;
+      }
+      const action =
+        input.action === 'REISSUE'
+          ? 'REISSUED'
+          : input.action === 'ALERT'
+            ? 'ALERTED'
+            : 'CREDIT_UNAVAILABLE';
+      await tx.query(
+        `INSERT INTO order_reconciliation_attempts
+           (attempt_id, run_id, order_id, order_status, order_version, credit_status, credit_detail,
+            action, reissued_event_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          randomUUID(),
+          input.runId,
+          order.orderId,
+          order.status,
+          order.version,
+          input.credit?.status ?? null,
+          input.credit?.detail ?? null,
+          action,
+          eventId,
+        ],
+      );
+      return { action, eventId, alertRaised };
+    });
+  }
+
+  async listReconciliationAttempts(limit = 100) {
+    const result = await this.db.query<
+      {
+        attempt_id: string;
+        run_id: string;
+        order_id: string;
+        order_status: string;
+        order_version: number;
+        credit_status: string | null;
+        credit_detail: string | null;
+        action: string;
+        reissued_event_id: string | null;
+        attempted_at: Date | string;
+      } & Row
+    >(
+      `SELECT * FROM order_reconciliation_attempts ORDER BY attempted_at DESC, attempt_id LIMIT $1`,
+      [limit],
+    );
+    return result.rows.map((row) => ({
+      attemptId: row.attempt_id,
+      runId: row.run_id,
+      orderId: row.order_id,
+      orderStatus: row.order_status,
+      orderVersion: Number(row.order_version),
+      creditStatus: row.credit_status,
+      creditDetail: row.credit_detail,
+      action: row.action,
+      reissuedEventId: row.reissued_event_id,
+      attemptedAt: iso(row.attempted_at),
+    }));
+  }
+
   /** Durable discovery boundary for #150; it never changes or rejects the order itself. */
   async findStalePendingCredit(
     cutoff: Date,
@@ -799,4 +960,24 @@ function emittedEvent(eventType: string, before: OrderRow, after: OrderRow, occu
     };
   }
   throw new Error(`transition emits an uncatalogued event: ${eventType}`);
+}
+
+export type PendingCreditStatus =
+  'PENDING_CREDIT' | 'COMPLETION_PENDING_CREDIT' | 'RELEASE_PENDING_CREDIT';
+
+/** The exact request an order in a *_PENDING_CREDIT state is waiting on, for re-issue. */
+function creditRequest(order: OrderRow) {
+  if (order.status === 'PENDING_CREDIT') {
+    return {
+      eventType: EVENTS.CREDIT_RESERVATION_REQUESTED,
+      payload: { orderId: order.orderId, requesterId: order.requesterId, amount: order.reward },
+    };
+  }
+  if (order.status === 'COMPLETION_PENDING_CREDIT') {
+    return emittedEvent(EVENTS.ORDER_COMPLETION_REQUESTED, order, order, order.updatedAt);
+  }
+  if (order.status === 'RELEASE_PENDING_CREDIT') {
+    return emittedEvent(EVENTS.CREDIT_RELEASE_REQUESTED, order, order, order.updatedAt);
+  }
+  throw new Error(`order in ${order.status} is not waiting on a Credit request`);
 }

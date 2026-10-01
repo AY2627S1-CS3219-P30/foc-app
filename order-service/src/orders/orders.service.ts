@@ -205,6 +205,10 @@ export class OrdersService {
     return { orderId, entries: await this.orders.findHistory(orderId) };
   }
 
+  async reconciliationAttempts() {
+    return { items: await this.orders.listReconciliationAttempts() };
+  }
+
   /** Orders waiting for Credit beyond the configured period, for operators (OS-FR1.1.3). */
   async creditWaitExceeded(creditWaitTimeoutMs: number) {
     const now = await this.orders.databaseNow();

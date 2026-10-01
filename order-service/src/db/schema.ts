@@ -164,8 +164,45 @@ export const orderOperatorAlerts = pgTable(
   },
   (t) => [
     primaryKey({ columns: [t.orderId, t.kind] }),
-    check('order_operator_alerts_kind_enum', sql`${t.kind} IN ('CREDIT_WAIT_EXCEEDED')`),
+    check(
+      'order_operator_alerts_kind_enum',
+      sql`${t.kind} IN ('CREDIT_WAIT_EXCEEDED', 'CREDIT_STATE_CONFLICT')`,
+    ),
     index('order_operator_alerts_raised_idx').on(t.raisedAt),
+  ],
+);
+
+/**
+ * Every reconciliation decision (CRD-07): what Order and Credit each recorded, and what the job did
+ * about it. Append-only, so an operator can audit every repair.
+ */
+export const orderReconciliationAttempts = pgTable(
+  'order_reconciliation_attempts',
+  {
+    attemptId: uuid('attempt_id').primaryKey(),
+    runId: uuid('run_id').notNull(),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.orderId, { onDelete: 'restrict' }),
+    orderStatus: text('order_status').notNull().$type<OrderStatus>(),
+    orderVersion: integer('order_version').notNull(),
+    creditStatus: text('credit_status'),
+    creditDetail: text('credit_detail'),
+    action: text('action').notNull(),
+    reissuedEventId: uuid('reissued_event_id'),
+    attemptedAt: timestamp('attempted_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check(
+      'order_reconciliation_action_enum',
+      sql`${t.action} IN ('REISSUED', 'ALERTED', 'CREDIT_UNAVAILABLE')`,
+    ),
+    check(
+      'order_reconciliation_reissue_shape',
+      sql`(${t.action} = 'REISSUED') = (${t.reissuedEventId} IS NOT NULL)`,
+    ),
+    index('order_reconciliation_order_time_idx').on(t.orderId, t.attemptedAt),
+    index('order_reconciliation_time_idx').on(t.attemptedAt),
   ],
 );
 

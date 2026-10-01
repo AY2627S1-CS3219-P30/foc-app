@@ -237,6 +237,34 @@ owns the courier-suspension path (reopen with the deadline extended).
   exception is deliberate: an order whose existence is private (`PENDING_CREDIT`, `REJECTED`)
   answers anyone but its requester with the non-enumerating `404` used by every read.
 
+### Credit reconciliation (CRD-07)
+
+Order hosts the reconciliation job (repository owner's decision, 2026-10-01). Every
+`RECONCILE_INTERVAL_MS` it takes orders that have waited in a `*_PENDING_CREDIT` state longer than
+`CREDIT_WAIT_TIMEOUT_MS`, skipping any whose request is still in the outbox (that is the relay's job)
+and any attempted within `RECONCILE_RETRY_MS`. For each one it reads Credit's authoritative
+`GET /internal/orders/{id}/credit-status` with this service's `INTERNAL_SERVICE_KEY`, which must be
+one of Credit's `INTERNAL_SERVICE_KEYS`.
+
+| Order waits in | Credit says | Action |
+| ----- | ----- | ----- |
+| `PENDING_CREDIT` | `NONE` or `RESERVED` | Re-issue `order.reservation-requested` |
+| `COMPLETION_PENDING_CREDIT` | `RESERVED` or `TRANSFERRED` | Re-issue `order.completion-requested` |
+| `RELEASE_PENDING_CREDIT` | `RESERVED` or `RELEASED` | Re-issue `order.release-requested` |
+| anything else | — | One `CREDIT_STATE_CONFLICT` operator alert; nothing re-issued |
+
+Re-issuing is the only repair. Credit applies each operation at most once per order and answers a
+repeat with its recorded result, which then moves the order through the ordinary consumer. The job
+never changes an order or any balance itself. Each decision is recorded under the order's row lock
+in the append-only `order_reconciliation_attempts` table, after re-checking the order's version and
+the retry window, so overlapping runs in one process or several act once. If Credit is unreachable,
+nothing is repaired and the attempt is recorded as `CREDIT_UNAVAILABLE`. Each run logs a
+`credit reconciliation run` metrics line (candidates, re-issued, alerted, unavailable, skipped,
+duration). `GET /admin/orders/reconciliation-attempts` shows recent decisions to administrators.
+`system-tests/test/reconciliation.test.ts` runs the real Order and Credit code to show that every
+lost request or reply converges with exactly one Credit transaction per operation, including under
+duplicate delivery and overlapping runs.
+
 The first migration includes a deterministic demonstration errand at
 `00000000-0000-4000-8000-000000000129`; after Compose is healthy, an authenticated caller can retrieve
 its projection from `/orders/00000000-0000-4000-8000-000000000129`.
@@ -330,6 +358,9 @@ Run these from the repository root.
 | `ACCEPTANCE_WINDOW_MS` | `3600000` | Deadline started when reservation succeeds |
 | `PICKUP_TIMEOUT_MS` | `1800000` | Courier removed if no pickup this long after acceptance |
 | `LIFECYCLE_SWEEP_INTERVAL_MS` | `10000` | Timer sweep interval; at most `60000` |
+| `CREDIT_SERVICE_URL` | `http://localhost:3004` | Credit status reads for reconciliation |
+| `RECONCILE_INTERVAL_MS` | `60000` | How often reconciliation runs |
+| `RECONCILE_RETRY_MS` | `300000` | Least time between repair attempts for one order |
 
 A missing required variable stops the service at boot and names the variable.
 Nothing falls back to an insecure default.
@@ -340,6 +371,7 @@ SERVICE_NAME=order-service PORT=3003 \
   SUPPLIER_SERVICE_URL=http://localhost:3002 \
   CREDIT_WAIT_TIMEOUT_MS=300000 ACCEPTANCE_WINDOW_MS=3600000 \
   PICKUP_TIMEOUT_MS=1800000 LIFECYCLE_SWEEP_INTERVAL_MS=10000 \
+  CREDIT_SERVICE_URL=http://localhost:3004 RECONCILE_INTERVAL_MS=60000 RECONCILE_RETRY_MS=300000 \
   npm run dev:order
 curl -i http://localhost:3003/health
 ```
@@ -371,4 +403,4 @@ user and declares a `HEALTHCHECK`. `compose.yaml` runs it on port 3003.
 
 ### Next tickets
 
-ORD-06 (#149) suspension handling; ORD-10 delivery disputes and auto-confirmation; CRD-07 (#152) reconciliation.
+ORD-06 (#149) suspension handling; ORD-10 delivery disputes and auto-confirmation.

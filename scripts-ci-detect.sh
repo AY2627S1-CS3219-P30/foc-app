@@ -11,7 +11,8 @@ set -euo pipefail
 # Shared code and root configuration can break any service, so a change to any
 # of these fans out to all four. test-harness/ holds every service's shared test
 # fixtures and contract checks, so it fans out too; it is never in an image.
-SHARED_RE='^(platform/|test-harness/|package\.json|package-lock\.json|tsconfig\.base\.json|eslint\.config\.mjs|\.prettierrc|\.prettierignore|\.github/workflows/ci\.yml|\.nvmrc)'
+# system-tests/ runs the real service code together, so it fans out the same way.
+SHARED_RE='^(platform/|test-harness/|system-tests/|package\.json|package-lock\.json|tsconfig\.base\.json|eslint\.config\.mjs|\.prettierrc|\.prettierignore|\.github/workflows/ci\.yml|\.nvmrc)'
 SERVICE_RE='^(user|supplier|order|credit)-service/'
 # Wiring between containers, as opposed to code inside one. `.env.example`
 # belongs here because the smoke job copies it to `.env`.
@@ -121,6 +122,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "unrecognised + service -> all four"    "$(printf 'supplier-service/src/a.ts\ncontracts/x.yaml')" 'services=["user-service","supplier-service","order-service","credit-service"]'
   check "test harness -> all four services"     "test-harness/src/compat.ts" 'services=["user-service","supplier-service","order-service","credit-service"]'
   check "test harness -> stack skipped"         "test-harness/src/compat.ts" 'stack=false'
+  check "system tests -> node runs"             "system-tests/test/reconciliation.test.ts" 'node=true'
   check "docs + service -> only that service"   "$(printf 'docs/notes.md\norder-service/src/y.ts')" 'services=["order-service"]'
 
   echo

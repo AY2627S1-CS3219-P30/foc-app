@@ -294,6 +294,23 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/PrivateForbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /admin/orders/reconciliation-attempts:
+    get:
+      operationId: listReconciliationAttempts
+      summary: Operator view of recent credit reconciliation decisions (CRD-07).
+      description: |
+        The 100 most recent decisions, newest first. Each records what Order and Credit each held
+        and what the job did: REISSUED (the same idempotent request written to the outbox again),
+        ALERTED (a contradiction raised as CREDIT_STATE_CONFLICT) or CREDIT_UNAVAILABLE.
+        Administrators only.
+      responses:
+        '200':
+          description: Recent attempts.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReconciliationAttempts' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/AdminOnly' }
   /admin/orders/pending-credit:
     get:
       operationId: listCreditWaitExceeded
@@ -512,6 +529,39 @@ components:
               actorId: { type: [string, 'null'] }
               version: { type: integer, minimum: 1 }
               occurredAt: { type: string, format: date-time }
+    ReconciliationAttempts:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required:
+              [
+                attemptId,
+                runId,
+                orderId,
+                orderStatus,
+                orderVersion,
+                creditStatus,
+                creditDetail,
+                action,
+                reissuedEventId,
+                attemptedAt,
+              ]
+            properties:
+              attemptId: { type: string, format: uuid }
+              runId: { type: string, format: uuid }
+              orderId: { type: string, format: uuid }
+              orderStatus: { type: string }
+              orderVersion: { type: integer }
+              creditStatus:
+                { type: [string, 'null'], enum: [NONE, RESERVED, RELEASED, TRANSFERRED, null] }
+              creditDetail: { type: [string, 'null'] }
+              action: { type: string, enum: [REISSUED, ALERTED, CREDIT_UNAVAILABLE] }
+              reissuedEventId: { type: [string, 'null'], format: uuid }
+              attemptedAt: { type: string, format: date-time }
     CreditWaitList:
       type: object
       required: [items]
