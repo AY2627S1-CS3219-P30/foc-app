@@ -31,15 +31,19 @@ suite('ephemeral PostgreSQL fixture', () => {
     expect(first!.name).not.toBe(second!.name);
 
     // Writes to one database are invisible to the other.
-    await first!.db.query(`DELETE FROM order_status_history`);
-    await first!.db.query(`DELETE FROM orders`);
+    await first!.db.query(`CREATE TABLE harness_marker (id int)`);
     const [a, b] = await Promise.all(
       [first!, second!].map((database) =>
-        database.db.query<{ n: string }>(`SELECT count(*) AS n FROM orders`),
+        database.db.query<{ present: boolean }>(
+          `SELECT to_regclass('harness_marker') IS NOT NULL AS present`,
+        ),
       ),
     );
-    expect(Number(a!.rows[0]!.n)).toBe(0);
-    expect(Number(b!.rows[0]!.n)).toBeGreaterThan(0);
+    expect(a!.rows[0]!.present).toBe(true);
+    expect(b!.rows[0]!.present).toBe(false);
+    // Both received the service's migrations.
+    const seeded = await second!.db.query<{ n: string }>(`SELECT count(*) AS n FROM orders`);
+    expect(Number(seeded.rows[0]!.n)).toBeGreaterThan(0);
 
     await first!.dispose();
     await first!.dispose(); // idempotent
