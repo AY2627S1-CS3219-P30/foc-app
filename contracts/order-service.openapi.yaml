@@ -15,6 +15,9 @@ paths:
       responses:
         '200':
           description: Service is healthy.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
   /orders/{orderId}:
     get:
       operationId: getOrder
@@ -128,6 +131,14 @@ components:
       scheme: bearer
       bearerFormat: JWT
   schemas:
+    Health:
+      type: object
+      required: [status, service, version, uptimeSeconds]
+      properties:
+        status: { type: string, const: ok }
+        service: { type: string, const: order-service }
+        version: { type: string }
+        uptimeSeconds: { type: number, minimum: 0 }
     SupplierSnapshot:
       type: object
       required: [supplierId, name, type, building, floor, locationDescription]

@@ -29,9 +29,10 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
+    "@foc/test-harness": "*",
     "@nestjs/testing": "^12.0.3",
-    "@types/supertest": "^6.0.2",
     "@types/pg": "^8.23.1",
+    "@types/supertest": "^6.0.2",
     "cross-env": "^10.0.0",
     "drizzle-kit": "^0.31.11",
     "supertest": "^7.2.2",
