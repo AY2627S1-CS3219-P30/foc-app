@@ -176,6 +176,8 @@ services:
       # must be one of the User Service's INTERNAL_SERVICE_KEYS.
       USER_SERVICE_URL: http://user-service:3001
       INTERNAL_SERVICE_KEY: ${CREDIT_INTERNAL_KEY:-dev-only-internal-service-key-change-me}
+      # Inbound read-only /internal/** callers. Order presents its existing service key.
+      INTERNAL_SERVICE_KEYS: ${CREDIT_INBOUND_SERVICE_KEYS:-dev-only-internal-service-key-change-me}
     ports: ['${CREDIT_SERVICE_PORT:-3004}:3004']
     depends_on:
       <<: *consumer-deps

@@ -13,6 +13,7 @@ import { RAW_DB } from '../db/db.js';
 import {
   INITIAL_CREDIT_ALLOCATION,
   type LedgerItem,
+  type OrderCreditStatus,
   type ReleaseInput,
   type ReleaseOutcome,
   type ReleaseResult,
@@ -23,6 +24,7 @@ import {
   type TerminalBoundary,
   type TerminalRejection,
   type TransactionType,
+  type TransactionReference,
   type TransferInput,
   type TransferOutcome,
   type TransferResult,
@@ -57,6 +59,15 @@ type LedgerRow = Row & {
   occurred_at: Date | string;
   resulting_available: number;
   resulting_reserved: number;
+};
+
+type StatusOperationRow = Row & {
+  operation_type: 'RESERVE' | 'RELEASE' | 'TRANSFER';
+  outcome: 'PENDING' | 'SUCCEEDED' | 'REJECTED';
+  rejection_reason: 'INSUFFICIENT_CREDITS' | 'AMOUNT_OUT_OF_RANGE' | null;
+  created_at: Date | string;
+  transaction_id: string | null;
+  occurred_at: Date | string | null;
 };
 
 export class WalletNotReadyError extends Error {
@@ -435,6 +446,67 @@ export class CreditRepository {
       [userId],
     );
     return result.rows[0] ? walletView(result.rows[0]) : null;
+  }
+
+  /** Authoritative, read-only projection of Credit's durable state for one order. */
+  async orderStatus(orderId: string, queryable: Queryable = this.db): Promise<OrderCreditStatus> {
+    const result = await queryable.query<StatusOperationRow>(
+      `SELECT o.operation_type, o.outcome, o.rejection_reason, o.created_at,
+              o.transaction_id, t.occurred_at
+         FROM credit_operations o
+         LEFT JOIN credit_transactions t ON t.transaction_id = o.transaction_id
+        WHERE o.order_id = $1
+        ORDER BY CASE o.operation_type WHEN 'RESERVE' THEN 1 ELSE 2 END`,
+      [orderId],
+    );
+    const reservation = result.rows.find((row) => row.operation_type === 'RESERVE');
+    const terminal = result.rows.find((row) => row.operation_type !== 'RESERVE');
+    const reference = (row: StatusOperationRow | undefined): TransactionReference | null =>
+      row?.outcome === 'SUCCEEDED' && row.transaction_id && row.occurred_at
+        ? {
+            transactionId: row.transaction_id,
+            type: row.operation_type,
+            occurredAt: iso(row.occurred_at),
+          }
+        : null;
+
+    const reservationReference = reference(reservation);
+    const terminalReference = reference(terminal);
+    if (terminalReference) {
+      return {
+        orderId,
+        status: terminalReference.type === 'TRANSFER' ? 'TRANSFERRED' : 'RELEASED',
+        detail: null,
+        rejectionReason: null,
+        recordedAt: terminalReference.occurredAt,
+        reservation: reservationReference,
+        terminal: terminalReference,
+      };
+    }
+    if (reservationReference) {
+      return {
+        orderId,
+        status: 'RESERVED',
+        detail: null,
+        rejectionReason: null,
+        recordedAt: reservationReference.occurredAt,
+        reservation: reservationReference,
+        terminal: null,
+      };
+    }
+    return {
+      orderId,
+      status: 'NONE',
+      detail: reservation
+        ? reservation.outcome === 'REJECTED'
+          ? 'REJECTED'
+          : 'IN_FLIGHT'
+        : 'UNKNOWN',
+      rejectionReason: reservation?.rejection_reason ?? null,
+      recordedAt: reservation ? iso(reservation.created_at) : null,
+      reservation: null,
+      terminal: null,
+    };
   }
 
   async listLedger(

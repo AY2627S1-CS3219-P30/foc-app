@@ -35,17 +35,39 @@ The service owns its PostgreSQL database. Migrations under `drizzle/` are applie
 
 ## HTTP API
 
-All routes require an active identity resolved by `@foc/auth-client`.
+Student/admin routes require an active identity resolved by `@foc/auth-client`. The internal status
+route uses the ADR-0004 `X-Service-Key` mechanism and accepts only configured service callers.
 
-| Method and path                            | Caller        | Result                                    |
-| ------------------------------------------ | ------------- | ----------------------------------------- |
-| `GET /wallets/me`                          | Student/admin | Own available, reserved and derived total |
-| `GET /wallets/me/ledger?limit=20&cursor=…` | Student/admin | Own immutable activity, newest first      |
-| `GET /admin/wallets/{userId}`              | Admin         | Any wallet; access is audited             |
-| `GET /admin/wallets/{userId}/ledger`       | Admin         | Any ledger; access is audited             |
+| Method and path                                | Caller           | Result                                                           |
+| ---------------------------------------------- | ---------------- | ---------------------------------------------------------------- |
+| `GET /wallets/me`                              | Student/admin    | Own available, reserved and derived total                        |
+| `GET /wallets/me/ledger?limit=20&cursor=…`     | Student/admin    | Own immutable activity, newest first                             |
+| `GET /admin/wallets/{userId}`                  | Admin            | Any wallet; access is audited                                    |
+| `GET /admin/wallets/{userId}/ledger`           | Admin            | Any ledger; access is audited                                    |
+| `GET /internal/orders/{orderId}/credit-status` | Internal service | Read-only `NONE`, `RESERVED`, `RELEASED`, or `TRANSFERRED` state |
 
 There is deliberately no caller-selectable student route and no HTTP mutation route. The complete
 wire contract is [`contracts/credit-service.openapi.yaml`](../contracts/credit-service.openapi.yaml).
+
+`NONE` has a detail of `UNKNOWN`, `IN_FLIGHT`, or `REJECTED`; rejected reservations also expose the
+recorded rejection reason. `RESERVED` includes the immutable reservation transaction reference.
+`RELEASED` and `TRANSFERRED` include both reservation and terminal references. Repeated queries are
+read-only and return the same IDs and timestamps.
+
+## Closed-economy surface audit
+
+| Surface                       | Authorized effect | Trust/correctness boundary                                            |
+| ----------------------------- | ----------------- | --------------------------------------------------------------------- |
+| `user.activated`              | `ISSUE`           | `user-service` producer, inbox, wallet/issuance uniqueness            |
+| `order.reservation-requested` | `RESERVE`         | `order-service` producer, inbox, conditional debit and order key      |
+| `order.completion-requested`  | `TRANSFER`        | `order-service` producer, reservation lock and terminal key           |
+| `order.release-requested`     | `RELEASE`         | `order-service` producer, reservation lock and terminal key           |
+| HTTP routes                   | None              | Runtime route inventory is GET-only; user/admin/internal guards apply |
+| Migrations/operations         | None at runtime   | Migration role changes schema only; no balance-set command exists     |
+
+There is no purchase, withdrawal, cash-out, gift, arbitrary transfer, balance-set, administrative
+mutation, or direct cross-service database path. `closed-economy.test.ts` fails if a new HTTP route
+or economic event input appears without updating and reviewing the explicit surface manifest.
 
 ## Events
 
@@ -72,8 +94,9 @@ Run from the repository root after `npm ci`:
 | `npm test -w @foc/credit-service`            | Unit/integration tests                         |
 | `npm run build -w @foc/credit-service`       | Build runtime and migration entry point        |
 
-Required variables are `SERVICE_NAME`, `PORT`, `DATABASE_URL`, `USER_SERVICE_URL` and
-`INTERNAL_SERVICE_KEY`; `RABBITMQ_URL` enables consumption and outbox relay. Shared variables are
+Required variables are `SERVICE_NAME`, `PORT`, `DATABASE_URL`, `USER_SERVICE_URL`,
+`INTERNAL_SERVICE_KEY` (outbound User lookup) and `INTERNAL_SERVICE_KEYS` (inbound Credit callers);
+`RABBITMQ_URL` enables consumption and outbox relay. Shared variables are
 documented in [`.env.example`](../.env.example). A missing required value stops startup.
 
 ```bash

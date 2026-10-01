@@ -29,6 +29,22 @@ export interface LedgerPage {
   nextCursor: string | null;
 }
 
+export interface TransactionReference {
+  transactionId: string;
+  type: 'RESERVE' | 'RELEASE' | 'TRANSFER';
+  occurredAt: string;
+}
+
+export interface OrderCreditStatus {
+  orderId: string;
+  status: 'NONE' | 'RESERVED' | 'RELEASED' | 'TRANSFERRED';
+  detail: 'UNKNOWN' | 'IN_FLIGHT' | 'REJECTED' | null;
+  rejectionReason: ReservationRejection | null;
+  recordedAt: string | null;
+  reservation: TransactionReference | null;
+  terminal: TransactionReference | null;
+}
+
 export interface ReservationInput {
   orderId: string;
   requesterId: string;
