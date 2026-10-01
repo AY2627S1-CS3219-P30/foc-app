@@ -105,7 +105,9 @@ export class OrdersService {
     }
 
     const current = attempt.order;
-    if (!current) throw notFound();
+    // A pending or rejected request is private to its requester: refuse it as missing rather
+    // than reveal that it exists, or its status, to anyone else.
+    if (!current || !projectOrder(current, caller)) throw notFound();
     if (current.requesterId === caller.userId) {
       throw new ApiException(
         403,

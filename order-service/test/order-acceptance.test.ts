@@ -174,8 +174,27 @@ describe('open-order discovery and atomic acceptance', () => {
           .post(`/orders/${SEEDED_ORDER}/accept`)
           .set('Authorization', asStranger)
           .send({ expectedVersion: 2 })
-          .expect(409)
+          .expect(404)
       ).body.error.code,
-    ).toBe('ORDER_NOT_OPEN');
+    ).toBe('NOT_FOUND');
+  });
+
+  it('answers a pending or rejected order as missing, revealing neither existence nor status', async () => {
+    t = await createTestApp();
+    for (const status of ['PENDING_CREDIT', 'REJECTED']) {
+      await t.db.query(
+        `UPDATE orders SET status = $2, acceptance_deadline_at = NULL,
+                rejection_reason = CASE WHEN $2 = 'REJECTED' THEN 'INSUFFICIENT_CREDITS' END
+          WHERE order_id = $1`,
+        [SEEDED_ORDER, status],
+      );
+      const refused = await http(t)
+        .post(`/orders/${SEEDED_ORDER}/accept`)
+        .set('Authorization', asStranger)
+        .send({ expectedVersion: 2 })
+        .expect(404);
+      expect(refused.body.error.details).toBeUndefined();
+      expect(JSON.stringify(refused.body)).not.toContain(status);
+    }
   });
 });
