@@ -269,7 +269,11 @@ export class OrdersService {
       return { order: projected, replayed: true };
     }
 
-    const supplierSnapshot = await this.suppliers.getActive(input.supplierId, authorization);
+    const supplierSnapshot = await this.suppliers.getActive(
+      input.supplierId,
+      authorization,
+      correlationId,
+    );
     try {
       const created = await this.orders.createPending({
         ...input,

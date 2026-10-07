@@ -140,7 +140,9 @@ its own credentials. See [`postgres-init.sql`](postgres-init.sql).
 **Ports.** PostgreSQL is published on **55432** and RabbitMQ on **55672**, not
 their defaults, because a locally installed copy usually holds 5432 and 5672 and
 `up` would fail to bind. Override any port in `.env`. RabbitMQ's management UI is
-at <http://localhost:15672> (`foc` / `foc_dev`).
+at <http://localhost:15672> (`foc` / `foc_dev`). The operator dashboard is
+Grafana at <http://localhost:3005>, open to view without signing in, with
+Prometheus behind it at <http://localhost:9090>; see [Observability](#observability).
 
 **Connections.** Compose gives each service its own `DATABASE_URL` and the shared
 `RABBITMQ_URL`. User, Supplier and Credit apply their own migrations through
@@ -176,6 +178,8 @@ If that prints `All smoke checks passed`, you are set up correctly.
 | `supplier-service` | 3002 | Patrick    | `npm run dev:supplier`  |
 | `order-service`    | 3003 | Zhang Yuan | `npm run dev:order`     |
 | `credit-service`   | 3004 | Isaac      | `npm run dev:credit`    |
+| `grafana`          | 3005 | Jonus      | Compose only            |
+| `prometheus`       | 9090 | Jonus      | Compose only            |
 
 ---
 
@@ -185,8 +189,12 @@ Each service imports `PlatformModule` from `platform/` and gets:
 
 - **`GET /health`** returning the service's own identifier
 - **Structured JSON logging** — one line per request, every line carrying a
-  correlation ID read from `x-correlation-id` and echoed back on the response,
-  so one browser action can be followed across services
+  correlation ID read from `x-correlation-id` (the web app sends one with every
+  request) and echoed back on the response. A service passes it on when it calls
+  another (the auth client's identity check, Order's supplier lookup) and in every
+  event, so one browser action can be followed across services
+- **`GET /metrics`** for Prometheus: request latency by route, events handled,
+  retried and dead-lettered, and the outbox backlog (PLT-04)
 - **A shared error envelope**, so the web app handles failures uniformly
 - **Boot-time environment validation** that fails loudly and names the variable
 - **Graceful shutdown** on `SIGTERM`
@@ -197,6 +205,37 @@ there lands once instead of four times.
 See [docs/adr/0001-runtime-and-service-framework.md](docs/adr/0001-runtime-and-service-framework.md)
 for why the stack is what it is, including two constraints worth knowing before
 you add a dependency.
+
+---
+
+## Observability
+
+`docker compose up` also starts Prometheus and Grafana (PLT-04). Open
+<http://localhost:3005>: the **FoC Platform** dashboard is the home page, with
+nothing to set up and no sign-in needed to view it.
+
+| Panel                          | Shows                                                            | From                                                       |
+| ------------------------------ | ---------------------------------------------------------------- | ---------------------------------------------------------- |
+| HTTP p95 latency, by service   | time to answer, 95th percentile                                  | `http_request_duration_seconds`                            |
+| Requests by status code        | request rate per HTTP status                                     | `http_request_duration_seconds_count`                      |
+| Errands by status              | errands in each state right now                                  | `foc_orders` (Order Service)                               |
+| Consumer backlog per queue     | messages waiting for a consumer                                  | RabbitMQ's exporter                                        |
+| Event lag p95, by queue        | time from an event occurring to its consumer handling it         | `foc_event_lag_seconds`                                    |
+| Retries per minute, by queue   | retries scheduled after a handler failed                         | `foc_event_retries_total`                                  |
+| Dead-letter queue depth        | messages set aside for an operator                               | RabbitMQ's exporter                                        |
+| Dead-lettered events by reason | `unparseable` (set aside at once) or `exhausted` (retries spent) | `foc_events_dead_lettered_total`                           |
+| Outbox backlog                 | events committed but not yet confirmed by the broker             | `foc_outbox_backlog`, `..._oldest_unpublished_age_seconds` |
+
+- **Follow one request.** Its correlation ID is in the `x-correlation-id`
+  response header. `docker compose logs | grep <id>` then shows every service it
+  reached and every event it caused.
+- **Rates need traffic.** A rate panel shows a request once Prometheus has
+  scraped before and after it (every 15 s), so give a demo a minute of traffic.
+- **Add a metric.** Inject `METRICS` from `@foc/platform` and call `addGauge`;
+  Order's `foc_orders` in `order-service/src/orders/order.metrics.ts` is the
+  example. Every series carries a `service` label.
+- **Change the dashboard** in `observability/grafana/dashboards/foc-platform.json`.
+  Grafana reloads it within seconds; edits made in the UI are not saved.
 
 ---
 

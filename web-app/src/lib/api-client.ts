@@ -9,6 +9,20 @@ const TIMEOUT_MS = 10_000;
 /** Only so a request can be built; the fetch below refuses to send it. */
 const UNCONFIGURED = "http://unconfigured.invalid";
 
+/** The header every service logs a request under, and passes on to the services it calls. */
+export const CORRELATION_HEADER = "x-correlation-id";
+
+/**
+ * A fresh ID for one request. `crypto.randomUUID` exists only on secure origins (HTTPS or
+ * localhost), and a demo served over plain HTTP on a LAN address must still work, so it falls back
+ * to random bytes, which every origin has.
+ */
+export function newCorrelationId(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export type FieldError = { field: string; code: string; message: string };
 
 /** A failed call, in the shared error envelope's terms. `status` 0 means the server was unreachable. */
@@ -92,6 +106,11 @@ export function createApiClient<Paths extends object>(
     baseUrl: baseUrl ?? UNCONFIGURED,
     async fetch(request) {
       if (baseUrl === null) throw new ApiError(0, "NOT_CONFIGURED", notConfiguredMessage);
+      // Sent from here, so the browser knows the ID before the response arrives and every service
+      // the request reaches logs it under the same one (PLT-04).
+      if (!request.headers.has(CORRELATION_HEADER)) {
+        request.headers.set(CORRELATION_HEADER, newCorrelationId());
+      }
       const timeout = AbortSignal.timeout(timeoutMs);
       try {
         const response = await send(request, { signal: either(request.signal, timeout) });

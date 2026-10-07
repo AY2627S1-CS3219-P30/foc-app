@@ -235,9 +235,58 @@ services:
     ports: ['${WEB_APP_PORT:-3000}:3000']
     networks: [foc]
 
+  # ---- observability (PLT-04) -------------------------------------------------
+  # Prometheus scrapes every service's /metrics and RabbitMQ's queue depths, and
+  # Grafana shows them on one provisioned dashboard: http://localhost:3005, open
+  # to view without signing in. Nothing to set up by hand.
+  prometheus:
+    image: prom/prometheus:v3.13.4
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports: ['${PROMETHEUS_PORT:-9090}:9090']
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:9090/-/ready']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [foc]
+
+  grafana:
+    image: grafana/grafana-oss:12.4.3
+    restart: unless-stopped
+    environment:
+      # Anyone who can reach the port may view; changing anything needs the admin.
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-grafana_dev}
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/foc-platform.json
+      # A local stack has no reason to phone home.
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: 'false'
+      GF_NEWS_NEWS_FEED_ENABLED: 'false'
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/etc/grafana/dashboards:ro
+    ports: ['${GRAFANA_PORT:-3005}:3000']
+    depends_on:
+      prometheus: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:3000/api/health']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [foc]
+
 volumes:
   postgres-data:
   rabbitmq-data:
+  prometheus-data:
 
 networks:
   foc:
