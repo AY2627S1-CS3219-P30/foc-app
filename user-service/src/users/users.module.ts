@@ -2,7 +2,7 @@ import { Module, type DynamicModule } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { LOGGER, PgDb, type PgDbOptions } from '@foc/platform';
 import { AdminController } from '../admin/admin.controller.js';
-import { AdminService } from '../admin/admin.service.js';
+import { ADMIN_SETTINGS, AdminService, type AdminSettings } from '../admin/admin.service.js';
 import { AccessTokenGuard } from '../auth/access-token.guard.js';
 import { AdminGuard } from '../auth/admin.guard.js';
 import { JwksController } from '../auth/jwks.controller.js';
@@ -56,6 +56,16 @@ export class UsersModule {
           useFactory: () => JwtService.create(env.JWT_PRIVATE_KEY, !isProduction),
         },
         { provide: RATE_LIMITERS, useFactory: defaultRateLimiters },
+        {
+          provide: ADMIN_SETTINGS,
+          useValue: {
+            roleRequestTtlHours: env.ROLE_REQUEST_TTL_HOURS,
+            stepUpWindowSeconds: env.STEP_UP_WINDOW_SECONDS,
+            suspensionsAlertPerHour: env.ADMIN_SUSPENSIONS_ALERT_PER_HOUR,
+            suspensionsLimitPerHour: env.ADMIN_SUSPENSIONS_LIMIT_PER_HOUR,
+            readsAlertPerHour: env.ADMIN_READS_ALERT_PER_HOUR,
+          } satisfies AdminSettings,
+        },
         {
           provide: AUTH_COOKIE_SETTINGS,
           useValue: {

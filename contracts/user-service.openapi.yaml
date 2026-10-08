@@ -9,7 +9,8 @@ info:
 
     ## Conventions (cross-service proposals — see `contracts/README.md`)
     - IDs are UUID strings. Timestamps are RFC 3339 UTC (`2026-09-21T08:30:00Z`).
-    - Every error uses the `Error` envelope. `401` = missing/invalid/expired access token,
+    - Every error uses the `Error` envelope. `401` = missing/invalid/expired access token, or
+      `STEP_UP_REQUIRED` (re-enter the password with `POST /auth/step-up`, then retry),
       `403` = authenticated but not allowed, `404` = absent, `409` = state conflict,
       `422` = validation or business-rule rejection, `429` = rate limited.
     - Every request may carry `X-Correlation-Id`; it is echoed on the response and in every log line.
@@ -222,6 +223,45 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
+  /auth/step-up:
+    post:
+      tags: [Auth]
+      operationId: stepUp
+      summary: Re-enter the password before a high-impact admin action (ADR 0008)
+      description: |
+        Proves the person holding the session still knows the password. Requesting or approving a role
+        change, and suspending an administrator, need a re-entry within the last 5 minutes
+        (`STEP_UP_WINDOW_SECONDS`) in the same sign-in, or they answer `401 STEP_UP_REQUIRED`. A token
+        refresh keeps it; another login or device does not.
+
+        Bearer-authenticated, so no cookie is involved and there is no CSRF exposure. A wrong password
+        fails exactly as login does. Limited by login's per-IP limit and a per-account limit of its own.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StepUpRequest' }
+      responses:
+        '204': { description: Password confirmed and recorded on this session. }
+        '401':
+          description: |
+            `UNAUTHENTICATED` (missing or expired access token, or the session has ended) or
+            `INVALID_CREDENTIALS` (wrong password).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example:
+                {
+                  error:
+                    {
+                      code: INVALID_CREDENTIALS,
+                      message: Email or password is incorrect.,
+                      correlationId: 5c1f2a9e,
+                    },
+                }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
   /auth/refresh:
     post:
       tags: [Auth]
@@ -367,6 +407,9 @@ paths:
       tags: [Admin]
       operationId: getUserAsAdmin
       summary: Read any account (ADMIN)
+      description: |
+        Recorded as an admin read (`GET /admin/reads`) unless it is the caller's own account. Many reads
+        by one admin within an hour raise a `BULK_READS` alert (ADR 0008).
       responses:
         '200':
           description: The account.
@@ -389,7 +432,11 @@ paths:
         New sessions are denied immediately; dependent services see the change within 10 seconds.
         Only an `ACTIVE` account can be suspended (`409 ACCOUNT_NOT_ACTIVE` otherwise). An admin cannot suspend
         themselves (`409 SELF_SUSPENSION_FORBIDDEN`). Only a seeded admin may suspend another admin
-        (`403 ADMIN_ACTION_NOT_PERMITTED`).
+        (`403 ADMIN_ACTION_NOT_PERMITTED`), and only after a recent `POST /auth/step-up`
+        (`401 STEP_UP_REQUIRED`); every such suspension raises an `ADMIN_SUSPENDED` alert.
+
+        One admin may suspend at most `ADMIN_SUSPENSIONS_LIMIT_PER_HOUR` (default 20) accounts in a
+        rolling hour; the next is refused with `429 RATE_LIMITED` and changes nothing (ADR 0008).
       requestBody:
         required: true
         content:
@@ -402,11 +449,12 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AdminUser' }
-        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '401': { $ref: '#/components/responses/StepUpRequired' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/RoleConflict' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
 
   /admin/users/{userId}/reactivate:
     parameters:
@@ -441,7 +489,7 @@ paths:
     put:
       tags: [Admin]
       operationId: setUserRole
-      summary: Appoint or downgrade an administrator (US-FR3.1.3, US-FR3.1.3.1)
+      summary: Ask to appoint or downgrade an administrator (US-FR3.1.3, US-FR3.1.3.1, ADR 0008)
       description: |
         `role: ADMIN` appoints (target must be `ACTIVE`). `role: STUDENT` downgrades an admin.
         Rules, all enforced in one transaction with a row lock:
@@ -449,7 +497,18 @@ paths:
         - Only a **seeded** admin may downgrade an admin → otherwise `403 ADMIN_DOWNGRADE_NOT_PERMITTED`.
         - No admin may downgrade themselves → `409 SELF_DEMOTION_FORBIDDEN`.
         - The last admin cannot be removed → `409 LAST_ADMIN`.
-        Writes an audit row (`ROLE_GRANT` / `ROLE_REVOKE`).
+        - The caller must have re-entered their password recently (`POST /auth/step-up`) →
+          otherwise `401 STEP_UP_REQUIRED`. Checked after the rules above.
+
+        **Two people (ADR 0008).** When another admin could approve — an active admin who is neither
+        the caller nor the target — nothing changes yet: the answer is `202` with a pending request,
+        audited as `ROLE_CHANGE_REQUESTED`, which `POST /admin/role-requests/{requestId}/approve`
+        applies. One pending request per target (`409 ROLE_REQUEST_PENDING`), checked before the next
+        rule. When nobody else could approve, the change applies at once (`200`) and is logged as a
+        warning.
+
+        An applied change writes an audit row (`ROLE_GRANT` / `ROLE_REVOKE`), emits `user.role-changed`
+        and raises a `ROLE_CHANGE` alert.
       requestBody:
         required: true
         content:
@@ -464,14 +523,109 @@ paths:
             example: { role: ADMIN, reason: Onboarding new operations lead }
       responses:
         '200':
-          description: Role changed (idempotent if already in that role).
+          description: |
+            Role changed because no other admin could approve, or unchanged because the target already
+            has that role.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AdminUser' }
-        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '202':
+          description: Waiting for a second admin. Nothing has changed yet.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoleChangeRequested' }
+        '401': { $ref: '#/components/responses/StepUpRequired' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/RoleConflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /admin/role-requests:
+    get:
+      tags: [Admin]
+      operationId: listRoleRequests
+      summary: Role changes waiting for, or decided by, a second admin (ADR 0008)
+      description: Newest first. A pending request past its deadline reads as `EXPIRED`. Read-only.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/RoleRequestStatus' }
+      responses:
+        '200':
+          description: A page of role-change requests.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoleChangeRequestPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /admin/role-requests/{requestId}/approve:
+    parameters:
+      - $ref: '#/components/parameters/RequestId'
+    post:
+      tags: [Admin]
+      operationId: approveRoleRequest
+      summary: Approve a role change as the second admin (ADR 0008)
+      description: |
+        The only way a requested change applies. Only an eligible approver may approve: not the
+        requester (`409 SELF_APPROVAL_FORBIDDEN`) and not the target (`409 CONFLICT_OF_INTEREST`).
+        Needs a recent `POST /auth/step-up` (`401 STEP_UP_REQUIRED`).
+
+        Every rule of `PUT /admin/users/{userId}/role` is checked again now, for the requester: a
+        requester who lost the role or was suspended meanwhile makes the request stale
+        (`409 ROLE_REQUEST_STALE`), and a target suspended meanwhile cannot be appointed
+        (`409 ACCOUNT_NOT_ACTIVE`). A request not decided within `ROLE_REQUEST_TTL_HOURS` (default 24)
+        has expired (`409 ROLE_REQUEST_EXPIRED`); one already decided is `409 ROLE_REQUEST_NOT_PENDING`.
+
+        Audited as `ROLE_GRANT` / `ROLE_REVOKE` with the approver as actor; emits `user.role-changed`;
+        raises a `ROLE_CHANGE` alert.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+            example: { reason: Confirmed with the operations lead }
+      responses:
+        '200':
+          description: Approved and applied. The target account as it now is.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminUser' }
+        '401': { $ref: '#/components/responses/StepUpRequired' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/RoleRequestConflict' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /admin/role-requests/{requestId}/reject:
+    parameters:
+      - $ref: '#/components/parameters/RequestId'
+    post:
+      tags: [Admin]
+      operationId: rejectRoleRequest
+      summary: Reject a role change, or withdraw your own (ADR 0008)
+      description: |
+        Any admin except the target may reject (`409 CONFLICT_OF_INTEREST`); the requester rejecting
+        their own request withdraws it. Changes no role and needs no password re-entry. Audited as
+        `ROLE_CHANGE_REJECTED`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+      responses:
+        '200':
+          description: Rejected.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoleChangeRequest' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/RoleRequestConflict' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /admin/audit-records:
@@ -486,6 +640,21 @@ paths:
         - name: targetUserId
           in: query
           schema: { type: string, format: uuid }
+        - name: actorId
+          in: query
+          description: Only records written by this administrator.
+          schema: { type: string, format: uuid }
+        - name: action
+          in: query
+          schema: { $ref: '#/components/schemas/AuditAction' }
+        - name: from
+          in: query
+          description: Only records at or after this instant.
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          description: Only records at or before this instant.
+          schema: { type: string, format: date-time }
       responses:
         '200':
           description: A page of audit records, newest first.
@@ -494,6 +663,66 @@ paths:
               schema: { $ref: '#/components/schemas/AuditRecordPage' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/reads:
+    get:
+      tags: [Admin]
+      operationId: listAdminReads
+      summary: Which admin opened which account, and when (ADR 0008)
+      description: |
+        One record each time an admin opens another user's account (`GET /admin/users/{userId}`). An
+        admin opening their own account is not recorded, nor is the user list. Newest first. Read-only.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: actorId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: targetUserId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: A page of admin reads.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminReadPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /admin/alerts:
+    get:
+      tags: [Admin]
+      operationId: listAdminAlerts
+      summary: Unusual administrator activity (ADR 0008)
+      description: |
+        Raised as it happens and also written as a structured warning log. Newest first. Read-only.
+
+        | Kind | When |
+        | ---- | ---- |
+        | `ROLE_CHANGE` | any role change is applied |
+        | `ADMIN_SUSPENDED` | an administrator is suspended |
+        | `BULK_SUSPENSIONS` | one admin suspends `ADMIN_SUSPENSIONS_ALERT_PER_HOUR` (default 10) accounts within an hour |
+        | `SUSPENSION_LIMIT_REACHED` | one admin is refused a suspension by the hourly limit |
+        | `BULK_READS` | one admin opens `ADMIN_READS_ALERT_PER_HOUR` (default 50) accounts within an hour |
+
+        A bulk alert is raised at most once per admin per hour.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: kind
+          in: query
+          schema: { $ref: '#/components/schemas/AdminAlertKind' }
+      responses:
+        '200':
+          description: A page of alerts.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminAlertPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /internal/users/{userId}:
     parameters:
@@ -641,6 +870,11 @@ components:
       in: path
       required: true
       schema: { type: string, format: uuid }
+    RequestId:
+      name: requestId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
     Page:
       name: page
       in: query
@@ -702,6 +936,12 @@ components:
         email: { type: string, format: email }
         currentPassword: { type: string, writeOnly: true }
         newPassword: { type: string, minLength: 12, maxLength: 128, writeOnly: true }
+    StepUpRequest:
+      type: object
+      required: [password]
+      additionalProperties: false
+      properties:
+        password: { type: string, minLength: 1, maxLength: 128, writeOnly: true }
     TokenResponse:
       type: object
       required: [accessToken, tokenType, expiresIn, user]
@@ -797,11 +1037,25 @@ components:
           enum: [USER, SYSTEM]
           description: '`SYSTEM` only for `ADMIN_BOOTSTRAP`, written at boot from deployment configuration.'
         targetUserId: { type: string, format: uuid }
-        action:
-          { type: string, enum: [SUSPEND, REACTIVATE, ROLE_GRANT, ROLE_REVOKE, ADMIN_BOOTSTRAP] }
+        action: { $ref: '#/components/schemas/AuditAction' }
         reason: { type: string }
         occurredAt: { type: string, format: date-time }
         correlationId: { type: string }
+    AuditAction:
+      type: string
+      enum:
+        [
+          SUSPEND,
+          REACTIVATE,
+          ROLE_GRANT,
+          ROLE_REVOKE,
+          ROLE_CHANGE_REQUESTED,
+          ROLE_CHANGE_REJECTED,
+          ADMIN_BOOTSTRAP,
+        ]
+      description: |
+        `ROLE_CHANGE_REQUESTED` is written by the requester, `ROLE_GRANT` / `ROLE_REVOKE` by the
+        approver, and `ROLE_CHANGE_REJECTED` by whoever rejected or withdrew the request (ADR 0008).
     AuditRecordPage:
       allOf:
         - $ref: '#/components/schemas/Page'
@@ -809,6 +1063,93 @@ components:
           required: [items]
           properties:
             items: { type: array, items: { $ref: '#/components/schemas/AuditRecord' } }
+
+    RoleRequestStatus:
+      type: string
+      enum: [PENDING, APPROVED, REJECTED, EXPIRED]
+      description: '`EXPIRED`: not decided within `ROLE_REQUEST_TTL_HOURS` (default 24).'
+    RoleChangeRequest:
+      type: object
+      required:
+        [
+          id,
+          targetUserId,
+          role,
+          requestedBy,
+          reason,
+          status,
+          createdAt,
+          expiresAt,
+          decidedBy,
+          decidedAt,
+          decisionReason,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        targetUserId: { type: string, format: uuid }
+        role: { $ref: '#/components/schemas/Role' }
+        requestedBy: { type: string, format: uuid }
+        reason: { type: string }
+        status: { $ref: '#/components/schemas/RoleRequestStatus' }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        decidedBy:
+          type: [string, 'null']
+          format: uuid
+          description: Who approved or rejected it (the requester, if withdrawn); `null` until decided.
+        decidedAt: { type: [string, 'null'], format: date-time }
+        decisionReason: { type: [string, 'null'] }
+    RoleChangeRequested:
+      type: object
+      required: [request]
+      properties:
+        request: { $ref: '#/components/schemas/RoleChangeRequest' }
+    RoleChangeRequestPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/RoleChangeRequest' } }
+    AdminRead:
+      type: object
+      required: [id, actorId, targetUserId, occurredAt, correlationId]
+      properties:
+        id: { type: string, format: uuid }
+        actorId: { type: string, format: uuid }
+        targetUserId: { type: string, format: uuid }
+        occurredAt: { type: string, format: date-time }
+        correlationId: { type: string }
+    AdminReadPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/AdminRead' } }
+    AdminAlertKind:
+      type: string
+      enum: [ROLE_CHANGE, ADMIN_SUSPENDED, BULK_SUSPENSIONS, SUSPENSION_LIMIT_REACHED, BULK_READS]
+    AdminAlert:
+      type: object
+      required: [id, kind, actorId, details, occurredAt]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { $ref: '#/components/schemas/AdminAlertKind' }
+        actorId:
+          { type: string, format: uuid, description: The administrator whose action raised it. }
+        details:
+          type: object
+          additionalProperties: true
+          description: Counts, thresholds and account ids. Never an email address.
+        occurredAt: { type: string, format: date-time }
+    AdminAlertPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/AdminAlert' } }
 
     IdentityLookup:
       type: object
@@ -924,6 +1265,39 @@ components:
                   correlationId: 5c1f2a9e,
                 },
             }
+    StepUpRequired:
+      description: |
+        Missing, malformed or expired access token (`UNAUTHENTICATED`), or the action needs the password
+        re-entered within the last few minutes (`STEP_UP_REQUIRED`): call `POST /auth/step-up`, then
+        retry. Permission rules are checked first, so `STEP_UP_REQUIRED` means the caller may proceed.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            unauthenticated:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: UNAUTHENTICATED,
+                        message: Authentication required.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
+            stepUp:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: STEP_UP_REQUIRED,
+                        message: Re-enter your password to confirm this action.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
     ServiceUnauthenticated:
       description: Missing or invalid `X-Service-Key`. A user access token is not accepted here.
       content:
@@ -1223,6 +1597,75 @@ components:
                       {
                         code: ACCOUNT_NOT_ACTIVE,
                         message: Only an active account can be suspended.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
+            pending:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: ROLE_REQUEST_PENDING,
+                        message: A role change for this user is already waiting for approval.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
+    RoleRequestConflict:
+      description: |
+        The request cannot be decided by this caller, or no longer at all: `SELF_APPROVAL_FORBIDDEN`,
+        `CONFLICT_OF_INTEREST`, `ROLE_REQUEST_NOT_PENDING`, `ROLE_REQUEST_EXPIRED`, `ROLE_REQUEST_STALE`,
+        or a role rule that now fails (`ACCOUNT_NOT_ACTIVE`, `LAST_ADMIN`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            selfApproval:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: SELF_APPROVAL_FORBIDDEN,
+                        message: Another administrator must approve your request.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
+            conflictOfInterest:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: CONFLICT_OF_INTEREST,
+                        message: You cannot decide a role change about yourself.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
+            expired:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: ROLE_REQUEST_EXPIRED,
+                        message: This request waited too long for approval. Ask again.,
+                        correlationId: 5c1f2a9e,
+                      },
+                  },
+              }
+            stale:
+              {
+                value:
+                  {
+                    error:
+                      {
+                        code: ROLE_REQUEST_STALE,
+                        message: The administrator who asked for this change is no longer an active administrator.,
                         correlationId: 5c1f2a9e,
                       },
                   },

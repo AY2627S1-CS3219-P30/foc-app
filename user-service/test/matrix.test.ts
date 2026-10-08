@@ -8,6 +8,7 @@ import {
   login,
   seededAdmin,
   ORIGIN,
+  PASSWORD,
   type Actor,
 } from './helpers/actors.js';
 
@@ -20,11 +21,19 @@ import {
 interface Endpoint {
   name: string;
   method: 'get' | 'post' | 'put' | 'patch';
-  path: (ids: { target: string }) => string;
+  path: (ids: { target: string; request: string }) => string;
   body?: object;
   /** Who is allowed a success (2xx). Everyone else must be refused (401/403). */
   allowed: 'student' | 'admin';
+  /**
+   * For an action on a record the matrix cannot set up, the status an administrator gets instead of
+   * a success. It must still not be 401 or 403: authorization let them through.
+   */
+  adminStatus?: number;
 }
+
+/** A well-formed request id that matches nothing. */
+const UNKNOWN_REQUEST = randomUUID();
 
 const ENDPOINTS: Endpoint[] = [
   { name: 'read own account', method: 'get', path: () => '/users/me', allowed: 'student' },
@@ -69,6 +78,37 @@ const ENDPOINTS: Endpoint[] = [
     path: () => '/admin/audit-records',
     allowed: 'admin',
   },
+  {
+    name: 're-enter password',
+    method: 'post',
+    path: () => '/auth/step-up',
+    body: { password: PASSWORD },
+    allowed: 'student',
+  },
+  {
+    name: 'list role requests',
+    method: 'get',
+    path: () => '/admin/role-requests',
+    allowed: 'admin',
+  },
+  {
+    name: 'approve a role request',
+    method: 'post',
+    path: ({ request }) => `/admin/role-requests/${request}/approve`,
+    body: { reason: 'matrix' },
+    allowed: 'admin',
+    adminStatus: 404,
+  },
+  {
+    name: 'reject a role request',
+    method: 'post',
+    path: ({ request }) => `/admin/role-requests/${request}/reject`,
+    body: { reason: 'matrix' },
+    allowed: 'admin',
+    adminStatus: 404,
+  },
+  { name: 'read admin reads', method: 'get', path: () => '/admin/reads', allowed: 'admin' },
+  { name: 'read admin alerts', method: 'get', path: () => '/admin/alerts', allowed: 'admin' },
 ];
 
 /** Service-only endpoints: a user token, of any kind, must never open them. */
@@ -112,14 +152,14 @@ afterAll(async () => {
 });
 
 const call = (e: Endpoint, actor?: Actor) => {
-  const req = http(t)[e.method](e.path({ target }));
+  const req = http(t)[e.method](e.path({ target, request: UNKNOWN_REQUEST }));
   if (actor) req.set('Authorization', bearer(actor));
   return e.body ? req.send(e.body) : req;
 };
 
 describe('actor–resource–action matrix', () => {
   for (const e of ENDPOINTS) {
-    describe(`${e.method.toUpperCase()} ${e.path({ target: ':id' })} — ${e.name}`, () => {
+    describe(`${e.method.toUpperCase()} ${e.path({ target: ':id', request: ':id' })} — ${e.name}`, () => {
       it('unauthenticated → 401', async () => {
         expect((await call(e)).status).toBe(401);
       });
@@ -137,10 +177,9 @@ describe('actor–resource–action matrix', () => {
 
       it('administrator → succeeds (a crash or a refusal both fail this)', async () => {
         const res = await call(e, admin);
-        expect(
-          res.status,
-          `${e.name} returned ${res.status}: ${res.text.slice(0, 120)}`,
-        ).toBeLessThan(400);
+        const detail = `${e.name} returned ${res.status}: ${res.text.slice(0, 120)}`;
+        if (e.adminStatus) expect(res.status, detail).toBe(e.adminStatus);
+        else expect(res.status, detail).toBeLessThan(400);
       });
     });
   }
@@ -170,17 +209,22 @@ describe('actor–resource–action matrix', () => {
 
   it('a token for a user who was later demoted stops working as admin immediately', async () => {
     const other = await activeStudent(t, 'later@u.nus.edu');
-    await http(t)
-      .put(`/admin/users/${other.id}/role`)
-      .set('Authorization', bearer(admin))
-      .send({ role: 'ADMIN', reason: 'temp' })
-      .expect(200);
+    const second = await seededAdmin(t, 'second@u.nus.edu');
+    const roleChange = async (role: string) => {
+      const asked = await http(t)
+        .put(`/admin/users/${other.id}/role`)
+        .set('Authorization', bearer(admin))
+        .send({ role, reason: 'temp' })
+        .expect(202);
+      await http(t)
+        .post(`/admin/role-requests/${asked.body.request.id}/approve`)
+        .set('Authorization', bearer(second))
+        .send({ reason: 'temp' })
+        .expect(200);
+    };
+    await roleChange('ADMIN');
     await http(t).get('/admin/users').set('Authorization', bearer(other)).expect(200);
-    await http(t)
-      .put(`/admin/users/${other.id}/role`)
-      .set('Authorization', bearer(admin))
-      .send({ role: 'STUDENT', reason: 'temp' })
-      .expect(200);
+    await roleChange('STUDENT');
     await http(t).get('/admin/users').set('Authorization', bearer(other)).expect(403);
   });
 
@@ -199,7 +243,9 @@ describe('actor–resource–action matrix', () => {
 
     const normalise = (p: string) => p.replace(/:[A-Za-z]+/g, ':id');
     const covered = new Set([
-      ...ENDPOINTS.map((e) => `${e.method.toUpperCase()} ${e.path({ target: ':id' })}`),
+      ...ENDPOINTS.map(
+        (e) => `${e.method.toUpperCase()} ${e.path({ target: ':id', request: ':id' })}`,
+      ),
       ...INTERNAL.map((p) => `GET ${p(':id').split('?')[0]}`),
       ...PUBLIC,
     ]);

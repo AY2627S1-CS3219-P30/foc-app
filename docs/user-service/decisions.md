@@ -73,6 +73,8 @@ It is UX only and is never read by an authorization decision.
   ticket covered it. Forbidding it removes a footgun and makes the last-admin rule trivial.
 - **Trade-off:** a lone seeded admin cannot step down without first appointing and seeding a successor.
 - ❓ Suspending *another* admin is restricted to seeded admins here; the backlog only says "an administrator".
+- **Since D3:** these rules limit who may act *on* an admin. What limits an admin's *own* powers — two people
+  for every role change, password re-entry, read records, alerts, a suspension limit — is ADR 0008 and §15.
 
 ### R4. Administrators may act on other people's errands — ✅ decided (product owner)
 Previously left open in roles.md ("deferred to the admin console"). Decision: **yes** — an administrator may
@@ -642,4 +644,81 @@ login, register, activate, change-password and profile at 360, 768 and 1440 px.
 - **Limit:** that browser suite is not committed. The project has no browser-test harness yet (TST-01/TST-02), and adding
   Playwright to the web app's Bun lockfile is a decision for that ticket. The `bun test` unit tests do run in CI.
 - **Not verified:** the full `docker compose` stack (no Docker daemon here).
-- The admin page (`/admin`) is outside the `(app)` group and still unprotected mock UI — USR-08 / Patrick's shell.
+- ~~The admin page (`/admin`) is outside the `(app)` group and still unprotected mock UI~~ — replaced by the admin
+  console (ADM-02), inside the `(app)` group and on the real endpoints (§15).
+
+## 15. Controls on administrators (ADM-03 #220, ADM-04 #221)
+
+D3 feedback: _"think about how to control admins"_. The policy is
+[ADR 0008](../adr/0008-controlling-administrators.md); this section records how it was built and what it
+cost.
+
+### G1. A role change is a request that a second admin approves — ✅
+`PUT /admin/users/{id}/role` now writes a `role_change_requests` row and answers `202`; only
+`POST /admin/role-requests/{id}/approve` changes the role. Approval takes the same locks in the same order as
+before (every admin row, then the request, then the target) and re-runs every US-FR3.1.3 rule for the
+*requester*, so anything that changed in between — the requester demoted, the target suspended — stops it.
+- **Why a row, not a flag on the user:** it carries both people, both reasons and a deadline, and it is what
+  the console lists.
+- **Trade-off:** a role change now takes a second admin and up to 24 hours.
+
+### G2. With no eligible approver, the change applies at once — 🟡 accepted risk
+An eligible approver is an *active* admin who is neither the requester nor the target. With one admin, or two
+where one is the target, there is none. Blocking would make the first appointment impossible and would
+deadlock the break-glass recovery, so the change applies, is logged as a warning, and raises `ROLE_CHANGE`
+like every other role change.
+- **Accepted:** with exactly two admins, a seeded admin can demote the other alone. The seeded tier bounds who
+  can do it, and it is alerted and audited without a `ROLE_CHANGE_REQUESTED` before it.
+- **Fixed in review:** the shortcut first skipped the one-open-request check, so a request whose only approver
+  had since been suspended could stay open beside a change made without it, and be approved later for nothing.
+  An open request is now decided or withdrawn first; a test covers it.
+
+### G3. Password re-entry is recorded on the session, not in the token — ✅
+`POST /auth/step-up` sets `refresh_sessions.stepped_up_at`; a role request, an approval and suspending an admin
+check it in the same transaction as the action. A refresh copies it to the new row (same sign-in); another
+login or device does not have it.
+- **Rejected:** an `auth_time` claim in the JWT. The token deliberately carries only `sub` and `sid` (A1), and
+  a claim would need a token re-issue just to step up.
+- **Order:** the permission rules are checked first, so nobody is asked for a password they could not use.
+- Limited per account (10 per 15 minutes) as well as by login's per-IP limit, because it answers whether a
+  password is right.
+
+### G4. A suspended requester's request is stale — ✅ (found while writing the tests)
+The first version checked that the requester still *held* the `ADMIN` role at approval. A suspended admin
+does, so their pending requests could still be approved. Now the requester must be an *active* admin, or the
+approval is `409 ROLE_REQUEST_STALE`.
+
+### G5. Expiry is computed, not swept — ✅
+A pending request past `expires_at` reads as `EXPIRED` everywhere (one SQL expression), and the next request
+for the same user rewrites it before the one-pending-per-target index sees it. No scheduler.
+- **Fixed on the way:** the first version also marked a request `EXPIRED` inside the transaction that then
+  refused the approval, so the refusal rolled the mark back. Removed; it was never needed.
+
+### G6. Opening an account is recorded; the user list is not — 🟡
+`GET /admin/users/{id}` writes an `admin_reads` row unless it is the admin's own account. The list returns the
+same fields but is not recorded per row: recording every listed account would raise `BULK_READS` on ordinary
+paging. Listed as a gap in ADR 0008.
+
+### G7. Alerts are rows plus a warning log; bulk alerts once an hour — ✅
+`admin_alerts` is what the console shows; the structured warn log (ids only) is what a log pipeline can page
+on later. The suspension count comes from the audit trail, so the limit holds across restarts and instances,
+unlike the in-memory login limiter (A8). The actor's own row is locked first, so one admin's simultaneous
+suspensions are counted one after the other.
+- **Accepted:** the once-an-hour check is not locked, so two simultaneous requests could raise one bulk alert
+  twice. A duplicate alert is harmless; a missed one would not be.
+
+### G8. Reads and alerts are append-only, like the audit trail — ✅
+Migration 0003: a trigger rejects `UPDATE` and `DELETE`, and the service role loses those privileges and
+`TRUNCATE`. `role_change_requests` is updated when decided, but every request and decision also writes an
+`audit_records` row.
+
+### G9. Verification — ✅
+- `test/admin-controls.test.ts` (24 tests), plus the two-person flow in `admin.test.ts`, the break-glass walk in
+  `seed.test.ts`, every new route in the four-actor matrix, the provider contract test, and the log-privacy
+  scan (step-up and an alerting role change added). User Service: 241 tests pass; auth-client: 60.
+- **Mutation check:** 20 controls broken one at a time — each password re-entry, both conflict-of-interest
+  rules, the stale-requester and re-check rules, the pending and expiry rules, the suspension limit, every
+  alert, the read record, the refresh carry-over and the append-only trigger. A test failed for every one.
+- `contracts:compat` against `main`: no breaking change (the `202`, the new routes and the new enum values are
+  additive).
+- **Not verified here:** the console against the full Compose stack (ADM-02 has its own check).

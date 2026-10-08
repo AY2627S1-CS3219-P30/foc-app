@@ -14,7 +14,12 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import type { AccountStatus, Role } from '../users/users.repository.js';
-import type { AuditAction, AuditActorType } from '../admin/admin.repository.js';
+import type {
+  AdminAlertKind,
+  AuditAction,
+  AuditActorType,
+  RoleRequestStatus,
+} from '../admin/admin.repository.js';
 
 /**
  * The Drizzle schema for the identity tables — one source of truth for both the
@@ -145,6 +150,11 @@ export const refreshSessions = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     rotatedAt: timestamp('rotated_at', { withTimezone: true }),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    /**
+     * When the user last re-entered their password on this session (`POST /auth/step-up`). The
+     * riskiest admin actions require it within a short window (ADR 0008).
+     */
+    steppedUpAt: timestamp('stepped_up_at', { withTimezone: true }),
   },
   (t) => [
     index('refresh_sessions_user_idx').on(t.userId),
@@ -175,7 +185,7 @@ export const auditRecords = pgTable(
   (t) => [
     check(
       'audit_records_action_check',
-      sql`${t.action} IN ('SUSPEND', 'REACTIVATE', 'ROLE_GRANT', 'ROLE_REVOKE', 'ADMIN_BOOTSTRAP')`,
+      sql`${t.action} IN ('SUSPEND', 'REACTIVATE', 'ROLE_GRANT', 'ROLE_REVOKE', 'ADMIN_BOOTSTRAP', 'ROLE_CHANGE_REQUESTED', 'ROLE_CHANGE_REJECTED')`,
     ),
     check('audit_records_actor_type_check', sql`${t.actorType} IN ('USER', 'SYSTEM')`),
     check(
@@ -184,5 +194,93 @@ export const auditRecords = pgTable(
     ),
     check('audit_records_reason_len', sql`char_length(${t.reason}) BETWEEN 1 AND 500`),
     index('audit_records_target_idx').on(t.targetUserId, sql`${t.occurredAt} DESC`),
+  ],
+);
+
+/**
+ * Two-person rule (ADR 0008, ADM-03): appointing or demoting an admin is a request that another
+ * eligible admin approves or rejects. At most one pending request per target; a pending request
+ * past `expires_at` can no longer be approved and is marked `EXPIRED` when next touched.
+ */
+export const roleChangeRequests = pgTable(
+  'role_change_requests',
+  {
+    id: uuid('id').primaryKey(),
+    targetUserId: uuid('target_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    role: text('role').notNull().$type<Role>(),
+    requestedBy: uuid('requested_by')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    reason: text('reason').notNull(),
+    status: text('status').notNull().default('PENDING').$type<RoleRequestStatus>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    decidedBy: uuid('decided_by').references(() => users.id, { onDelete: 'restrict' }),
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
+    decisionReason: text('decision_reason'),
+    correlationId: text('correlation_id').notNull(),
+  },
+  (t) => [
+    check('role_change_requests_role_enum', sql`${t.role} IN ('STUDENT', 'ADMIN')`),
+    check(
+      'role_change_requests_status_enum',
+      sql`${t.status} IN ('PENDING', 'APPROVED', 'REJECTED', 'EXPIRED')`,
+    ),
+    check('role_change_requests_reason_len', sql`char_length(${t.reason}) BETWEEN 1 AND 500`),
+    check(
+      'role_change_requests_decided_consistent',
+      sql`(${t.status} IN ('APPROVED', 'REJECTED')) = (${t.decidedBy} IS NOT NULL)`,
+    ),
+    uniqueIndex('role_change_requests_one_pending_per_target')
+      .on(t.targetUserId)
+      .where(sql`status = 'PENDING'`),
+    index('role_change_requests_created_idx').on(sql`${t.createdAt} DESC`),
+  ],
+);
+
+/**
+ * Every admin read of another user's account (ADR 0008, ADM-04), as Credit records wallet reads.
+ * Personal data looked at is personal data accounted for.
+ */
+export const adminReads = pgTable(
+  'admin_reads',
+  {
+    id: uuid('id').primaryKey(),
+    actorId: uuid('actor_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    targetUserId: uuid('target_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
+    correlationId: text('correlation_id').notNull(),
+  },
+  (t) => [
+    index('admin_reads_actor_idx').on(t.actorId, sql`${t.occurredAt} DESC`),
+    index('admin_reads_target_idx').on(t.targetUserId, sql`${t.occurredAt} DESC`),
+  ],
+);
+
+/** Unusual admin activity, for the admin console and the warn log (ADR 0008, ADM-04). */
+export const adminAlerts = pgTable(
+  'admin_alerts',
+  {
+    id: uuid('id').primaryKey(),
+    kind: text('kind').notNull().$type<AdminAlertKind>(),
+    actorId: uuid('actor_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    details: jsonb('details').notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check(
+      'admin_alerts_kind_enum',
+      sql`${t.kind} IN ('ROLE_CHANGE', 'ADMIN_SUSPENDED', 'BULK_SUSPENSIONS', 'SUSPENSION_LIMIT_REACHED', 'BULK_READS')`,
+    ),
+    index('admin_alerts_occurred_idx').on(sql`${t.occurredAt} DESC`),
+    index('admin_alerts_actor_kind_idx').on(t.actorId, t.kind, sql`${t.occurredAt} DESC`),
   ],
 );

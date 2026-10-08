@@ -36,6 +36,9 @@ erDiagram
     users ||--o{ activation_tokens : "receives"
     users ||--o{ refresh_sessions : "owns"
     users ||--o{ audit_records : "is target of"
+    users ||--o{ role_change_requests : "is target of"
+    users ||--o{ admin_reads : "is read in"
+    users ||--o{ admin_alerts : "raises (as admin)"
 ```
 
 ### `users`
@@ -90,6 +93,7 @@ transaction that first checks the remaining admin count under `SELECT … FOR UP
 | `issued_at`, `expires_at` | timestamptz | `expires_at` = issue + 7 days                          |
 | `rotated_at`  | timestamptz NULL | Set when this token is exchanged for a new one                    |
 | `revoked_at`  | timestamptz NULL | Logout, suspension, or family kill                                |
+| `stepped_up_at` | timestamptz NULL | Last password re-entry on this sign-in (`POST /auth/step-up`, ADR 0008). Copied to the new row on refresh |
 
 **Reuse detection:** presenting a token whose `rotated_at` is set revokes every row with the same
 `family_id`.
@@ -101,13 +105,51 @@ transaction that first checks the remaining admin count under `SELECT … FOR UP
 | `actor_id`       | uuid NULL   | The administrator who acted; `NULL` exactly when `actor_type = 'SYSTEM'` (CHECK) |
 | `actor_type`     | text        | `USER` \| `SYSTEM`. `SYSTEM` is the boot-time bootstrap (migration 004) |
 | `target_user_id` | uuid        |                                                              |
-| `action`         | text        | `SUSPEND` \| `REACTIVATE` \| `ROLE_GRANT` \| `ROLE_REVOKE` \| `ADMIN_BOOTSTRAP` |
+| `action`         | text        | `SUSPEND` \| `REACTIVATE` \| `ROLE_GRANT` \| `ROLE_REVOKE` \| `ROLE_CHANGE_REQUESTED` \| `ROLE_CHANGE_REJECTED` \| `ADMIN_BOOTSTRAP` |
 | `reason`         | text        | Required, 1–500 chars                                         |
 | `occurred_at`    | timestamptz |                                                              |
 | `correlation_id` | text        |                                                              |
 
 Append-only is enforced twice: the service's DB role has `INSERT, SELECT` only (no `UPDATE`/`DELETE`),
 and a trigger raises on any `UPDATE` or `DELETE`. No API edits or deletes an audit row.
+
+### `role_change_requests` (ADR 0008, migration 0002)
+| Column            | Type        | Notes                                                                 |
+| ----------------- | ----------- | --------------------------------------------------------------------- |
+| `id`              | uuid PK     |                                                                       |
+| `target_user_id`  | uuid FK → users | One `PENDING` row per target (partial unique index)               |
+| `role`            | text        | `STUDENT` \| `ADMIN` — the role asked for                              |
+| `requested_by`    | uuid FK → users | The admin who asked                                               |
+| `reason`          | text        | 1–500 chars                                                           |
+| `status`          | text        | `PENDING` \| `APPROVED` \| `REJECTED` \| `EXPIRED`. A `PENDING` row past `expires_at` is read as `EXPIRED`, and a new request for the same user rewrites it |
+| `created_at`, `expires_at` | timestamptz | `expires_at` = creation + `ROLE_REQUEST_TTL_HOURS` (24)           |
+| `decided_by`, `decided_at`, `decision_reason` | NULL until decided | `decided_by` is set exactly when `status` is `APPROVED` or `REJECTED` (CHECK); the requester, when withdrawn |
+| `correlation_id`  | text        |                                                                       |
+
+A request changes no role. Approving it changes the role in the same transaction, with the approver as
+the audit row's actor. Every request and decision also writes an `audit_records` row, so the history
+survives even though `status` is updated.
+
+### `admin_reads` (append-only, ADR 0008)
+| Column           | Type        | Notes                                                        |
+| ---------------- | ----------- | ------------------------------------------------------------ |
+| `id`             | uuid PK     |                                                              |
+| `actor_id`       | uuid FK → users | The admin who opened the account. Indexed                |
+| `target_user_id` | uuid FK → users | The account opened. Indexed. An admin opening their own is not recorded |
+| `occurred_at`    | timestamptz |                                                              |
+| `correlation_id` | text        |                                                              |
+
+### `admin_alerts` (append-only, ADR 0008)
+| Column        | Type        | Notes                                                           |
+| ------------- | ----------- | --------------------------------------------------------------- |
+| `id`          | uuid PK     |                                                                 |
+| `kind`        | text        | `ROLE_CHANGE` \| `ADMIN_SUSPENDED` \| `BULK_SUSPENSIONS` \| `SUSPENSION_LIMIT_REACHED` \| `BULK_READS` |
+| `actor_id`    | uuid FK → users | The admin whose action raised it                            |
+| `details`     | jsonb       | Counts, thresholds and account ids — never an email              |
+| `occurred_at` | timestamptz | Indexed with `kind` and `actor_id`, for "at most once an hour"   |
+
+`admin_reads` and `admin_alerts` are append-only the same way as `audit_records` (migration 0003): a
+trigger rejects `UPDATE` and `DELETE`, and the service role loses those privileges.
 
 ### `outbox_events`
 | Column | Type | Notes |
@@ -154,3 +196,6 @@ Log redaction: structured logs identify a user by `userId` only, never by email,
 | US-NFR2.1.1 Argon2id, no secrets in logs              | `users.password_hash`; logger redaction                      |
 | US-NFR2.1.2 refresh hashed, revoked ≤ 10 s            | `refresh_sessions`                                            |
 | US-NFR4.1.2 append-only audit                         | `audit_records` + privileges + trigger                       |
+| ADR 0008 two people per role change                   | `role_change_requests` + `audit_records`                     |
+| ADR 0008 password re-entry                            | `refresh_sessions.stepped_up_at`                             |
+| ADR 0008 watching the admins                          | `admin_reads`, `admin_alerts` (append-only)                  |

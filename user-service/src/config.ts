@@ -43,6 +43,15 @@ export const env = loadEnv({
     .optional(),
   ADMIN_SEED_PASSWORD: z.string().min(12).max(128).optional(),
   ACTIVATION_TOKEN_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
+  /**
+   * Controls on administrators (ADR 0008). Defaults are the agreed policy; they are configuration so
+   * an operator can tighten them without a code change.
+   */
+  ROLE_REQUEST_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
+  STEP_UP_WINDOW_SECONDS: z.coerce.number().int().min(30).max(3600).default(300),
+  ADMIN_SUSPENSIONS_ALERT_PER_HOUR: z.coerce.number().int().min(1).default(10),
+  ADMIN_SUSPENSIONS_LIMIT_PER_HOUR: z.coerce.number().int().min(1).default(20),
+  ADMIN_READS_ALERT_PER_HOUR: z.coerce.number().int().min(1).default(50),
 });
 
 export const SERVICE_NAME = 'user-service';

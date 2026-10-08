@@ -328,10 +328,33 @@ describe('recovering from a misbehaving appointed admin (the seeded tier, US-FR3
     // The operators add a new address to ADMIN_SEED_EMAILS and redeploy: the recovery path needs
     // deployment access, which is the right authority, and no database edit.
     const successor = await seededAdmin(t, 'successor@u.nus.edu');
+    // At once: a seeded admin may suspend any admin, which ends every session the appointed one has.
+    await http(t)
+      .post(`/admin/users/${appointed.id}/suspend`)
+      .set('Authorization', bearer(successor))
+      .send({ reason: 'misuse of admin role' })
+      .expect(200);
+    // The bootstrap admin who left still holds the role, so a role change would wait for their
+    // approval (two-person rule, ADR 0008). Suspending that unreachable account removes them as an
+    // approver, and with nobody else eligible the successor's demotion applies at once.
+    await http(t)
+      .post(`/admin/users/${original.id}/suspend`)
+      .set('Authorization', bearer(successor))
+      .send({ reason: 'graduated; account unattended' })
+      .expect(200);
     await http(t)
       .put(`/admin/users/${appointed.id}/role`)
       .set('Authorization', bearer(successor))
       .send({ role: 'STUDENT', reason: 'misuse of admin role' })
       .expect(200);
+    const alerts = await t.db.query(
+      "SELECT kind FROM admin_alerts WHERE kind IN ('ADMIN_SUSPENDED', 'ROLE_CHANGE') ORDER BY occurred_at",
+    );
+    expect(alerts.rows.map((r) => r.kind)).toEqual([
+      'ROLE_CHANGE', // the original appointment
+      'ADMIN_SUSPENDED',
+      'ADMIN_SUSPENDED',
+      'ROLE_CHANGE',
+    ]);
   });
 });
