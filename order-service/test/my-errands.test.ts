@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  asAdmin,
   asBystander,
   asRequester,
   asStranger,
@@ -12,6 +13,7 @@ import {
   SEEDED_ORDER,
   advance,
   createPending,
+  referTo,
   reservationReply,
 } from './support/lifecycle.js';
 
@@ -64,7 +66,7 @@ describe('my errands', () => {
       .send({ expectedVersion: 3 })
       .expect(200);
     const withdrawn = await mine(asStranger);
-    expect(withdrawn.body).toEqual({ items: [] });
+    expect(withdrawn.body).toEqual({ items: [], truncated: false });
   });
 
   it('shows an unrelated student nothing', async () => {
@@ -72,6 +74,35 @@ describe('my errands', () => {
     await advance(t, 'ACCEPTED');
 
     const { body } = await mine(asBystander);
-    expect(body).toEqual({ items: [] });
+    expect(body).toEqual({ items: [], truncated: false });
+  });
+
+  it('shows an admin only their own errands, not ones referred to them', async () => {
+    t = await createTestApp();
+    const pending = await createPending(t);
+    await referTo(t, 'admin-1', pending);
+    // The referral lets the admin read the errand directly...
+    await http(t).get(`/orders/${pending}`).set('Authorization', asAdmin).expect(200);
+
+    // ...but it is not theirs, so it stays out of their list.
+    const { body } = await mine(asAdmin);
+    expect(body).toEqual({ items: [], truncated: false });
+  });
+
+  it('caps the list at 100 and says when older errands were left out', async () => {
+    t = await createTestApp();
+    await t.db.query(
+      `INSERT INTO orders (order_id, requester_id, supplier_snapshot, items, delivery_zone,
+                           delivery_instructions, reward, status, version, acceptance_deadline_at)
+       SELECT gen_random_uuid(), requester_id, supplier_snapshot, items, delivery_zone,
+              delivery_instructions, reward, status, version, acceptance_deadline_at
+         FROM orders, generate_series(1, 100)
+        WHERE order_id = $1`,
+      [SEEDED_ORDER],
+    );
+
+    const { body } = await mine(asRequester);
+    expect(body.items).toHaveLength(100);
+    expect(body.truncated).toBe(true);
   });
 });
