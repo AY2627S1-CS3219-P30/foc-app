@@ -20,9 +20,19 @@ async function seriesValue(
   )?.value;
 }
 
-/** Runs one request through the request logger; `route` is what Express sets when a route matched. */
-function serve(metrics: Metrics, path: string, statusCode: number, route?: string) {
-  let finish: () => void = () => undefined;
+/**
+ * Runs one request through the request logger; `route` is what Express sets when a route matched.
+ * Node emits `finish` and then `close` for a request answered, and only `close` for one the client
+ * abandoned.
+ */
+function serve(
+  metrics: Metrics,
+  path: string,
+  statusCode: number,
+  route?: string,
+  { abandoned = false } = {},
+) {
+  const listeners: Record<string, () => void> = {};
   const req = {
     headers: {},
     method: 'GET',
@@ -33,11 +43,13 @@ function serve(metrics: Metrics, path: string, statusCode: number, route?: strin
   } as unknown as Request;
   const res = {
     statusCode,
+    writableFinished: !abandoned,
     setHeader: () => undefined,
-    on: (_event: string, listener: () => void) => void (finish = listener),
+    on: (event: string, listener: () => void) => void (listeners[event] = listener),
   } as unknown as Response;
   requestLogger(pino({ enabled: false }), metrics)(req, res, () => undefined);
-  finish();
+  if (!abandoned) listeners.finish?.();
+  listeners.close?.();
 }
 
 describe('HTTP latency (PLT-04)', () => {
@@ -72,6 +84,20 @@ describe('HTTP latency (PLT-04)', () => {
       ),
     ).toBe(1);
     expect(await metrics.render()).not.toContain('alice');
+  });
+
+  it('counts a request the client abandoned, once, as 499, so the slowest are not left out', async () => {
+    const metrics = new Metrics('test-service');
+    serve(metrics, '/orders', 200, '/orders', { abandoned: true });
+
+    const count = (status: string) =>
+      seriesValue(
+        metrics.httpDuration,
+        { route: '/orders', status },
+        'http_request_duration_seconds_count',
+      );
+    expect(await count('499')).toBe(1);
+    expect(await count('200')).toBeUndefined();
   });
 
   it('does not time the polled endpoints, /health and /metrics', async () => {
@@ -163,9 +189,36 @@ describe('GET /metrics', () => {
     const metrics = new Metrics('test-service');
     serve(metrics, '/orders', 201, '/orders');
 
-    const body = await new MetricsController(metrics).scrape();
+    const body = await new MetricsController(metrics, { production: false }).scrape();
 
     expect(body).toContain('# TYPE http_request_duration_seconds histogram');
     expect(body).toContain('foc_events_handled_total');
+  });
+
+  it('wants the scrape token when one is set, and refuses everything else', async () => {
+    const controller = new MetricsController(new Metrics('test-service'), {
+      token: 'scrape-token-0123456789',
+      production: true,
+    });
+    const status = (authorization?: string) =>
+      controller.scrape(authorization).then(
+        () => 200,
+        (err: { getStatus(): number }) => err.getStatus(),
+      );
+
+    expect(await status('Bearer scrape-token-0123456789')).toBe(200);
+    expect(await status()).toBe(401);
+    expect(await status('Bearer scrape-token-012345678')).toBe(401); // one character short
+    expect(await status('scrape-token-0123456789')).toBe(401); // not a bearer credential
+  });
+
+  it('is closed in production when no token is set, and open in development', async () => {
+    const metrics = new Metrics('test-service');
+    await expect(new MetricsController(metrics, { production: true }).scrape()).rejects.toThrow(
+      'Metrics need the scrape token.',
+    );
+    await expect(new MetricsController(metrics, { production: false }).scrape()).resolves.toContain(
+      '# TYPE',
+    );
   });
 });

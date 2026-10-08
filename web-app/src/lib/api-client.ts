@@ -23,6 +23,14 @@ export function newCorrelationId(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * The header that puts one call in a user action (PLT-04). Give every call an action makes the same
+ * ID — `const id = newCorrelationId()` once, then `correlation(id)` on each — and the services log
+ * them all under it. A call made without one gets an ID of its own when it is sent.
+ */
+export const correlation = (id?: string): Record<string, string> =>
+  id ? { [CORRELATION_HEADER]: id } : {};
+
 export type FieldError = { field: string; code: string; message: string };
 
 /** A failed call, in the shared error envelope's terms. `status` 0 means the server was unreachable. */

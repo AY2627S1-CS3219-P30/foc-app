@@ -560,6 +560,39 @@ describe('metrics (PLT-04)', () => {
     expect(await value(metrics.eventRetries, onWork)).toBe(0);
   });
 
+  it('labels a per-instance queue by its stable name, and counts what it drops', async () => {
+    const AUTH_STATUS: SubscriptionSpec = {
+      queue: 'foc.test.auth-status.5f0c9e2a-0b1d-4c6e-9a43-2d7f81e0b6c4',
+      metricsLabel: 'foc.test.auth-status',
+      routingKeys: ['user.activated'],
+      exclusive: true,
+      autoDelete: true,
+    };
+    const metrics = new Metrics('test-service');
+    const { broker, consumer, channel } = setup([AUTH_STATUS], metrics);
+    await broker.connect();
+    let failing = false;
+    await consumer.subscribe(
+      subscription(AUTH_STATUS.queue, () => {
+        if (failing) throw new Error('boom');
+      }),
+    );
+
+    channel().deliver(AUTH_STATUS.queue, activation());
+    await settle();
+    failing = true;
+    channel().deliver(AUTH_STATUS.queue, activation());
+    channel().deliver(AUTH_STATUS.queue, 'not json');
+    await settle();
+
+    const stable = { queue: 'foc.test.auth-status' };
+    expect(await value(metrics.eventsHandled, { ...stable, event_type: 'user.activated' })).toBe(1);
+    expect(await value(metrics.eventsDropped, { ...stable, reason: 'handler_failed' })).toBe(1);
+    expect(await value(metrics.eventsDropped, { ...stable, reason: 'unparseable' })).toBe(1);
+    // No series is named after this instance's queue, so a restart adds none.
+    expect(await metrics.render()).not.toContain('5f0c9e2a');
+  });
+
   it('counts a message that cannot be parsed as an unparseable dead letter, never a retry', async () => {
     const metrics = new Metrics('test-service');
     const { broker, consumer, channel } = setup([WORK], metrics);

@@ -161,16 +161,20 @@ code=$(curl -fsS -o /dev/null -w '%{http_code}' "http://localhost:${WEB_PORT}/" 
 [[ "$code" == "200" ]] && pass "web app responds 200" || fail "web app returned $code"
 
 # ---- metrics reach the dashboard (PLT-04) ------------------------------------
+METRICS_AUTH="Authorization: Bearer ${METRICS_TOKEN:-dev-only-metrics-token-change-me}"
 for pair in "user-service:$USER_PORT" "supplier-service:$SUPPLIER_PORT" \
   "order-service:$ORDER_PORT" "credit-service:$CREDIT_PORT"; do
   name="${pair%%:*}"
   port="${pair##*:}"
-  if curl -fsS "http://localhost:${port}/metrics" 2>/dev/null |
+  if curl -fsS "http://localhost:${port}/metrics" -H "$METRICS_AUTH" 2>/dev/null |
     grep -q '^# TYPE http_request_duration_seconds histogram'; then
     pass "$name serves /metrics"
   else
     fail "$name /metrics missing or not Prometheus format"
   fi
+  code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${port}/metrics" 2>/dev/null || echo 000)
+  [[ "$code" == "401" ]] && pass "$name refuses /metrics without the scrape token" ||
+    fail "$name served /metrics without the token ($code)"
 done
 
 # Prometheus scrapes every 15 s, so a fresh stack may not have reached every

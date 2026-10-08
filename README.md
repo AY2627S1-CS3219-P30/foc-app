@@ -194,7 +194,9 @@ Each service imports `PlatformModule` from `platform/` and gets:
   another (the auth client's identity check, Order's supplier lookup) and in every
   event, so one browser action can be followed across services
 - **`GET /metrics`** for Prometheus: request latency by route, events handled,
-  retried and dead-lettered, and the outbox backlog (PLT-04)
+  retried and dead-lettered, and the outbox backlog (PLT-04). It wants
+  `Authorization: Bearer $METRICS_TOKEN`, since it lists every route with its
+  error rate; without a token it is open in development and refused in production
 - **A shared error envelope**, so the web app handles failures uniformly
 - **Boot-time environment validation** that fails loudly and names the variable
 - **Graceful shutdown** on `SIGTERM`
@@ -212,23 +214,33 @@ you add a dependency.
 
 `docker compose up` also starts Prometheus and Grafana (PLT-04). Open
 <http://localhost:3005>: the **FoC Platform** dashboard is the home page, with
-nothing to set up and no sign-in needed to view it.
+nothing to set up and no sign-in needed to view it. Both are published on
+`127.0.0.1` only, so anonymous viewing stays on your machine. Prometheus sends
+`METRICS_TOKEN` to each service (Compose mounts it as a file); to read one
+yourself, `curl -H "Authorization: Bearer $METRICS_TOKEN" localhost:3001/metrics`.
 
-| Panel                          | Shows                                                            | From                                                       |
-| ------------------------------ | ---------------------------------------------------------------- | ---------------------------------------------------------- |
-| HTTP p95 latency, by service   | time to answer, 95th percentile                                  | `http_request_duration_seconds`                            |
-| Requests by status code        | request rate per HTTP status                                     | `http_request_duration_seconds_count`                      |
-| Errands by status              | errands in each state right now                                  | `foc_orders` (Order Service)                               |
-| Consumer backlog per queue     | messages waiting for a consumer                                  | RabbitMQ's exporter                                        |
-| Event lag p95, by queue        | time from an event occurring to its consumer handling it         | `foc_event_lag_seconds`                                    |
-| Retries per minute, by queue   | retries scheduled after a handler failed                         | `foc_event_retries_total`                                  |
-| Dead-letter queue depth        | messages set aside for an operator                               | RabbitMQ's exporter                                        |
-| Dead-lettered events by reason | `unparseable` (set aside at once) or `exhausted` (retries spent) | `foc_events_dead_lettered_total`                           |
-| Outbox backlog                 | events committed but not yet confirmed by the broker             | `foc_outbox_backlog`, `..._oldest_unpublished_age_seconds` |
+| Panel                          | Shows                                                                                                | From                                                         |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| HTTP p95 latency, by service   | time to answer, 95th percentile                                                                      | `http_request_duration_seconds`                              |
+| Requests by status code        | request rate per HTTP status                                                                         | `http_request_duration_seconds_count`                        |
+| Errands by status              | errands in each state right now                                                                      | `foc_orders` (Order Service)                                 |
+| Consumer backlog per queue     | messages waiting for a consumer                                                                      | RabbitMQ's exporter                                          |
+| Event lag p95, by queue        | time from an event occurring to its consumer handling it                                             | `foc_event_lag_seconds`                                      |
+| Retries per minute, by queue   | retries scheduled after a handler failed                                                             | `foc_event_retries_total`                                    |
+| Dead-letter queue depth        | messages set aside for an operator                                                                   | RabbitMQ's exporter                                          |
+| Dead-lettered events by reason | `unparseable` (set aside at once) or `exhausted` (retries spent); a per-instance queue drops instead | `foc_events_dead_lettered_total`, `foc_events_dropped_total` |
+| Outbox backlog                 | events committed but not yet confirmed by the broker                                                 | `foc_outbox_backlog`, `..._oldest_unpublished_age_seconds`   |
 
 - **Follow one request.** Its correlation ID is in the `x-correlation-id`
   response header. `docker compose logs | grep <id>` then shows every service it
-  reached and every event it caused.
+  reached and every event it caused. The web app gives every call one user
+  action makes the same ID (signing in is the login and the account read), and a
+  credit reconciliation run is `reconcile-<runId>`. Two limits: identity checks
+  that arrive together share one call to the User Service, logged there under the
+  first caller's ID, and a cached check makes no call at all.
+- **Per-instance queues** (each service's `auth-status` cache queue) carry a
+  random suffix; their metrics are labelled without it, so a restart continues
+  the same series.
 - **Rates need traffic.** A rate panel shows a request once Prometheus has
   scraped before and after it (every 15 s), so give a demo a minute of traffic.
 - **Add a metric.** Inject `METRICS` from `@foc/platform` and call `addGauge`;

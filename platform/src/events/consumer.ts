@@ -89,26 +89,32 @@ export class EventConsumer {
     }
   }
 
+  /** The `queue` label on a queue's metrics: stable even where the queue's name is not. */
+  private label(queue: string): string {
+    return this.broker.subscription(queue)?.metricsLabel ?? queue;
+  }
+
   /**
    * Reports this queue's counters at zero from the start. Prometheus cannot see an increase in a
    * series it first scraped after the increase, so without this a queue's first retry or dead
    * letter would never show on a rate or increase panel. A transient queue never retries or
-   * dead-letters, so it gets only the handled counter.
+   * dead-letters; it drops instead.
    */
   private startCounters<T>(options: SubscribeOptions<T>): void {
     if (!this.metrics) return;
-    const { queue } = options;
-    const spec = this.broker.subscription(queue);
+    const spec = this.broker.subscription(options.queue);
     const transient = spec !== undefined && isTransient(spec);
+    const queue = this.label(options.queue);
     const types = typeof options.eventType === 'string' ? [options.eventType] : options.eventType;
     for (const event_type of types) {
       this.metrics.eventsHandled.inc({ queue, event_type }, 0);
       if (!transient) this.metrics.eventRetries.inc({ queue, event_type }, 0);
     }
-    if (!transient) {
-      for (const reason of ['unparseable', 'exhausted']) {
-        this.metrics.eventsDeadLettered.inc({ queue, reason }, 0);
-      }
+    for (const reason of transient ? ['unparseable', 'handler_failed'] : []) {
+      this.metrics.eventsDropped.inc({ queue, reason }, 0);
+    }
+    for (const reason of transient ? [] : ['unparseable', 'exhausted']) {
+      this.metrics.eventsDeadLettered.inc({ queue, reason }, 0);
     }
   }
 
@@ -157,6 +163,7 @@ export class EventConsumer {
     const attempt = Number(message.properties.headers?.[HEADER_ATTEMPT] ?? 1);
     const spec = this.broker.subscription(options.queue);
     const transient = spec !== undefined && isTransient(spec);
+    const queueLabel = this.label(options.queue);
 
     let envelope: Envelope<T>;
     try {
@@ -181,10 +188,11 @@ export class EventConsumer {
       const reason = errorMessage(err);
       this.logger.error({ queue: options.queue, reason, msg: 'message is unparseable' });
       if (transient) {
+        this.metrics?.eventsDropped.inc({ queue: queueLabel, reason: 'unparseable' });
         channel.nack(message, false, false); // nowhere to set it aside
         return;
       }
-      this.metrics?.eventsDeadLettered.inc({ queue: options.queue, reason: 'unparseable' });
+      this.metrics?.eventsDeadLettered.inc({ queue: queueLabel, reason: 'unparseable' });
       // Permanent: straight to the dead-letter queue, never retried — retrying
       // a malformed message only burns the budget. Published rather than
       // nacked so the reason travels with it; a bare nack would leave an
@@ -199,7 +207,7 @@ export class EventConsumer {
       return;
     }
 
-    const labels = { queue: options.queue, event_type: envelope.eventType };
+    const labels = { queue: queueLabel, event_type: envelope.eventType };
     const startedAt = process.hrtime.bigint();
     try {
       await options.handler(envelope, { attempt, queue: options.queue });
@@ -226,10 +234,11 @@ export class EventConsumer {
       if (err instanceof UnparseableMessageError) {
         this.logger.error({ queue: options.queue, reason, msg: 'message is unparseable' });
         if (transient) {
+          this.metrics?.eventsDropped.inc({ queue: queueLabel, reason: 'unparseable' });
           channel.nack(message, false, false);
           return;
         }
-        this.metrics?.eventsDeadLettered.inc({ queue: options.queue, reason: 'unparseable' });
+        this.metrics?.eventsDeadLettered.inc({ queue: queueLabel, reason: 'unparseable' });
         await this.publishTo(channel, DLX, options.queue, message, {
           ...message.properties.headers,
           [HEADER_FAILURE]: reason.slice(0, 500),
@@ -246,6 +255,7 @@ export class EventConsumer {
           reason,
           msg: 'handler failed on a transient queue; dropping',
         });
+        this.metrics?.eventsDropped.inc({ queue: queueLabel, reason: 'handler_failed' });
         channel.nack(message, false, false);
         return;
       }
@@ -275,7 +285,10 @@ export class EventConsumer {
         reason,
         msg: 'attempts exhausted; setting aside for an operator',
       });
-      this.metrics?.eventsDeadLettered.inc({ queue: options.queue, reason: 'exhausted' });
+      this.metrics?.eventsDeadLettered.inc({
+        queue: this.label(options.queue),
+        reason: 'exhausted',
+      });
       // Published explicitly rather than nacked, so the dead-lettered message
       // carries the reason it failed. A bare nack would lose it, leaving an
       // operator to correlate against logs.
@@ -295,7 +308,10 @@ export class EventConsumer {
       retryLevel: attempt,
       msg: 'handler failed; scheduling retry',
     });
-    this.metrics?.eventRetries.inc({ queue: options.queue, event_type: envelope.eventType });
+    this.metrics?.eventRetries.inc({
+      queue: this.label(options.queue),
+      event_type: envelope.eventType,
+    });
 
     // Keyed by this queue's name, not the event type: the retry queue
     // dead-letters onto the default exchange, which delivers by queue name, so

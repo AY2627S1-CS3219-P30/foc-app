@@ -346,6 +346,33 @@ describe('correlation (PLT-04)', () => {
     expect(fake.stats.lastIntrospectCorrelationId).toBe('trace-from-order');
   });
 
+  it("a burst sharing one check sends the first caller's ID, once", async () => {
+    fake.behaviour.introspectDelayMs = 50;
+    const auth = make();
+    const u = fake.addSession();
+    const token = `Bearer ${await fake.mint(u)}`;
+
+    await Promise.all([
+      auth.authenticate(token, { correlationId: 'trace-first' }),
+      auth.authenticate(token, { correlationId: 'trace-second' }),
+    ]);
+
+    expect(fake.stats.introspectCalls).toBe(1);
+    expect(fake.stats.lastIntrospectCorrelationId).toBe('trace-first');
+  });
+
+  it('a cached answer makes no call, so the later ID reaches only its own logs', async () => {
+    const auth = make({ cacheTtlMs: 5_000 });
+    const u = fake.addSession();
+    const token = `Bearer ${await fake.mint(u)}`;
+
+    await auth.authenticate(token, { correlationId: 'trace-first' });
+    await auth.authenticate(token, { correlationId: 'trace-cached' });
+
+    expect(fake.stats.introspectCalls).toBe(1);
+    expect(fake.stats.lastIntrospectCorrelationId).toBe('trace-first');
+  });
+
   it('sends none when the caller has none, rather than inventing one', async () => {
     const auth = make();
     const u = fake.addSession();

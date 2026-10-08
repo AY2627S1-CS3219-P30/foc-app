@@ -18,6 +18,7 @@ import {
   type EndReason,
   type RefreshResult,
 } from "./session";
+import { newCorrelationId } from "./api-client";
 import { ApiError, userApi, type Me, type PreferredMode, type Profile } from "./user-api";
 
 /** `unavailable`: the service could not be asked whether there is a session (offline, down, misconfigured). */
@@ -40,8 +41,11 @@ type Auth = {
   retryLogout: () => Promise<boolean>;
   /** Asks the service about the session again, after `unavailable`. */
   retry: () => Promise<void>;
-  /** Runs a call with the current access token, refreshing once and retrying if it has expired. */
-  authed: <T>(fn: (token: string) => Promise<T>) => Promise<T>;
+  /**
+   * Runs a call with the current access token, refreshing once and retrying if it has expired.
+   * `correlationId` names the user action the call belongs to, for any refresh it needs (PLT-04).
+   */
+  authed: <T>(fn: (token: string) => Promise<T>, correlationId?: string) => Promise<T>;
   updateProfile: (changes: Partial<Profile>) => Promise<Me>;
   setMode: (mode: PreferredMode) => Promise<void>;
 };
@@ -95,9 +99,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   });
 
-  /** Takes a cold-load refresh to a signed-in user, or to why there is none. */
+  /**
+   * Takes a cold-load refresh to a signed-in user, or to why there is none. Loading the session is
+   * one user action: the refresh and the account read share its correlation ID.
+   */
   const settle = useCallback(
-    async (result: RefreshResult) => {
+    async (result: RefreshResult, action: string) => {
       if (result.kind === "ended") return; // onEnded has signed out
       if (result.kind === "unavailable") {
         setProblem(result.error.message);
@@ -105,7 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       try {
-        const me = await session.authed((t) => userApi.me(t));
+        const me = await session.authed((t) => userApi.me(t, action), action);
         setUser(me);
         setStatus("signedIn");
       } catch (err) {
@@ -119,7 +126,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Cold load: is there a session behind the cookie?
   useEffect(() => {
-    void (async () => settle(await session.refresh()))();
+    const action = newCorrelationId();
+    void (async () => settle(await session.refresh(action), action))();
   }, [session, settle]);
 
   useEffect(() => {
@@ -130,21 +138,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const retry = useCallback(async () => {
     setProblem(null);
     setStatus("loading");
-    await settle(await session.refresh());
+    const action = newCorrelationId();
+    await settle(await session.refresh(action), action);
   }, [session, settle]);
 
   const authed = useCallback(
-    <T,>(fn: (accessToken: string) => Promise<T>): Promise<T> => session.authed(fn),
+    <T,>(fn: (accessToken: string) => Promise<T>, correlationId?: string): Promise<T> =>
+      session.authed(fn, correlationId),
     [session],
   );
 
   const login = useCallback(
     async (email: string, password: string) => {
-      const res = await userApi.login(email, password);
+      const action = newCorrelationId(); // signing in and reading the account are one action
+      const res = await userApi.login(email, password, action);
       session.signedIn(res.accessToken, res.user.id);
       setLogoutPending(false);
       setEndedBy(null);
-      const me = await session.authed((t) => userApi.me(t));
+      const me = await session.authed((t) => userApi.me(t, action), action);
       setUser(me);
       setProblem(null);
       setStatus("signedIn");
@@ -165,7 +176,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const updateProfile = useCallback(
     async (changes: Partial<Profile>) => {
-      const me = await authed((t) => userApi.updateMe(t, changes));
+      const action = newCorrelationId();
+      const me = await authed((t) => userApi.updateMe(t, changes, action), action);
       setUser(me);
       return me;
     },
@@ -183,7 +195,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // so a profile edit saved meanwhile is never overwritten with a stale copy of the user.
       setUser((u) => (u ? withMode(u, mode) : u));
       try {
-        await authed((t) => userApi.updateMe(t, { preferredMode: mode }));
+        const action = newCorrelationId();
+        await authed((t) => userApi.updateMe(t, { preferredMode: mode }, action), action);
       } catch (err) {
         setUser((u) => (u && u.profile.preferredMode === mode ? withMode(u, previous) : u));
         throw err;

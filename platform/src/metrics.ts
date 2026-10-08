@@ -1,7 +1,21 @@
-import { Controller, Get, Header, Inject, Logger } from '@nestjs/common';
+import { Controller, Get, Header, Headers, Inject, Logger } from '@nestjs/common';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { collectDefaultMetrics, Counter, Gauge, Histogram, Registry } from 'prom-client';
+import { ApiException } from './errors.js';
 
 export const METRICS = Symbol('METRICS');
+export const METRICS_ACCESS = Symbol('METRICS_ACCESS');
+
+/**
+ * Who may read `/metrics`. It holds no personal data, but it lists every route (`/admin/*` and
+ * `/internal/*` included) with its error rate, and there is no gateway in front of the services.
+ */
+export interface MetricsAccess {
+  /** When set, a scrape must send `Authorization: Bearer <token>`. */
+  token?: string;
+  /** Without a token, production refuses every scrape; development and tests stay open. */
+  production: boolean;
+}
 
 /** Paths that are polled rather than used: counting them would bury real traffic. */
 export const UNMEASURED_PATHS: ReadonlySet<string> = new Set(['/health', '/metrics']);
@@ -29,6 +43,7 @@ export type GaugeSetter<L extends string> = (
  *                                       `foc_event_handle_duration_seconds`
  *   - `foc_event_retries_total`         retries scheduled
  *   - `foc_events_dead_lettered_total`  events set aside, by reason
+ *   - `foc_events_dropped_total`        events a per-instance queue dropped, by reason
  *   - `foc_outbox_*`                    the outbox relay's throughput and backlog
  *
  * A service adds its own with {@link addGauge}, e.g. the Order Service's errands per status. Queue
@@ -42,6 +57,7 @@ export class Metrics {
   readonly eventHandleDuration: Histogram<'queue' | 'event_type'>;
   readonly eventRetries: Counter<'queue' | 'event_type'>;
   readonly eventsDeadLettered: Counter<'queue' | 'reason'>;
+  readonly eventsDropped: Counter<'queue' | 'reason'>;
   readonly outboxPublished: Counter;
   readonly outboxFailures: Counter;
   private readonly logger = new Logger(Metrics.name);
@@ -92,6 +108,12 @@ export class Metrics {
     this.eventsDeadLettered = new Counter({
       name: 'foc_events_dead_lettered_total',
       help: 'Events moved to a dead-letter queue: unparseable at once, or after every attempt failed.',
+      labelNames: ['queue', 'reason'],
+      registers,
+    });
+    this.eventsDropped = new Counter({
+      name: 'foc_events_dropped_total',
+      help: 'Events a private per-instance queue dropped (it has no retry or dead-letter queue): unparseable, or the handler failed.',
       labelNames: ['queue', 'reason'],
       registers,
     });
@@ -153,15 +175,30 @@ export class Metrics {
   }
 }
 
-/** `GET /metrics` for Prometheus. Unauthenticated, like /health: it holds no personal data. */
+/** `GET /metrics` for Prometheus, behind the scrape token (`METRICS_TOKEN`). */
 @Controller('metrics')
 export class MetricsController {
-  constructor(@Inject(METRICS) private readonly metrics: Metrics) {}
+  constructor(
+    @Inject(METRICS) private readonly metrics: Metrics,
+    @Inject(METRICS_ACCESS) private readonly access: MetricsAccess,
+  ) {}
 
   @Get()
   @Header('Content-Type', Registry.PROMETHEUS_CONTENT_TYPE)
   @Header('Cache-Control', 'no-store')
-  scrape(): Promise<string> {
+  async scrape(@Headers('authorization') authorization?: string): Promise<string> {
+    if (!mayScrape(this.access, authorization)) {
+      throw new ApiException(401, 'UNAUTHENTICATED', 'Metrics need the scrape token.');
+    }
     return this.metrics.render();
   }
+}
+
+const digest = (value: string) => createHash('sha256').update(value).digest();
+
+/** Compares digests in constant time, so neither the token nor its length leaks through timing. */
+function mayScrape(access: MetricsAccess, authorization: string | undefined): boolean {
+  if (!access.token) return !access.production;
+  const presented = /^Bearer (.+)$/.exec(authorization ?? '')?.[1] ?? '';
+  return timingSafeEqual(digest(presented), digest(access.token));
 }

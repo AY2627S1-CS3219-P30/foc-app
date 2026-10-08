@@ -16,6 +16,8 @@ x-service-base: &service-base
     LOG_LEVEL: ${LOG_LEVEL:-info}
     CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
     RABBITMQ_URL: amqp://${RABBITMQ_USER:-foc}:${RABBITMQ_PASSWORD:-foc_dev}@rabbitmq:5672
+    # Prometheus sends it to /metrics (PLT-04); the prometheus service reads the same value.
+    METRICS_TOKEN: ${METRICS_TOKEN:-dev-only-metrics-token-change-me}
   depends_on: &service-deps
     postgres:
       condition: service_healthy
@@ -238,7 +240,8 @@ services:
   # ---- observability (PLT-04) -------------------------------------------------
   # Prometheus scrapes every service's /metrics and RabbitMQ's queue depths, and
   # Grafana shows them on one provisioned dashboard: http://localhost:3005, open
-  # to view without signing in. Nothing to set up by hand.
+  # to view without signing in. Nothing to set up by hand. Both are published on
+  # 127.0.0.1 only: anonymous viewing is for this machine, not the network.
   prometheus:
     image: prom/prometheus:v3.13.4
     restart: unless-stopped
@@ -248,7 +251,10 @@ services:
     volumes:
       - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
-    ports: ['${PROMETHEUS_PORT:-9090}:9090']
+    configs:
+      - source: metrics-token
+        target: /etc/prometheus/metrics-token
+    ports: ['127.0.0.1:${PROMETHEUS_PORT:-9090}:9090']
     healthcheck:
       test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:9090/-/ready']
       interval: 5s
@@ -273,7 +279,7 @@ services:
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./observability/grafana/dashboards:/etc/grafana/dashboards:ro
-    ports: ['${GRAFANA_PORT:-3005}:3000']
+    ports: ['127.0.0.1:${GRAFANA_PORT:-3005}:3000']
     depends_on:
       prometheus: { condition: service_healthy }
     healthcheck:
@@ -287,6 +293,11 @@ volumes:
   postgres-data:
   rabbitmq-data:
   prometheus-data:
+
+configs:
+  # The scrape token, as a file Prometheus reads (prometheus.yml cannot read the environment).
+  metrics-token:
+    content: ${METRICS_TOKEN:-dev-only-metrics-token-change-me}
 
 networks:
   foc:

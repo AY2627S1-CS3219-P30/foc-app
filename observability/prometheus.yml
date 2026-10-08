@@ -5,8 +5,12 @@ global:
 
 scrape_configs:
   # Every service serves /metrics from @foc/platform. Each series carries a
-  # `service` label, so one dashboard covers all four.
+  # `service` label, so one dashboard covers all four. The endpoint wants the
+  # scrape token (METRICS_TOKEN), which Compose mounts as a file.
   - job_name: services
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/metrics-token
     static_configs:
       - targets:
           - user-service:3001

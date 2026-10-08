@@ -193,6 +193,9 @@ export class PinoLoggerService implements LoggerService {
  * action to every service that handled it (EI-NFR4.1.1). Attaches the id to the
  * request so handlers and the error filter can reuse it.
  */
+/** nginx's status for a request the client gave up on before the answer was sent. */
+const CLIENT_CLOSED_REQUEST = 499;
+
 export function requestLogger(logger: PinoLogger, metrics?: Pick<Metrics, 'observeHttp'>) {
   return function requestLoggerMiddleware(req: Request, res: Response, next: NextFunction): void {
     const correlationId = resolveCorrelationId(req);
@@ -209,21 +212,30 @@ export function requestLogger(logger: PinoLogger, metrics?: Pick<Metrics, 'obser
     const loggedPath = maskPersonalData(fullPath);
 
     const startedAt = process.hrtime.bigint();
-    res.on('finish', () => {
+    let recorded = false;
+    // Once per request: on `finish` when the answer was sent, or on `close` when the client left
+    // first. Those abandoned requests are often the slowest, so leaving them out would flatter the
+    // latency percentiles. They count as 499, nginx's "client closed request".
+    const complete = (abandoned: boolean) => {
+      if (recorded) return;
+      recorded = true;
       const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
-      metrics?.observeHttp(req.method, routePattern(req), res.statusCode, durationMs / 1e3);
-      const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+      const statusCode = abandoned ? CLIENT_CLOSED_REQUEST : res.statusCode;
+      metrics?.observeHttp(req.method, routePattern(req), statusCode, durationMs / 1e3);
+      const level = statusCode >= 500 ? 'error' : statusCode >= 400 ? 'warn' : 'info';
       logger[level](
         {
           correlationId,
           method: req.method,
           url: loggedPath,
-          statusCode: res.statusCode,
+          statusCode,
           durationMs: Math.round(durationMs * 100) / 100,
         },
-        'request completed',
+        abandoned ? 'request abandoned by the client' : 'request completed',
       );
-    });
+    };
+    res.on('finish', () => complete(false));
+    res.on('close', () => complete(!res.writableFinished));
     next();
   };
 }

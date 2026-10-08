@@ -58,6 +58,8 @@ describe('observability (PLT-04)', () => {
     expect(metrics.text).toMatch(
       new RegExp(`foc_orders\\{[^}]*status="PENDING_CREDIT"[^}]*\\} ${rows[0]!.n}\\n`),
     );
+    // A status no errand is in reads 0, rather than vanishing from the panel.
+    expect(metrics.text).toMatch(/foc_orders\{[^}]*status="COMPLETED"[^}]*\} 0\n/);
   });
 
   it('times requests by route pattern, so each errand does not become its own series', async () => {
@@ -70,5 +72,17 @@ describe('observability (PLT-04)', () => {
 
     expect(metrics.text).toMatch(/http_request_duration_seconds_count\{[^}]*route="\/orders\/:id"/);
     expect(metrics.text).not.toContain('0b7c2c1e-6f1d-4c4e-9d53-2f1c7d0b9a11');
+  });
+
+  it('labels a request no route matched as unmatched, in the real app, so its path never becomes a label', async () => {
+    t = await createTestApp();
+    await http(t).get('/no-such-route/alice@u.nus.edu').expect(404);
+
+    const metrics = await http(t).get('/metrics').expect(200);
+
+    expect(metrics.text).toMatch(
+      /http_request_duration_seconds_count\{[^}]*route="unmatched"[^}]*status="404"[^}]*\} 1\n/,
+    );
+    expect(metrics.text).not.toContain('alice');
   });
 });

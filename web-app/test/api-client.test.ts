@@ -162,7 +162,7 @@ describe("createUserApi", () => {
 });
 
 describe("correlation ID (PLT-04)", () => {
-  it("sends a fresh ID with every request, so each is traceable across the services it reaches", async () => {
+  it("gives a call made outside any user action an ID of its own", async () => {
     const { api, seen } = client(() => json(200, page));
     await unwrap(api.GET("/suppliers"));
     await unwrap(api.GET("/suppliers"));
@@ -171,6 +171,33 @@ describe("correlation ID (PLT-04)", () => {
     expect(first).toBeTruthy();
     expect(second).toBeTruthy();
     expect(first).not.toBe(second);
+  });
+
+  it("gives every call in one user action the same ID", async () => {
+    const seen: Request[] = [];
+    const api = createUserApi({
+      baseUrl: "http://user.test",
+      fetch: async (request) => {
+        seen.push(request);
+        return request.url.endsWith("/auth/login")
+          ? json(200, {
+              accessToken: "t1",
+              tokenType: "Bearer",
+              expiresIn: 900,
+              user: { id: "u1", displayName: "Alex", roles: ["STUDENT"], status: "ACTIVE" },
+            })
+          : json(200, { id: "u1" });
+      },
+    });
+    const action = newCorrelationId();
+    await api.login("a@u.nus.edu", "correct-horse-battery-staple", action);
+    await api.me("t1", action);
+    await api.me("t1"); // a separate action
+
+    const ids = seen.map((r) => r.headers.get("x-correlation-id"));
+    expect(ids.slice(0, 2)).toEqual([action, action]);
+    expect(ids[2]).toBeTruthy();
+    expect(ids[2]).not.toBe(action);
   });
 
   it("keeps an ID the caller already set", async () => {

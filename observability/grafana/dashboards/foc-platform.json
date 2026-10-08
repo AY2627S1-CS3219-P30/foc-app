@@ -591,8 +591,8 @@
     {
       "id": 12,
       "type": "timeseries",
-      "title": "Dead-lettered events by reason (last hour)",
-      "description": "Only queues and reasons with a dead letter in the last hour. unparseable: set aside at once. exhausted: every retry failed.",
+      "title": "Dead-lettered and dropped events by reason (last hour)",
+      "description": "Only queues and reasons with an event set aside or dropped in the last hour. unparseable: set aside at once. exhausted: every retry failed. A per-instance queue (the auth-status cache queues) has no dead-letter queue, so it drops instead: unparseable, or handler_failed.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -612,6 +612,15 @@
           },
           "expr": "sum by (queue, reason) (increase(foc_events_dead_lettered_total[1h])) > 0",
           "legendFormat": "{{queue}} \u00b7 {{reason}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (queue, reason) (increase(foc_events_dropped_total[1h])) > 0",
+          "legendFormat": "dropped \u00b7 {{queue}} \u00b7 {{reason}}"
         }
       ],
       "fieldConfig": {
