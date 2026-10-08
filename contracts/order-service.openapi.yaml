@@ -18,6 +18,21 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Health' }
+  /orders/mine:
+    get:
+      operationId: listMyOrders
+      summary: List the caller's own errands.
+      description: |
+        Errands the caller requested or is the current courier of, in any status, most recently
+        changed first, at most 100 (no paging yet). Each carries the caller's private projection and
+        `myRole`. A courier who withdrew or timed out no longer holds the errand and does not see it.
+      responses:
+        '200':
+          description: The caller's errands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MyOrders' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
   /orders/{orderId}:
     get:
       operationId: getOrder
@@ -431,6 +446,20 @@ components:
           properties:
             reason: { type: string }
             available: { type: integer, minimum: 0 }
+    MyOrders:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            allOf:
+              - $ref: '#/components/schemas/Order'
+              - type: object
+                required: [myRole]
+                properties:
+                  myRole: { type: string, enum: [REQUESTER, COURIER] }
     CreateOrder:
       type: object
       additionalProperties: false
