@@ -12,6 +12,7 @@ record; it does not silently rewrite it.
 | [0005](0005-error-contract.md) | HTTP and event error contract | Proposed; implementation basis |
 | [0006](0006-time-policy.md) | UTC time and timer ownership | Proposed; implementation basis |
 | [0007](0007-credit-invariant-and-double-entry-ledger.md) | Credit invariant and double-entry ledger | Proposed; implementation basis |
+| [0008](0008-controlling-administrators.md) | How administrators are controlled | Proposed; implementation basis |
 
 “Proposed; implementation basis” means the repository uses the decision while the required human
 review is collected. The author cannot record approval on another team member's behalf.
@@ -21,9 +22,9 @@ review is collected. The author cannot record approval on another team member's 
 | Reviewer | Required by | Status | Date |
 | --- | --- | --- | --- |
 | Isaac Chua (`@isaacchua0309`) | #132, #183 | Authored; self-review pending | — |
-| Zhang Yuan (`@volleyballkickedme`) | #132, #183; Order owner | Pending | — |
+| Zhang Yuan (`@volleyballkickedme`) | #132, #183, #218; Order owner | Pending | — |
 | Jonus (`@jonushzw`) | #132, #183 | Pending | — |
-| Anselm Long (`@anselmlong`) | #183 | Pending | — |
+| Anselm Long (`@anselmlong`) | #183, #218 | Pending | — |
 | Patrick Thomas (`@pastchum`) | #183 | Pending | — |
 
 At least one non-author must approve the pull request before merge. After all five members have read
