@@ -73,14 +73,16 @@ export class OrdersService {
   }
 
   /** The caller's own errands, each in their private projection. */
-  async listMine(caller: AuthContext) {
+  async listMine(
+    caller: AuthContext,
+  ): Promise<{ items: Array<OrderView & { myRole: 'REQUESTER' | 'COURIER' }> }> {
     const orders = await this.orders.listMine(caller.userId);
     return {
-      // Never null here: the requester and the current courier always get a projection.
-      items: orders.map((order) => ({
-        ...projectOrder(order, caller)!,
-        myRole: order.requesterId === caller.userId ? 'REQUESTER' : 'COURIER',
-      })),
+      items: orders.flatMap((order) => {
+        const view = projectOrder(order, caller);
+        if (!view) return [];
+        return [{ ...view, myRole: order.requesterId === caller.userId ? 'REQUESTER' : 'COURIER' }];
+      }),
     };
   }
 
