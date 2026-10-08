@@ -246,12 +246,21 @@ describe('Credit status client', () => {
     return { client: new CreditStatusClient(fetchFn), calls };
   };
 
+  it("sends the reconciliation run's correlation ID, so Credit logs the read under it", async () => {
+    const { client, calls } = respond(200, { orderId, status: 'RESERVED', detail: null });
+    await client.status(orderId, 'reconcile-run-1');
+    expect((calls[0]![1]!.headers as Record<string, string>)['x-correlation-id']).toBe(
+      'reconcile-run-1',
+    );
+  });
+
   it('reads the status with this service credential', async () => {
     const { client, calls } = respond(200, { orderId, status: 'RESERVED', detail: null, extra: 1 });
     expect(await client.status(orderId)).toEqual({ orderId, status: 'RESERVED', detail: null });
     expect(calls[0]![0]).toBe(
       `http://credit-service.test/internal/orders/${orderId}/credit-status`,
     );
+    expect((calls[0]![1]!.headers as Record<string, string>)['x-correlation-id']).toBeUndefined();
     expect((calls[0]![1]!.headers as Record<string, string>)['X-Service-Key']).toBe(
       'test-internal-key-0123456789',
     );

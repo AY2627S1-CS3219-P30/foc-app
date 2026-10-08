@@ -1,6 +1,7 @@
-import { Body, Controller, HttpCode, Inject, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, HttpCode, Inject, Post, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { ApiException } from '@foc/platform';
+import { AccessTokenGuard, type AuthedRequest } from '../auth/access-token.guard.js';
 import {
   assertCsrfSafe,
   clearRefreshCookie,
@@ -18,6 +19,7 @@ import {
   loginSchema,
   parseOrThrow,
   registerSchema,
+  stepUpSchema,
 } from './validation.js';
 
 export const AUTH_COOKIE_SETTINGS = Symbol('AUTH_COOKIE_SETTINGS');
@@ -85,6 +87,25 @@ export class AuthController {
     this.limit(res, this.limiters.loginPerIp, req.ip ?? 'unknown');
     this.limit(res, this.limiters.loginPerEmail, normalizeEmail(email));
     await this.sessions.changePassword(email, currentPassword, newPassword);
+  }
+
+  /**
+   * Re-enter the password on the current session (ADR 0008): the riskiest admin actions need it
+   * within the last few minutes. Bearer-authenticated, so no cookie and no CSRF exposure. Limited
+   * like login, because it answers whether a password is right.
+   */
+  @Post('step-up')
+  @HttpCode(204)
+  @UseGuards(AccessTokenGuard)
+  async stepUp(
+    @Body() body: unknown,
+    @Req() req: AuthedRequest,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    const { password } = parseOrThrow(stepUpSchema, body);
+    this.limit(res, this.limiters.loginPerIp, req.ip ?? 'unknown');
+    this.limit(res, this.limiters.stepUpPerUser, req.auth.userId);
+    await this.sessions.stepUp(req.auth.userId, req.auth.sessionId, password);
   }
 
   @Post('refresh')

@@ -103,7 +103,8 @@ export class CreditReconciler implements OnApplicationBootstrap, OnApplicationSh
     for (const candidate of candidates) {
       let credit: CreditStatus | null = null;
       try {
-        credit = await this.credit.status(candidate.orderId);
+        // The run's ID, as on any request it re-issues: one run reads as one trace.
+        credit = await this.credit.status(candidate.orderId, `reconcile-${runId}`);
       } catch (error) {
         if (!(error instanceof CreditUnavailableError)) throw error;
       }

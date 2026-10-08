@@ -192,6 +192,26 @@ describe('log privacy across auth and admin paths (US-NFR4.1.1)', () => {
       .set('Authorization', admin)
       .send({ reason: 'log scan' })
       .expect(200);
+    // ADR 0008: password re-entry, wrong and right, then a role change that applies at once (the
+    // only admin) and so logs a warning and an alert. Both must name accounts by id only.
+    await http()
+      .post('/auth/step-up')
+      .set('Authorization', admin)
+      .send({ password: wrongPassword })
+      .expect(401);
+    await http()
+      .post('/auth/step-up')
+      .set('Authorization', admin)
+      .send({ password: adminPassword })
+      .expect(204);
+    await http()
+      .put(`/admin/users/${studentId}/role`)
+      .set('Authorization', admin)
+      .send({ role: 'ADMIN', reason: 'log scan' })
+      .expect(200);
+    expect(lines.some((line) => line.includes('admin activity alert'))).toBe(true);
+    await http().get('/admin/alerts').set('Authorization', admin).expect(200);
+    await http().get('/admin/reads').set('Authorization', admin).expect(200);
     await http().get('/admin/audit-records').set('Authorization', admin).expect(200);
     await http().get('/users/me').set('Authorization', 'Bearer not-a-token').expect(401);
     await http()

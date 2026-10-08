@@ -1,0 +1,4 @@
+ALTER TABLE "admin_alerts" DROP CONSTRAINT "admin_alerts_kind_enum";--> statement-breakpoint
+ALTER TABLE "audit_records" ADD COLUMN "approval" text;--> statement-breakpoint
+ALTER TABLE "admin_alerts" ADD CONSTRAINT "admin_alerts_kind_enum" CHECK ("admin_alerts"."kind" IN ('ROLE_CHANGE', 'ADMIN_SUSPENDED', 'ADMIN_REACTIVATED', 'BULK_SUSPENSIONS', 'SUSPENSION_LIMIT_REACHED', 'BULK_READS'));--> statement-breakpoint
+ALTER TABLE "audit_records" ADD CONSTRAINT "audit_records_approval_check" CHECK ("audit_records"."approval" IS NULL OR ("audit_records"."approval" IN ('SECOND_ADMIN', 'NO_APPROVER') AND "audit_records"."action" IN ('ROLE_GRANT', 'ROLE_REVOKE')));

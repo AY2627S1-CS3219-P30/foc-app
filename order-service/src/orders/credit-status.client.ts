@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { CORRELATION_HEADER } from '@foc/platform';
 import { z } from 'zod';
 import { env } from '../config.js';
 
@@ -11,7 +12,8 @@ export const creditStatusSchema = z.object({
 export type CreditStatus = z.infer<typeof creditStatusSchema>;
 
 export interface CreditStatusReader {
-  status(orderId: string): Promise<CreditStatus>;
+  /** `correlationId` travels on the call, so Credit logs it under the same ID (PLT-04). */
+  status(orderId: string, correlationId?: string): Promise<CreditStatus>;
 }
 
 /** The reader reconciliation uses; tests and system tests substitute their own. */
@@ -34,13 +36,16 @@ export class CreditUnavailableError extends Error {
 export class CreditStatusClient implements CreditStatusReader {
   constructor(@Inject(CREDIT_STATUS_FETCH) private readonly fetchFn: typeof fetch) {}
 
-  async status(orderId: string): Promise<CreditStatus> {
+  async status(orderId: string, correlationId?: string): Promise<CreditStatus> {
     let response: Response;
     try {
       response = await this.fetchFn(
         `${env.CREDIT_SERVICE_URL}/internal/orders/${encodeURIComponent(orderId)}/credit-status`,
         {
-          headers: { 'X-Service-Key': env.INTERNAL_SERVICE_KEY },
+          headers: {
+            'X-Service-Key': env.INTERNAL_SERVICE_KEY,
+            ...(correlationId ? { [CORRELATION_HEADER]: correlationId } : {}),
+          },
           signal: AbortSignal.timeout(5_000),
         },
       );

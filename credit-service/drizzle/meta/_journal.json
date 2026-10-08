@@ -29,6 +29,27 @@
       "when": 1790799171928,
       "tag": "0003_ancient_ken_ellis",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791454340979,
+      "tag": "0004_dead_letters",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791458053953,
+      "tag": "0005_admin_activity_alerts",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791458054351,
+      "tag": "0006_admin_activity_alerts_append_only",
+      "breakpoints": true
     }
   ]
 }

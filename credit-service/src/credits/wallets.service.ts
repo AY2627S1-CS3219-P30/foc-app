@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ApiException, type Queryable } from '@foc/platform';
 import { z } from 'zod';
+import { AdminActivity } from './admin-activity.js';
 import { CreditRepository } from './credit.repository.js';
 import type { LedgerPage, WalletView } from './types.js';
 
@@ -31,7 +32,10 @@ function parseLimit(value: string | undefined): number {
 
 @Injectable()
 export class WalletsService {
-  constructor(@Inject(CreditRepository) private readonly credits: CreditRepository) {}
+  constructor(
+    @Inject(CreditRepository) private readonly credits: CreditRepository,
+    @Inject(AdminActivity) private readonly activity: AdminActivity,
+  ) {}
 
   async wallet(userId: string, queryable?: Queryable): Promise<WalletView> {
     const wallet = await this.credits.findWallet(userId, queryable);
@@ -69,6 +73,7 @@ export class WalletsService {
     correlationId: string,
   ): Promise<WalletView> {
     await this.credits.auditAdminRead(adminUserId, targetUserId, 'WALLET', correlationId);
+    await this.activity.afterWalletRead(adminUserId);
     return this.wallet(targetUserId);
   }
 
@@ -80,6 +85,7 @@ export class WalletsService {
     cursor?: string,
   ): Promise<LedgerPage> {
     await this.credits.auditAdminRead(adminUserId, targetUserId, 'LEDGER', correlationId);
+    await this.activity.afterWalletRead(adminUserId);
     return this.ledger(targetUserId, limit, cursor);
   }
 }

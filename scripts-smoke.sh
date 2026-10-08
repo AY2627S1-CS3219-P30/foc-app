@@ -12,6 +12,8 @@ USER_PORT="${USER_SERVICE_PORT:-3001}"
 SUPPLIER_PORT="${SUPPLIER_SERVICE_PORT:-3002}"
 ORDER_PORT="${ORDER_SERVICE_PORT:-3003}"
 CREDIT_PORT="${CREDIT_SERVICE_PORT:-3004}"
+PROMETHEUS="http://localhost:${PROMETHEUS_PORT:-9090}"
+GRAFANA="http://localhost:${GRAFANA_PORT:-3005}"
 DEADLINE="${SMOKE_DEADLINE_SECONDS:-90}"
 
 pass() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
@@ -157,6 +159,68 @@ done
 # ---- the web app serves ------------------------------------------------------
 code=$(curl -fsS -o /dev/null -w '%{http_code}' "http://localhost:${WEB_PORT}/" 2>/dev/null || echo 000)
 [[ "$code" == "200" ]] && pass "web app responds 200" || fail "web app returned $code"
+
+# ---- metrics reach the dashboard (PLT-04) ------------------------------------
+METRICS_AUTH="Authorization: Bearer ${METRICS_TOKEN:-dev-only-metrics-token-change-me}"
+for pair in "user-service:$USER_PORT" "supplier-service:$SUPPLIER_PORT" \
+  "order-service:$ORDER_PORT" "credit-service:$CREDIT_PORT"; do
+  name="${pair%%:*}"
+  port="${pair##*:}"
+  if curl -fsS "http://localhost:${port}/metrics" -H "$METRICS_AUTH" 2>/dev/null |
+    grep -q '^# TYPE http_request_duration_seconds histogram'; then
+    pass "$name serves /metrics"
+  else
+    fail "$name /metrics missing or not Prometheus format"
+  fi
+  code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${port}/metrics" 2>/dev/null || echo 000)
+  [[ "$code" == "401" ]] && pass "$name refuses /metrics without the scrape token" ||
+    fail "$name served /metrics without the token ($code)"
+done
+
+# Prometheus scrapes every 15 s, so a fresh stack may not have reached every
+# target yet: wait up to 45 s for all five (four services and RabbitMQ).
+up=0
+for _ in $(seq 1 45); do
+  up=$(curl -fsS "${PROMETHEUS}/api/v1/targets?state=active" 2>/dev/null |
+    python3 -c 'import sys,json; print(sum(t["health"] == "up" for t in json.load(sys.stdin)["data"]["activeTargets"]))' \
+      2>/dev/null) || up=0
+  [[ "$up" == "5" ]] && break
+  sleep 1
+done
+[[ "$up" == "5" ]] && pass "Prometheus scrapes all 5 targets" || fail "Prometheus has ${up:-0} of 5 targets up"
+
+queues=$(curl -fsS "${PROMETHEUS}/api/v1/query" --data-urlencode 'query=count(rabbitmq_detailed_queue_messages)' \
+  2>/dev/null | python3 -c 'import sys,json; r=json.load(sys.stdin)["data"]["result"]; print(r[0]["value"][1] if r else 0)' \
+  2>/dev/null) || queues=0
+[[ "${queues:-0}" -gt 0 ]] && pass "Prometheus sees RabbitMQ queue depths ($queues queues)" ||
+  fail "no RabbitMQ queue depths in Prometheus"
+
+# ---- dead letters are parked, and alerted on (PLT-05) -------------------------
+rules=$(curl -fsS "${PROMETHEUS}/api/v1/rules" 2>/dev/null |
+  python3 -c 'import sys,json; print(" ".join(r["name"] for g in json.load(sys.stdin)["data"]["groups"] for r in g["rules"]))' \
+    2>/dev/null) || rules=""
+[[ "$rules" == *DeadLetterWaiting* && "$rules" == *ErrandWaitingForCredit* ]] &&
+  pass "Prometheus loaded the alert rules" || fail "alert rules not loaded (got '${rules:-nothing}')"
+
+# Order (3) and Credit (4) each drain their own dead-letter queues into their database, where an
+# operator redrives them. A queue nobody consumes would hold dead letters out of the console's sight.
+RABBIT_API="http://localhost:${RABBITMQ_MANAGEMENT_PORT:-15672}/api/queues/%2F?columns=name,consumers"
+RABBIT_AUTH="${RABBITMQ_USER:-foc}:${RABBITMQ_PASSWORD:-foc_dev}"
+dlqs=""
+for _ in $(seq 1 15); do
+  dlqs=$(curl -fsS -u "$RABBIT_AUTH" "$RABBIT_API" 2>/dev/null |
+    python3 -c 'import sys,json; q=[x for x in json.load(sys.stdin) if x["name"].endswith(".dlq")]; print(len(q), sum(x.get("consumers", 0) > 0 for x in q))' \
+      2>/dev/null) || dlqs=""
+  [[ "$dlqs" == "7 7" ]] && break
+  sleep 1
+done
+[[ "$dlqs" == "7 7" ]] && pass "all 7 dead-letter queues are consumed" ||
+  fail "dead-letter queues and consumers: expected '7 7', got '${dlqs:-nothing}'"
+
+title=$(curl -fsS "${GRAFANA}/api/dashboards/uid/foc-platform" 2>/dev/null |
+  python3 -c 'import sys,json; print(json.load(sys.stdin)["dashboard"]["title"])' 2>/dev/null) || title=""
+[[ "$title" == "FoC Platform" ]] && pass "Grafana serves the FoC Platform dashboard" ||
+  fail "Grafana dashboard missing (got '${title:-nothing}')"
 
 echo
 if [[ $FAILURES -eq 0 ]]; then

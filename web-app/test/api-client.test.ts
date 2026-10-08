@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { bearer, createApiClient, unwrap } from "../src/lib/api-client";
+import { bearer, createApiClient, newCorrelationId, unwrap } from "../src/lib/api-client";
 import type { paths } from "../src/lib/generated/supplier-service";
 import { ApiError, createUserApi, NOT_CONFIGURED_MESSAGE } from "../src/lib/user-api";
 
@@ -158,5 +158,62 @@ describe("createUserApi", () => {
       code: "NOT_CONFIGURED",
       message: NOT_CONFIGURED_MESSAGE,
     });
+  });
+});
+
+describe("correlation ID (PLT-04)", () => {
+  it("gives a call made outside any user action an ID of its own", async () => {
+    const { api, seen } = client(() => json(200, page));
+    await unwrap(api.GET("/suppliers"));
+    await unwrap(api.GET("/suppliers"));
+
+    const [first, second] = seen.map((r) => r.headers.get("x-correlation-id"));
+    expect(first).toBeTruthy();
+    expect(second).toBeTruthy();
+    expect(first).not.toBe(second);
+  });
+
+  it("gives every call in one user action the same ID", async () => {
+    const seen: Request[] = [];
+    const api = createUserApi({
+      baseUrl: "http://user.test",
+      fetch: async (request) => {
+        seen.push(request);
+        return request.url.endsWith("/auth/login")
+          ? json(200, {
+              accessToken: "t1",
+              tokenType: "Bearer",
+              expiresIn: 900,
+              user: { id: "u1", displayName: "Alex", roles: ["STUDENT"], status: "ACTIVE" },
+            })
+          : json(200, { id: "u1" });
+      },
+    });
+    const action = newCorrelationId();
+    await api.login("a@u.nus.edu", "correct-horse-battery-staple", action);
+    await api.me("t1", action);
+    await api.me("t1"); // a separate action
+
+    const ids = seen.map((r) => r.headers.get("x-correlation-id"));
+    expect(ids.slice(0, 2)).toEqual([action, action]);
+    expect(ids[2]).toBeTruthy();
+    expect(ids[2]).not.toBe(action);
+  });
+
+  it("keeps an ID the caller already set", async () => {
+    const { api, seen } = client(() => json(200, page));
+    await unwrap(api.GET("/suppliers", { headers: { "x-correlation-id": "retry-of-1" } }));
+
+    expect(seen[0].headers.get("x-correlation-id")).toBe("retry-of-1");
+  });
+
+  it("still makes an ID where crypto.randomUUID is missing, as on a plain-HTTP LAN address", () => {
+    const original = crypto.randomUUID;
+    Object.defineProperty(crypto, "randomUUID", { value: undefined, configurable: true });
+    try {
+      expect(newCorrelationId()).toMatch(/^[0-9a-f]{32}$/);
+    } finally {
+      Object.defineProperty(crypto, "randomUUID", { value: original, configurable: true });
+    }
   });
 });

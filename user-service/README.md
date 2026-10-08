@@ -40,6 +40,10 @@ Run these from the repository root.
 | `INTERNAL_SERVICE_KEYS`      | (16+ chars each)                                   | Keys other services send as `X-Service-Key` on `/internal/**` |
 | `ACTIVATION_TOKEN_TTL_HOURS` | `24`                                               | Optional; 1–168                                               |
 
+Optional controls on administrators ([ADR 0008](../docs/adr/0008-controlling-administrators.md)), with
+their defaults: `ROLE_REQUEST_TTL_HOURS=24` (1–168), `STEP_UP_WINDOW_SECONDS=300` (30–3600),
+`ADMIN_SUSPENSIONS_ALERT_PER_HOUR=10`, `ADMIN_SUSPENSIONS_LIMIT_PER_HOUR=20`, `ADMIN_READS_ALERT_PER_HOUR=50`.
+
 A missing required variable stops the service at boot and names the variable.
 Nothing falls back to an insecure default.
 
@@ -142,14 +146,22 @@ limiting is in memory, so it is per instance. Refresh lifetime is sliding: each 
 
 ### Roles, profile and administration (USR-03)
 
-| Endpoint                                        | Who                                                                                                       |
-| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `PATCH /users/me`                               | The caller. Five editable fields; `id`, `email`, `roles`, `status` are refused (`422 FIELD_NOT_EDITABLE`) |
-| `GET /admin/users`, `GET /admin/users/:id`      | ADMIN                                                                                                     |
-| `POST /admin/users/:id/suspend`, `…/reactivate` | ADMIN. Reason required; audit row + event; suspension revokes all sessions                                |
-| `PUT /admin/users/:id/role`                     | ADMIN. Appoint or downgrade; only a seeded admin may downgrade; never yourself; never the last admin      |
-| `POST /auth/password`                           | Anyone who proves the current password. Replaces it and revokes every session; login's rate limits apply  |
-| `GET /admin/audit-records`                      | ADMIN. Read-only, append-only                                                                             |
+| Endpoint                                                     | Who                                                                                                                                                     |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PATCH /users/me`                                            | The caller. Five editable fields; `id`, `email`, `roles`, `status` are refused (`422 FIELD_NOT_EDITABLE`)                                               |
+| `GET /admin/directory`                                       | ADMIN. Find accounts: email, name, roles, status; not recorded per account                                                                              |
+| `GET /admin/users`, `GET /admin/users/:id`                   | ADMIN. Full records; every other account read, opened or listed, is recorded (`GET /admin/reads`)                                                       |
+| `POST /admin/users/:id/suspend`, `…/reactivate`              | ADMIN. Reason; audit row + event; suspension revokes all sessions; at most 20 per admin per hour; an admin target needs a seeded admin and the password |
+| `PUT /admin/users/:id/role`                                  | ADMIN. Asks to appoint or downgrade (`202`); only a seeded admin may downgrade; never yourself; never the last admin                                    |
+| `GET /admin/role-requests`, `POST …/:id/approve`, `…/reject` | ADMIN. A second admin approves or rejects (with the password); the requester may withdraw; the target decides nothing                                   |
+| `POST /auth/step-up`                                         | Any signed-in user. Re-enter the password; role changes and suspending an admin need it within 5 minutes                                                |
+| `POST /auth/password`                                        | Anyone who proves the current password. Replaces it and revokes every session; login's rate limits apply                                                |
+| `GET /admin/audit-records`                                   | ADMIN. Read-only, append-only; filter by target, actor, action, time                                                                                    |
+| `GET /admin/reads`, `GET /admin/alerts`                      | ADMIN. Who opened which account; unusual admin activity. Read-only, append-only                                                                         |
+
+**Controlling the admins** ([ADR 0008](../docs/adr/0008-controlling-administrators.md)): two people for
+every role change, password re-entry for the riskiest actions, a record of every account an admin opens,
+alerts on unusual activity, and a per-admin suspension limit. `test/admin-controls.test.ts` covers each.
 
 **First admin.** Set `ADMIN_SEED_EMAILS` and `ADMIN_SEED_PASSWORD`; the accounts are created at boot, each
 with an `ADMIN_BOOTSTRAP` audit row (actor `SYSTEM`). An address that already has an account is skipped,

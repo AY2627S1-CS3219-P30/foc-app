@@ -162,6 +162,39 @@ src/
 └── styles/        design tokens (tokens.ts → generated tokens.css)
 ```
 
+## Admin console (ADM-02)
+
+`/admin` sits in the `(app)` group, so it needs a session, and shows the console to administrators
+only: a student who visits is told it is not for them, and the menu entry appears for administrators
+alone. That is presentation. Every page calls real endpoints (`src/lib/admin-api.ts`), and each of them
+refuses a student with `403` on its own.
+
+| Page | Calls |
+| --- | --- |
+| Overview | Role requests and alerts (User Service); stuck errands and reconciliation (Order Service) |
+| Users, one account | `GET /admin/directory` to find, `GET /admin/users/{userId}` to open (recorded), suspend, reactivate, role change |
+| Role requests | `GET /admin/role-requests`, approve, reject |
+| Audit trail | `GET /admin/audit-records`, by administrator, account, action and dates |
+| Admin activity | `GET /admin/alerts`, `GET /admin/reads` |
+| Errands | `GET /admin/orders/pending-credit`, `GET /admin/orders/reconciliation-attempts`; referrals arrive with ORD-11 (#171) |
+| Wallets | `GET /admin/wallets/{userId}` and its ledger (Credit Service; read-only, every read recorded) |
+| Operations | Placeholder until PLT-05 (#154) |
+
+**Controls on administrators** ([ADR 0008](../docs/adr/0008-controlling-administrators.md)). Every
+write asks for a reason first. Requesting or approving a role change, and suspending an administrator,
+can answer `401 STEP_UP_REQUIRED`: `useStepUp()` then asks for the password (`POST /auth/step-up`) and
+runs the action once more (`src/lib/step-up.ts`). `session.ts` hands `STEP_UP_REQUIRED` and
+`INVALID_CREDENTIALS` straight back to the caller instead of refreshing, since neither is about the
+token. A role change answers `202` while it waits for a second administrator, and the account page
+shows who may approve it.
+
+**Names, not ids.** Tables name accounts from the directory (`_components/Directory.tsx`): email,
+name, roles and status, which is not recorded per account. Opening an account, or listing full
+records, is.
+
+`NEXT_PUBLIC_ORDER_SERVICE_URL` and `NEXT_PUBLIC_CREDIT_SERVICE_URL` work like the User Service's
+address: inlined at build time, with `http://localhost:3003` and `:3004` as the development defaults.
+
 ## Deployment
 
 Pushes to `main` that touch `web-app/**` deploy to Vercel via

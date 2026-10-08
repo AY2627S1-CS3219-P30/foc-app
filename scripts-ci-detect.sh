@@ -16,7 +16,7 @@ SHARED_RE='^(platform/|test-harness/|system-tests/|package\.json|package-lock\.j
 SERVICE_RE='^(user|supplier|order|credit)-service/'
 # Wiring between containers, as opposed to code inside one. `.env.example`
 # belongs here because the smoke job copies it to `.env`.
-STACK_RE='^(compose\.yaml|postgres-init\.sql|scripts-smoke\.sh|scripts-ci-detect\.sh|platform/|\.env\.example)|Dockerfile|\.dockerignore'
+STACK_RE='^(compose\.yaml|postgres-init\.sql|scripts-smoke\.sh|scripts-ci-detect\.sh|platform/|observability/|\.env\.example)|Dockerfile|\.dockerignore'
 # Paths that cannot affect a build, a test or a container.
 IGNORED_RE='^docs/|\.md$|^\.github/|^LICENSE$|^\.gitignore$|^\.(vscode|idea|claude)/'
 
@@ -115,6 +115,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "gitignore -> nothing"                  ".gitignore" 'node=false'
   check "env example -> stack runs"             ".env.example" 'stack=true'
   check "env example -> no services"            ".env.example" 'services=[]'
+  check "observability -> stack runs"           "observability/prometheus.yml" 'stack=true'
+  check "observability -> no services"          "observability/grafana/dashboards/foc-platform.json" 'services=[]'
   check "new package -> all four services"      "auth-client/src/token-verifier.ts" 'services=["user-service","supplier-service","order-service","credit-service"]'
   check "new package -> node runs"              "auth-client/src/token-verifier.ts" 'node=true'
   check "new package -> stack runs"             "auth-client/src/token-verifier.ts" 'stack=true'
