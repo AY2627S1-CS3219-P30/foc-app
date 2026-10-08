@@ -26,9 +26,13 @@ export type RoleRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
 export type AdminAlertKind =
   | 'ROLE_CHANGE'
   | 'ADMIN_SUSPENDED'
+  | 'ADMIN_REACTIVATED'
   | 'BULK_SUSPENSIONS'
   | 'SUSPENSION_LIMIT_REACHED'
   | 'BULK_READS';
+
+/** How a role change was approved: by a second admin, or alone because nobody else held the role. */
+export type RoleApproval = 'SECOND_ADMIN' | 'NO_APPROVER';
 
 /** `SYSTEM` is the boot-time bootstrap; every other row has a human actor. */
 export type AuditActorType = 'USER' | 'SYSTEM';
@@ -61,6 +65,40 @@ const adminUserColumns = {
   preferredMode: sql<string>`coalesce(${profiles.preferredMode}, 'REQUESTER')`,
   roles: rolesOf,
 };
+
+/**
+ * The directory (ADR 0008): enough to find an account and see its standing, and nothing of its
+ * profile. Unlike {@link adminUserColumns}, listing it is not recorded as a read of each account.
+ */
+const directoryColumns = {
+  id: users.id,
+  email: users.email,
+  status: users.status,
+  isSeededAdmin: users.isSeededAdmin,
+  createdAt: users.createdAt,
+  displayName: sql<string>`coalesce(${profiles.displayName}, '')`,
+  roles: rolesOf,
+};
+
+type UserFilters = { status?: string; role?: string; q?: string };
+
+/** The WHERE clause the user list and the directory share. */
+function userFilters(f: UserFilters): SQL | undefined {
+  const conditions: SQL[] = [];
+  if (f.status) conditions.push(eq(users.status, f.status as AccountStatus));
+  if (f.role) {
+    conditions.push(
+      sql`EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = ${users.id} AND r.role = ${f.role})`,
+    );
+  }
+  if (f.q) {
+    const like = likePrefix(f.q);
+    conditions.push(
+      sql`(lower(${users.email}) LIKE ${like} ESCAPE '\\' OR lower(${profiles.displayName}) LIKE ${like} ESCAPE '\\')`,
+    );
+  }
+  return conditions.length ? and(...conditions) : undefined;
+}
 
 /** A pending request whose deadline passed counts as EXPIRED, whether or not that was written yet. */
 const effectiveStatus = sql<RoleRequestStatus>`CASE WHEN ${roleChangeRequests.status} = 'PENDING' AND ${roleChangeRequests.expiresAt} <= now() THEN 'EXPIRED' ELSE ${roleChangeRequests.status} END`;
@@ -95,6 +133,30 @@ export const adminRepository = {
       .orderBy(userRoles.userId)
       .for('update');
     return rows.map((r) => r.userId);
+  },
+
+  /**
+   * Locks several accounts in one statement, in id order. Two admins acting on each other at once
+   * (each suspending the other, say) then queue up instead of deadlocking.
+   */
+  async lockUsers(db: Database, userIds: string[]): Promise<Map<string, LockedUser>> {
+    const rows = await db
+      .select({
+        id: users.id,
+        status: users.status,
+        isSeededAdmin: users.isSeededAdmin,
+        roles: rolesOf,
+      })
+      .from(users)
+      .where(
+        sql`${users.id} IN (${sql.join(
+          [...new Set(userIds)].map((id) => sql`${id}`),
+          sql`, `,
+        )})`,
+      )
+      .orderBy(users.id)
+      .for('update', { of: users });
+    return new Map(rows.map((r) => [r.id.toLowerCase(), r]));
   },
 
   async lockUser(db: Database, userId: string): Promise<LockedUser | null> {
@@ -149,6 +211,7 @@ export const adminRepository = {
       action: AuditAction;
       reason: string;
       correlationId: string;
+      approval?: RoleApproval;
     },
   ): Promise<void> {
     await db.insert(auditRecords).values({
@@ -159,6 +222,7 @@ export const adminRepository = {
       action: a.action,
       reason: a.reason,
       correlationId: a.correlationId,
+      approval: a.approval ?? null,
     });
   },
 
@@ -174,23 +238,9 @@ export const adminRepository = {
 
   async listUsers(
     db: Database,
-    f: { page: number; pageSize: number; status?: string; role?: string; q?: string },
+    f: { page: number; pageSize: number } & UserFilters,
   ): Promise<{ rows: AdminUserRow[]; total: number }> {
-    const conditions: SQL[] = [];
-    if (f.status) conditions.push(eq(users.status, f.status as AccountStatus));
-    if (f.role) {
-      conditions.push(
-        sql`EXISTS (SELECT 1 FROM user_roles r WHERE r.user_id = ${users.id} AND r.role = ${f.role})`,
-      );
-    }
-    if (f.q) {
-      const like = likePrefix(f.q);
-      conditions.push(
-        sql`(lower(${users.email}) LIKE ${like} ESCAPE '\\' OR lower(${profiles.displayName}) LIKE ${like} ESCAPE '\\')`,
-      );
-    }
-    const where = conditions.length ? and(...conditions) : undefined;
-
+    const where = userFilters(f);
     const totalRows = await db
       .select({ n: sql<number>`count(*)::int` })
       .from(users)
@@ -198,6 +248,28 @@ export const adminRepository = {
       .where(where);
     const rows = await db
       .select(adminUserColumns)
+      .from(users)
+      .leftJoin(profiles, eq(profiles.userId, users.id))
+      .where(where)
+      .orderBy(users.createdAt, users.id)
+      .limit(f.pageSize)
+      .offset((f.page - 1) * f.pageSize);
+    return { rows, total: totalRows[0]?.n ?? 0 };
+  },
+
+  /** The directory: the same filters and order as {@link listUsers}, without the profile. */
+  async listDirectory(
+    db: Database,
+    f: { page: number; pageSize: number } & UserFilters,
+  ): Promise<{ rows: DirectoryRow[]; total: number }> {
+    const where = userFilters(f);
+    const totalRows = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(users)
+      .leftJoin(profiles, eq(profiles.userId, users.id))
+      .where(where);
+    const rows = await db
+      .select(directoryColumns)
       .from(users)
       .leftJoin(profiles, eq(profiles.userId, users.id))
       .where(where)
@@ -241,6 +313,7 @@ export const adminRepository = {
         reason: auditRecords.reason,
         occurredAt: auditRecords.occurredAt,
         correlationId: auditRecords.correlationId,
+        approval: auditRecords.approval,
       })
       .from(auditRecords)
       .where(where)
@@ -248,16 +321,6 @@ export const adminRepository = {
       .limit(f.pageSize)
       .offset((f.page - 1) * f.pageSize);
     return { rows, total: totalRows[0]?.n ?? 0 };
-  },
-
-  /** Admins who could act now: holding ADMIN and ACTIVE. A suspended admin approves nothing. */
-  async activeAdminIds(db: Database): Promise<string[]> {
-    const rows = await db
-      .select({ userId: userRoles.userId })
-      .from(userRoles)
-      .innerJoin(users, eq(users.id, userRoles.userId))
-      .where(and(eq(userRoles.role, 'ADMIN'), eq(users.status, 'ACTIVE')));
-    return rows.map((r) => r.userId);
   },
 
   /** How many `action` audit rows this actor wrote in the last `seconds`. */
@@ -386,11 +449,11 @@ export const adminRepository = {
 
   // ---- watching the admins (ADR 0008, ADM-04) --------------------------------------------------
 
-  async insertAdminRead(
+  async insertAdminReads(
     db: Database,
-    r: { id: string; actorId: string; targetUserId: string; correlationId: string },
+    reads: { id: string; actorId: string; targetUserId: string; correlationId: string }[],
   ): Promise<void> {
-    await db.insert(adminReads).values(r);
+    if (reads.length > 0) await db.insert(adminReads).values(reads);
   },
 
   async countReads(db: Database, actorId: string, seconds: number): Promise<number> {
@@ -439,6 +502,17 @@ export const adminRepository = {
     a: { id: string; kind: AdminAlertKind; actorId: string; details: Record<string, unknown> },
   ): Promise<void> {
     await db.insert(adminAlerts).values(a);
+  },
+
+  /**
+   * Serialises raising one kind of alert for one admin until the transaction ends, so a check for a
+   * recent alert and the insert after it cannot interleave with another request's.
+   */
+  async lockAlert(db: Database, kind: AdminAlertKind, actorId: string): Promise<void> {
+    await execute(
+      db,
+      sql`SELECT pg_advisory_xact_lock(hashtext(${`admin-alert:${kind}:${actorId}`}))`,
+    );
   },
 
   /** Whether this kind of alert was already raised for this admin in the last `seconds`. */
@@ -539,6 +613,17 @@ export interface AuditRow {
   reason: string;
   occurredAt: Date;
   correlationId: string;
+  approval: RoleApproval | null;
+}
+
+export interface DirectoryRow {
+  id: string;
+  email: string;
+  status: AccountStatus;
+  isSeededAdmin: boolean;
+  createdAt: Date;
+  displayName: string;
+  roles: Role[];
 }
 
 export interface RoleRequestRow {

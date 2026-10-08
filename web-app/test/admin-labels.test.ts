@@ -14,8 +14,14 @@ describe("describeAlert", () => {
     expect(
       describeAlert({ ...base, details: { targetUserId: ids.b, role: "STUDENT", requestedBy: ids.a, approvedBy: ids.a } }, name),
     ).toBe(
-      "ana@u.nus.edu removed ben@u.nus.edu's administrator role without a second administrator — none could approve.",
+      "ana@u.nus.edu removed ben@u.nus.edu's administrator role without a second administrator — nobody else held the role.",
     );
+  });
+
+  it("names who reactivated an administrator", () => {
+    expect(
+      describeAlert({ kind: "ADMIN_REACTIVATED", actorId: ids.a, details: { targetUserId: ids.b } }, name),
+    ).toBe("ana@u.nus.edu reactivated the administrator ben@u.nus.edu.");
   });
 
   it("gives the counts behind a bulk alert, and tolerates missing ones", () => {

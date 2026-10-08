@@ -16,7 +16,9 @@ import {
   type AdminUserRow,
   type AuditAction,
   type AuditRow,
+  type DirectoryRow,
   type LockedUser,
+  type RoleApproval,
   type RoleRequestRow,
   type RoleRequestStatus,
 } from './admin.repository.js';
@@ -79,6 +81,18 @@ const toAuditView = (r: AuditRow) => ({
   reason: r.reason,
   occurredAt: new Date(r.occurredAt).toISOString(),
   correlationId: r.correlationId,
+  approval: r.approval,
+});
+
+/** One directory entry: an account's standing, without its profile (ADR 0008). */
+const toDirectoryView = (r: DirectoryRow) => ({
+  id: r.id,
+  email: r.email,
+  displayName: r.displayName,
+  roles: r.roles,
+  status: r.status,
+  isSeededAdmin: r.isSeededAdmin,
+  createdAt: new Date(r.createdAt).toISOString(),
 });
 
 export interface RoleRequestView {
@@ -131,6 +145,8 @@ export type RoleChangeResult =
 
 const HOUR_SECONDS = 3600;
 
+type UserQuery = { page: number; pageSize: number; status?: string; role?: string; q?: string };
+
 const notFound = () => new ApiException(404, 'NOT_FOUND', 'User not found.');
 const requestNotFound = () => new ApiException(404, 'NOT_FOUND', 'Role request not found.');
 
@@ -159,15 +175,24 @@ export class AdminService {
     @Inject(ADMIN_SETTINGS) private readonly settings: AdminSettings,
   ) {}
 
-  async listUsers(f: {
-    page: number;
-    pageSize: number;
-    status?: string;
-    role?: string;
-    q?: string;
-  }) {
+  /**
+   * Full account records, a page at a time. Each account listed counts as read, as if opened one by
+   * one (ADR 0008): the list shows the same record. To find an account, use the directory.
+   */
+  async listUsers(actorId: string, f: UserQuery, correlationId: string) {
     const { rows, total } = await admin.listUsers(this.db, f);
+    await this.recordReads(
+      actorId,
+      rows.map((r) => r.id),
+      correlationId,
+    );
     return { page: f.page, pageSize: f.pageSize, total, items: rows.map(toAdminUserView) };
+  }
+
+  /** The directory: name, email, roles and status, to find an account. Not recorded per account. */
+  async listDirectory(f: UserQuery) {
+    const { rows, total } = await admin.listDirectory(this.db, f);
+    return { page: f.page, pageSize: f.pageSize, total, items: rows.map(toDirectoryView) };
   }
 
   async getUser(userId: string): Promise<AdminUserView> {
@@ -182,13 +207,18 @@ export class AdminService {
    */
   async readUser(actorId: string, userId: string, correlationId: string): Promise<AdminUserView> {
     const view = await this.getUser(userId);
-    if (view.id.toLowerCase() === actorId) return view;
-    await admin.insertAdminRead(this.db, {
-      id: randomUUID(),
-      actorId,
-      targetUserId: view.id.toLowerCase(),
-      correlationId,
-    });
+    await this.recordReads(actorId, [view.id], correlationId);
+    return view;
+  }
+
+  /** Records an admin's read of each account but their own, and raises BULK_READS past the threshold. */
+  private async recordReads(actorId: string, userIds: string[], correlationId: string) {
+    const others = userIds.map((id) => id.toLowerCase()).filter((id) => id !== actorId);
+    if (others.length === 0) return;
+    await admin.insertAdminReads(
+      this.db,
+      others.map((targetUserId) => ({ id: randomUUID(), actorId, targetUserId, correlationId })),
+    );
     const reads = await admin.countReads(this.db, actorId, HOUR_SECONDS);
     if (reads >= this.settings.readsAlertPerHour) {
       await this.raiseOncePerHour('BULK_READS', actorId, {
@@ -196,7 +226,6 @@ export class AdminService {
         threshold: this.settings.readsAlertPerHour,
       });
     }
-    return view;
   }
 
   async listAudit(f: {
@@ -233,8 +262,10 @@ export class AdminService {
    * travels in the event as the reason reference.
    *
    * Suspending an admin also needs the password re-entered recently. One admin may suspend at most
-   * `suspensionsLimitPerHour` accounts an hour: the actor's row is locked first, so two suspensions
-   * by the same admin count one after the other, and a refused one changes nothing.
+   * `suspensionsLimitPerHour` accounts an hour: the actor's row is locked with the target's, so two
+   * suspensions by the same admin count one after the other, and a refused one changes nothing.
+   * The two rows are locked in id order, so two admins suspending each other queue instead of
+   * deadlocking, and the second finds itself suspended.
    */
   async suspend(
     actorId: string,
@@ -244,22 +275,13 @@ export class AdminService {
     correlationId: string,
   ) {
     const outcome = await this.db.transaction(async (tx) => {
-      await admin.lockUser(tx, actorId);
-      const target = await admin.lockUser(tx, targetId);
-      if (!target) throw notFound();
+      const { actor, target } = await this.lockActorAndTarget(tx, actorId, targetId);
       const userId = canonicalId(target);
       if (actorId === userId) {
         throw new ApiException(409, 'SELF_SUSPENSION_FORBIDDEN', 'You cannot suspend yourself.');
       }
       if (target.roles.includes('ADMIN')) {
-        if (!(await admin.isSeededAdmin(tx, actorId))) {
-          throw new ApiException(
-            403,
-            'ADMIN_ACTION_NOT_PERMITTED',
-            'Only a seeded administrator can suspend an administrator.',
-          );
-        }
-        await this.requireStepUp(tx, sessionId);
+        await this.guardAdminTarget(tx, actor, sessionId, 'suspend');
       }
       if (target.status === 'SUSPENDED') return { done: true as const }; // idempotent
       if (target.status !== 'ACTIVE') {
@@ -324,12 +346,24 @@ export class AdminService {
     return this.getUser(targetId);
   }
 
-  /** Restores a SUSPENDED account. Only an account that was active can be suspended, so this never skips activation. */
-  async reactivate(actorId: string, targetId: string, reason: string, correlationId: string) {
+  /**
+   * Restores a SUSPENDED account. Only an account that was active can be suspended, so this never
+   * skips activation. Reactivating an admin has the same controls as suspending one — a seeded
+   * admin, the password re-entered, an alert — or a suspension used to stop a rogue admin could be
+   * undone at once by their ally, or by a stolen access token (ADR 0008).
+   */
+  async reactivate(
+    actorId: string,
+    sessionId: string,
+    targetId: string,
+    reason: string,
+    correlationId: string,
+  ) {
     await this.db.transaction(async (tx) => {
-      const target = await admin.lockUser(tx, targetId);
-      if (!target) throw notFound();
+      const { actor, target } = await this.lockActorAndTarget(tx, actorId, targetId);
       const userId = canonicalId(target);
+      const isAdmin = target.roles.includes('ADMIN');
+      if (isAdmin) await this.guardAdminTarget(tx, actor, sessionId, 'reactivate');
       if (target.status === 'ACTIVE') return; // idempotent
       if (target.status !== 'SUSPENDED') {
         throw new ApiException(
@@ -340,6 +374,12 @@ export class AdminService {
       }
       await admin.setStatus(tx, userId, 'ACTIVE');
       const auditId = await this.record(tx, actorId, userId, 'REACTIVATE', reason, correlationId);
+      if (isAdmin) {
+        await this.raise(tx, 'ADMIN_REACTIVATED', actorId, {
+          targetUserId: userId,
+          reasonRef: auditId,
+        });
+      }
       await users.insertOutboxEvent(tx, {
         id: randomUUID(),
         eventType: EVENTS.USER_REACTIVATED,
@@ -377,11 +417,7 @@ export class AdminService {
   ): Promise<RoleChangeResult> {
     const result = await this.db.transaction(async (tx): Promise<RoleChangeResult | 'noop'> => {
       const adminIds = await admin.lockAdminIds(tx);
-      if (!adminIds.includes(actorId)) {
-        throw new ApiException(403, 'FORBIDDEN', 'Administrator role required.');
-      }
-      const target = await admin.lockUser(tx, targetId);
-      if (!target) throw notFound();
+      const { target } = await this.lockActorAndTarget(tx, actorId, targetId);
       const userId = canonicalId(target);
 
       if (!(await this.roleRulesAllow(tx, actorId, target, role, adminIds))) return 'noop';
@@ -398,20 +434,22 @@ export class AdminService {
         );
       }
 
-      const eligible = (await admin.activeAdminIds(tx)).filter(
-        (id) => id !== actorId && id !== userId,
-      );
-      if (eligible.length === 0) {
+      // Everyone who holds the role counts, suspended or not: otherwise an admin could suspend the
+      // others, change a role alone and reactivate them. A suspended admin approves nothing, so
+      // such a request waits for one to be reactivated, or for a second seeded admin.
+      const others = adminIds.filter((id) => id !== actorId && id !== userId);
+      if (others.length === 0) {
         this.logger.warn({
           actorId,
           targetUserId: userId,
           role,
           correlationId,
-          msg: 'role change applied without a second administrator: none is eligible to approve',
+          msg: 'role change applied without a second administrator: nobody else holds the role',
         });
         await this.applyRoleChange(tx, {
           approverId: actorId,
           requesterId: actorId,
+          approval: 'NO_APPROVER',
           target,
           role,
           reason,
@@ -436,8 +474,9 @@ export class AdminService {
   }
 
   /**
-   * The second admin approves (ADR 0008). Every rule is checked again, now: the requester must
-   * still hold their authority and the target must still be eligible. Only this changes the role.
+   * The second admin approves (ADR 0008). Every rule is checked again, now, with the approver, the
+   * requester and the target locked: the approver and the requester must both still be active
+   * administrators, and the target still eligible. Only this changes the role.
    */
   async approveRoleRequest(
     actorId: string,
@@ -450,26 +489,31 @@ export class AdminService {
       const adminIds = await admin.lockAdminIds(tx);
       const request = await this.openRequest(tx, requestId);
       this.assertCanDecide(actorId, request);
-      if (!adminIds.includes(actorId)) {
-        throw new ApiException(403, 'FORBIDDEN', 'Administrator role required.');
-      }
+      const locked = await admin.lockUsers(tx, [
+        actorId,
+        request.requestedBy,
+        request.targetUserId,
+      ]);
+      this.activeAdmin(locked.get(actorId));
       // Active, not merely holding the role: a suspended requester has lost their authority too.
-      if (!(await admin.activeAdminIds(tx)).includes(request.requestedBy)) {
+      const requester = locked.get(request.requestedBy);
+      if (!requester || requester.status !== 'ACTIVE' || !requester.roles.includes('ADMIN')) {
         throw new ApiException(
           409,
           'ROLE_REQUEST_STALE',
           'The administrator who asked for this change is no longer an active administrator.',
         );
       }
-      const target = await admin.lockUser(tx, request.targetUserId);
+      const target = locked.get(request.targetUserId);
       if (!target) throw notFound();
-      const changes = await this.roleRulesAllow(
-        tx,
-        request.requestedBy,
-        target,
-        request.role,
-        adminIds,
-      );
+      if (!(await this.roleRulesAllow(tx, request.requestedBy, target, request.role, adminIds))) {
+        // Approving it would record an approval of nothing.
+        throw new ApiException(
+          409,
+          'ROLE_REQUEST_STALE',
+          'Nothing to change: the account already has that role. Reject the request instead.',
+        );
+      }
       await this.requireStepUp(tx, sessionId);
 
       await admin.decideRoleRequest(tx, request.id, {
@@ -477,24 +521,28 @@ export class AdminService {
         decidedBy: actorId,
         decisionReason: reason,
       });
-      if (changes) {
-        await this.applyRoleChange(tx, {
-          approverId: actorId,
-          requesterId: request.requestedBy,
-          target,
-          role: request.role,
-          reason,
-          correlationId,
-        });
-      }
+      await this.applyRoleChange(tx, {
+        approverId: actorId,
+        requesterId: request.requestedBy,
+        approval: 'SECOND_ADMIN',
+        target,
+        role: request.role,
+        reason,
+        correlationId,
+      });
       return canonicalId(target);
     });
     return this.getUser(targetUserId);
   }
 
-  /** The second admin refuses, or the requester withdraws. Changes no role. */
+  /**
+   * The second admin refuses, or the requester withdraws. Changes no role. Refusing someone else's
+   * request needs the password re-entered, like approving one: otherwise a stolen access token could
+   * quietly reject every pending demotion. Withdrawing one's own does not.
+   */
   async rejectRoleRequest(
     actorId: string,
+    sessionId: string,
     requestId: string,
     reason: string,
     correlationId: string,
@@ -508,6 +556,8 @@ export class AdminService {
           'You cannot decide a role change about yourself.',
         );
       }
+      this.activeAdmin((await admin.lockUsers(tx, [actorId])).get(actorId));
+      if (actorId !== request.requestedBy) await this.requireStepUp(tx, sessionId);
       const decided = await admin.decideRoleRequest(tx, request.id, {
         status: 'REJECTED',
         decidedBy: actorId,
@@ -581,6 +631,7 @@ export class AdminService {
     c: {
       approverId: string;
       requesterId: string;
+      approval: RoleApproval;
       target: LockedUser;
       role: Role;
       reason: string;
@@ -599,13 +650,22 @@ export class AdminService {
       roles = c.target.roles.filter((r) => r !== 'ADMIN');
       action = 'ROLE_REVOKE';
     }
-    const auditId = await this.record(tx, c.approverId, userId, action, c.reason, c.correlationId);
+    const auditId = await this.record(
+      tx,
+      c.approverId,
+      userId,
+      action,
+      c.reason,
+      c.correlationId,
+      c.approval,
+    );
     await this.roleChanged(tx, userId, roles, auditId, c.correlationId);
     await this.raise(tx, 'ROLE_CHANGE', c.approverId, {
       targetUserId: userId,
       role: c.role,
       requestedBy: c.requesterId,
       approvedBy: c.approverId,
+      approval: c.approval,
       reasonRef: auditId,
     });
   }
@@ -654,6 +714,50 @@ export class AdminService {
   }
 
   /** Throws `401 STEP_UP_REQUIRED` unless the password was re-entered on this session recently. */
+  /**
+   * Locks the acting admin's row with the target's, in id order, and checks the actor is still an
+   * active administrator now — not only when the request passed the guard. 404 for no target.
+   */
+  private async lockActorAndTarget(
+    tx: Database,
+    actorId: string,
+    targetId: string,
+  ): Promise<{ actor: LockedUser; target: LockedUser }> {
+    const locked = await admin.lockUsers(tx, [actorId, targetId]);
+    const actor = this.activeAdmin(locked.get(actorId));
+    const target = locked.get(targetId.toLowerCase());
+    if (!target) throw notFound();
+    return { actor, target };
+  }
+
+  /** The acting admin, if still active and still an administrator; otherwise 403. */
+  private activeAdmin(actor: LockedUser | undefined): LockedUser {
+    if (!actor || actor.status !== 'ACTIVE' || !actor.roles.includes('ADMIN')) {
+      throw new ApiException(403, 'FORBIDDEN', 'Administrator role required.');
+    }
+    return actor;
+  }
+
+  /**
+   * Acting on an administrator's status: a seeded admin only, with the password re-entered. The
+   * permission comes first, so nobody is asked for a password they could not use.
+   */
+  private async guardAdminTarget(
+    tx: Database,
+    actor: LockedUser,
+    sessionId: string,
+    action: 'suspend' | 'reactivate',
+  ): Promise<void> {
+    if (!actor.isSeededAdmin) {
+      throw new ApiException(
+        403,
+        'ADMIN_ACTION_NOT_PERMITTED',
+        `Only a seeded administrator can ${action} an administrator.`,
+      );
+    }
+    await this.requireStepUp(tx, sessionId);
+  }
+
   private async requireStepUp(tx: Database, sessionId: string): Promise<void> {
     if (!(await sessions.steppedUpWithin(tx, sessionId, this.settings.stepUpWindowSeconds))) {
       throw new ApiException(
@@ -681,14 +785,20 @@ export class AdminService {
     this.logger.warn({ alert: kind, actorId, ...details, msg: 'admin activity alert' });
   }
 
-  /** A bulk alert is raised at most once per admin per hour; the counts keep rising regardless. */
+  /**
+   * A bulk alert is raised at most once per admin per hour; the counts keep rising regardless. The
+   * check and the insert hold an advisory lock, so simultaneous requests raise it once.
+   */
   private async raiseOncePerHour(
     kind: AdminAlertKind,
     actorId: string,
     details: Record<string, unknown>,
   ): Promise<void> {
-    if (await admin.hasRecentAlert(this.db, kind, actorId, HOUR_SECONDS)) return;
-    await this.raise(this.db, kind, actorId, details);
+    await this.db.transaction(async (tx) => {
+      await admin.lockAlert(tx, kind, actorId);
+      if (await admin.hasRecentAlert(tx, kind, actorId, HOUR_SECONDS)) return;
+      await this.raise(tx, kind, actorId, details);
+    });
   }
 
   /**
@@ -723,9 +833,18 @@ export class AdminService {
     action: Exclude<AuditAction, 'ADMIN_BOOTSTRAP'>,
     reason: string,
     correlationId: string,
+    approval?: RoleApproval,
   ): Promise<string> {
     const id = randomUUID();
-    await admin.insertAudit(tx, { id, actorId, targetUserId, action, reason, correlationId });
+    await admin.insertAudit(tx, {
+      id,
+      actorId,
+      targetUserId,
+      action,
+      reason,
+      correlationId,
+      approval,
+    });
     return id;
   }
 }

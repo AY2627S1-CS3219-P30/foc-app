@@ -21,6 +21,7 @@ export const AUDIT_ACTIONS: Record<AuditAction, string> = {
 export const ALERT_KINDS: Record<AdminAlertKind, string> = {
   ROLE_CHANGE: "Role change",
   ADMIN_SUSPENDED: "Administrator suspended",
+  ADMIN_REACTIVATED: "Administrator reactivated",
   BULK_SUSPENSIONS: "Many suspensions",
   SUSPENSION_LIMIT_REACHED: "Suspension limit reached",
   BULK_READS: "Many accounts opened",
@@ -85,12 +86,14 @@ export function describeAlert(alert: Pick<AdminAlert, "kind" | "actorId" | "deta
       const target = name(d.targetUserId);
       const change =
         d.role === "ADMIN" ? `made ${target} an administrator` : `removed ${target}'s administrator role`;
-      return d.requestedBy === d.approvedBy
-        ? `${actor} ${change} without a second administrator — none could approve.`
+      return d.approval === "NO_APPROVER" || d.requestedBy === d.approvedBy
+        ? `${actor} ${change} without a second administrator — nobody else held the role.`
         : `${actor} ${change}, as ${name(d.requestedBy)} asked.`;
     }
     case "ADMIN_SUSPENDED":
       return `${actor} suspended the administrator ${name(d.targetUserId)}.`;
+    case "ADMIN_REACTIVATED":
+      return `${actor} reactivated the administrator ${name(d.targetUserId)}.`;
     case "BULK_SUSPENSIONS":
       return `${actor} suspended ${count(d.suspensionsInLastHour)} accounts within an hour (the alert is at ${count(d.threshold)}).`;
     case "SUSPENSION_LIMIT_REACHED":

@@ -328,6 +328,7 @@ describe('audit trail (US-NFR4.1.2)', () => {
       reason: 'two',
       occurredAt: expect.any(String),
       correlationId: expect.any(String),
+      approval: null, // only a role change says how it was approved
     });
     // The filter is exact: root's own history is only its bootstrap.
     const own = (await as(root).get(`/admin/audit-records?targetUserId=${root.id}`).expect(200))

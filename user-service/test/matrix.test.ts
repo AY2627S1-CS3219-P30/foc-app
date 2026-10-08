@@ -45,6 +45,7 @@ const ENDPOINTS: Endpoint[] = [
     allowed: 'student',
   },
   { name: 'list users', method: 'get', path: () => '/admin/users', allowed: 'admin' },
+  { name: 'search the directory', method: 'get', path: () => '/admin/directory', allowed: 'admin' },
   {
     name: 'read a user',
     method: 'get',

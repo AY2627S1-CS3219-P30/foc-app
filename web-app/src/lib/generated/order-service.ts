@@ -17,6 +17,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/orders/mine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the caller's own errands.
+         * @description Errands the caller requested or is the current courier of, in any status, most recently
+         *     changed first, at most 100 (no paging yet); `truncated` is true when more were left out. Each
+         *     carries the caller's private projection and `myRole`. A courier who withdrew or timed out no
+         *     longer holds the errand and does not see it.
+         */
+        get: operations["listMyOrders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/orders/{orderId}": {
         parameters: {
             query?: never;
@@ -333,6 +356,14 @@ export interface components {
                 available?: number;
             };
         };
+        MyOrders: {
+            items: (components["schemas"]["Order"] & {
+                /** @enum {string} */
+                myRole: "REQUESTER" | "COURIER";
+            })[];
+            /** @description True when the caller has more than 100 errands and the oldest were left out. */
+            truncated: boolean;
+        };
         CreateOrder: {
             /** Format: uuid */
             supplierId: string;
@@ -588,6 +619,27 @@ export interface operations {
                     "application/json": components["schemas"]["Health"];
                 };
             };
+        };
+    };
+    listMyOrders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's errands. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyOrders"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
         };
     };
     getOrder: {

@@ -29,6 +29,13 @@
       "when": 1791428879340,
       "tag": "0003_admin_records_append_only",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791451788912,
+      "tag": "0004_admin_review_controls",
+      "breakpoints": true
     }
   ]
 }

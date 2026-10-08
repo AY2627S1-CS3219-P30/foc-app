@@ -172,7 +172,7 @@ refuses a student with `403` on its own.
 | Page | Calls |
 | --- | --- |
 | Overview | Role requests and alerts (User Service); stuck errands and reconciliation (Order Service) |
-| Users, one account | `GET /admin/users[/{userId}]`, suspend, reactivate, role change |
+| Users, one account | `GET /admin/directory` to find, `GET /admin/users/{userId}` to open (recorded), suspend, reactivate, role change |
 | Role requests | `GET /admin/role-requests`, approve, reject |
 | Audit trail | `GET /admin/audit-records`, by administrator, account, action and dates |
 | Admin activity | `GET /admin/alerts`, `GET /admin/reads` |
@@ -188,8 +188,9 @@ runs the action once more (`src/lib/step-up.ts`). `session.ts` hands `STEP_UP_RE
 token. A role change answers `202` while it waits for a second administrator, and the account page
 shows who may approve it.
 
-**Names, not ids.** Tables name accounts from one read of the user list (`_components/Directory.tsx`):
-opening each account instead would record an admin read for every name on screen.
+**Names, not ids.** Tables name accounts from the directory (`_components/Directory.tsx`): email,
+name, roles and status, which is not recorded per account. Opening an account, or listing full
+records, is.
 
 `NEXT_PUBLIC_ORDER_SERVICE_URL` and `NEXT_PUBLIC_CREDIT_SERVICE_URL` work like the User Service's
 address: inlined at build time, with `http://localhost:3003` and `:3004` as the development defaults.

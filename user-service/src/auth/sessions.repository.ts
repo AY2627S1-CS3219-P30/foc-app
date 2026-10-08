@@ -168,7 +168,8 @@ export const sessionsRepository = {
         fresh: sql<boolean>`coalesce(${refreshSessions.steppedUpAt} > now() - make_interval(secs => ${seconds}), false)`,
       })
       .from(refreshSessions)
-      .where(eq(refreshSessions.id, sessionId));
+      // A revoked session's re-entry counts for nothing, whatever reached here with its id.
+      .where(and(eq(refreshSessions.id, sessionId), isNull(refreshSessions.revokedAt)));
     return rows[0]?.fresh === true;
   },
 

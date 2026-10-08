@@ -377,7 +377,11 @@ paths:
     get:
       tags: [Admin]
       operationId: listUsers
-      summary: List accounts (ADMIN)
+      summary: List full account records (ADMIN)
+      description: |
+        Full records, profile included. Every account returned other than the caller's own is
+        recorded as an admin read (`GET /admin/reads`) and counts toward `BULK_READS` (ADR 0008), as
+        if each were opened. To find an account, use `GET /admin/directory`.
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -399,6 +403,38 @@ paths:
               schema: { $ref: '#/components/schemas/AdminUserPage' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
+
+  /admin/directory:
+    get:
+      tags: [Admin]
+      operationId: searchDirectory
+      summary: Find accounts by name, email, role or status (ADMIN)
+      description: |
+        The directory: email, display name, roles and status — enough to find an account and see its
+        standing, and nothing of its profile. Not recorded per account (ADR 0008); opening an account
+        (`GET /admin/users/{userId}`) is. Same filters, order and paging as `GET /admin/users`.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/AccountStatus' }
+        - name: role
+          in: query
+          schema: { $ref: '#/components/schemas/Role' }
+        - name: q
+          in: query
+          description: Case-insensitive prefix match on email or display name.
+          schema: { type: string, maxLength: 100 }
+      responses:
+        '200':
+          description: A page of directory entries.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DirectoryPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /admin/users/{userId}:
     parameters:
@@ -466,6 +502,10 @@ paths:
       description: |
         Audit row + `UserReactivated`. Idempotent if already active. An account that never activated
         (`PENDING_ACTIVATION`) is refused with `409 ACCOUNT_NOT_ACTIVE`, so reactivation cannot skip activation.
+
+        Reactivating an **administrator** has the controls of suspending one (ADR 0008): only a seeded
+        admin (`403 ADMIN_ACTION_NOT_PERMITTED`), after a recent `POST /auth/step-up`
+        (`401 STEP_UP_REQUIRED`), and it raises an `ADMIN_REACTIVATED` alert.
       requestBody:
         required: true
         content:
@@ -477,7 +517,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AdminUser' }
-        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '401': { $ref: '#/components/responses/StepUpRequired' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/RoleConflict' }
@@ -500,12 +540,13 @@ paths:
         - The caller must have re-entered their password recently (`POST /auth/step-up`) →
           otherwise `401 STEP_UP_REQUIRED`. Checked after the rules above.
 
-        **Two people (ADR 0008).** When another admin could approve — an active admin who is neither
-        the caller nor the target — nothing changes yet: the answer is `202` with a pending request,
+        **Two people (ADR 0008).** When anyone other than the caller and the target holds the ADMIN
+        role — suspended or not — nothing changes yet: the answer is `202` with a pending request,
         audited as `ROLE_CHANGE_REQUESTED`, which `POST /admin/role-requests/{requestId}/approve`
         applies. One pending request per target (`409 ROLE_REQUEST_PENDING`), checked before the next
-        rule. When nobody else could approve, the change applies at once (`200`) and is logged as a
-        warning.
+        rule. When nobody else holds the role, the change applies at once (`200`), logged as a warning
+        and marked `approval: NO_APPROVER` on its audit row. A suspended admin approves nothing, so a
+        request whose only possible approvers are suspended waits for one to be reactivated.
 
         An applied change writes an audit row (`ROLE_GRANT` / `ROLE_REVOKE`), emits `user.role-changed`
         and raises a `ROLE_CHANGE` alert.
@@ -578,10 +619,12 @@ paths:
         requester who lost the role or was suspended meanwhile makes the request stale
         (`409 ROLE_REQUEST_STALE`), and a target suspended meanwhile cannot be appointed
         (`409 ACCOUNT_NOT_ACTIVE`). A request not decided within `ROLE_REQUEST_TTL_HOURS` (default 24)
-        has expired (`409 ROLE_REQUEST_EXPIRED`); one already decided is `409 ROLE_REQUEST_NOT_PENDING`.
+        has expired (`409 ROLE_REQUEST_EXPIRED`); one already decided is `409 ROLE_REQUEST_NOT_PENDING`;
+        one that would no longer change anything is `409 ROLE_REQUEST_STALE`. The approver must still
+        be an active administrator when the change is made.
 
-        Audited as `ROLE_GRANT` / `ROLE_REVOKE` with the approver as actor; emits `user.role-changed`;
-        raises a `ROLE_CHANGE` alert.
+        Audited as `ROLE_GRANT` / `ROLE_REVOKE` with the approver as actor and
+        `approval: SECOND_ADMIN`; emits `user.role-changed`; raises a `ROLE_CHANGE` alert.
       requestBody:
         required: true
         content:
@@ -609,8 +652,9 @@ paths:
       summary: Reject a role change, or withdraw your own (ADR 0008)
       description: |
         Any admin except the target may reject (`409 CONFLICT_OF_INTEREST`); the requester rejecting
-        their own request withdraws it. Changes no role and needs no password re-entry. Audited as
-        `ROLE_CHANGE_REJECTED`.
+        their own request withdraws it. Changes no role. Rejecting someone else's request needs a
+        recent `POST /auth/step-up` (`401 STEP_UP_REQUIRED`), so a stolen access token cannot quietly
+        reject pending demotions; withdrawing one's own does not. Audited as `ROLE_CHANGE_REJECTED`.
       requestBody:
         required: true
         content:
@@ -622,7 +666,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/RoleChangeRequest' }
-        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '401': { $ref: '#/components/responses/StepUpRequired' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/RoleRequestConflict' }
@@ -653,7 +697,7 @@ paths:
           schema: { type: string, format: date-time }
         - name: to
           in: query
-          description: Only records at or before this instant.
+          description: Only records at or before this instant. Not before `from` (`422`).
           schema: { type: string, format: date-time }
       responses:
         '200':
@@ -670,8 +714,9 @@ paths:
       operationId: listAdminReads
       summary: Which admin opened which account, and when (ADR 0008)
       description: |
-        One record each time an admin opens another user's account (`GET /admin/users/{userId}`). An
-        admin opening their own account is not recorded, nor is the user list. Newest first. Read-only.
+        One record for each other user's full record an admin reads: opening an account
+        (`GET /admin/users/{userId}`) or listing it (`GET /admin/users`). An admin's own account is not
+        recorded, nor is the directory (`GET /admin/directory`). Newest first. Read-only.
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -703,6 +748,7 @@ paths:
         | ---- | ---- |
         | `ROLE_CHANGE` | any role change is applied |
         | `ADMIN_SUSPENDED` | an administrator is suspended |
+        | `ADMIN_REACTIVATED` | an administrator is reactivated |
         | `BULK_SUSPENSIONS` | one admin suspends `ADMIN_SUSPENSIONS_ALERT_PER_HOUR` (default 10) accounts within an hour |
         | `SUSPENSION_LIMIT_REACHED` | one admin is refused a suspension by the hourly limit |
         | `BULK_READS` | one admin opens `ADMIN_READS_ALERT_PER_HOUR` (default 50) accounts within an hour |
@@ -1016,6 +1062,25 @@ components:
         page: { type: integer, minimum: 1 }
         pageSize: { type: integer, minimum: 1, maximum: 100 }
         total: { type: integer, minimum: 0 }
+    DirectoryEntry:
+      type: object
+      required: [id, email, displayName, roles, status, isSeededAdmin, createdAt]
+      description: An account's standing, without its profile. Listing it is not recorded per account.
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        displayName: { type: string }
+        roles: { type: array, items: { $ref: '#/components/schemas/Role' } }
+        status: { $ref: '#/components/schemas/AccountStatus' }
+        isSeededAdmin: { type: boolean }
+        createdAt: { type: string, format: date-time }
+    DirectoryPage:
+      allOf:
+        - $ref: '#/components/schemas/Page'
+        - type: object
+          required: [items]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/DirectoryEntry' } }
     AdminUserPage:
       allOf:
         - $ref: '#/components/schemas/Page'
@@ -1025,7 +1090,8 @@ components:
             items: { type: array, items: { $ref: '#/components/schemas/AdminUser' } }
     AuditRecord:
       type: object
-      required: [id, actorId, actorType, targetUserId, action, reason, occurredAt, correlationId]
+      required:
+        [id, actorId, actorType, targetUserId, action, reason, occurredAt, correlationId, approval]
       properties:
         id: { type: string, format: uuid }
         actorId:
@@ -1041,6 +1107,13 @@ components:
         reason: { type: string }
         occurredAt: { type: string, format: date-time }
         correlationId: { type: string }
+        approval:
+          type: [string, 'null']
+          enum: [SECOND_ADMIN, NO_APPROVER, null]
+          description: |
+            How a `ROLE_GRANT` / `ROLE_REVOKE` was approved: by a second admin, or alone because
+            nobody else held the role (ADR 0008). `null` on every other action, and on role changes
+            made before the two-person rule.
     AuditAction:
       type: string
       enum:
@@ -1129,7 +1202,15 @@ components:
             items: { type: array, items: { $ref: '#/components/schemas/AdminRead' } }
     AdminAlertKind:
       type: string
-      enum: [ROLE_CHANGE, ADMIN_SUSPENDED, BULK_SUSPENSIONS, SUSPENSION_LIMIT_REACHED, BULK_READS]
+      enum:
+        [
+          ROLE_CHANGE,
+          ADMIN_SUSPENDED,
+          ADMIN_REACTIVATED,
+          BULK_SUSPENSIONS,
+          SUSPENSION_LIMIT_REACHED,
+          BULK_READS,
+        ]
     AdminAlert:
       type: object
       required: [id, kind, actorId, details, occurredAt]

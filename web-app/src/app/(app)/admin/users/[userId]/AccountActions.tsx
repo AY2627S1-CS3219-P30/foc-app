@@ -30,6 +30,7 @@ export function AccountActions({
   const { byId } = useDirectory();
   const [action, setAction] = useState<PendingAction | null>(null);
   const suspendNote = useId();
+  const reactivateNote = useId();
   const roleNote = useId();
 
   const email = account.email;
@@ -42,6 +43,8 @@ export function AccountActions({
     : isAdmin && !seeded
       ? "Only a bootstrap administrator can suspend an administrator."
       : undefined;
+  const reactivateBlocked =
+    isAdmin && !seeded ? "Only a bootstrap administrator can reactivate an administrator." : undefined;
   const roleBlocked = pending
     ? "A role change for this account is already waiting for approval."
     : isAdmin && self
@@ -80,10 +83,22 @@ export function AccountActions({
   const reactivate = () =>
     setAction({
       title: `Reactivate ${email}?`,
-      intro: <p>They can sign in and use the app again.</p>,
+      intro: (
+        <>
+          <p>They can sign in and use the app again.</p>
+          {isAdmin && (
+            <p>
+              They are an administrator, so this needs your password and raises an alert the other
+              administrators see.
+            </p>
+          )}
+        </>
+      ),
       confirmLabel: "Reactivate account",
       run: async (reason) => {
-        const user = await authed((t) => adminApi.reactivate(t, account.id, reason));
+        const user = await withStepUp(() =>
+          authed((t) => adminApi.reactivate(t, account.id, reason)),
+        );
         setAction(null);
         onDone(`${email} is active again. The audit record is below.`, user);
       },
@@ -119,7 +134,15 @@ export function AccountActions({
   return (
     <>
       <div className={styles.actions}>
-        {account.status === "SUSPENDED" && <Button onClick={reactivate}>Reactivate</Button>}
+        {account.status === "SUSPENDED" && (
+          <Button
+            disabled={!!reactivateBlocked}
+            aria-describedby={reactivateBlocked ? reactivateNote : undefined}
+            onClick={reactivate}
+          >
+            Reactivate
+          </Button>
+        )}
         {account.status === "ACTIVE" && (
           <Button
             variant="outline"
@@ -143,6 +166,11 @@ export function AccountActions({
         <p className={styles.muted}>
           This account isn&apos;t activated yet, so it can&apos;t be suspended or made an
           administrator.
+        </p>
+      )}
+      {reactivateBlocked && account.status === "SUSPENDED" && (
+        <p id={reactivateNote} className={styles.muted}>
+          {reactivateBlocked}
         </p>
       )}
       {suspendBlocked && account.status === "ACTIVE" && (

@@ -722,3 +722,25 @@ Migration 0003: a trigger rejects `UPDATE` and `DELETE`, and the service role lo
 - `contracts:compat` against `main`: no breaking change (the `202`, the new routes and the new enum values are
   additive).
 - **Not verified here:** the console against the full Compose stack (ADM-02 has its own check).
+
+### G10. Review fixes (PR #226, Anselm) — ✅
+- **Suspending the approvers no longer lets one admin act alone.** Every holder of the role counts,
+  suspended or not; only with nobody else holding it does a change apply at once. A request whose only
+  possible approvers are suspended waits for a reactivation, or for a second seeded admin. Break-glass
+  therefore seeds two addresses.
+- **Reactivating an admin has the controls of suspending one:** seeded admin only, the password
+  re-entered, an `ADMIN_REACTIVATED` alert. Before, any admin, or a stolen token, could undo a
+  break-glass suspension at once.
+- **Full records are recorded however they are read.** `GET /admin/users` now records every account it
+  returns; the console finds and names accounts through the new `GET /admin/directory` (email, name,
+  roles, status, no profile), which is not recorded.
+- **The audit row says how a role change was approved:** `approval` is `SECOND_ADMIN` or `NO_APPROVER`
+  (migration 0004).
+- **Locks and re-checks:** actor and target rows are locked together in id order, so two admins
+  suspending each other queue instead of deadlocking, and the second finds itself suspended. Approval
+  re-checks the approver as well as the requester under the lock, and refuses an approval that would
+  change nothing (`ROLE_REQUEST_STALE`) rather than mark it approved with no audit row.
+- **Smaller:** rejecting someone else's request needs the password; a bulk alert is raised under an
+  advisory lock; a revoked session's re-entry counts for nothing; `from` after `to` is refused; the ADR
+  notes that a refresh carries a recent re-entry.
+

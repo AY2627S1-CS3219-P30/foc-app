@@ -236,8 +236,35 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List accounts (ADMIN) */
+        /**
+         * List full account records (ADMIN)
+         * @description Full records, profile included. Every account returned other than the caller's own is
+         *     recorded as an admin read (`GET /admin/reads`) and counts toward `BULK_READS` (ADR 0008), as
+         *     if each were opened. To find an account, use `GET /admin/directory`.
+         */
         get: operations["listUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/directory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find accounts by name, email, role or status (ADMIN)
+         * @description The directory: email, display name, roles and status — enough to find an account and see its
+         *     standing, and nothing of its profile. Not recorded per account (ADR 0008); opening an account
+         *     (`GET /admin/users/{userId}`) is. Same filters, order and paging as `GET /admin/users`.
+         */
+        get: operations["searchDirectory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -314,6 +341,10 @@ export interface paths {
          * Reactivate a suspended account
          * @description Audit row + `UserReactivated`. Idempotent if already active. An account that never activated
          *     (`PENDING_ACTIVATION`) is refused with `409 ACCOUNT_NOT_ACTIVE`, so reactivation cannot skip activation.
+         *
+         *     Reactivating an **administrator** has the controls of suspending one (ADR 0008): only a seeded
+         *     admin (`403 ADMIN_ACTION_NOT_PERMITTED`), after a recent `POST /auth/step-up`
+         *     (`401 STEP_UP_REQUIRED`), and it raises an `ADMIN_REACTIVATED` alert.
          */
         post: operations["reactivateUser"];
         delete?: never;
@@ -343,12 +374,13 @@ export interface paths {
          *     - The caller must have re-entered their password recently (`POST /auth/step-up`) →
          *       otherwise `401 STEP_UP_REQUIRED`. Checked after the rules above.
          *
-         *     **Two people (ADR 0008).** When another admin could approve — an active admin who is neither
-         *     the caller nor the target — nothing changes yet: the answer is `202` with a pending request,
+         *     **Two people (ADR 0008).** When anyone other than the caller and the target holds the ADMIN
+         *     role — suspended or not — nothing changes yet: the answer is `202` with a pending request,
          *     audited as `ROLE_CHANGE_REQUESTED`, which `POST /admin/role-requests/{requestId}/approve`
          *     applies. One pending request per target (`409 ROLE_REQUEST_PENDING`), checked before the next
-         *     rule. When nobody else could approve, the change applies at once (`200`) and is logged as a
-         *     warning.
+         *     rule. When nobody else holds the role, the change applies at once (`200`), logged as a warning
+         *     and marked `approval: NO_APPROVER` on its audit row. A suspended admin approves nothing, so a
+         *     request whose only possible approvers are suspended waits for one to be reactivated.
          *
          *     An applied change writes an audit row (`ROLE_GRANT` / `ROLE_REVOKE`), emits `user.role-changed`
          *     and raises a `ROLE_CHANGE` alert.
@@ -402,10 +434,12 @@ export interface paths {
          *     requester who lost the role or was suspended meanwhile makes the request stale
          *     (`409 ROLE_REQUEST_STALE`), and a target suspended meanwhile cannot be appointed
          *     (`409 ACCOUNT_NOT_ACTIVE`). A request not decided within `ROLE_REQUEST_TTL_HOURS` (default 24)
-         *     has expired (`409 ROLE_REQUEST_EXPIRED`); one already decided is `409 ROLE_REQUEST_NOT_PENDING`.
+         *     has expired (`409 ROLE_REQUEST_EXPIRED`); one already decided is `409 ROLE_REQUEST_NOT_PENDING`;
+         *     one that would no longer change anything is `409 ROLE_REQUEST_STALE`. The approver must still
+         *     be an active administrator when the change is made.
          *
-         *     Audited as `ROLE_GRANT` / `ROLE_REVOKE` with the approver as actor; emits `user.role-changed`;
-         *     raises a `ROLE_CHANGE` alert.
+         *     Audited as `ROLE_GRANT` / `ROLE_REVOKE` with the approver as actor and
+         *     `approval: SECOND_ADMIN`; emits `user.role-changed`; raises a `ROLE_CHANGE` alert.
          */
         post: operations["approveRoleRequest"];
         delete?: never;
@@ -428,8 +462,9 @@ export interface paths {
         /**
          * Reject a role change, or withdraw your own (ADR 0008)
          * @description Any admin except the target may reject (`409 CONFLICT_OF_INTEREST`); the requester rejecting
-         *     their own request withdraws it. Changes no role and needs no password re-entry. Audited as
-         *     `ROLE_CHANGE_REJECTED`.
+         *     their own request withdraws it. Changes no role. Rejecting someone else's request needs a
+         *     recent `POST /auth/step-up` (`401 STEP_UP_REQUIRED`), so a stolen access token cannot quietly
+         *     reject pending demotions; withdrawing one's own does not. Audited as `ROLE_CHANGE_REJECTED`.
          */
         post: operations["rejectRoleRequest"];
         delete?: never;
@@ -467,8 +502,9 @@ export interface paths {
         };
         /**
          * Which admin opened which account, and when (ADR 0008)
-         * @description One record each time an admin opens another user's account (`GET /admin/users/{userId}`). An
-         *     admin opening their own account is not recorded, nor is the user list. Newest first. Read-only.
+         * @description One record for each other user's full record an admin reads: opening an account
+         *     (`GET /admin/users/{userId}`) or listing it (`GET /admin/users`). An admin's own account is not
+         *     recorded, nor is the directory (`GET /admin/directory`). Newest first. Read-only.
          */
         get: operations["listAdminReads"];
         put?: never;
@@ -494,6 +530,7 @@ export interface paths {
          *     | ---- | ---- |
          *     | `ROLE_CHANGE` | any role change is applied |
          *     | `ADMIN_SUSPENDED` | an administrator is suspended |
+         *     | `ADMIN_REACTIVATED` | an administrator is reactivated |
          *     | `BULK_SUSPENSIONS` | one admin suspends `ADMIN_SUSPENSIONS_ALERT_PER_HOUR` (default 10) accounts within an hour |
          *     | `SUSPENSION_LIMIT_REACHED` | one admin is refused a suspension by the hourly limit |
          *     | `BULK_READS` | one admin opens `ADMIN_READS_ALERT_PER_HOUR` (default 50) accounts within an hour |
@@ -704,6 +741,22 @@ export interface components {
             pageSize: number;
             total: number;
         };
+        /** @description An account's standing, without its profile. Listing it is not recorded per account. */
+        DirectoryEntry: {
+            /** Format: uuid */
+            id: string;
+            /** Format: email */
+            email: string;
+            displayName: string;
+            roles: components["schemas"]["Role"][];
+            status: components["schemas"]["AccountStatus"];
+            isSeededAdmin: boolean;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        DirectoryPage: components["schemas"]["Page"] & {
+            items: components["schemas"]["DirectoryEntry"][];
+        };
         AdminUserPage: components["schemas"]["Page"] & {
             items: components["schemas"]["AdminUser"][];
         };
@@ -727,6 +780,13 @@ export interface components {
             /** Format: date-time */
             occurredAt: string;
             correlationId: string;
+            /**
+             * @description How a `ROLE_GRANT` / `ROLE_REVOKE` was approved: by a second admin, or alone because
+             *     nobody else held the role (ADR 0008). `null` on every other action, and on role changes
+             *     made before the two-person rule.
+             * @enum {string|null}
+             */
+            approval: "SECOND_ADMIN" | "NO_APPROVER" | null;
         };
         /**
          * @description `ROLE_CHANGE_REQUESTED` is written by the requester, `ROLE_GRANT` / `ROLE_REVOKE` by the
@@ -786,7 +846,7 @@ export interface components {
             items: components["schemas"]["AdminRead"][];
         };
         /** @enum {string} */
-        AdminAlertKind: "ROLE_CHANGE" | "ADMIN_SUSPENDED" | "BULK_SUSPENSIONS" | "SUSPENSION_LIMIT_REACHED" | "BULK_READS";
+        AdminAlertKind: "ROLE_CHANGE" | "ADMIN_SUSPENDED" | "ADMIN_REACTIVATED" | "BULK_SUSPENSIONS" | "SUSPENSION_LIMIT_REACHED" | "BULK_READS";
         AdminAlert: {
             /** Format: uuid */
             id: string;
@@ -1570,6 +1630,36 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    searchDirectory: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                pageSize?: components["parameters"]["PageSize"];
+                status?: components["schemas"]["AccountStatus"];
+                role?: components["schemas"]["Role"];
+                /** @description Case-insensitive prefix match on email or display name. */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of directory entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectoryPage"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
     getUserAsAdmin: {
         parameters: {
             query?: never;
@@ -1656,7 +1746,7 @@ export interface operations {
                     "application/json": components["schemas"]["AdminUser"];
                 };
             };
-            401: components["responses"]["Unauthenticated"];
+            401: components["responses"]["StepUpRequired"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["RoleConflict"];
@@ -1802,7 +1892,7 @@ export interface operations {
                     "application/json": components["schemas"]["RoleChangeRequest"];
                 };
             };
-            401: components["responses"]["Unauthenticated"];
+            401: components["responses"]["StepUpRequired"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["RoleRequestConflict"];
@@ -1820,7 +1910,7 @@ export interface operations {
                 action?: components["schemas"]["AuditAction"];
                 /** @description Only records at or after this instant. */
                 from?: string;
-                /** @description Only records at or before this instant. */
+                /** @description Only records at or before this instant. Not before `from` (`422`). */
                 to?: string;
             };
             header?: never;

@@ -55,26 +55,31 @@ export const userListQuerySchema = z.object({
 
 export const introspectQuerySchema = z.strictObject({ sid: z.uuid(), sub: z.uuid() });
 
-export const auditQuerySchema = z.object({
-  page,
-  pageSize,
-  targetUserId: z.uuid().optional(),
-  actorId: z.uuid().optional(),
-  action: z
-    .enum([
-      'SUSPEND',
-      'REACTIVATE',
-      'ROLE_GRANT',
-      'ROLE_REVOKE',
-      'ADMIN_BOOTSTRAP',
-      'ROLE_CHANGE_REQUESTED',
-      'ROLE_CHANGE_REJECTED',
-    ])
-    .optional(),
-  /** Inclusive bounds on when the action happened (RFC 3339). */
-  from: z.iso.datetime({ offset: true }).optional(),
-  to: z.iso.datetime({ offset: true }).optional(),
-});
+export const auditQuerySchema = z
+  .object({
+    page,
+    pageSize,
+    targetUserId: z.uuid().optional(),
+    actorId: z.uuid().optional(),
+    action: z
+      .enum([
+        'SUSPEND',
+        'REACTIVATE',
+        'ROLE_GRANT',
+        'ROLE_REVOKE',
+        'ADMIN_BOOTSTRAP',
+        'ROLE_CHANGE_REQUESTED',
+        'ROLE_CHANGE_REJECTED',
+      ])
+      .optional(),
+    /** Inclusive bounds on when the action happened (RFC 3339). */
+    from: z.iso.datetime({ offset: true }).optional(),
+    to: z.iso.datetime({ offset: true }).optional(),
+  })
+  .refine((q) => !q.from || !q.to || Date.parse(q.from) <= Date.parse(q.to), {
+    message: '`from` must not be after `to`.',
+    path: ['from'],
+  });
 
 export const roleRequestQuerySchema = z.object({
   page,
@@ -96,6 +101,7 @@ export const alertsQuerySchema = z.object({
     .enum([
       'ROLE_CHANGE',
       'ADMIN_SUSPENDED',
+      'ADMIN_REACTIVATED',
       'BULK_SUSPENSIONS',
       'SUSPENSION_LIMIT_REACHED',
       'BULK_READS',

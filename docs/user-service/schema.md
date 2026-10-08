@@ -109,6 +109,7 @@ transaction that first checks the remaining admin count under `SELECT … FOR UP
 | `reason`         | text        | Required, 1–500 chars                                         |
 | `occurred_at`    | timestamptz |                                                              |
 | `correlation_id` | text        |                                                              |
+| `approval`       | text NULL   | `SECOND_ADMIN` \| `NO_APPROVER`: how a `ROLE_GRANT` / `ROLE_REVOKE` was approved (ADR 0008, migration 0004). Allowed on those two actions only (CHECK); role changes from before the two-person rule have none |
 
 Append-only is enforced twice: the service's DB role has `INSERT, SELECT` only (no `UPDATE`/`DELETE`),
 and a trigger raises on any `UPDATE` or `DELETE`. No API edits or deletes an audit row.
@@ -134,8 +135,8 @@ survives even though `status` is updated.
 | Column           | Type        | Notes                                                        |
 | ---------------- | ----------- | ------------------------------------------------------------ |
 | `id`             | uuid PK     |                                                              |
-| `actor_id`       | uuid FK → users | The admin who opened the account. Indexed                |
-| `target_user_id` | uuid FK → users | The account opened. Indexed. An admin opening their own is not recorded |
+| `actor_id`       | uuid FK → users | The admin who read the account. Indexed                  |
+| `target_user_id` | uuid FK → users | The account read — opened, or returned by the full list. Indexed. An admin's own account, and the directory, are not recorded |
 | `occurred_at`    | timestamptz |                                                              |
 | `correlation_id` | text        |                                                              |
 
@@ -143,7 +144,7 @@ survives even though `status` is updated.
 | Column        | Type        | Notes                                                           |
 | ------------- | ----------- | --------------------------------------------------------------- |
 | `id`          | uuid PK     |                                                                 |
-| `kind`        | text        | `ROLE_CHANGE` \| `ADMIN_SUSPENDED` \| `BULK_SUSPENSIONS` \| `SUSPENSION_LIMIT_REACHED` \| `BULK_READS` |
+| `kind`        | text        | `ROLE_CHANGE` \| `ADMIN_SUSPENDED` \| `ADMIN_REACTIVATED` \| `BULK_SUSPENSIONS` \| `SUSPENSION_LIMIT_REACHED` \| `BULK_READS` |
 | `actor_id`    | uuid FK → users | The admin whose action raised it                            |
 | `details`     | jsonb       | Counts, thresholds and account ids — never an email              |
 | `occurred_at` | timestamptz | Indexed with `kind` and `actor_id`, for "at most once an hour"   |

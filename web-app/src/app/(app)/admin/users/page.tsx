@@ -19,7 +19,8 @@ export default function UsersPage() {
   const [status, setStatus] = useState<AccountStatus | "">("");
   const [role, setRole] = useState<Role | "">("");
   const [query, setQuery] = useState<UserQuery>({ page: 1, pageSize: PAGE_SIZE });
-  const users = useAdminData(`users:${JSON.stringify(query)}`, (t) => adminApi.listUsers(t, query));
+  // The directory: finding an account is not a read of it. Opening one is.
+  const users = useAdminData(`users:${JSON.stringify(query)}`, (t) => adminApi.directory(t, query));
 
   function search(e: FormEvent) {
     e.preventDefault();
@@ -89,7 +90,7 @@ export default function UsersPage() {
                       <tr key={u.id}>
                         <td>
                           <Link href={`/admin/users/${u.id}`} className={styles.link}>
-                            {u.profile.displayName}
+                            {u.displayName}
                           </Link>
                           <span className={styles.secondary}>{u.email}</span>
                         </td>

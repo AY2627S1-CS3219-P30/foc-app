@@ -115,7 +115,7 @@ function Reads({ initialTarget }: { initialTarget: string }) {
   return (
     <Section
       title="Accounts opened by administrators"
-      description="Recorded each time an administrator opens another person's account. The user list is not recorded per account."
+      description="Recorded each time an administrator reads another person's full account, one at a time or in a list. Finding accounts in the directory is not recorded."
     >
       <form className={styles.filters} onSubmit={apply} role="search" aria-label="Filter account reads">
         <Field label="Administrator (email or id)" error={actor.error}>

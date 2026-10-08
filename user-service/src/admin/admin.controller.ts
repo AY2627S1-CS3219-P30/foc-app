@@ -37,9 +37,20 @@ const correlationOf = (req: Request): string =>
 export class AdminController {
   constructor(@Inject(AdminService) private readonly admin: AdminService) {}
 
+  /** Full account records: each one listed is recorded as read (ADR 0008). */
   @Get('users')
-  list(@Query() query: unknown) {
-    return this.admin.listUsers(parseOrThrow(userListQuerySchema, query));
+  list(@Query() query: unknown, @Req() req: AuthedRequest) {
+    return this.admin.listUsers(
+      req.auth.userId,
+      parseOrThrow(userListQuerySchema, query),
+      correlationOf(req),
+    );
+  }
+
+  /** Name, email, roles and status, to find an account; no profile, so not recorded per account. */
+  @Get('directory')
+  directory(@Query() query: unknown) {
+    return this.admin.listDirectory(parseOrThrow(userListQuerySchema, query));
   }
 
   /** Recorded as an admin read unless it is the caller's own account (ADR 0008). */
@@ -71,6 +82,7 @@ export class AdminController {
     const { reason } = parseOrThrow(reasonSchema, body);
     return this.admin.reactivate(
       req.auth.userId,
+      req.auth.sessionId,
       parseOrThrow(userIdSchema, userId),
       reason,
       correlationOf(req),
@@ -129,6 +141,7 @@ export class AdminController {
     const { reason } = parseOrThrow(reasonSchema, body);
     return this.admin.rejectRoleRequest(
       req.auth.userId,
+      req.auth.sessionId,
       parseOrThrow(userIdSchema, requestId),
       reason,
       correlationOf(req),

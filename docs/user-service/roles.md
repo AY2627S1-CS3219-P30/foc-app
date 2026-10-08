@@ -70,11 +70,13 @@ Legend: ✅ allowed · ❌ denied (`403`) · 🔒 `401` if unauthenticated · �
 `403 PASSWORD_CHANGE_REQUIRED`, and every token-guarded route treats a session of theirs as ended. The
 one thing they can do is `POST /auth/password` (§4).
 
-² Reading another user's account is recorded (`GET /admin/reads`); many reads in an hour raise an alert.
-³ Suspending an **admin**: seeded admin only, and the password must have been re-entered in the last
-5 minutes. Suspending anyone: at most 20 per admin per hour, with an alert from 10.
-⁴ Two-person rule: the change applies only when another eligible admin approves, within 24 hours,
-and both the request and the approval need the password re-entered in the last 5 minutes. See
+² Reading another user's full record, opened or listed, is recorded (`GET /admin/reads`); many reads
+in an hour raise an alert. The directory (`GET /admin/directory`: email, name, roles, status) is not.
+³ Suspending or reactivating an **admin**: seeded admin only, the password re-entered in the last
+5 minutes, and an alert. Suspending anyone: at most 20 per admin per hour, with an alert from 10.
+⁴ Two-person rule: while anyone else holds the role, suspended or not, the change applies only when
+an active admin who is neither requester nor target approves, within 24 hours. The request, the
+approval and rejecting someone else's request need the password re-entered in the last 5 minutes. See
 [ADR 0008](../adr/0008-controlling-administrators.md) for every control on administrators.
 
 ### Supplier Service (built — SUP-01; enforced by `@foc/auth-client`)
@@ -161,13 +163,15 @@ and a reason. The target must be `ACTIVE`. Any admin, seeded or appointed, may a
 admins (US-FR3.1.3).
 
 **Two people for every role change (ADR 0008, ADM-03).** Asking changes nothing: the answer is `202`
-with a pending request. The change applies only when an **eligible approver** — an active admin who is
-neither the requester nor the target — approves it within 24 hours, and it is then written with an
-audit record (the approver as actor) in the same transaction. Every rule in this section is checked
-again at approval, so a requester who was demoted or suspended meanwhile, or a target who was
-suspended, stops it. Both the request and the approval need the admin's password re-entered in the
-last 5 minutes. When nobody else is eligible (a lone admin, or two where one is the target), the
-change applies at once, is logged as a warning, and raises an alert like any other role change.
+with a pending request. The change applies only when an **approver** — an active admin who is neither
+the requester nor the target — approves it within 24 hours, and it is then written with an audit
+record (the approver as actor, `approval: SECOND_ADMIN`) in the same transaction. Every rule in this
+section is checked again at approval, so an approver or requester who was demoted or suspended
+meanwhile, or a target who was suspended, stops it. Both the request and the approval need the
+admin's password re-entered in the last 5 minutes. Only when nobody else holds the role (a lone
+admin, or two where the other is the target) does the change apply at once, logged, alerted and
+marked `approval: NO_APPROVER`. A suspended admin still counts, so suspending the others never lets
+one admin act alone.
 
 **Demotion.**
 
@@ -181,17 +185,18 @@ change applies at once, is logged as a warning, and raises an alert like any oth
 | Suspending an account that is not `ACTIVE`                            | `409 ACCOUNT_NOT_ACTIVE` — so a never-activated account can never be "reactivated" past activation |
 | Reactivating an account that is not `SUSPENDED`                        | `200` if already `ACTIVE` (idempotent), `409 ACCOUNT_NOT_ACTIVE` if pending |
 | Suspending another admin                                              | Allowed only for a seeded admin, after re-entering the password; an appointed admin gets `403 ADMIN_ACTION_NOT_PERMITTED`; always raises an `ADMIN_SUSPENDED` alert |
+| Reactivating a suspended admin                                        | The same rules as suspending one, and an `ADMIN_REACTIVATED` alert, so a suspension cannot be undone quietly |
 | Approving your own role request, or one about yourself                | `409 SELF_APPROVAL_FORBIDDEN` / `409 CONFLICT_OF_INTEREST` |
 | A 21st suspension by one admin within an hour                         | `429 RATE_LIMITED`, nothing changes, and a `SUSPENSION_LIMIT_REACHED` alert |
 
 **Why keep the seeded-vs-appointed tier (US-FR3.1.3.1)?** The D1 feedback asked us to reconsider it:
 once the bootstrap admin graduates, could a misbehaving appointed admin never be removed? Decision:
 **keep the tier**, because that failure has a recovery path that needs no database edit — the operators
-add a new address to `ADMIN_SEED_EMAILS`, rotate `ADMIN_SEED_PASSWORD` and redeploy, which bootstraps a
-fresh seeded admin who can then demote or suspend the appointed one (`user-service/test/seed.test.ts`
-walks through it). With the two-person rule, an admin who has left still counts as an approver, so the
-new seeded admin first suspends each unreachable admin — which needs no second admin — and their role
-changes then apply at once (ADR 0008, "Break glass"). Recovery therefore requires *deployment access*, which is exactly the authority that
+add new addresses to `ADMIN_SEED_EMAILS`, rotate `ADMIN_SEED_PASSWORD` and redeploy, which bootstraps
+fresh seeded admins who can then suspend and demote the appointed one (`user-service/test/seed.test.ts`
+walks through it). The new seeded admin can suspend a misbehaving admin at once, alone. Removing the
+role takes two people even then, because an admin who has left still holds it, so the operators seed
+**two** new addresses: one asks and the other approves (ADR 0008, "Break glass"). Recovery therefore requires *deployment access*, which is exactly the authority that
 created the first admin.
 Without the tier, any appointed admin — possibly appointed casually — could demote every other admin
 but one, including the operators who appointed them. The last-admin protection alone does not stop

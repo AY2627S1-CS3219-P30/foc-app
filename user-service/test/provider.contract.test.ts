@@ -159,6 +159,19 @@ describe('user-service honours its published contract', () => {
     await as(root).get(`/admin/users/${target.id}`).expect(200);
     contract.assert('get', '/admin/reads', await as(second).get(`/admin/reads?actorId=${root.id}`));
     contract.assert('get', '/admin/alerts', await as(second).get('/admin/alerts'));
+    contract.assert('get', '/admin/directory', await as(second).get('/admin/directory?q=e0146'));
+    contract.assert(
+      'post',
+      '/admin/users/{userId}/reactivate',
+      await as(await login(app, second.email)).post(`/admin/users/${root.id}/reactivate`, {
+        reason: 'contract',
+      }),
+    );
+    contract.assert(
+      'post',
+      '/admin/users/{userId}/reactivate',
+      await as(second).post(`/admin/users/${root.id}/reactivate`, { reason: 'contract' }),
+    );
     contract.assert(
       'get',
       '/admin/audit-records',

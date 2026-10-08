@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { AdminService } from '../src/admin/admin.service.js';
 import { RateLimiter } from '../src/auth/rate-limiter.js';
+import { sessionsRepository } from '../src/auth/sessions.repository.js';
 import { createTestApp, openLimiters, type TestApp } from './helpers/app.js';
 import {
   activeStudent,
@@ -142,14 +144,30 @@ describe('password re-entry (ADM-03)', () => {
     await as(fresh).suspend(root2.id).expect(200);
   });
 
-  it('is needed to approve a role change, but not to reject one', async () => {
+  it("is needed to approve or reject someone else's request, not to withdraw your own", async () => {
     const asked = await as(root).role(student.id, 'ADMIN').expect(202);
     const approver = await login(t, root2.email); // has not re-entered the password
-    const refused = await as(approver).approve(asked.body.request.id).expect(401);
-    expect(code(refused)).toBe('STEP_UP_REQUIRED');
+    expect(code(await as(approver).approve(asked.body.request.id).expect(401))).toBe(
+      'STEP_UP_REQUIRED',
+    );
+    // A stolen token must not be able to quietly reject every pending demotion either.
+    expect(code(await as(approver).reject(asked.body.request.id, 'Not now').expect(401))).toBe(
+      'STEP_UP_REQUIRED',
+    );
     expect(await isAdmin(student.id)).toBe(false);
-    // the refused approval left the request open
-    await as(approver).reject(asked.body.request.id, 'Not this term').expect(200);
+    // Both refusals left it open, and its requester withdraws it without re-entering anything.
+    const requester = await login(t, root.email);
+    await as(requester).reject(asked.body.request.id, 'Asked by mistake').expect(200);
+  });
+
+  it('counts for nothing on a revoked session', async () => {
+    const { rows } = await t.db.query<{ id: string }>(
+      'SELECT id FROM refresh_sessions WHERE stepped_up_at IS NOT NULL LIMIT 1',
+    );
+    const sid = rows[0]!.id;
+    expect(await sessionsRepository.steppedUpWithin(t.orm, sid, 300)).toBe(true);
+    await t.db.query('UPDATE refresh_sessions SET revoked_at = now() WHERE id = $1', [sid]);
+    expect(await sessionsRepository.steppedUpWithin(t.orm, sid, 300)).toBe(false);
   });
 
   it('is rate-limited per account, like sign-in', async () => {
@@ -333,21 +351,81 @@ describe('two people for every role change (ADM-03)', () => {
     expect(await isAdmin(student.id)).toBe(false);
 
     await as(root).reject(asked.body.request.id, 'Asked again').expect(200); // withdraw
-    await as(root).role(student.id, 'ADMIN').expect(200); // and now it applies at once
-    expect(await isAdmin(student.id)).toBe(true);
+    // Asking again waits too: root2 is suspended, but still holds the role.
+    await as(root).role(student.id, 'ADMIN').expect(202);
+    expect(await isAdmin(student.id)).toBe(false);
   });
 
-  it('applies at once when no other active admin could approve, visibly', async () => {
+  it('cannot be sidestepped by suspending the other admins first', async () => {
     await as(root).suspend(root2.id).expect(200); // the only other admin
+    const asked = await as(root).role(student.id, 'ADMIN').expect(202);
+    expect(asked.body.request.status).toBe('PENDING');
+    expect(await isAdmin(student.id)).toBe(false);
+  });
+
+  it('applies at once, and says so on the audit row, only when nobody else holds the role', async () => {
+    // With two admins, demoting the other has no possible approver: the target decides nothing.
+    await as(root).role(root2.id, 'STUDENT').expect(200);
+    // root is now the only admin.
     const res = await as(root).role(student.id, 'ADMIN').expect(200);
     expect(res.body.roles).toContain('ADMIN');
-    // no ROLE_CHANGE_REQUESTED before the grant, and an alert either way
-    expect((await audit()).map((a) => a.action)).toEqual(['SUSPEND', 'ROLE_GRANT']);
-    expect((await alerts()).map((a) => a.kind)).toEqual(['ADMIN_SUSPENDED', 'ROLE_CHANGE']);
+
+    const rows = (
+      await t.db.query<{ action: string; approval: string }>(
+        "SELECT action, approval FROM audit_records WHERE actor_type = 'USER' ORDER BY occurred_at",
+      )
+    ).rows;
+    expect(rows).toEqual([
+      { action: 'ROLE_REVOKE', approval: 'NO_APPROVER' },
+      { action: 'ROLE_GRANT', approval: 'NO_APPROVER' },
+    ]);
+    expect((await alerts()).map((a) => a.kind)).toEqual(['ROLE_CHANGE', 'ROLE_CHANGE']);
     expect((await alerts())[1]!.details).toMatchObject({
       requestedBy: root.id,
       approvedBy: root.id,
+      approval: 'NO_APPROVER',
     });
+  });
+
+  it('refuses an approval that would change nothing, and records none', async () => {
+    const asked = await as(root).role(student.id, 'ADMIN').expect(202);
+    // Something outside this API gave the role meanwhile.
+    await t.db.query("INSERT INTO user_roles (user_id, role) VALUES ($1, 'ADMIN')", [student.id]);
+    expect(code(await as(root2).approve(asked.body.request.id).expect(409))).toBe(
+      'ROLE_REQUEST_STALE',
+    );
+    const open = await as(root).get('/admin/role-requests?status=PENDING').expect(200);
+    expect(open.body.total).toBe(1);
+    expect((await audit()).map((a) => a.action)).toEqual(['ROLE_CHANGE_REQUESTED']);
+  });
+
+  it('refuses an approver or requester suspended while the request was in flight', async () => {
+    const service = t.app.get(AdminService);
+    const asked = await as(root).role(student.id, 'ADMIN').expect(202);
+    const id = asked.body.request.id as string;
+    // Suspended after the guards let the call in: the service checks again under its locks.
+    await t.db.query("UPDATE users SET status = 'SUSPENDED' WHERE id = $1", [root2.id]);
+    const refused = { code: 'FORBIDDEN' };
+    await expect(
+      service.approveRoleRequest(root2.id, 'unused', id, 'x', 'c'),
+    ).rejects.toMatchObject(refused);
+    await expect(service.rejectRoleRequest(root2.id, 'unused', id, 'x', 'c')).rejects.toMatchObject(
+      refused,
+    );
+    expect(await isAdmin(student.id)).toBe(false);
+  });
+
+  it('refuses a suspension or reactivation by an admin suspended while it was in flight', async () => {
+    const service = t.app.get(AdminService);
+    // Suspended after the guards let the call in — the second of two admins suspending each other.
+    await t.db.query("UPDATE users SET status = 'SUSPENDED' WHERE id = $1", [root2.id]);
+    await expect(service.suspend(root2.id, 'unused', root.id, 'x', 'c')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    await expect(
+      service.reactivate(root2.id, 'unused', student.id, 'x', 'c'),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(await statusOf(root.id)).toBe('ACTIVE');
   });
 });
 
@@ -445,6 +523,66 @@ describe('watching the admins (ADM-04)', () => {
     }
   });
 
+  it('lets only a seeded admin reactivate an admin, with the password, and raises ADMIN_REACTIVATED', async () => {
+    const asked = await as(root).role(student.id, 'ADMIN').expect(202);
+    await as(root2).approve(asked.body.request.id).expect(200);
+    const appointed = await login(t, student.email);
+    await as(root).suspend(root2.id, 'Left the team').expect(200);
+
+    // An appointed admin cannot undo a seeded admin's suspension of an admin.
+    expect(code(await as(appointed).reactivate(root2.id).expect(403))).toBe(
+      'ADMIN_ACTION_NOT_PERMITTED',
+    );
+    // A stolen access token is not enough either.
+    const fresh = await login(t, root.email);
+    expect(code(await as(fresh).reactivate(root2.id).expect(401))).toBe('STEP_UP_REQUIRED');
+    expect(await statusOf(root2.id)).toBe('SUSPENDED');
+
+    await stepUp(t, fresh);
+    await as(fresh).reactivate(root2.id, 'Back from leave').expect(200);
+    expect((await alerts()).filter((a) => a.kind === 'ADMIN_REACTIVATED')).toEqual([
+      expect.objectContaining({
+        actor_id: root.id,
+        details: { targetUserId: root2.id, reasonRef: expect.any(String) },
+      }),
+    ]);
+  });
+
+  it('leaves exactly one admin suspended when two suspend each other at once', async () => {
+    const results = await Promise.all([as(root).suspend(root2.id), as(root2).suspend(root.id)]);
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+    // The other was suspended first: refused by its guard or by the service's own check.
+    expect([401, 403]).toContain(results.find((r) => r.status !== 200)!.status);
+    const suspended = (
+      await t.db.query("SELECT 1 FROM users WHERE status = 'SUSPENDED' AND id IN ($1, $2)", [
+        root.id,
+        root2.id,
+      ])
+    ).rows;
+    expect(suspended).toHaveLength(1);
+  });
+
+  it('records every account a full list returns, and nothing for the directory', async () => {
+    const directory = await as(root).get('/admin/directory').expect(200);
+    expect(directory.body.total).toBe(3);
+    expect(Object.keys(directory.body.items[0]).sort()).toEqual([
+      'createdAt',
+      'displayName',
+      'email',
+      'id',
+      'isSeededAdmin',
+      'roles',
+      'status',
+    ]);
+    expect((await t.db.query('SELECT 1 FROM admin_reads')).rows).toHaveLength(0);
+
+    await as(root).get('/admin/users').expect(200); // root, root2 and the student
+    const reads = await as(root2).get(`/admin/reads?actorId=${root.id}`).expect(200);
+    expect(reads.body.items.map((r: { targetUserId: string }) => r.targetUserId).sort()).toEqual(
+      [root2.id, student.id].sort(), // root's own account is not a read
+    );
+  });
+
   it('raises ADMIN_SUSPENDED whenever an administrator is suspended, and only then', async () => {
     await as(root).suspend(student.id).expect(200);
     await as(root).suspend(root2.id, 'Left the team').expect(200);
@@ -460,10 +598,10 @@ describe('watching the admins (ADM-04)', () => {
 
   it('lists alerts newest first, filters by kind, and names accounts by id only', async () => {
     await as(root).suspend(root2.id).expect(200);
-    await as(root).role(student.id, 'ADMIN').expect(200); // nobody else could approve
+    await as(root).reactivate(root2.id).expect(200);
     const all = await as(root).get('/admin/alerts').expect(200);
     expect(all.body.items.map((a: { kind: string }) => a.kind)).toEqual([
-      'ROLE_CHANGE',
+      'ADMIN_REACTIVATED',
       'ADMIN_SUSPENDED',
     ]);
     expect(JSON.stringify(all.body)).not.toContain('@');
@@ -496,5 +634,6 @@ describe('watching the admins (ADM-04)', () => {
 
     await as(root).get('/admin/audit-records?action=DELETE').expect(422);
     await as(root).get('/admin/audit-records?from=yesterday').expect(422);
+    await as(root).get(`/admin/audit-records?from=${hourFromNow}&to=${hourAgo}`).expect(422);
   });
 });

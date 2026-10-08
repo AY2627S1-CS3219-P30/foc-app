@@ -18,6 +18,7 @@ import type {
   AdminAlertKind,
   AuditAction,
   AuditActorType,
+  RoleApproval,
   RoleRequestStatus,
 } from '../admin/admin.repository.js';
 
@@ -181,8 +182,18 @@ export const auditRecords = pgTable(
     reason: text('reason').notNull(),
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
     correlationId: text('correlation_id').notNull(),
+    /**
+     * How a role change was approved (ADR 0008): `SECOND_ADMIN`, or `NO_APPROVER` when nobody else
+     * held the role and the requester acted alone. Only on ROLE_GRANT / ROLE_REVOKE; rows from
+     * before the two-person rule have none.
+     */
+    approval: text('approval').$type<RoleApproval>(),
   },
   (t) => [
+    check(
+      'audit_records_approval_check',
+      sql`${t.approval} IS NULL OR (${t.approval} IN ('SECOND_ADMIN', 'NO_APPROVER') AND ${t.action} IN ('ROLE_GRANT', 'ROLE_REVOKE'))`,
+    ),
     check(
       'audit_records_action_check',
       sql`${t.action} IN ('SUSPEND', 'REACTIVATE', 'ROLE_GRANT', 'ROLE_REVOKE', 'ADMIN_BOOTSTRAP', 'ROLE_CHANGE_REQUESTED', 'ROLE_CHANGE_REJECTED')`,
@@ -278,7 +289,7 @@ export const adminAlerts = pgTable(
   (t) => [
     check(
       'admin_alerts_kind_enum',
-      sql`${t.kind} IN ('ROLE_CHANGE', 'ADMIN_SUSPENDED', 'BULK_SUSPENSIONS', 'SUSPENSION_LIMIT_REACHED', 'BULK_READS')`,
+      sql`${t.kind} IN ('ROLE_CHANGE', 'ADMIN_SUSPENDED', 'ADMIN_REACTIVATED', 'BULK_SUSPENSIONS', 'SUSPENSION_LIMIT_REACHED', 'BULK_READS')`,
     ),
     index('admin_alerts_occurred_idx').on(sql`${t.occurredAt} DESC`),
     index('admin_alerts_actor_kind_idx').on(t.actorId, t.kind, sql`${t.occurredAt} DESC`),

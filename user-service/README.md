@@ -146,17 +146,18 @@ limiting is in memory, so it is per instance. Refresh lifetime is sliding: each 
 
 ### Roles, profile and administration (USR-03)
 
-| Endpoint                                                     | Who                                                                                                                  |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| `PATCH /users/me`                                            | The caller. Five editable fields; `id`, `email`, `roles`, `status` are refused (`422 FIELD_NOT_EDITABLE`)            |
-| `GET /admin/users`, `GET /admin/users/:id`                   | ADMIN. Opening another user's account is recorded (`GET /admin/reads`)                                               |
-| `POST /admin/users/:id/suspend`, `…/reactivate`              | ADMIN. Reason required; audit row + event; suspension revokes all sessions; at most 20 per admin per hour            |
-| `PUT /admin/users/:id/role`                                  | ADMIN. Asks to appoint or downgrade (`202`); only a seeded admin may downgrade; never yourself; never the last admin |
-| `GET /admin/role-requests`, `POST …/:id/approve`, `…/reject` | ADMIN. A second admin approves; the requester may withdraw; the target decides nothing                               |
-| `POST /auth/step-up`                                         | Any signed-in user. Re-enter the password; role changes and suspending an admin need it within 5 minutes             |
-| `POST /auth/password`                                        | Anyone who proves the current password. Replaces it and revokes every session; login's rate limits apply             |
-| `GET /admin/audit-records`                                   | ADMIN. Read-only, append-only; filter by target, actor, action, time                                                 |
-| `GET /admin/reads`, `GET /admin/alerts`                      | ADMIN. Who opened which account; unusual admin activity. Read-only, append-only                                      |
+| Endpoint                                                     | Who                                                                                                                                                     |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PATCH /users/me`                                            | The caller. Five editable fields; `id`, `email`, `roles`, `status` are refused (`422 FIELD_NOT_EDITABLE`)                                               |
+| `GET /admin/directory`                                       | ADMIN. Find accounts: email, name, roles, status; not recorded per account                                                                              |
+| `GET /admin/users`, `GET /admin/users/:id`                   | ADMIN. Full records; every other account read, opened or listed, is recorded (`GET /admin/reads`)                                                       |
+| `POST /admin/users/:id/suspend`, `…/reactivate`              | ADMIN. Reason; audit row + event; suspension revokes all sessions; at most 20 per admin per hour; an admin target needs a seeded admin and the password |
+| `PUT /admin/users/:id/role`                                  | ADMIN. Asks to appoint or downgrade (`202`); only a seeded admin may downgrade; never yourself; never the last admin                                    |
+| `GET /admin/role-requests`, `POST …/:id/approve`, `…/reject` | ADMIN. A second admin approves or rejects (with the password); the requester may withdraw; the target decides nothing                                   |
+| `POST /auth/step-up`                                         | Any signed-in user. Re-enter the password; role changes and suspending an admin need it within 5 minutes                                                |
+| `POST /auth/password`                                        | Anyone who proves the current password. Replaces it and revokes every session; login's rate limits apply                                                |
+| `GET /admin/audit-records`                                   | ADMIN. Read-only, append-only; filter by target, actor, action, time                                                                                    |
+| `GET /admin/reads`, `GET /admin/alerts`                      | ADMIN. Who opened which account; unusual admin activity. Read-only, append-only                                                                         |
 
 **Controlling the admins** ([ADR 0008](../docs/adr/0008-controlling-administrators.md)): two people for
 every role change, password re-entry for the riskiest actions, a record of every account an admin opens,

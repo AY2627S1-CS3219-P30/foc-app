@@ -98,14 +98,16 @@ describe("the admin calls", () => {
     expect(seen[2].url).toBe("http://user.test/auth/step-up");
   });
 
-  it("reach the Order and Credit services at their own addresses", async () => {
+  it("reach each service at its own address, the directory included", async () => {
     const { client, seen } = api((req) =>
       req.url.includes("/ledger") ? json(200, { items: [], nextCursor: null }) : json(200, { items: [] }),
     );
     await client.creditWaits("t1");
+    await client.directory("t1", { q: "ana" });
     await client.ledger("t1", account.id, "next-page");
     expect(seen[0].url).toBe("http://order.test/admin/orders/pending-credit");
-    expect(seen[1].url).toBe(
+    expect(seen[1].url).toBe("http://user.test/admin/directory?q=ana");
+    expect(seen[2].url).toBe(
       `http://credit.test/admin/wallets/${account.id}/ledger?limit=20&cursor=next-page`,
     );
   });

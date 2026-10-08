@@ -6,6 +6,12 @@ import { cx } from "@/lib/cx";
 import { Tag, UserLink } from "./ui";
 import styles from "./admin.module.css";
 
+/** How a role change was approved (ADR 0008). */
+const APPROVALS: Record<NonNullable<AuditRecord["approval"]>, string> = {
+  SECOND_ADMIN: "Approved by a second administrator",
+  NO_APPROVER: "Alone: nobody else held the role",
+};
+
 /**
  * Audit records, newest first. Records not in `known` are marked new: the record an action just
  * wrote appears, marked, without a reload.
@@ -43,6 +49,7 @@ export function AuditTable({
                 </td>
                 <td>
                   <Tag tone={AUDIT_TONES[r.action]}>{AUDIT_ACTIONS[r.action]}</Tag>
+                  {r.approval && <span className={styles.secondary}>{APPROVALS[r.approval]}</span>}
                 </td>
                 {showTarget && (
                   <td>

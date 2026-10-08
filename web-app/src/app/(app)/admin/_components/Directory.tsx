@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, use, useMemo, type ReactNode } from "react";
-import { adminApi, type AdminUser } from "@/lib/admin-api";
+import { adminApi, type DirectoryEntry } from "@/lib/admin-api";
 import { shortId, type Namer } from "@/lib/admin-labels";
 import { useAdminData } from "./use-admin-data";
 
@@ -12,22 +12,22 @@ const MAX_PAGES = 20;
 type Directory = {
   ready: boolean;
   /** Every account loaded, by id (lower case). */
-  byId: ReadonlyMap<string, AdminUser>;
+  byId: ReadonlyMap<string, DirectoryEntry>;
   /** Administrators who are active: the people who can approve a role change. */
-  activeAdmins: AdminUser[];
+  activeAdmins: DirectoryEntry[];
   /** "alex@u.nus.edu", or "account 0198a1c2" when the account is not loaded. */
   name: Namer;
   /** An account by its exact email or id. */
-  find: (text: string) => AdminUser | undefined;
+  find: (text: string) => DirectoryEntry | undefined;
   reload: () => void;
 };
 
 const DirectoryContext = createContext<Directory | null>(null);
 
-async function everyAccount(token: string): Promise<AdminUser[]> {
-  const all: AdminUser[] = [];
+async function everyAccount(token: string): Promise<DirectoryEntry[]> {
+  const all: DirectoryEntry[] = [];
   for (let page = 1; page <= MAX_PAGES; page++) {
-    const res = await adminApi.listUsers(token, { page, pageSize: PAGE });
+    const res = await adminApi.directory(token, { page, pageSize: PAGE });
     all.push(...res.items);
     if (res.items.length < PAGE || all.length >= res.total) break;
   }
@@ -35,8 +35,9 @@ async function everyAccount(token: string): Promise<AdminUser[]> {
 }
 
 /**
- * Names accounts across the console. It reads the user list, which is not recorded per account
- * (ADR 0008): opening each account by id would record an admin read for every name on screen.
+ * Names accounts across the console. It reads the directory — email, name, roles and status, no
+ * profile — which is not recorded per account (ADR 0008); opening each account, or listing full
+ * records, would record a read of every name on screen.
  */
 export function DirectoryProvider({ children }: { children: ReactNode }) {
   const accounts = useAdminData("directory", everyAccount);

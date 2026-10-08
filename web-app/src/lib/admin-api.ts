@@ -19,6 +19,8 @@ type OrderSchemas = OrderComponents["schemas"];
 type CreditSchemas = CreditComponents["schemas"];
 
 export type AdminUser = UserSchemas["AdminUser"];
+/** An account's standing without its profile; reading the directory is not recorded per account. */
+export type DirectoryEntry = UserSchemas["DirectoryEntry"];
 export type AccountStatus = UserSchemas["AccountStatus"];
 export type Role = UserSchemas["Role"];
 export type AuditRecord = UserSchemas["AuditRecord"];
@@ -96,8 +98,9 @@ export function createAdminApi({
   const request = (requestId: string) => ({ path: { requestId } });
 
   return {
-    listUsers: (token: string, query: UserQuery = {}) =>
-      unwrap(users.GET("/admin/users", { params: { query }, headers: bearer(token) })),
+    /** To find accounts. The console uses this, not the full list, which records a read of each. */
+    directory: (token: string, query: UserQuery = {}) =>
+      unwrap(users.GET("/admin/directory", { params: { query }, headers: bearer(token) })),
     /** Opening another user's account is recorded as an admin read (ADR 0008). */
     getUser: (token: string, userId: string) =>
       unwrap(users.GET("/admin/users/{userId}", { params: user(userId), headers: bearer(token) })),

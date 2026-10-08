@@ -60,8 +60,11 @@ export function RoleRequestList({
         let changed: AdminUser | undefined;
         if (approve) {
           changed = await withStepUp(() => authed((t) => adminApi.approve(t, request.id, reason)));
-        } else {
+        } else if (withdraw) {
           await authed((t) => adminApi.reject(t, request.id, reason));
+        } else {
+          // Refusing someone else's request needs the password, like approving it (ADR 0008).
+          await withStepUp(() => authed((t) => adminApi.reject(t, request.id, reason)));
         }
         setAction(null);
         reloadDirectory();
