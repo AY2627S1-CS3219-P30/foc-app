@@ -149,6 +149,12 @@ the administrator named in `referred_admin_id` receives it, and every other call
 ORD-11 (#171) owns setting the referral owner and deciding the dispute; this read surface only
 enforces the authorization boundary.
 
+`GET /orders/mine` returns `{ items }`: the caller's errands in any status, as requester or current
+courier, each in its private projection with `myRole` (`REQUESTER` or `COURIER`). It is ordered by
+most recent change, at most 100, with no paging yet. A courier who withdrew or timed out is no
+longer on the errand, so it drops out of their list. The route is declared before `GET /orders/:id`,
+which would otherwise refuse `mine` as an invalid order ID.
+
 `POST /orders/:id/accept` requires the version observed during discovery. A single conditional
 `UPDATE` checks `OPEN`, that exact version, a live deadline, and that the courier is not the
 requester. The winner becomes the sole courier at version + 1; history and the privacy-safe status
