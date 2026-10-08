@@ -39,6 +39,7 @@ This context file was produced with Codex by summarizing the repository, live Gi
   - Operator surfacing is an admin API plus a structured warn log, recorded once per order. No external alert channel was chosen.
   - Order hosts #152 reconciliation.
   - Merging is allowed after verification.
+- **Remaining Order lifecycle work (agreed 2026-10-08):** in order: my errands (ORD-13 #227, `GET /orders/mine`) → ORD-11 #171 → ORD-10 #170 → ORD-06 #149.
 - **Open follow-ups, not assigned to this workstream:**
   - ORD-06 #149 owns the courier-suspension path (reopen with the deadline extended).
   - TST-02 #160 owns HTTP end-to-end journeys.

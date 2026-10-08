@@ -56,6 +56,15 @@ describe('order-service honours its published contract', () => {
     );
   });
 
+  it('GET /orders/mine (200, 401)', async () => {
+    contract.assert(
+      'get',
+      '/orders/mine',
+      await http(app).get('/orders/mine').set('Authorization', asRequester),
+    );
+    contract.assert('get', '/orders/mine', await http(app).get('/orders/mine'));
+  });
+
   it('POST /orders (201, 200 replay, 400, 422)', async () => {
     const key = randomUUID();
     const create = () =>
