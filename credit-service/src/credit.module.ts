@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { LOGGER, PgDb, provideDeadLetters, type PgDbOptions } from '@foc/platform';
 import { env } from './config.js';
 import { SERVICE_KEYS, ServiceKeyGuard } from './auth/service-key.guard.js';
+import { AdminActivity, WALLET_READS_ALERT_PER_HOUR } from './credits/admin-activity.js';
 import { CreditRepository } from './credits/credit.repository.js';
 import { AdminCreditController, DeadLettersController } from './credits/operations.controller.js';
 import { CreditOperationsRepository } from './credits/operations.repository.js';
@@ -30,6 +31,8 @@ export class CreditModule {
         WalletsService,
         CreditStatusService,
         CreditOperationsRepository,
+        AdminActivity,
+        { provide: WALLET_READS_ALERT_PER_HOUR, useValue: env.ADMIN_WALLET_READS_ALERT_PER_HOUR },
         // PLT-05: parks this service's dead letters once the broker connects, and redrives them.
         provideDeadLetters({ db: RAW_DB }),
         ServiceKeyGuard,

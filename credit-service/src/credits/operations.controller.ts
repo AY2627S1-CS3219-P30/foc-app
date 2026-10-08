@@ -9,18 +9,20 @@ import {
   type DeadLetters,
 } from '@foc/platform';
 import { z } from 'zod';
+import { AdminActivity } from './admin-activity.js';
 import { CreditOperationsRepository } from './operations.repository.js';
 
 const orderIdSchema = z.uuid();
 
 type CorrelatedRequest = AuthedRequest & { correlationId?: string; id?: string };
 
-/** PLT-05 — operator views of Credit. Administrator-only; they read and never move credit. */
+/** Operator views of Credit (PLT-05, ADM-04). Administrator-only; they read and never move credit. */
 @Controller('admin')
 export class AdminCreditController {
   constructor(
     @Inject(CreditOperationsRepository) private readonly operations: CreditOperationsRepository,
     @Inject(DEAD_LETTERS) private readonly deadLetters: DeadLetters,
+    @Inject(AdminActivity) private readonly activity: AdminActivity,
   ) {}
 
   /**
@@ -44,6 +46,13 @@ export class AdminCreditController {
   @AdminOnly()
   alerts() {
     return this.operations.alerts();
+  }
+
+  /** ADM-04: alerts about administrators here (BULK_WALLET_READS), newest first. */
+  @Get('activity-alerts')
+  @AdminOnly()
+  activityAlerts() {
+    return this.activity.alerts();
   }
 }
 

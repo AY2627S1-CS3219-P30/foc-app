@@ -128,6 +128,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/activity-alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Alerts about administrators in the Credit Service (ADM-04).
+         * @description `BULK_WALLET_READS`: one administrator read ADMIN_WALLET_READS_ALERT_PER_HOUR (50 by default)
+         *     distinct wallets within an hour. Raised at most once per administrator per hour, and written
+         *     to the service log. Newest first, at most 100. Administrators only.
+         */
+        get: operations["listAdminActivityAlerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/dead-letters": {
         parameters: {
             query?: never;
@@ -273,6 +295,23 @@ export interface components {
             recordedAt: string | null;
             reservation: components["schemas"]["TransactionReference"] | null;
             terminal: components["schemas"]["TransactionReference"] | null;
+        };
+        AdminActivityAlert: {
+            /** Format: uuid */
+            alertId: string;
+            /** @enum {string} */
+            kind: "BULK_WALLET_READS";
+            /** @description The administrator the alert is about. */
+            actorId: string;
+            /** @description For BULK_WALLET_READS, `walletsInLastHour` and `threshold`. */
+            details: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            occurredAt: string;
+        };
+        AdminActivityAlertList: {
+            items: components["schemas"]["AdminActivityAlert"][];
         };
         CreditAuditAlert: {
             /** Format: uuid */
@@ -657,6 +696,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CreditAuditAlertList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listAdminActivityAlerts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Alerts, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminActivityAlertList"];
                 };
             };
             401: components["responses"]["Unauthenticated"];

@@ -102,15 +102,18 @@ revokes the whole session family as soon as the real browser refreshes.
   | `BULK_SUSPENSIONS`         | one admin suspends this many accounts within an hour       | 10      |
   | `SUSPENSION_LIMIT_REACHED` | one admin hits the suspension limit below                  | 20      |
   | `BULK_READS`               | one admin reads this many accounts within an hour          | 50      |
+  | `BULK_WALLET_READS`        | one admin reads this many distinct wallets within an hour  | 50      |
 
-  A bulk alert is raised at most once per admin per hour, under an advisory lock so simultaneous
-  requests cannot raise it twice.
+  `BULK_WALLET_READS` is the Credit Service's, which holds the wallet reads
+  (`GET /admin/activity-alerts` there). A bulk alert is raised at most once per admin per hour,
+  under an advisory lock so simultaneous requests cannot raise it twice.
 - **A hard limit**: one admin may suspend at most 20 accounts in a rolling hour; the next attempt
   is refused with `429 RATE_LIMITED` and changes nothing. Counted from the audit trail, so it holds
   across restarts and instances.
 
 Thresholds are configuration (`ADMIN_SUSPENSIONS_ALERT_PER_HOUR`, `ADMIN_SUSPENSIONS_LIMIT_PER_HOUR`,
-`ADMIN_READS_ALERT_PER_HOUR`, `ROLE_REQUEST_TTL_HOURS`, `STEP_UP_WINDOW_SECONDS`), not code.
+`ADMIN_READS_ALERT_PER_HOUR`, Credit's `ADMIN_WALLET_READS_ALERT_PER_HOUR`, `ROLE_REQUEST_TTL_HOURS`,
+`STEP_UP_WINDOW_SECONDS`), not code.
 
 ### Break glass (existing)
 
@@ -141,7 +144,7 @@ neither stay unnoticed nor be undone quietly.
 | Order    | read stuck and reconciling errands          | admin only                                                            |
 | Order    | read an errand's trace and alerts (PLT-05)  | admin only; read-only                                                 |
 | Order    | decide a referred errand (ORD-11)           | reason; audited; conflict-of-interest rule                            |
-| Credit   | read a wallet or ledger                     | admin only; every read recorded                                       |
+| Credit   | read a wallet or ledger                     | admin only; every read recorded; bulk-read alert                      |
 | Credit   | read an errand's credit record, alerts      | admin only; read-only; no balances, so not a recorded wallet read     |
 | Platform | redrive a dead letter (PLT-05)              | admin only; reason; payload unchanged; recorded once, never deleted   |
 | Platform | publish to the broker                       | one broker account per service, limited to its own events (PLT-06)    |
@@ -171,6 +174,5 @@ neither stay unnoticed nor be undone quietly.
   record read is recorded.
 - Removing an admin role while another admin is unreachable takes a second seeded admin, so
   break-glass seeds two addresses.
-- Remaining gaps, tracked: Order's admin reads are not recorded; Supplier changes keep no actor record; Credit raises no
-  bulk-read alert of its own; the affected user is not notified of an admin action (no notification
-  channel yet).
+- Remaining gaps, tracked: Order's admin reads are not recorded; Supplier changes keep no actor record; the
+  affected user is not notified of an admin action (no notification channel yet).

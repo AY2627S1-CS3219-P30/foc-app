@@ -49,6 +49,8 @@ export const CREDIT_HTTP_SURFACE = [
   // PLT-05 operator views: no balances.
   'GET /admin/orders/:orderId/credit',
   'GET /admin/credit-alerts',
+  // ADM-04: admins who read many wallets in an hour.
+  'GET /admin/activity-alerts',
   'GET /admin/dead-letters',
   'GET /admin/dead-letters/:id',
   'POST /admin/dead-letters/:id/redrive',

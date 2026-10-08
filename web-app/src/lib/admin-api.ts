@@ -43,6 +43,8 @@ export type OperatorAlert = OrderSchemas["OperatorAlertList"]["items"][number];
 export type OrderTimeline = OrderSchemas["OrderTimeline"];
 export type CreditAuditAlert = CreditSchemas["CreditAuditAlert"];
 export type OrderCreditTrace = CreditSchemas["OrderCreditTrace"];
+/** ADM-04: the Credit Service's alerts about administrators (BULK_WALLET_READS). */
+export type WalletReadAlert = CreditSchemas["AdminActivityAlert"];
 
 export const ORDER_SERVICE_URL = serviceUrl(
   process.env.NEXT_PUBLIC_ORDER_SERVICE_URL,
@@ -206,6 +208,9 @@ export function createAdminApi({
       ),
     creditAlerts: (token: string) =>
       unwrap(credit.GET("/admin/credit-alerts", { headers: bearer(token) })),
+    /** ADM-04: administrators who read many wallets in an hour, newest first. */
+    walletReadAlerts: (token: string) =>
+      unwrap(credit.GET("/admin/activity-alerts", { headers: bearer(token) })),
 
     /** One service's dead letters. `q` is a correlation, order, user or event ID, matched exactly. */
     deadLetters: (token: string, service: DeadLetterService, query: DeadLetterQuery = {}) => {

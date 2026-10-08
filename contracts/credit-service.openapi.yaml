@@ -128,6 +128,22 @@ paths:
               schema: { $ref: '#/components/schemas/CreditAuditAlertList' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/activity-alerts:
+    get:
+      operationId: listAdminActivityAlerts
+      summary: Alerts about administrators in the Credit Service (ADM-04).
+      description: |
+        `BULK_WALLET_READS`: one administrator read ADMIN_WALLET_READS_ALERT_PER_HOUR (50 by default)
+        distinct wallets within an hour. Raised at most once per administrator per hour, and written
+        to the service log. Newest first, at most 100. Administrators only.
+      responses:
+        '200':
+          description: Alerts, newest first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminActivityAlertList' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /admin/dead-letters:
     get:
       operationId: listDeadLetters
@@ -343,6 +359,25 @@ components:
           oneOf:
             - { $ref: '#/components/schemas/TransactionReference' }
             - { type: 'null' }
+    AdminActivityAlert:
+      type: object
+      required: [alertId, kind, actorId, details, occurredAt]
+      properties:
+        alertId: { type: string, format: uuid }
+        kind: { type: string, enum: [BULK_WALLET_READS] }
+        actorId: { type: string, description: The administrator the alert is about. }
+        details:
+          type: object
+          description: For BULK_WALLET_READS, `walletsInLastHour` and `threshold`.
+          additionalProperties: true
+        occurredAt: { type: string, format: date-time }
+    AdminActivityAlertList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AdminActivityAlert' }
     CreditAuditAlert:
       type: object
       required: [alertId, orderId, operationType, code, details, correlationId, occurredAt]

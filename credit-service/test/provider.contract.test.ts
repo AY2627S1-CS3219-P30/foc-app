@@ -117,6 +117,27 @@ describe('credit-service honours its published contract', () => {
     await expectContract('get', '/admin/credit-alerts', await get('/admin/credit-alerts', asOther));
   });
 
+  it('GET /admin/activity-alerts (200 with an alert, 401, 403)', async () => {
+    // ADM-04: a threshold of one wallet, so a single read raises BULK_WALLET_READS.
+    const watched = await createTestApp({ walletReadsAlertPerHour: 1 });
+    try {
+      await issue(watched, 'student-1');
+      await http(watched).get('/admin/wallets/student-1').set('Authorization', asAdmin).expect(200);
+      const template = '/admin/activity-alerts';
+      const raised = await http(watched).get(template).set('Authorization', asAdmin);
+      expect(raised.body.items).toHaveLength(1);
+      await expectContract('get', template, raised);
+      await expectContract('get', template, await http(watched).get(template));
+      await expectContract(
+        'get',
+        template,
+        await http(watched).get(template).set('Authorization', asStudent),
+      );
+    } finally {
+      await watched.close();
+    }
+  });
+
   it('dead letters: find, inspect, redrive (200, 401, 403, 404, 409, 422, 503)', async () => {
     const memory = createMemoryBroker();
     const broker = new BrokerConnection(

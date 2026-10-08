@@ -178,6 +178,24 @@ export const adminWalletReads = pgTable(
   (t) => [
     check('admin_wallet_reads_resource_enum', sql`${t.resource} IN ('WALLET', 'LEDGER')`),
     index('admin_wallet_reads_target_idx').on(t.targetUserId, t.occurredAt),
+    // ADM-04: how many wallets one admin read in the last hour.
+    index('admin_wallet_reads_admin_idx').on(t.adminUserId, t.occurredAt),
+  ],
+);
+
+/** ADM-04: unusual admin activity in this service. Append-only, like the reads it is raised from. */
+export const adminActivityAlerts = pgTable(
+  'admin_activity_alerts',
+  {
+    alertId: uuid('alert_id').primaryKey(),
+    kind: text('kind').notNull(),
+    actorId: text('actor_id').notNull(),
+    details: jsonb('details').notNull(),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('admin_activity_alerts_kind_enum', sql`${t.kind} IN ('BULK_WALLET_READS')`),
+    index('admin_activity_alerts_actor_idx').on(t.actorId, t.kind, t.occurredAt),
   ],
 );
 

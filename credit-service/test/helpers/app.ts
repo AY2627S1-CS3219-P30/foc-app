@@ -14,6 +14,7 @@ import {
   type Metrics,
 } from '@foc/platform';
 import { CreditModule } from '../../src/credit.module.js';
+import { WALLET_READS_ALERT_PER_HOUR } from '../../src/credits/admin-activity.js';
 import { CreditRepository } from '../../src/credits/credit.repository.js';
 import { DB, RAW_DB } from '../../src/db/db.js';
 import * as schema from '../../src/db/schema.js';
@@ -66,8 +67,13 @@ export interface TestApp {
   close(): Promise<void>;
 }
 
-/** `broker`: dead letters park from, and redrive to, this connection (as `EventsModule` would give). */
-export async function createTestApp(options: { broker?: BrokerConnection } = {}): Promise<TestApp> {
+/**
+ * `broker`: dead letters park from, and redrive to, this connection (as `EventsModule` would give).
+ * `walletReadsAlertPerHour`: the BULK_WALLET_READS threshold, low enough for a test to cross.
+ */
+export async function createTestApp(
+  options: { broker?: BrokerConnection; walletReadsAlertPerHour?: number } = {},
+): Promise<TestApp> {
   const db = await PgliteDb.create();
   await applyMigrations(db);
   const builder = Test.createTestingModule({
@@ -90,6 +96,8 @@ export async function createTestApp(options: { broker?: BrokerConnection } = {})
     .useValue(drizzle(db.client, { schema }))
     .overrideProvider(AUTHENTICATOR)
     .useValue(fakeAuthenticator)
+    .overrideProvider(WALLET_READS_ALERT_PER_HOUR)
+    .useValue(options.walletReadsAlertPerHour ?? 50)
     .overrideProvider(DEAD_LETTERS)
     .useFactory({
       factory: (metrics: Metrics) => new DeadLetters(db, options.broker, metrics),

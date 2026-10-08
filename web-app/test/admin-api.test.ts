@@ -177,12 +177,14 @@ describe("the operations calls (PLT-05)", () => {
     await client.orderCredit("t1", orderId);
     await client.operatorAlerts("t1");
     await client.creditAlerts("t1");
+    await client.walletReadAlerts("t1");
     await client.deadLetter("t1", "order", letter.id);
     expect(seen.map((r) => r.url)).toEqual([
       `http://order.test/admin/orders/${orderId}/timeline`,
       `http://credit.test/admin/orders/${orderId}/credit`,
       "http://order.test/admin/orders/alerts",
       "http://credit.test/admin/credit-alerts",
+      "http://credit.test/admin/activity-alerts",
       `http://order.test/admin/dead-letters/${letter.id}`,
     ]);
   });
