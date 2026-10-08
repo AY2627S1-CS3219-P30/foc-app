@@ -14,6 +14,9 @@ ORDER_PORT="${ORDER_SERVICE_PORT:-3003}"
 CREDIT_PORT="${CREDIT_SERVICE_PORT:-3004}"
 DEADLINE="${SMOKE_DEADLINE_SECONDS:-90}"
 
+# A probe whose request fails must record a FAIL and carry on, not end the run:
+# under `set -e` a failed command substitution exits silently, so every probe
+# below ends in `|| true` or `|| echo …`.
 pass() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 FAILURES=0
@@ -100,7 +103,7 @@ for pair in "user-service:$USER_PORT" "supplier-service:$SUPPLIER_PORT" \
   port="${pair##*:}"
   allow=$(curl -fsS -o /dev/null -D - "http://localhost:${port}/health" \
     -H "Origin: http://localhost:${WEB_PORT}" 2>/dev/null |
-    tr -d '\r' | awk 'tolower($1)=="access-control-allow-origin:"{print $2}')
+    tr -d '\r' | awk 'tolower($1)=="access-control-allow-origin:"{print $2}') || true
   if [[ "$allow" == "http://localhost:${WEB_PORT}" ]]; then
     pass "$name allows the web app origin"
   else
@@ -111,7 +114,7 @@ done
 # ---- correlation id is echoed so one request can be traced ------------------
 echoed=$(curl -fsS -o /dev/null -D - "http://localhost:${USER_PORT}/health" \
   -H 'x-correlation-id: smoke-probe' 2>/dev/null |
-  tr -d '\r' | awk 'tolower($1)=="x-correlation-id:"{print $2}')
+  tr -d '\r' | awk 'tolower($1)=="x-correlation-id:"{print $2}') || true
 [[ "$echoed" == "smoke-probe" ]] &&
   pass "correlation id echoed" ||
   fail "correlation id was '${echoed:-missing}'"
@@ -153,6 +156,40 @@ for queue in foc.credit.wallet-provisioning foc.credit.reservations foc.credit.c
     fail "$queue dead-letter queue missing"
   fi
 done
+
+# ---- an activation reaches the Credit Service --------------------------------
+# The queues above can exist with nothing flowing through them. This signs up a
+# throwaway student, activates them through the dev mailbox, and waits for the
+# wallet the Credit Service issues on `user.activated`: User Service, outbox
+# relay, broker and Credit Service, end to end.
+SMOKE_EMAIL="smoke-$(date +%s)-$RANDOM@u.nus.edu"
+SMOKE_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')
+json_field() { python3 -c "import sys,json; print(json.load(sys.stdin).get('$1', ''))" 2>/dev/null || true; }
+curl -fsS -X POST "http://localhost:${USER_PORT}/auth/register" -H 'content-type: application/json' \
+  -d "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"$SMOKE_PASSWORD\",\"displayName\":\"Smoke test\"}" \
+  -o /dev/null 2>/dev/null || true
+token=$(curl -fsS "http://localhost:${USER_PORT}/dev/mailbox?to=$SMOKE_EMAIL" 2>/dev/null | json_field token) || true
+if [[ -z "$token" ]]; then
+  # The dev mailbox exists only outside production; without it there is no way
+  # to activate an account from a script.
+  printf '  \033[33mSKIP\033[0m  %s\n' "activation → wallet (no dev mailbox: is NODE_ENV production?)"
+else
+  curl -fsS -X POST "http://localhost:${USER_PORT}/auth/activate" -H 'content-type: application/json' \
+    -H 'x-correlation-id: smoke-wallet' -d "{\"token\":\"$token\"}" -o /dev/null 2>/dev/null || true
+  access=$(curl -fsS -X POST "http://localhost:${USER_PORT}/auth/login" -H 'content-type: application/json' \
+    -H "Origin: http://localhost:${WEB_PORT}" \
+    -d "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"$SMOKE_PASSWORD\"}" 2>/dev/null | json_field accessToken) || true
+  available=""
+  for _ in $(seq 1 60); do
+    available=$(curl -fsS "http://localhost:${CREDIT_PORT}/wallets/me" -H "Authorization: Bearer $access" \
+      2>/dev/null | json_field available) || true
+    [[ "$available" == "10" ]] && break
+    sleep 0.5
+  done
+  [[ "$available" == "10" ]] &&
+    pass "an activation issues a 10-credit wallet" ||
+    fail "no 10-credit wallet after activation (last available: '${available:-none}')"
+fi
 
 # ---- the web app serves ------------------------------------------------------
 code=$(curl -fsS -o /dev/null -w '%{http_code}' "http://localhost:${WEB_PORT}/" 2>/dev/null || echo 000)
