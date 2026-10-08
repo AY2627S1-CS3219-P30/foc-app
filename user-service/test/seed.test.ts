@@ -325,13 +325,45 @@ describe('recovering from a misbehaving appointed admin (the seeded tier, US-FR3
       .expect(403);
     expect(blocked.body.error.code).toBe('ADMIN_ACTION_NOT_PERMITTED');
 
-    // The operators add a new address to ADMIN_SEED_EMAILS and redeploy: the recovery path needs
-    // deployment access, which is the right authority, and no database edit.
+    // The operators add two new addresses to ADMIN_SEED_EMAILS and redeploy: the recovery path
+    // needs deployment access, which is the right authority, and no database edit.
     const successor = await seededAdmin(t, 'successor@u.nus.edu');
+    const second = await seededAdmin(t, 'successor2@u.nus.edu');
+    // At once, alone: a seeded admin may suspend any admin, which ends every session the appointed
+    // one has. That stops the harm.
     await http(t)
+      .post(`/admin/users/${appointed.id}/suspend`)
+      .set('Authorization', bearer(successor))
+      .send({ reason: 'misuse of admin role' })
+      .expect(200);
+    // Removing the role still takes two people (ADR 0008): the bootstrap admin who left holds the
+    // role too, so nobody acts alone, and the second operator approves.
+    const asked = await http(t)
       .put(`/admin/users/${appointed.id}/role`)
       .set('Authorization', bearer(successor))
       .send({ role: 'STUDENT', reason: 'misuse of admin role' })
+      .expect(202);
+    await http(t)
+      .post(`/admin/role-requests/${asked.body.request.id}/approve`)
+      .set('Authorization', bearer(second))
+      .send({ reason: 'agreed: misuse of admin role' })
       .expect(200);
+
+    const alerts = await t.db.query(
+      "SELECT kind FROM admin_alerts WHERE kind IN ('ADMIN_SUSPENDED', 'ROLE_CHANGE') ORDER BY occurred_at",
+    );
+    expect(alerts.rows.map((r) => r.kind)).toEqual([
+      'ROLE_CHANGE', // the original appointment
+      'ADMIN_SUSPENDED',
+      'ROLE_CHANGE',
+    ]);
+    // The audit row says how each change was approved.
+    const changes = await t.db.query(
+      "SELECT action, approval FROM audit_records WHERE action IN ('ROLE_GRANT', 'ROLE_REVOKE') ORDER BY occurred_at",
+    );
+    expect(changes.rows).toEqual([
+      { action: 'ROLE_GRANT', approval: 'NO_APPROVER' }, // the only admin, acting alone
+      { action: 'ROLE_REVOKE', approval: 'SECOND_ADMIN' },
+    ]);
   });
 });

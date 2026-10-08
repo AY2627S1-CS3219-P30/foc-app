@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { drizzle } from 'drizzle-orm/pglite';
 import type { DestinationStream } from 'pino';
 import { ErrorEnvelopeFilter, LOGGER, PinoLoggerService, PlatformModule } from '@foc/platform';
+import { ADMIN_SETTINGS, type AdminSettings } from '../../src/admin/admin.service.js';
 import { RATE_LIMITERS, RateLimiter, type AuthRateLimiters } from '../../src/auth/rate-limiter.js';
 import { DB, RAW_DB, type Database } from '../../src/db/db.js';
 import * as schema from '../../src/db/schema.js';
@@ -29,6 +30,8 @@ export async function createTestApp(
     logLevel?: string;
     logDestination?: DestinationStream;
     rateLimiters?: AuthRateLimiters;
+    /** Overrides for the controls on administrators (ADR 0008), e.g. a lower alert threshold. */
+    adminSettings?: Partial<AdminSettings>;
     /** An existing PGlite to reuse; migrations are applied idempotently. */
     db?: PgliteDb;
   } = {},
@@ -55,6 +58,8 @@ export async function createTestApp(
     // Generous by default: the suite shares one client IP and registers far more than a person would.
     .overrideProvider(RATE_LIMITERS)
     .useValue(options.rateLimiters ?? openLimiters())
+    .overrideProvider(ADMIN_SETTINGS)
+    .useValue({ ...DEFAULT_ADMIN_SETTINGS, ...options.adminSettings })
     .compile();
 
   // A suite that captures logs gets main.ts's wiring: Nest's own Logger (the error filter, any
@@ -87,8 +92,18 @@ export const validRegistration = (email = 'e0123456@u.nus.edu') => ({
   displayName: 'Alex Tan',
 });
 
+/** ADR 0008's defaults, as `config.ts` would supply them. */
+export const DEFAULT_ADMIN_SETTINGS: AdminSettings = {
+  roleRequestTtlHours: 24,
+  stepUpWindowSeconds: 300,
+  suspensionsAlertPerHour: 10,
+  suspensionsLimitPerHour: 20,
+  readsAlertPerHour: 50,
+};
+
 export const openLimiters = (): AuthRateLimiters => ({
   loginPerEmail: new RateLimiter(1_000_000, 60_000),
   loginPerIp: new RateLimiter(1_000_000, 60_000),
   registerPerIp: new RateLimiter(1_000_000, 60_000),
+  stepUpPerUser: new RateLimiter(1_000_000, 60_000),
 });

@@ -22,6 +22,13 @@ import { ApiError, type UserApi } from "./user-api";
 export const REFRESH_LOCK = "foc-auth-refresh";
 const LOGOUT_MESSAGE = "logout";
 
+/**
+ * `401`s that say nothing about the access token: the action wants the password re-entered, or a
+ * re-entered password was wrong (ADR 0008). Refreshing would rotate the cookie for nothing, and
+ * replaying a wrong password would spend a second of its limited attempts.
+ */
+const NOT_ABOUT_THE_TOKEN = new Set(["STEP_UP_REQUIRED", "INVALID_CREDENTIALS"]);
+
 /** What a refresh found: a live session, none (refused, or never there), or no answer at all. */
 export type RefreshResult =
   | { kind: "ok"; token: string; userId: string }
@@ -139,7 +146,9 @@ export function createSession({
     try {
       return await fn(used);
     } catch (err) {
-      if (!(err instanceof ApiError) || err.status !== 401) throw err;
+      if (!(err instanceof ApiError) || err.status !== 401 || NOT_ABOUT_THE_TOKEN.has(err.code)) {
+        throw err;
+      }
       // Expired (15 min) or revoked. If another call has refreshed since this one started, use its
       // token: refreshing again would rotate the cookie for nothing.
       const latest = current?.token;

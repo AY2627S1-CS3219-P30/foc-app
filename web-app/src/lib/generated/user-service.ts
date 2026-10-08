@@ -113,6 +113,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/step-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-enter the password before a high-impact admin action (ADR 0008)
+         * @description Proves the person holding the session still knows the password. Requesting or approving a role
+         *     change, and suspending an administrator, need a re-entry within the last 5 minutes
+         *     (`STEP_UP_WINDOW_SECONDS`) in the same sign-in, or they answer `401 STEP_UP_REQUIRED`. A token
+         *     refresh keeps it; another login or device does not.
+         *
+         *     Bearer-authenticated, so no cookie is involved and there is no CSRF exposure. A wrong password
+         *     fails exactly as login does. Limited by login's per-IP limit and a per-account limit of its own.
+         */
+        post: operations["stepUp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/refresh": {
         parameters: {
             query?: never;
@@ -210,8 +236,35 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List accounts (ADMIN) */
+        /**
+         * List full account records (ADMIN)
+         * @description Full records, profile included. Every account returned other than the caller's own is
+         *     recorded as an admin read (`GET /admin/reads`) and counts toward `BULK_READS` (ADR 0008), as
+         *     if each were opened. To find an account, use `GET /admin/directory`.
+         */
         get: operations["listUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/directory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find accounts by name, email, role or status (ADMIN)
+         * @description The directory: email, display name, roles and status — enough to find an account and see its
+         *     standing, and nothing of its profile. Not recorded per account (ADR 0008); opening an account
+         *     (`GET /admin/users/{userId}`) is. Same filters, order and paging as `GET /admin/users`.
+         */
+        get: operations["searchDirectory"];
         put?: never;
         post?: never;
         delete?: never;
@@ -229,7 +282,11 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Read any account (ADMIN) */
+        /**
+         * Read any account (ADMIN)
+         * @description Recorded as an admin read (`GET /admin/reads`) unless it is the caller's own account. Many reads
+         *     by one admin within an hour raise a `BULK_READS` alert (ADR 0008).
+         */
         get: operations["getUserAsAdmin"];
         put?: never;
         post?: never;
@@ -256,7 +313,11 @@ export interface paths {
          *     New sessions are denied immediately; dependent services see the change within 10 seconds.
          *     Only an `ACTIVE` account can be suspended (`409 ACCOUNT_NOT_ACTIVE` otherwise). An admin cannot suspend
          *     themselves (`409 SELF_SUSPENSION_FORBIDDEN`). Only a seeded admin may suspend another admin
-         *     (`403 ADMIN_ACTION_NOT_PERMITTED`).
+         *     (`403 ADMIN_ACTION_NOT_PERMITTED`), and only after a recent `POST /auth/step-up`
+         *     (`401 STEP_UP_REQUIRED`); every such suspension raises an `ADMIN_SUSPENDED` alert.
+         *
+         *     One admin may suspend at most `ADMIN_SUSPENSIONS_LIMIT_PER_HOUR` (default 20) accounts in a
+         *     rolling hour; the next is refused with `429 RATE_LIMITED` and changes nothing (ADR 0008).
          */
         post: operations["suspendUser"];
         delete?: never;
@@ -280,6 +341,10 @@ export interface paths {
          * Reactivate a suspended account
          * @description Audit row + `UserReactivated`. Idempotent if already active. An account that never activated
          *     (`PENDING_ACTIVATION`) is refused with `409 ACCOUNT_NOT_ACTIVE`, so reactivation cannot skip activation.
+         *
+         *     Reactivating an **administrator** has the controls of suspending one (ADR 0008): only a seeded
+         *     admin (`403 ADMIN_ACTION_NOT_PERMITTED`), after a recent `POST /auth/step-up`
+         *     (`401 STEP_UP_REQUIRED`), and it raises an `ADMIN_REACTIVATED` alert.
          */
         post: operations["reactivateUser"];
         delete?: never;
@@ -299,17 +364,109 @@ export interface paths {
         };
         get?: never;
         /**
-         * Appoint or downgrade an administrator (US-FR3.1.3, US-FR3.1.3.1)
+         * Ask to appoint or downgrade an administrator (US-FR3.1.3, US-FR3.1.3.1, ADR 0008)
          * @description `role: ADMIN` appoints (target must be `ACTIVE`). `role: STUDENT` downgrades an admin.
          *     Rules, all enforced in one transaction with a row lock:
          *     - Any admin may appoint.
          *     - Only a **seeded** admin may downgrade an admin → otherwise `403 ADMIN_DOWNGRADE_NOT_PERMITTED`.
          *     - No admin may downgrade themselves → `409 SELF_DEMOTION_FORBIDDEN`.
          *     - The last admin cannot be removed → `409 LAST_ADMIN`.
-         *     Writes an audit row (`ROLE_GRANT` / `ROLE_REVOKE`).
+         *     - The caller must have re-entered their password recently (`POST /auth/step-up`) →
+         *       otherwise `401 STEP_UP_REQUIRED`. Checked after the rules above.
+         *
+         *     **Two people (ADR 0008).** When anyone other than the caller and the target holds the ADMIN
+         *     role — suspended or not — nothing changes yet: the answer is `202` with a pending request,
+         *     audited as `ROLE_CHANGE_REQUESTED`, which `POST /admin/role-requests/{requestId}/approve`
+         *     applies. One pending request per target (`409 ROLE_REQUEST_PENDING`), checked before the next
+         *     rule. When nobody else holds the role, the change applies at once (`200`), logged as a warning
+         *     and marked `approval: NO_APPROVER` on its audit row. A suspended admin approves nothing, so a
+         *     request whose only possible approvers are suspended waits for one to be reactivated.
+         *
+         *     An applied change writes an audit row (`ROLE_GRANT` / `ROLE_REVOKE`), emits `user.role-changed`
+         *     and raises a `ROLE_CHANGE` alert.
          */
         put: operations["setUserRole"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/role-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Role changes waiting for, or decided by, a second admin (ADR 0008)
+         * @description Newest first. A pending request past its deadline reads as `EXPIRED`. Read-only.
+         */
+        get: operations["listRoleRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/role-requests/{requestId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                requestId: components["parameters"]["RequestId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a role change as the second admin (ADR 0008)
+         * @description The only way a requested change applies. Only an eligible approver may approve: not the
+         *     requester (`409 SELF_APPROVAL_FORBIDDEN`) and not the target (`409 CONFLICT_OF_INTEREST`).
+         *     Needs a recent `POST /auth/step-up` (`401 STEP_UP_REQUIRED`).
+         *
+         *     Every rule of `PUT /admin/users/{userId}/role` is checked again now, for the requester: a
+         *     requester who lost the role or was suspended meanwhile makes the request stale
+         *     (`409 ROLE_REQUEST_STALE`), and a target suspended meanwhile cannot be appointed
+         *     (`409 ACCOUNT_NOT_ACTIVE`). A request not decided within `ROLE_REQUEST_TTL_HOURS` (default 24)
+         *     has expired (`409 ROLE_REQUEST_EXPIRED`); one already decided is `409 ROLE_REQUEST_NOT_PENDING`;
+         *     one that would no longer change anything is `409 ROLE_REQUEST_STALE`. The approver must still
+         *     be an active administrator when the change is made.
+         *
+         *     Audited as `ROLE_GRANT` / `ROLE_REVOKE` with the approver as actor and
+         *     `approval: SECOND_ADMIN`; emits `user.role-changed`; raises a `ROLE_CHANGE` alert.
+         */
+        post: operations["approveRoleRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/role-requests/{requestId}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                requestId: components["parameters"]["RequestId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reject a role change, or withdraw your own (ADR 0008)
+         * @description Any admin except the target may reject (`409 CONFLICT_OF_INTEREST`); the requester rejecting
+         *     their own request withdraws it. Changes no role. Rejecting someone else's request needs a
+         *     recent `POST /auth/step-up` (`401 STEP_UP_REQUIRED`), so a stolen access token cannot quietly
+         *     reject pending demotions; withdrawing one's own does not. Audited as `ROLE_CHANGE_REJECTED`.
+         */
+        post: operations["rejectRoleRequest"];
         delete?: never;
         options?: never;
         head?: never;
@@ -328,6 +485,59 @@ export interface paths {
          * @description Read-only. There is no endpoint that creates, edits or deletes an audit record.
          */
         get: operations["listAuditRecords"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/reads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which admin opened which account, and when (ADR 0008)
+         * @description One record for each other user's full record an admin reads: opening an account
+         *     (`GET /admin/users/{userId}`) or listing it (`GET /admin/users`). An admin's own account is not
+         *     recorded, nor is the directory (`GET /admin/directory`). Newest first. Read-only.
+         */
+        get: operations["listAdminReads"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Unusual administrator activity (ADR 0008)
+         * @description Raised as it happens and also written as a structured warning log. Newest first. Read-only.
+         *
+         *     | Kind | When |
+         *     | ---- | ---- |
+         *     | `ROLE_CHANGE` | any role change is applied |
+         *     | `ADMIN_SUSPENDED` | an administrator is suspended |
+         *     | `ADMIN_REACTIVATED` | an administrator is reactivated |
+         *     | `BULK_SUSPENSIONS` | one admin suspends `ADMIN_SUSPENSIONS_ALERT_PER_HOUR` (default 10) accounts within an hour |
+         *     | `SUSPENSION_LIMIT_REACHED` | one admin is refused a suspension by the hourly limit |
+         *     | `BULK_READS` | one admin opens `ADMIN_READS_ALERT_PER_HOUR` (default 50) accounts within an hour |
+         *
+         *     A bulk alert is raised at most once per admin per hour.
+         */
+        get: operations["listAdminAlerts"];
         put?: never;
         post?: never;
         delete?: never;
@@ -461,6 +671,9 @@ export interface components {
             currentPassword: string;
             newPassword: string;
         };
+        StepUpRequest: {
+            password: string;
+        };
         TokenResponse: {
             accessToken: string;
             /** @enum {string} */
@@ -528,6 +741,22 @@ export interface components {
             pageSize: number;
             total: number;
         };
+        /** @description An account's standing, without its profile. Listing it is not recorded per account. */
+        DirectoryEntry: {
+            /** Format: uuid */
+            id: string;
+            /** Format: email */
+            email: string;
+            displayName: string;
+            roles: components["schemas"]["Role"][];
+            status: components["schemas"]["AccountStatus"];
+            isSeededAdmin: boolean;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        DirectoryPage: components["schemas"]["Page"] & {
+            items: components["schemas"]["DirectoryEntry"][];
+        };
         AdminUserPage: components["schemas"]["Page"] & {
             items: components["schemas"]["AdminUser"][];
         };
@@ -546,15 +775,96 @@ export interface components {
             actorType: "USER" | "SYSTEM";
             /** Format: uuid */
             targetUserId: string;
-            /** @enum {string} */
-            action: "SUSPEND" | "REACTIVATE" | "ROLE_GRANT" | "ROLE_REVOKE" | "ADMIN_BOOTSTRAP";
+            action: components["schemas"]["AuditAction"];
             reason: string;
             /** Format: date-time */
             occurredAt: string;
             correlationId: string;
+            /**
+             * @description How a `ROLE_GRANT` / `ROLE_REVOKE` was approved: by a second admin, or alone because
+             *     nobody else held the role (ADR 0008). `null` on every other action, and on role changes
+             *     made before the two-person rule.
+             * @enum {string|null}
+             */
+            approval: "SECOND_ADMIN" | "NO_APPROVER" | null;
         };
+        /**
+         * @description `ROLE_CHANGE_REQUESTED` is written by the requester, `ROLE_GRANT` / `ROLE_REVOKE` by the
+         *     approver, and `ROLE_CHANGE_REJECTED` by whoever rejected or withdrew the request (ADR 0008).
+         * @enum {string}
+         */
+        AuditAction: "SUSPEND" | "REACTIVATE" | "ROLE_GRANT" | "ROLE_REVOKE" | "ROLE_CHANGE_REQUESTED" | "ROLE_CHANGE_REJECTED" | "ADMIN_BOOTSTRAP";
         AuditRecordPage: components["schemas"]["Page"] & {
             items: components["schemas"]["AuditRecord"][];
+        };
+        /**
+         * @description `EXPIRED`: not decided within `ROLE_REQUEST_TTL_HOURS` (default 24).
+         * @enum {string}
+         */
+        RoleRequestStatus: "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED";
+        RoleChangeRequest: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            targetUserId: string;
+            role: components["schemas"]["Role"];
+            /** Format: uuid */
+            requestedBy: string;
+            reason: string;
+            status: components["schemas"]["RoleRequestStatus"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /**
+             * Format: uuid
+             * @description Who approved or rejected it (the requester, if withdrawn); `null` until decided.
+             */
+            decidedBy: string | null;
+            /** Format: date-time */
+            decidedAt: string | null;
+            decisionReason: string | null;
+        };
+        RoleChangeRequested: {
+            request: components["schemas"]["RoleChangeRequest"];
+        };
+        RoleChangeRequestPage: components["schemas"]["Page"] & {
+            items: components["schemas"]["RoleChangeRequest"][];
+        };
+        AdminRead: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            actorId: string;
+            /** Format: uuid */
+            targetUserId: string;
+            /** Format: date-time */
+            occurredAt: string;
+            correlationId: string;
+        };
+        AdminReadPage: components["schemas"]["Page"] & {
+            items: components["schemas"]["AdminRead"][];
+        };
+        /** @enum {string} */
+        AdminAlertKind: "ROLE_CHANGE" | "ADMIN_SUSPENDED" | "ADMIN_REACTIVATED" | "BULK_SUSPENSIONS" | "SUSPENSION_LIMIT_REACHED" | "BULK_READS";
+        AdminAlert: {
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["AdminAlertKind"];
+            /**
+             * Format: uuid
+             * @description The administrator whose action raised it.
+             */
+            actorId: string;
+            /** @description Counts, thresholds and account ids. Never an email address. */
+            details: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            occurredAt: string;
+        };
+        AdminAlertPage: components["schemas"]["Page"] & {
+            items: components["schemas"]["AdminAlert"][];
         };
         /** @description Least-data lookup. `status`, `roles` and `displayName` are present only when `exists` is true. */
         IdentityLookup: {
@@ -655,6 +965,19 @@ export interface components {
                  *       }
                  *     }
                  */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description Missing, malformed or expired access token (`UNAUTHENTICATED`), or the action needs the password
+         *     re-entered within the last few minutes (`STEP_UP_REQUIRED`): call `POST /auth/step-up`, then
+         *     retry. Permission rules are checked first, so `STEP_UP_REQUIRED` means the caller may proceed.
+         */
+        StepUpRequired: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
                 "application/json": components["schemas"]["Error"];
             };
         };
@@ -818,6 +1141,19 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
+        /**
+         * @description The request cannot be decided by this caller, or no longer at all: `SELF_APPROVAL_FORBIDDEN`,
+         *     `CONFLICT_OF_INTEREST`, `ROLE_REQUEST_NOT_PENDING`, `ROLE_REQUEST_EXPIRED`, `ROLE_REQUEST_STALE`,
+         *     or a role rule that now fails (`ACCOUNT_NOT_ACTIVE`, `LAST_ADMIN`).
+         */
+        RoleRequestConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
         /** @description Unknown activation token. */
         TokenInvalid: {
             headers: {
@@ -903,6 +1239,7 @@ export interface components {
     };
     parameters: {
         UserId: string;
+        RequestId: string;
         Page: number;
         PageSize: number;
     };
@@ -1094,6 +1431,51 @@ export interface operations {
             429: components["responses"]["RateLimited"];
         };
     };
+    stepUp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StepUpRequest"];
+            };
+        };
+        responses: {
+            /** @description Password confirmed and recorded on this session. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /**
+             * @description `UNAUTHENTICATED` (missing or expired access token, or the session has ended) or
+             *     `INVALID_CREDENTIALS` (wrong password).
+             */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_CREDENTIALS",
+                     *         "message": "Email or password is incorrect.",
+                     *         "correlationId": "5c1f2a9e"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+        };
+    };
     refresh: {
         parameters: {
             query?: never;
@@ -1248,6 +1630,36 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    searchDirectory: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                pageSize?: components["parameters"]["PageSize"];
+                status?: components["schemas"]["AccountStatus"];
+                role?: components["schemas"]["Role"];
+                /** @description Case-insensitive prefix match on email or display name. */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of directory entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectoryPage"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
     getUserAsAdmin: {
         parameters: {
             query?: never;
@@ -1302,11 +1714,12 @@ export interface operations {
                     "application/json": components["schemas"]["AdminUser"];
                 };
             };
-            401: components["responses"]["Unauthenticated"];
+            401: components["responses"]["StepUpRequired"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["RoleConflict"];
             422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
         };
     };
     reactivateUser: {
@@ -1333,7 +1746,7 @@ export interface operations {
                     "application/json": components["schemas"]["AdminUser"];
                 };
             };
-            401: components["responses"]["Unauthenticated"];
+            401: components["responses"]["StepUpRequired"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["RoleConflict"];
@@ -1364,7 +1777,10 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Role changed (idempotent if already in that role). */
+            /**
+             * @description Role changed because no other admin could approve, or unchanged because the target already
+             *     has that role.
+             */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1373,10 +1789,113 @@ export interface operations {
                     "application/json": components["schemas"]["AdminUser"];
                 };
             };
-            401: components["responses"]["Unauthenticated"];
+            /** @description Waiting for a second admin. Nothing has changed yet. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleChangeRequested"];
+                };
+            };
+            401: components["responses"]["StepUpRequired"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["RoleConflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    listRoleRequests: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                pageSize?: components["parameters"]["PageSize"];
+                status?: components["schemas"]["RoleRequestStatus"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of role-change requests. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleChangeRequestPage"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    approveRoleRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                requestId: components["parameters"]["RequestId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "reason": "Confirmed with the operations lead"
+                 *     }
+                 */
+                "application/json": components["schemas"]["ReasonRequest"];
+            };
+        };
+        responses: {
+            /** @description Approved and applied. The target account as it now is. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUser"];
+                };
+            };
+            401: components["responses"]["StepUpRequired"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["RoleRequestConflict"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    rejectRoleRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                requestId: components["parameters"]["RequestId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReasonRequest"];
+            };
+        };
+        responses: {
+            /** @description Rejected. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoleChangeRequest"];
+                };
+            };
+            401: components["responses"]["StepUpRequired"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["RoleRequestConflict"];
             422: components["responses"]["ValidationFailed"];
         };
     };
@@ -1386,6 +1905,13 @@ export interface operations {
                 page?: components["parameters"]["Page"];
                 pageSize?: components["parameters"]["PageSize"];
                 targetUserId?: string;
+                /** @description Only records written by this administrator. */
+                actorId?: string;
+                action?: components["schemas"]["AuditAction"];
+                /** @description Only records at or after this instant. */
+                from?: string;
+                /** @description Only records at or before this instant. Not before `from` (`422`). */
+                to?: string;
             };
             header?: never;
             path?: never;
@@ -1404,6 +1930,61 @@ export interface operations {
             };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    listAdminReads: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                pageSize?: components["parameters"]["PageSize"];
+                actorId?: string;
+                targetUserId?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of admin reads. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminReadPage"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
+        };
+    };
+    listAdminAlerts: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                pageSize?: components["parameters"]["PageSize"];
+                kind?: components["schemas"]["AdminAlertKind"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of alerts. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminAlertPage"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
         };
     };
     lookupUser: {
