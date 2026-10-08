@@ -131,6 +131,29 @@ describe("an expired access token", () => {
   });
 });
 
+describe("a 401 that is not about the token", () => {
+  it.each(["STEP_UP_REQUIRED", "INVALID_CREDENTIALS"])(
+    "(%s) reaches the caller without a refresh or a replay",
+    async (code) => {
+      const { api, calls } = fakeService({
+        "POST /auth/refresh": () => issued("t1"),
+        "GET /users/me": () => json(401, { error: { code, message: "Re-enter your password." } }),
+      });
+      const { session, ended } = tab(api);
+      session.signedIn("t0", "u1");
+
+      const err = await session.authed((t) => api.me(t)).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).code).toBe(code);
+      expect(calls["GET /users/me"]).toBe(1);
+      expect(calls["POST /auth/refresh"]).toBeUndefined();
+      expect(session.token()).toBe("t0");
+      expect(ended).toEqual([]);
+    },
+  );
+});
+
 describe("a refresh the service refuses", () => {
   it("signs out", async () => {
     const { api } = fakeService({
