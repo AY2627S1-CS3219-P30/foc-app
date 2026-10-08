@@ -139,9 +139,11 @@ neither stay unnoticed nor be undone quietly.
 | User     | read audit trail, reads, alerts, requests   | admin only; read-only (no route edits a record)                        |
 | Supplier | create / update / deactivate a supplier     | admin only; versioned (`If-Match`); deactivation, never deletion      |
 | Order    | read stuck and reconciling errands          | admin only                                                            |
+| Order    | read an errand's trace and alerts (PLT-05)  | admin only; read-only                                                 |
 | Order    | decide a referred errand (ORD-11)           | reason; audited; conflict-of-interest rule                            |
 | Credit   | read a wallet or ledger                     | admin only; every read recorded                                       |
-| Platform | redrive a dead letter (PLT-05)              | operator only; payload unchanged; audited                             |
+| Credit   | read an errand's credit record, alerts      | admin only; read-only; no balances, so not a recorded wallet read     |
+| Platform | redrive a dead letter (PLT-05)              | admin only; reason; payload unchanged; recorded once, never deleted   |
 | Platform | publish to the broker                       | one broker account per service, limited to its own events (PLT-06)    |
 
 ## Alternatives considered

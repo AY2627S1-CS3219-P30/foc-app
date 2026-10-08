@@ -51,3 +51,9 @@ export function useAdminData<T>(key: string, fetch: (token: string) => Promise<T
     reload: useCallback(() => setVersion((v) => v + 1), []),
   };
 }
+
+/** A figure from one load: `undefined` while loading, `null` when its service did not answer. */
+export function figure<T>(state: AdminData<T>, pick: (data: T) => number): number | null | undefined {
+  if (state.error) return null;
+  return state.data === undefined ? undefined : pick(state.data);
+}

@@ -34,6 +34,15 @@ export type CreditWait = OrderSchemas["CreditWaitList"]["items"][number];
 export type ReconciliationAttempt = OrderSchemas["ReconciliationAttempts"]["items"][number];
 export type Wallet = CreditSchemas["Wallet"];
 export type LedgerItem = CreditSchemas["LedgerItem"];
+/** PLT-05. Both services park and redrive dead letters through the same contract. */
+export type DeadLetter = OrderSchemas["DeadLetter"];
+export type DeadLetterDetail = OrderSchemas["DeadLetterDetail"];
+export type DeadLetterPage = OrderSchemas["DeadLetterPage"];
+export type DeadLetterStatus = DeadLetter["status"];
+export type OperatorAlert = OrderSchemas["OperatorAlertList"]["items"][number];
+export type OrderTimeline = OrderSchemas["OrderTimeline"];
+export type CreditAuditAlert = CreditSchemas["CreditAuditAlert"];
+export type OrderCreditTrace = CreditSchemas["OrderCreditTrace"];
 
 export const ORDER_SERVICE_URL = serviceUrl(
   process.env.NEXT_PUBLIC_ORDER_SERVICE_URL,
@@ -43,6 +52,13 @@ export const CREDIT_SERVICE_URL = serviceUrl(
   process.env.NEXT_PUBLIC_CREDIT_SERVICE_URL,
   "http://localhost:3004",
 );
+
+/** The platform dashboard (PLT-04), beside the Compose stack. */
+export const GRAFANA_URL = serviceUrl(process.env.NEXT_PUBLIC_GRAFANA_URL, "http://localhost:3005");
+
+/** The services that consume events, and so keep dead letters. */
+export type DeadLetterService = "order" | "credit";
+export type DeadLetterQuery = Paging & { status?: DeadLetterStatus; q?: string };
 
 /** A role change either applied at once, or waits for a second administrator (ADR 0008). */
 export type RoleChange =
@@ -96,6 +112,8 @@ export function createAdminApi({
   });
   const user = (userId: string) => ({ path: { userId } });
   const request = (requestId: string) => ({ path: { requestId } });
+  const order = (orderId: string) => ({ path: { orderId } });
+  const letter = (id: string) => ({ path: { id } });
 
   return {
     /** To find accounts. The console uses this, not the full list, which records a read of each. */
@@ -166,6 +184,49 @@ export function createAdminApi({
       unwrap(orders.GET("/admin/orders/pending-credit", { headers: bearer(token) })),
     reconciliation: (token: string) =>
       unwrap(orders.GET("/admin/orders/reconciliation-attempts", { headers: bearer(token) })),
+
+    /** PLT-05: `CREDIT_WAIT_EXCEEDED` and `CREDIT_STATE_CONFLICT`, newest first. */
+    operatorAlerts: (token: string) =>
+      unwrap(orders.GET("/admin/orders/alerts", { headers: bearer(token) })),
+    /** Everything the Order Service recorded about one errand. */
+    orderTimeline: (token: string, orderId: string) =>
+      unwrap(
+        orders.GET("/admin/orders/{orderId}/timeline", {
+          params: order(orderId),
+          headers: bearer(token),
+        }),
+      ),
+    /** The Credit Service's half of an errand's trace. No balances, so not a recorded wallet read. */
+    orderCredit: (token: string, orderId: string) =>
+      unwrap(
+        credit.GET("/admin/orders/{orderId}/credit", {
+          params: order(orderId),
+          headers: bearer(token),
+        }),
+      ),
+    creditAlerts: (token: string) =>
+      unwrap(credit.GET("/admin/credit-alerts", { headers: bearer(token) })),
+
+    /** One service's dead letters. `q` is a correlation, order, user or event ID, matched exactly. */
+    deadLetters: (token: string, service: DeadLetterService, query: DeadLetterQuery = {}) => {
+      const init = { params: { query }, headers: bearer(token) };
+      return service === "order"
+        ? unwrap(orders.GET("/admin/dead-letters", init))
+        : unwrap(credit.GET("/admin/dead-letters", init));
+    },
+    deadLetter: (token: string, service: DeadLetterService, id: string) => {
+      const init = { params: letter(id), headers: bearer(token) };
+      return service === "order"
+        ? unwrap(orders.GET("/admin/dead-letters/{id}", init))
+        : unwrap(credit.GET("/admin/dead-letters/{id}", init));
+    },
+    /** Sends it again, unchanged, to the queue it failed on. Recorded with the reason. */
+    redrive: (token: string, service: DeadLetterService, id: string, reason: string) => {
+      const init = { params: letter(id), body: { reason }, headers: bearer(token) };
+      return service === "order"
+        ? unwrap(orders.POST("/admin/dead-letters/{id}/redrive", init))
+        : unwrap(credit.POST("/admin/dead-letters/{id}/redrive", init));
+    },
 
     /** Read-only; the Credit Service records every admin read of a wallet or ledger. */
     wallet: (token: string, userId: string) =>

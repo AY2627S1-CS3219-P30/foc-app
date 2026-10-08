@@ -29,5 +29,17 @@ export class OrderMetrics implements OnModuleInit {
         for (const status of ORDER_STATUSES) set({ status }, counts.get(status) ?? 0);
       },
     });
+    // PLT-05 (EI-NFR4.1.2): how long the oldest errand has waited for Credit; 0 when none waits.
+    this.metrics.addGauge({
+      name: 'foc_orders_pending_credit_oldest_age_seconds',
+      help: 'Age of the oldest errand waiting for the Credit Service (PENDING_CREDIT), 0 when none is.',
+      collect: async (set) => {
+        const { rows } = await this.db.query<{ age: number | null }>(
+          `SELECT extract(epoch FROM now() - min(created_at))::float8 AS age
+             FROM orders WHERE status = 'PENDING_CREDIT'`,
+        );
+        set({}, Math.max(0, Number(rows[0]?.age ?? 0)));
+      },
+    });
   }
 }

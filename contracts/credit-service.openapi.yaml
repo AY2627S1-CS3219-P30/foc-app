@@ -5,8 +5,10 @@ info:
   summary: Read-only wallet and immutable ledger API.
   description: |
     Students can read only the wallet resolved from their bearer token. Administrators can use the
-    explicit admin routes; every admin read attempt is appended to the audit log. Credit mutations
-    are asynchronous domain events and are not exposed over HTTP.
+    explicit admin routes; every admin wallet read attempt is appended to the audit log. Credit
+    mutations are asynchronous domain events and are not exposed over HTTP. The one write, a dead
+    letter's redrive (PLT-05), sends a failed event back unchanged to the consumer that failed it,
+    which decides again as it would have; it moves no credit itself.
 servers:
   - url: http://localhost:3004
 security:
@@ -89,6 +91,118 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/WalletNotFound' }
         '503': { $ref: '#/components/responses/IdentityUnavailable' }
+  /admin/orders/{orderId}/credit:
+    get:
+      operationId: getOrderCreditTrace
+      summary: Credit's half of one errand's trace (PLT-05, EI-NFR4.1.1).
+      description: |
+        What Credit decided for one errand: its operations, the transactions they made, its audit
+        alerts, and any of its dead letters about the errand. No balances. Empty lists mean Credit
+        has no record of the errand. Administrators only.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Credit's record of the errand.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderCreditTrace' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/credit-alerts:
+    get:
+      operationId: listCreditAuditAlerts
+      summary: Credit's audit alerts across every errand, newest first (PLT-05).
+      description: |
+        Requests Credit refused as inconsistent with what it had recorded (for example
+        `CONFLICTING_REQUEST`), at most 100. Administrators only.
+      responses:
+        '200':
+          description: Alerts, newest first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreditAuditAlertList' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/dead-letters:
+    get:
+      operationId: listDeadLetters
+      summary: Find this service's dead letters (PLT-05).
+      description: |
+        Events this service's consumers could not handle after every retry, parked for an operator,
+        newest first. `q` matches a correlation ID, an aggregate (order or user) ID or an event ID
+        exactly. Administrators only.
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [WAITING, REDRIVEN] } }
+        - { name: queue, in: query, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: q, in: query, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - {
+            name: pageSize,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 20 },
+          }
+      responses:
+        '200':
+          description: One page of dead letters.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeadLetterPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/DeadLetterInvalid' }
+  /admin/dead-letters/{id}:
+    get:
+      operationId: getDeadLetter
+      summary: Inspect one dead letter, with the message it carried.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The dead letter, its body and headers as received.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeadLetterDetail' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/DeadLetterNotFound' }
+  /admin/dead-letters/{id}/redrive:
+    post:
+      operationId: redriveDeadLetter
+      summary: Deliver a dead letter again, unchanged, to the queue it failed on.
+      description: |
+        Publishes the stored bytes and properties to the queue the message failed on, and nowhere
+        else, with its attempts started again. The payload cannot be edited. Recorded with who did it
+        and why once the broker confirms. A dead letter is redriven once; if it fails again, it comes
+        back as a new one. The consumer's inbox makes a repeated delivery harmless.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 500 }
+      responses:
+        '200':
+          description: Redriven. The dead letter, now REDRIVEN.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeadLetter' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/DeadLetterNotFound' }
+        '409': { $ref: '#/components/responses/AlreadyRedriven' }
+        '422': { $ref: '#/components/responses/DeadLetterInvalid' }
+        '503': { $ref: '#/components/responses/BrokerUnavailable' }
   /internal/orders/{orderId}/credit-status:
     get:
       operationId: getOrderCreditStatus
@@ -229,6 +343,126 @@ components:
           oneOf:
             - { $ref: '#/components/schemas/TransactionReference' }
             - { type: 'null' }
+    CreditAuditAlert:
+      type: object
+      required: [alertId, orderId, operationType, code, details, correlationId, occurredAt]
+      properties:
+        alertId: { type: string, format: uuid }
+        orderId: { type: string }
+        operationType: { type: string, enum: [RESERVE, RELEASE, TRANSFER] }
+        code: { type: string }
+        details: { description: What was recorded and what was received. }
+        correlationId: { type: string }
+        occurredAt: { type: string, format: date-time }
+    CreditAuditAlertList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CreditAuditAlert' }
+    OrderCreditTrace:
+      type: object
+      required: [orderId, operations, transactions, alerts, deadLetters]
+      properties:
+        orderId: { type: string, format: uuid }
+        operations:
+          type: array
+          items:
+            type: object
+            required:
+              [
+                operationType,
+                requesterId,
+                courierId,
+                amount,
+                outcome,
+                rejectionReason,
+                transactionId,
+                createdAt,
+              ]
+            properties:
+              operationType: { type: string, enum: [RESERVE, RELEASE, TRANSFER] }
+              requesterId: { type: string }
+              courierId: { type: [string, 'null'] }
+              amount: { type: integer, minimum: 1 }
+              outcome: { type: string, enum: [PENDING, SUCCEEDED, REJECTED] }
+              rejectionReason: { type: [string, 'null'] }
+              transactionId: { type: [string, 'null'], format: uuid }
+              createdAt: { type: string, format: date-time }
+        transactions:
+          type: array
+          items:
+            type: object
+            required: [transactionId, transactionType, walletUserId, amount, occurredAt]
+            properties:
+              transactionId: { type: string, format: uuid }
+              transactionType: { type: string, enum: [ISSUE, RESERVE, RELEASE, TRANSFER] }
+              walletUserId: { type: [string, 'null'] }
+              amount: { type: integer, minimum: 1 }
+              occurredAt: { type: string, format: date-time }
+        alerts:
+          type: array
+          items: { $ref: '#/components/schemas/CreditAuditAlert' }
+        deadLetters:
+          type: array
+          items: { $ref: '#/components/schemas/DeadLetter' }
+    DeadLetter:
+      type: object
+      required:
+        [
+          id,
+          queue,
+          eventId,
+          eventType,
+          aggregateId,
+          correlationId,
+          failureReason,
+          attempts,
+          status,
+          parkedAt,
+          redrivenAt,
+          redrivenBy,
+          redriveReason,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        queue:
+          {
+            type: string,
+            description: The queue whose consumer failed,
+            which a redrive delivers to.,
+          }
+        eventId: { type: [string, 'null'] }
+        eventType: { type: [string, 'null'] }
+        aggregateId: { type: [string, 'null'], description: The order or user the event is about. }
+        correlationId: { type: [string, 'null'] }
+        failureReason: { type: [string, 'null'] }
+        attempts: { type: integer, minimum: 1 }
+        status: { type: string, enum: [WAITING, REDRIVEN] }
+        parkedAt: { type: string, format: date-time }
+        redrivenAt: { type: [string, 'null'], format: date-time }
+        redrivenBy: { type: [string, 'null'] }
+        redriveReason: { type: [string, 'null'] }
+    DeadLetterDetail:
+      allOf:
+        - { $ref: '#/components/schemas/DeadLetter' }
+        - type: object
+          required: [body, headers]
+          properties:
+            body:
+              { description: The message as received, parsed when it is JSON, its text otherwise. }
+            headers: { type: object, additionalProperties: true }
+    DeadLetterPage:
+      type: object
+      required: [page, pageSize, total, items]
+      properties:
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total: { type: integer, minimum: 0 }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DeadLetter' }
     Error:
       type: object
       required: [error]
@@ -279,6 +513,26 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
     InternalFailure:
       description: Internal query failure. Details are not exposed.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    DeadLetterNotFound:
+      description: No dead letter has this ID.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    DeadLetterInvalid:
+      description: '`VALIDATION_FAILED`: an unknown or malformed filter, or a redrive without a reason.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    AlreadyRedriven:
+      description: '`ALREADY_REDRIVEN`: if it failed again, it is waiting as a new dead letter.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    BrokerUnavailable:
+      description: '`BROKER_UNAVAILABLE`: the message broker is not connected. Nothing was sent.'
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }

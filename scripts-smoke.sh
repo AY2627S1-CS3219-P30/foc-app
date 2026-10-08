@@ -195,6 +195,28 @@ queues=$(curl -fsS "${PROMETHEUS}/api/v1/query" --data-urlencode 'query=count(ra
 [[ "${queues:-0}" -gt 0 ]] && pass "Prometheus sees RabbitMQ queue depths ($queues queues)" ||
   fail "no RabbitMQ queue depths in Prometheus"
 
+# ---- dead letters are parked, and alerted on (PLT-05) -------------------------
+rules=$(curl -fsS "${PROMETHEUS}/api/v1/rules" 2>/dev/null |
+  python3 -c 'import sys,json; print(" ".join(r["name"] for g in json.load(sys.stdin)["data"]["groups"] for r in g["rules"]))' \
+    2>/dev/null) || rules=""
+[[ "$rules" == *DeadLetterWaiting* && "$rules" == *ErrandWaitingForCredit* ]] &&
+  pass "Prometheus loaded the alert rules" || fail "alert rules not loaded (got '${rules:-nothing}')"
+
+# Order (3) and Credit (4) each drain their own dead-letter queues into their database, where an
+# operator redrives them. A queue nobody consumes would hold dead letters out of the console's sight.
+RABBIT_API="http://localhost:${RABBITMQ_MANAGEMENT_PORT:-15672}/api/queues/%2F?columns=name,consumers"
+RABBIT_AUTH="${RABBITMQ_USER:-foc}:${RABBITMQ_PASSWORD:-foc_dev}"
+dlqs=""
+for _ in $(seq 1 15); do
+  dlqs=$(curl -fsS -u "$RABBIT_AUTH" "$RABBIT_API" 2>/dev/null |
+    python3 -c 'import sys,json; q=[x for x in json.load(sys.stdin) if x["name"].endswith(".dlq")]; print(len(q), sum(x.get("consumers", 0) > 0 for x in q))' \
+      2>/dev/null) || dlqs=""
+  [[ "$dlqs" == "7 7" ]] && break
+  sleep 1
+done
+[[ "$dlqs" == "7 7" ]] && pass "all 7 dead-letter queues are consumed" ||
+  fail "dead-letter queues and consumers: expected '7 7', got '${dlqs:-nothing}'"
+
 title=$(curl -fsS "${GRAFANA}/api/dashboards/uid/foc-platform" 2>/dev/null |
   python3 -c 'import sys,json; print(json.load(sys.stdin)["dashboard"]["title"])' 2>/dev/null) || title=""
 [[ "$title" == "FoC Platform" ]] && pass "Grafana serves the FoC Platform dashboard" ||

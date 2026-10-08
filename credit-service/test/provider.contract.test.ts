@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, it } from 'vitest';
-import { ContractValidator } from '@foc/test-harness';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { BrokerConnection, DLX, EVENTS, createEnvelope } from '@foc/platform';
+import { ContractValidator, createMemoryBroker } from '@foc/test-harness';
+import { CREDIT_ECONOMIC_SUBSCRIPTIONS } from '../src/closed-economy.js';
+import { WALLET_QUEUE } from '../src/wallet-provisioning.js';
 import {
   asAdmin,
   asOther,
@@ -27,7 +30,7 @@ describe('credit-service honours its published contract', () => {
   afterAll(async () => app.close());
 
   const expectContract = async (
-    method: 'get',
+    method: 'get' | 'post',
     template: string,
     response: { status: number; body: unknown },
   ) => contract.assert(method, template, response);
@@ -90,5 +93,101 @@ describe('credit-service honours its published contract', () => {
       '/internal/orders/{orderId}/credit-status',
       await http(app).get(path),
     );
+  });
+
+  it('the operator credit trace and alerts (200, 400, 401, 403)', async () => {
+    const orderId = randomUUID();
+    await app.db.transaction((tx) =>
+      app.credits.reserve(tx, {
+        orderId,
+        requesterId: 'student-1',
+        amount: 2,
+        correlationId: 'contract-trace',
+        causationId: 'contract-reserve',
+      }),
+    );
+    const trace = '/admin/orders/{orderId}/credit';
+    const get = (target: string, auth?: string) =>
+      auth ? http(app).get(target).set('Authorization', auth) : http(app).get(target);
+    await expectContract('get', trace, await get(`/admin/orders/${orderId}/credit`, asAdmin));
+    await expectContract('get', trace, await get('/admin/orders/order-1/credit', asAdmin));
+    await expectContract('get', trace, await get(`/admin/orders/${orderId}/credit`));
+    await expectContract('get', trace, await get(`/admin/orders/${orderId}/credit`, asStudent));
+    await expectContract('get', '/admin/credit-alerts', await get('/admin/credit-alerts', asAdmin));
+    await expectContract('get', '/admin/credit-alerts', await get('/admin/credit-alerts', asOther));
+  });
+
+  it('dead letters: find, inspect, redrive (200, 401, 403, 404, 409, 422, 503)', async () => {
+    const memory = createMemoryBroker();
+    const broker = new BrokerConnection(
+      'amqp://memory',
+      'credit-service',
+      CREDIT_ECONOMIC_SUBSCRIPTIONS.map(({ queue, routingKeys }) => ({
+        queue,
+        routingKeys: [...routingKeys],
+      })),
+      [5],
+      { connect: memory.connect },
+    );
+    const withBroker = await createTestApp({ broker });
+    try {
+      await broker.connect();
+      memory.publish(
+        DLX,
+        WALLET_QUEUE,
+        createEnvelope({
+          eventType: EVENTS.USER_ACTIVATED,
+          schemaVersion: 1,
+          aggregateId: 'student-7',
+          producer: 'user-service',
+          correlationId: 'contract-activation',
+          payload: { userId: 'student-7', activatedAt: new Date().toISOString() },
+        }),
+        { headers: { 'x-foc-attempt': 5, 'x-foc-failure-reason': 'contract check' } },
+      );
+      const list = '/admin/dead-letters';
+      const find = () =>
+        http(withBroker).get(`${list}?q=contract-activation`).set('Authorization', asAdmin);
+      await expect.poll(async () => (await find()).body.total).toBe(1);
+      const found = await find();
+      await expectContract('get', list, found);
+      await expectContract(
+        'get',
+        list,
+        await http(withBroker).get(list).set('Authorization', asStudent),
+      );
+      await expectContract('get', list, await http(withBroker).get(list));
+      await expectContract(
+        'get',
+        list,
+        await http(withBroker).get(`${list}?page=0`).set('Authorization', asAdmin),
+      );
+
+      const id = (found.body as { items: Array<{ id: string }> }).items[0]!.id;
+      const one = '/admin/dead-letters/{id}';
+      await expectContract(
+        'get',
+        one,
+        await http(withBroker).get(`${list}/${id}`).set('Authorization', asAdmin),
+      );
+      await expectContract(
+        'get',
+        one,
+        await http(withBroker).get(`${list}/${randomUUID()}`).set('Authorization', asAdmin),
+      );
+
+      const redrive = '/admin/dead-letters/{id}/redrive';
+      const post = (target: string, body: object, on: TestApp = withBroker) =>
+        http(on).post(`${list}/${target}/redrive`).set('Authorization', asAdmin).send(body);
+      await expectContract('post', redrive, await post(id, {}));
+      await expectContract('post', redrive, await post(id, { reason: 'contract' }));
+      await expectContract('post', redrive, await post(id, { reason: 'again' }));
+      await expectContract('post', redrive, await post(randomUUID(), { reason: 'unknown' }));
+      // No broker at all: nothing can be sent.
+      await expectContract('post', redrive, await post(randomUUID(), { reason: 'x' }, app));
+    } finally {
+      await broker.close();
+      await withBroker.close();
+    }
   });
 });

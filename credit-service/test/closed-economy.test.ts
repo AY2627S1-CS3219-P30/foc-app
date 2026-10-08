@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { CREDIT_ECONOMIC_SUBSCRIPTIONS, CREDIT_HTTP_SURFACE } from '../src/closed-economy.js';
+import {
+  CREDIT_ECONOMIC_SUBSCRIPTIONS,
+  CREDIT_HTTP_SURFACE,
+  CREDIT_REDRIVE_ROUTE,
+} from '../src/closed-economy.js';
 import { createTestApp } from './helpers/app.js';
 
 type ExpressLayer = {
@@ -16,7 +20,7 @@ describe('closed-economy deployed surface (CRD-06)', () => {
     ]);
   });
 
-  it('registers an exact, GET-only HTTP surface with no balance mutation route', async () => {
+  it('registers an exact HTTP surface: reads, and the redrive, with no balance mutation route', async () => {
     const app = await createTestApp();
     try {
       const instance = app.app.getHttpAdapter().getInstance() as {
@@ -32,7 +36,8 @@ describe('closed-economy deployed surface (CRD-06)', () => {
           : [],
       );
       expect(routes.sort()).toEqual([...CREDIT_HTTP_SURFACE].sort());
-      expect(routes.every((route) => route.startsWith('GET '))).toBe(true);
+      // The redrive is the only write; operations.test.ts shows it changes no credit row.
+      expect(routes.filter((route) => !route.startsWith('GET '))).toEqual([CREDIT_REDRIVE_ROUTE]);
     } finally {
       await app.close();
     }

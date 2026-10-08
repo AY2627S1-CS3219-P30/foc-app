@@ -228,6 +228,8 @@ services:
         # The stack's User Service runs in development mode, which mounts the
         # dev mailbox, so the sign-up screen may link straight to activation.
         NEXT_PUBLIC_DEV_MAILBOX: 'true'
+        # Linked from the admin console's Operations tab (PLT-05).
+        NEXT_PUBLIC_GRAFANA_URL: http://localhost:${GRAFANA_PORT:-3005}
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -250,6 +252,7 @@ services:
       - --storage.tsdb.retention.time=7d
     volumes:
       - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
     configs:
       - source: metrics-token

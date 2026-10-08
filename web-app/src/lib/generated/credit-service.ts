@@ -85,6 +85,111 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/orders/{orderId}/credit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Credit's half of one errand's trace (PLT-05, EI-NFR4.1.1).
+         * @description What Credit decided for one errand: its operations, the transactions they made, its audit
+         *     alerts, and any of its dead letters about the errand. No balances. Empty lists mean Credit
+         *     has no record of the errand. Administrators only.
+         */
+        get: operations["getOrderCreditTrace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/credit-alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Credit's audit alerts across every errand, newest first (PLT-05).
+         * @description Requests Credit refused as inconsistent with what it had recorded (for example
+         *     `CONFLICTING_REQUEST`), at most 100. Administrators only.
+         */
+        get: operations["listCreditAuditAlerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/dead-letters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find this service's dead letters (PLT-05).
+         * @description Events this service's consumers could not handle after every retry, parked for an operator,
+         *     newest first. `q` matches a correlation ID, an aggregate (order or user) ID or an event ID
+         *     exactly. Administrators only.
+         */
+        get: operations["listDeadLetters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/dead-letters/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inspect one dead letter, with the message it carried. */
+        get: operations["getDeadLetter"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/dead-letters/{id}/redrive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deliver a dead letter again, unchanged, to the queue it failed on.
+         * @description Publishes the stored bytes and properties to the queue the message failed on, and nowhere
+         *     else, with its attempts started again. The payload cannot be edited. Recorded with who did it
+         *     and why once the broker confirms. A dead letter is redriven once; if it fails again, it comes
+         *     back as a new one. The consumer's inbox makes a repeated delivery harmless.
+         */
+        post: operations["redriveDeadLetter"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/internal/orders/{orderId}/credit-status": {
         parameters: {
             query?: never;
@@ -169,6 +274,86 @@ export interface components {
             reservation: components["schemas"]["TransactionReference"] | null;
             terminal: components["schemas"]["TransactionReference"] | null;
         };
+        CreditAuditAlert: {
+            /** Format: uuid */
+            alertId: string;
+            orderId: string;
+            /** @enum {string} */
+            operationType: "RESERVE" | "RELEASE" | "TRANSFER";
+            code: string;
+            /** @description What was recorded and what was received. */
+            details: unknown;
+            correlationId: string;
+            /** Format: date-time */
+            occurredAt: string;
+        };
+        CreditAuditAlertList: {
+            items: components["schemas"]["CreditAuditAlert"][];
+        };
+        OrderCreditTrace: {
+            /** Format: uuid */
+            orderId: string;
+            operations: {
+                /** @enum {string} */
+                operationType: "RESERVE" | "RELEASE" | "TRANSFER";
+                requesterId: string;
+                courierId: string | null;
+                amount: number;
+                /** @enum {string} */
+                outcome: "PENDING" | "SUCCEEDED" | "REJECTED";
+                rejectionReason: string | null;
+                /** Format: uuid */
+                transactionId: string | null;
+                /** Format: date-time */
+                createdAt: string;
+            }[];
+            transactions: {
+                /** Format: uuid */
+                transactionId: string;
+                /** @enum {string} */
+                transactionType: "ISSUE" | "RESERVE" | "RELEASE" | "TRANSFER";
+                walletUserId: string | null;
+                amount: number;
+                /** Format: date-time */
+                occurredAt: string;
+            }[];
+            alerts: components["schemas"]["CreditAuditAlert"][];
+            deadLetters: components["schemas"]["DeadLetter"][];
+        };
+        DeadLetter: {
+            /** Format: uuid */
+            id: string;
+            /** @description The queue whose consumer failed */
+            queue: string;
+            eventId: string | null;
+            eventType: string | null;
+            /** @description The order or user the event is about. */
+            aggregateId: string | null;
+            correlationId: string | null;
+            failureReason: string | null;
+            attempts: number;
+            /** @enum {string} */
+            status: "WAITING" | "REDRIVEN";
+            /** Format: date-time */
+            parkedAt: string;
+            /** Format: date-time */
+            redrivenAt: string | null;
+            redrivenBy: string | null;
+            redriveReason: string | null;
+        };
+        DeadLetterDetail: components["schemas"]["DeadLetter"] & {
+            /** @description The message as received */
+            body: unknown;
+            headers: {
+                [key: string]: unknown;
+            };
+        };
+        DeadLetterPage: {
+            page: number;
+            pageSize: number;
+            total: number;
+            items: components["schemas"]["DeadLetter"][];
+        };
         Error: {
             error: {
                 code: string;
@@ -244,6 +429,42 @@ export interface components {
         };
         /** @description Internal query failure. Details are not exposed. */
         InternalFailure: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description No dead letter has this ID. */
+        DeadLetterNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description `VALIDATION_FAILED`: an unknown or malformed filter, or a redrive without a reason. */
+        DeadLetterInvalid: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description `ALREADY_REDRIVEN`: if it failed again, it is waiting as a new dead letter. */
+        AlreadyRedriven: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description `BROKER_UNAVAILABLE`: the message broker is not connected. Nothing was sent. */
+        BrokerUnavailable: {
             headers: {
                 [name: string]: unknown;
             };
@@ -393,6 +614,141 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["WalletNotFound"];
             503: components["responses"]["IdentityUnavailable"];
+        };
+    };
+    getOrderCreditTrace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Credit's record of the errand. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderCreditTrace"];
+                };
+            };
+            400: components["responses"]["InvalidOrderId"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listCreditAuditAlerts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Alerts, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreditAuditAlertList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listDeadLetters: {
+        parameters: {
+            query?: {
+                status?: "WAITING" | "REDRIVEN";
+                queue?: string;
+                q?: string;
+                page?: number;
+                pageSize?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of dead letters. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeadLetterPage"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["DeadLetterInvalid"];
+        };
+    };
+    getDeadLetter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The dead letter, its body and headers as received. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeadLetterDetail"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["DeadLetterNotFound"];
+        };
+    };
+    redriveDeadLetter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Redriven. The dead letter, now REDRIVEN. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeadLetter"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["DeadLetterNotFound"];
+            409: components["responses"]["AlreadyRedriven"];
+            422: components["responses"]["DeadLetterInvalid"];
+            503: components["responses"]["BrokerUnavailable"];
         };
     };
     getOrderCreditStatus: {

@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import type { ConfirmChannel, ConsumeMessage } from 'amqplib';
 import { afterAll, beforeAll, describe, it } from 'vitest';
+import { DEAD_LETTERS, createEnvelope, type DeadLetters } from '@foc/platform';
 import { ContractValidator } from '@foc/test-harness';
 import {
   asAdmin,
@@ -171,5 +173,68 @@ describe('order-service honours its published contract', () => {
     contract.assert('get', view, await http(app).get(view).set('Authorization', asAdmin));
     contract.assert('get', view, await http(app).get(view).set('Authorization', asStranger));
     contract.assert('get', view, await http(app).get(view));
+  });
+
+  it('the operator timeline and alerts (200, 400, 401, 403, 404)', async () => {
+    const timeline = '/admin/orders/{orderId}/timeline';
+    const get = (path: string, auth?: string) =>
+      auth ? http(app).get(path).set('Authorization', auth) : http(app).get(path);
+    const at = `/admin/orders/${SEEDED_ORDER}/timeline`;
+    contract.assert('get', timeline, await get(at, asAdmin));
+    contract.assert('get', timeline, await get('/admin/orders/not-a-uuid/timeline', asAdmin));
+    contract.assert('get', timeline, await get(at));
+    contract.assert('get', timeline, await get(at, asStranger));
+    contract.assert('get', timeline, await get(`/admin/orders/${randomUUID()}/timeline`, asAdmin));
+    const alerts = '/admin/orders/alerts';
+    contract.assert('get', alerts, await get(alerts, asAdmin));
+    contract.assert('get', alerts, await get(alerts, asStranger));
+  });
+
+  it('dead letters: find, inspect, redrive (200, 401, 403, 404, 422, 503)', async () => {
+    const channel = { ack: () => undefined, nack: () => undefined } as unknown as ConfirmChannel;
+    const reply = createEnvelope({
+      eventType: 'credit.reserved',
+      schemaVersion: 1,
+      aggregateId: SEEDED_ORDER,
+      producer: 'credit-service',
+      correlationId: 'contract-trace',
+      payload: { orderId: SEEDED_ORDER },
+    });
+    await app.app.get<DeadLetters>(DEAD_LETTERS).park(channel, 'foc.order.reservation-results', {
+      content: Buffer.from(JSON.stringify(reply)),
+      fields: { routingKey: 'foc.order.reservation-results' },
+      properties: { headers: { 'x-foc-attempt': 5, 'x-foc-failure-reason': 'contract check' } },
+    } as unknown as ConsumeMessage);
+
+    const list = '/admin/dead-letters';
+    const found = await http(app).get(`${list}?q=contract-trace`).set('Authorization', asAdmin);
+    contract.assert('get', list, found);
+    contract.assert('get', list, await http(app).get(list).set('Authorization', asStranger));
+    contract.assert('get', list, await http(app).get(list));
+    contract.assert(
+      'get',
+      list,
+      await http(app).get(`${list}?status=LOST`).set('Authorization', asAdmin),
+    );
+
+    const id = (found.body as { items: Array<{ id: string }> }).items[0]!.id;
+    const one = '/admin/dead-letters/{id}';
+    contract.assert('get', one, await http(app).get(`${list}/${id}`).set('Authorization', asAdmin));
+    contract.assert(
+      'get',
+      one,
+      await http(app).get(`${list}/${randomUUID()}`).set('Authorization', asAdmin),
+    );
+
+    const redrive = '/admin/dead-letters/{id}/redrive';
+    const post = (target: string, body: unknown, auth = asAdmin) =>
+      http(app)
+        .post(`${list}/${target}/redrive`)
+        .set('Authorization', auth)
+        .send(body as object);
+    contract.assert('post', redrive, await post(id, { reason: 'no broker in this test' }));
+    contract.assert('post', redrive, await post(id, {}));
+    contract.assert('post', redrive, await post(randomUUID(), { reason: 'unknown' }));
+    contract.assert('post', redrive, await post(id, { reason: 'student' }, asStranger));
   });
 });

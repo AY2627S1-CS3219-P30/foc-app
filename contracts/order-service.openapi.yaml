@@ -343,6 +343,121 @@ paths:
               schema: { $ref: '#/components/schemas/CreditWaitList' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/AdminOnly' }
+  /admin/orders/alerts:
+    get:
+      operationId: listOperatorAlerts
+      summary: Operator alerts across every errand (PLT-05).
+      description: |
+        `CREDIT_WAIT_EXCEEDED` (an errand waited for Credit past CREDIT_WAIT_TIMEOUT_MS) and
+        `CREDIT_STATE_CONFLICT` (Credit's record disagrees with the errand's), newest first, at most
+        100. Administrators only.
+      responses:
+        '200':
+          description: Alerts, newest first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OperatorAlertList' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/AdminOnly' }
+  /admin/orders/{orderId}/timeline:
+    get:
+      operationId: getOrderTimeline
+      summary: Reconstruct one errand from its ID (PLT-05, EI-NFR4.1.1).
+      description: |
+        Everything the Order Service recorded about one errand: its state changes, every event it
+        caused and how sending each went, reconciliation decisions, operator alerts, and any dead
+        letter about it. Credit's half is `GET /admin/orders/{orderId}/credit` on the Credit Service.
+        Administrators only.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The errand's timeline.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderTimeline' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/AdminOnly' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/dead-letters:
+    get:
+      operationId: listDeadLetters
+      summary: Find this service's dead letters (PLT-05).
+      description: |
+        Events this service's consumers could not handle after every retry, parked for an operator,
+        newest first. `q` matches a correlation ID, an aggregate (order or user) ID or an event ID
+        exactly. Administrators only.
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [WAITING, REDRIVEN] } }
+        - { name: queue, in: query, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: q, in: query, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - {
+            name: pageSize,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 20 },
+          }
+      responses:
+        '200':
+          description: One page of dead letters.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeadLetterPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/AdminOnly' }
+        '422': { $ref: '#/components/responses/DeadLetterInvalid' }
+  /admin/dead-letters/{id}:
+    get:
+      operationId: getDeadLetter
+      summary: Inspect one dead letter, with the message it carried.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The dead letter, its body and headers as received.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeadLetterDetail' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/AdminOnly' }
+        '404': { $ref: '#/components/responses/DeadLetterNotFound' }
+  /admin/dead-letters/{id}/redrive:
+    post:
+      operationId: redriveDeadLetter
+      summary: Deliver a dead letter again, unchanged, to the queue it failed on.
+      description: |
+        Publishes the stored bytes and properties to the queue the message failed on, and nowhere
+        else, with its attempts started again. The payload cannot be edited. Recorded with who did it
+        and why once the broker confirms. A dead letter is redriven once; if it fails again, it comes
+        back as a new one. The consumer's inbox makes a repeated delivery harmless.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [reason]
+              properties:
+                reason: { type: string, minLength: 1, maxLength: 500 }
+      responses:
+        '200':
+          description: Redriven. The dead letter, now REDRIVEN.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeadLetter' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/AdminOnly' }
+        '404': { $ref: '#/components/responses/DeadLetterNotFound' }
+        '409': { $ref: '#/components/responses/AlreadyRedriven' }
+        '422': { $ref: '#/components/responses/DeadLetterInvalid' }
+        '503': { $ref: '#/components/responses/BrokerUnavailable' }
   /orders/{orderId}/receipt:
     get:
       operationId: getOrderReceipt
@@ -611,6 +726,169 @@ components:
               createdAt: { type: string, format: date-time }
               waitingMs: { type: number, minimum: 0 }
               alertRaisedAt: { type: [string, 'null'], format: date-time }
+    OperatorAlert:
+      type: object
+      required: [kind, raisedAt, detail]
+      properties:
+        kind: { type: string, enum: [CREDIT_WAIT_EXCEEDED, CREDIT_STATE_CONFLICT] }
+        raisedAt: { type: string, format: date-time }
+        detail: { description: What the alert recorded when it was raised. }
+    OperatorAlertList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            allOf:
+              - { $ref: '#/components/schemas/OperatorAlert' }
+              - type: object
+                required: [orderId]
+                properties:
+                  orderId: { type: string, format: uuid }
+    OrderTimeline:
+      type: object
+      required:
+        [
+          orderId,
+          status,
+          requesterId,
+          courierId,
+          reward,
+          version,
+          creditTransactionId,
+          createdAt,
+          updatedAt,
+          history,
+          events,
+          reconciliation,
+          alerts,
+          deadLetters,
+        ]
+      properties:
+        orderId: { type: string, format: uuid }
+        status: { type: string }
+        requesterId: { type: string }
+        courierId: { type: [string, 'null'] }
+        reward: { type: integer }
+        version: { type: integer }
+        creditTransactionId: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        history:
+          type: array
+          items:
+            type: object
+            required: [previousStatus, newStatus, action, actorType, actorId, version, occurredAt]
+            properties:
+              previousStatus: { type: [string, 'null'] }
+              newStatus: { type: string }
+              action: { type: string }
+              actorType: { type: string }
+              actorId: { type: [string, 'null'] }
+              version: { type: integer }
+              occurredAt: { type: string, format: date-time }
+        events:
+          description: Every event the errand caused, sent or still waiting in the outbox.
+          type: array
+          items:
+            type: object
+            required:
+              [
+                eventId,
+                eventType,
+                correlationId,
+                causationId,
+                occurredAt,
+                publishedAt,
+                attempts,
+                lastError,
+              ]
+            properties:
+              eventId: { type: string, format: uuid }
+              eventType: { type: string }
+              correlationId: { type: string }
+              causationId: { type: [string, 'null'] }
+              occurredAt: { type: string, format: date-time }
+              publishedAt: { type: [string, 'null'], format: date-time }
+              attempts: { type: integer, minimum: 0 }
+              lastError: { type: [string, 'null'] }
+        reconciliation:
+          type: array
+          items:
+            type: object
+            required:
+              [attemptId, runId, orderStatus, creditStatus, action, reissuedEventId, attemptedAt]
+            properties:
+              attemptId: { type: string }
+              runId: { type: string }
+              orderStatus: { type: string }
+              creditStatus: { type: [string, 'null'] }
+              action: { type: string }
+              reissuedEventId: { type: [string, 'null'] }
+              attemptedAt: { type: string, format: date-time }
+        alerts:
+          type: array
+          items: { $ref: '#/components/schemas/OperatorAlert' }
+        deadLetters:
+          type: array
+          items: { $ref: '#/components/schemas/DeadLetter' }
+    DeadLetter:
+      type: object
+      required:
+        [
+          id,
+          queue,
+          eventId,
+          eventType,
+          aggregateId,
+          correlationId,
+          failureReason,
+          attempts,
+          status,
+          parkedAt,
+          redrivenAt,
+          redrivenBy,
+          redriveReason,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        queue:
+          {
+            type: string,
+            description: The queue whose consumer failed,
+            which a redrive delivers to.,
+          }
+        eventId: { type: [string, 'null'] }
+        eventType: { type: [string, 'null'] }
+        aggregateId: { type: [string, 'null'], description: The order or user the event is about. }
+        correlationId: { type: [string, 'null'] }
+        failureReason: { type: [string, 'null'] }
+        attempts: { type: integer, minimum: 1 }
+        status: { type: string, enum: [WAITING, REDRIVEN] }
+        parkedAt: { type: string, format: date-time }
+        redrivenAt: { type: [string, 'null'], format: date-time }
+        redrivenBy: { type: [string, 'null'] }
+        redriveReason: { type: [string, 'null'] }
+    DeadLetterDetail:
+      allOf:
+        - { $ref: '#/components/schemas/DeadLetter' }
+        - type: object
+          required: [body, headers]
+          properties:
+            body:
+              { description: The message as received, parsed when it is JSON, its text otherwise. }
+            headers: { type: object, additionalProperties: true }
+    DeadLetterPage:
+      type: object
+      required: [page, pageSize, total, items]
+      properties:
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total: { type: integer, minimum: 0 }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/DeadLetter' }
     ErrorEnvelope:
       type: object
       required: [error]
@@ -685,6 +963,26 @@ components:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     DependencyUnavailable:
       description: Supplier verification is temporarily unavailable or invalid.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    DeadLetterNotFound:
+      description: No dead letter has this ID.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    DeadLetterInvalid:
+      description: '`VALIDATION_FAILED`: an unknown or malformed filter, or a redrive without a reason.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    AlreadyRedriven:
+      description: '`ALREADY_REDRIVEN`: if it failed again, it is waiting as a new dead letter.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    BrokerUnavailable:
+      description: '`BROKER_UNAVAILABLE`: the message broker is not connected. Nothing was sent.'
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }

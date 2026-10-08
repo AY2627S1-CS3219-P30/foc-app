@@ -32,6 +32,12 @@ a clean clone with nothing running. CI sets every variable, so nothing is skippe
   queue names and retry namespace and deletes them in `dispose()`. The `foc.events` exchange is the
   production topology under test and stays shared, so a test must assert on its own aggregate or
   correlation IDs.
+- **Without a broker**, `createMemoryBroker()` routes as RabbitMQ does, in memory: pass its
+  `connect` to `BrokerConnection`, and the real consumer retries, dead-letters and redrives through
+  it. The service CI jobs have no RabbitMQ, so a service's whole-pipeline test uses it (for example,
+  a dead-lettered `user.activated`, once redriven, issuing exactly one wallet in
+  `credit-service/test/operations.test.ts`). It is not a broker: nothing persists, and prefetch is
+  ignored.
 
 Against the Compose stack:
 

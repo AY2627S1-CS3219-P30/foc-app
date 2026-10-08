@@ -125,6 +125,10 @@ const DATE_TIME: Intl.DateTimeFormatOptions = {
 
 export const formatWhen = (iso: string) => new Date(iso).toLocaleString([], DATE_TIME);
 
+/** To the second, for a trace where several steps share a minute. */
+export const formatInstant = (iso: string) =>
+  new Date(iso).toLocaleString([], { ...DATE_TIME, second: "2-digit" });
+
 /** "45 s", "12 min", "3 h 5 min". */
 export function formatDuration(ms: number): string {
   const minutes = Math.floor(ms / 60_000);

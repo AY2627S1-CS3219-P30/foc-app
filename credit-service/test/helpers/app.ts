@@ -3,7 +3,16 @@ import { Test } from '@nestjs/testing';
 import { drizzle } from 'drizzle-orm/pglite';
 import request from 'supertest';
 import { AUTHENTICATOR, AuthModule, authFailure, type AuthContext } from '@foc/auth-client';
-import { ErrorEnvelopeFilter, PlatformModule, type Db } from '@foc/platform';
+import {
+  DEAD_LETTERS,
+  DeadLetters,
+  ErrorEnvelopeFilter,
+  METRICS,
+  PlatformModule,
+  type BrokerConnection,
+  type Db,
+  type Metrics,
+} from '@foc/platform';
 import { CreditModule } from '../../src/credit.module.js';
 import { CreditRepository } from '../../src/credits/credit.repository.js';
 import { DB, RAW_DB } from '../../src/db/db.js';
@@ -57,7 +66,8 @@ export interface TestApp {
   close(): Promise<void>;
 }
 
-export async function createTestApp(): Promise<TestApp> {
+/** `broker`: dead letters park from, and redrive to, this connection (as `EventsModule` would give). */
+export async function createTestApp(options: { broker?: BrokerConnection } = {}): Promise<TestApp> {
   const db = await PgliteDb.create();
   await applyMigrations(db);
   const builder = Test.createTestingModule({
@@ -79,7 +89,12 @@ export async function createTestApp(): Promise<TestApp> {
     .overrideProvider(DB)
     .useValue(drizzle(db.client, { schema }))
     .overrideProvider(AUTHENTICATOR)
-    .useValue(fakeAuthenticator);
+    .useValue(fakeAuthenticator)
+    .overrideProvider(DEAD_LETTERS)
+    .useFactory({
+      factory: (metrics: Metrics) => new DeadLetters(db, options.broker, metrics),
+      inject: [METRICS],
+    });
   const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication();
   app.useGlobalFilters(new ErrorEnvelopeFilter());
