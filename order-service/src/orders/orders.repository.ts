@@ -178,6 +178,19 @@ export class OrdersRepository {
     });
   }
 
+  /** Errands the user requested or is the current courier of, most recently changed first. */
+  async listMine(userId: string): Promise<OrderRow[]> {
+    const result = await this.db.query<StoredOrder>(
+      `SELECT ${ORDER_COLUMNS}
+         FROM orders
+        WHERE requester_id = $1 OR courier_id = $1
+        ORDER BY updated_at DESC, order_id
+        LIMIT 100`,
+      [userId],
+    );
+    return result.rows.map(mapOrder);
+  }
+
   async findIdempotent(
     requesterId: string,
     idempotencyKey: string,
