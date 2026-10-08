@@ -15,7 +15,8 @@ import { authFailure } from './errors.js';
 import type { AuthConfig, AuthContext } from './types.js';
 
 export const AUTHENTICATOR = Symbol('FOC_AUTHENTICATOR');
-export type AuthedRequest = Request & { auth?: AuthContext };
+/** `correlationId` is set by the platform's request logger, which runs before any guard. */
+export type AuthedRequest = Request & { auth?: AuthContext; correlationId?: string };
 
 /** Requires a valid, live, active session. Sets `request.auth`. */
 @Injectable()
@@ -24,7 +25,9 @@ export class AuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<AuthedRequest>();
-    req.auth = await this.authenticator.authenticate(req.header('authorization'));
+    req.auth = await this.authenticator.authenticate(req.header('authorization'), {
+      correlationId: req.correlationId,
+    });
     return true;
   }
 }

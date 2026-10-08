@@ -5,6 +5,7 @@ import { Logger, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Db, Queryable, Row } from '../db.js';
+import { Metrics } from '../metrics.js';
 import { EVENTS, PAYLOAD_SCHEMAS, userStatusChangedPayload } from './catalogue.js';
 import type { BrokerConnection } from './connection.js';
 import { parseEnvelope, type Envelope } from './envelope.js';
@@ -499,6 +500,63 @@ describe('provideOutboxRelay', () => {
     await commit(db, 'user-2');
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(broker.sent).toHaveLength(1);
+    await db.close();
+  });
+});
+
+describe('OutboxRelay metrics (PLT-04)', () => {
+  const sample = (text: string, metric: string): number => {
+    const line = text
+      .split('\n')
+      .find((l) => l.startsWith(`${metric}{`) || l.startsWith(`${metric} `));
+    return Number(line?.split(' ').at(-1));
+  };
+
+  it('counts what the broker confirmed and what it refused', async () => {
+    const db = await outboxDb();
+    const broker = fakeBroker();
+    const metrics = new Metrics('test-service');
+    const relay = new OutboxRelay({
+      db,
+      publisher: broker.publisher,
+      logger: quietLogger(),
+      metrics,
+    });
+    await commit(db, 'user-1');
+    await commit(db, 'user-2');
+    broker.fail((e) => e.aggregateId === 'user-2');
+
+    await relay.tick();
+
+    const text = await metrics.render();
+    expect(sample(text, 'foc_outbox_published_total')).toBe(1);
+    expect(sample(text, 'foc_outbox_publish_failures_total')).toBe(1);
+    await relay.stop();
+    await db.close();
+  });
+
+  it('reports the backlog and the age of its oldest row as they are when scraped', async () => {
+    const db = await outboxDb();
+    const broker = fakeBroker();
+    const metrics = new Metrics('test-service');
+    const relay = new OutboxRelay({
+      db,
+      publisher: broker.publisher,
+      logger: quietLogger(),
+      metrics,
+    });
+    await commit(db, 'user-1');
+    await commit(db, 'user-2');
+
+    let text = await metrics.render();
+    expect(sample(text, 'foc_outbox_backlog')).toBe(2);
+    expect(sample(text, 'foc_outbox_oldest_unpublished_age_seconds')).toBeGreaterThanOrEqual(0);
+
+    await relay.tick();
+    text = await metrics.render();
+    expect(sample(text, 'foc_outbox_backlog')).toBe(0);
+    expect(sample(text, 'foc_outbox_oldest_unpublished_age_seconds')).toBe(0);
+    await relay.stop();
     await db.close();
   });
 });

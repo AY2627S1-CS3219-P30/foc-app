@@ -278,6 +278,8 @@ describe('authStatusEvents', () => {
     const replica = authStatusEvents('order');
     expect(order.subscription).toEqual({
       queue: expect.stringMatching(/^foc\.order\.auth-status\.[0-9a-f-]{36}$/),
+      // The metrics label drops the random part, so a restart continues the same series.
+      metricsLabel: 'foc.order.auth-status',
       routingKeys: [EVENTS.USER_SUSPENDED, EVENTS.USER_REACTIVATED, EVENTS.USER_ROLE_CHANGED],
       exclusive: true,
       autoDelete: true,
@@ -286,6 +288,7 @@ describe('authStatusEvents', () => {
     });
     // Replicas of one service must not compete for one queue: each holds its own cache.
     expect(replica.subscription.queue).not.toBe(order.subscription.queue);
+    expect(replica.subscription.metricsLabel).toBe(order.subscription.metricsLabel);
     expect(order.providers).toContain(UserStatusInvalidation);
   });
 

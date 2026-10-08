@@ -84,14 +84,14 @@ export function createSession({
     }
   }
 
-  async function rotate(): Promise<RefreshResult> {
+  async function rotate(correlationId?: string): Promise<RefreshResult> {
     // A sign-out that never reached the service: finish it rather than use the session.
     if (logoutPending.get()) {
       await revoke();
       return { kind: "ended" };
     }
     try {
-      const res = await api.refresh();
+      const res = await api.refresh(correlationId);
       return { kind: "ok", token: res.accessToken, userId: res.user.id };
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
@@ -101,10 +101,15 @@ export function createSession({
     }
   }
 
-  function refresh(): Promise<RefreshResult> {
+  /**
+   * `correlationId` is the user action the refresh is part of. A refresh already in flight is
+   * shared, so it carries the ID of the action that started it.
+   */
+  function refresh(correlationId?: string): Promise<RefreshResult> {
     if (inflight) return inflight;
     const started = epoch;
-    inflight = (locks ? locks.request(REFRESH_LOCK, rotate) : rotate())
+    const run = () => rotate(correlationId);
+    inflight = (locks ? locks.request(REFRESH_LOCK, run) : run())
       .catch((err): RefreshResult => ({ kind: "unavailable", error: asApiError(err) }))
       .then((result): RefreshResult => {
         // Signed in or out meanwhile: that is the newer truth.
@@ -125,16 +130,19 @@ export function createSession({
   }
 
   /** A token from a refresh; throws when there is no session or no answer. */
-  async function fresh(): Promise<string> {
-    const result = await refresh();
+  async function fresh(correlationId?: string): Promise<string> {
+    const result = await refresh(correlationId);
     if (result.kind === "ok") return result.token;
     if (result.kind === "unavailable") throw result.error;
     throw new ApiError(401, "UNAUTHENTICATED", "Your session has ended. Please sign in again.");
   }
 
-  /** Runs a call with the current access token, refreshing once and retrying if it has expired. */
-  async function authed<T>(fn: (token: string) => Promise<T>): Promise<T> {
-    const used = current?.token ?? (await fresh());
+  /**
+   * Runs a call with the current access token, refreshing once and retrying if it has expired. A
+   * refresh it makes belongs to the user action `correlationId` names, like the call itself.
+   */
+  async function authed<T>(fn: (token: string) => Promise<T>, correlationId?: string): Promise<T> {
+    const used = current?.token ?? (await fresh(correlationId));
     const owner = current?.userId;
     try {
       return await fn(used);
@@ -143,7 +151,7 @@ export function createSession({
       // Expired (15 min) or revoked. If another call has refreshed since this one started, use its
       // token: refreshing again would rotate the cookie for nothing.
       const latest = current?.token;
-      const retry = latest && latest !== used ? latest : await fresh();
+      const retry = latest && latest !== used ? latest : await fresh(correlationId);
       // Never replay a call as someone else.
       if (owner && current?.userId !== owner) {
         throw new ApiError(

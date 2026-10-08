@@ -4,8 +4,15 @@ import { TokenVerifier } from './token-verifier.js';
 import type { AuthConfig, AuthContext } from './types.js';
 
 export interface Authenticator {
-  /** Turns an `Authorization` header into a verified caller, or throws one typed failure. */
-  authenticate(authorizationHeader: string | undefined): Promise<AuthContext>;
+  /**
+   * Turns an `Authorization` header into a verified caller, or throws one typed failure.
+   * `correlationId` is the inbound request's; it travels on the call to the User Service so both
+   * services log the check under one ID (PLT-04).
+   */
+  authenticate(
+    authorizationHeader: string | undefined,
+    options?: { correlationId?: string },
+  ): Promise<AuthContext>;
   /** Throws `FORBIDDEN` unless the caller is an administrator. */
   requireAdmin(context: AuthContext): void;
   /**
@@ -33,11 +40,11 @@ export function createAuthenticator(config: AuthConfig): Authenticator {
   const identity = new IdentityClient(config);
 
   return {
-    async authenticate(header) {
+    async authenticate(header, options) {
       const token = bearerToken(header);
       const { sub, sid } = await verifier.verify(token);
 
-      const who = await identity.introspect(sid, sub);
+      const who = await identity.introspect(sid, sub, options?.correlationId);
       if (!who.active) throw authFailure('TOKEN_REVOKED');
       if (who.status === 'SUSPENDED') throw authFailure('ACCOUNT_SUSPENDED');
       // Anything that is not exactly ACTIVE is denied — including a status added after this was written.

@@ -2,6 +2,7 @@ import type { LoggerService } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
 import pino, { type DestinationStream, type Logger as PinoLogger } from 'pino';
 import { CORRELATION_HEADER, echoCorrelationId, resolveCorrelationId } from './correlation.js';
+import { UNMEASURED_PATHS, type Metrics } from './metrics.js';
 
 /**
  * Credentials (US-NFR2.1.1) and email addresses (US-NFR4.1.1), wherever they
@@ -192,38 +193,61 @@ export class PinoLoggerService implements LoggerService {
  * action to every service that handled it (EI-NFR4.1.1). Attaches the id to the
  * request so handlers and the error filter can reuse it.
  */
-export function requestLogger(logger: PinoLogger) {
+/** nginx's status for a request the client gave up on before the answer was sent. */
+const CLIENT_CLOSED_REQUEST = 499;
+
+export function requestLogger(logger: PinoLogger, metrics?: Pick<Metrics, 'observeHttp'>) {
   return function requestLoggerMiddleware(req: Request, res: Response, next: NextFunction): void {
     const correlationId = resolveCorrelationId(req);
     echoCorrelationId(res, correlationId);
     (req as Request & { correlationId: string }).correlationId = correlationId;
 
-    // /health is polled by Docker every few seconds; logging it drowns the rest.
-    // Nest rewrites `req.url` relative to the middleware mount point, so the
-    // full path is only reliable on `originalUrl`.
+    // /health is polled by Docker and /metrics by Prometheus every few seconds;
+    // logging or timing them drowns the rest. Nest rewrites `req.url` relative to
+    // the middleware mount point, so the full path is only reliable on `originalUrl`.
     const fullPath = (req.originalUrl ?? req.url).split('?')[0]!;
-    if (fullPath === '/health') return next();
+    if (UNMEASURED_PATHS.has(fullPath)) return next();
     // The query string is dropped above; an address can still sit in the path
     // (`/admin/users/alice@u.nus.edu`, or any mistyped route), raw or `%40`-encoded.
     const loggedPath = maskPersonalData(fullPath);
 
     const startedAt = process.hrtime.bigint();
-    res.on('finish', () => {
+    let recorded = false;
+    // Once per request: on `finish` when the answer was sent, or on `close` when the client left
+    // first. Those abandoned requests are often the slowest, so leaving them out would flatter the
+    // latency percentiles. They count as 499, nginx's "client closed request".
+    const complete = (abandoned: boolean) => {
+      if (recorded) return;
+      recorded = true;
       const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
-      const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+      const statusCode = abandoned ? CLIENT_CLOSED_REQUEST : res.statusCode;
+      metrics?.observeHttp(req.method, routePattern(req), statusCode, durationMs / 1e3);
+      const level = statusCode >= 500 ? 'error' : statusCode >= 400 ? 'warn' : 'info';
       logger[level](
         {
           correlationId,
           method: req.method,
           url: loggedPath,
-          statusCode: res.statusCode,
+          statusCode,
           durationMs: Math.round(durationMs * 100) / 100,
         },
-        'request completed',
+        abandoned ? 'request abandoned by the client' : 'request completed',
       );
-    });
+    };
+    res.on('finish', () => complete(false));
+    res.on('close', () => complete(!res.writableFinished));
     next();
   };
+}
+
+/**
+ * The route that answered, as declared (`/orders/:id`), so the latency metric has one series per
+ * endpoint rather than one per order. A request no route matched is `unmatched`: its raw path
+ * could be anything, including an email address.
+ */
+function routePattern(req: Request): string {
+  const route = (req as Request & { route?: { path?: unknown } }).route;
+  return typeof route?.path === 'string' ? `${req.baseUrl ?? ''}${route.path}` : 'unmatched';
 }
 
 export { CORRELATION_HEADER };

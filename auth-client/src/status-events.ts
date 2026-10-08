@@ -98,6 +98,8 @@ export class UserStatusInvalidation implements OnApplicationBootstrap {
  * instance holds its own cache: a queue shared by replicas would hand each event to one of them.
  * The queue is exclusive and auto-deleted, so it goes with the instance, and it is declared afresh
  * on every (re)connect — an instance that was down has an empty cache and nothing to catch up on.
+ * Its metrics are labelled `foc.<service>.auth-status`, without the random part, so a restart
+ * continues the same series instead of starting new ones.
  */
 export function authStatusEvents(
   service: string,
@@ -110,6 +112,7 @@ export function authStatusEvents(
   return {
     subscription: {
       queue,
+      metricsLabel: `foc.${service}.auth-status`,
       routingKeys: [...IDENTITY_CHANGE_EVENTS],
       exclusive: true,
       autoDelete: true,
