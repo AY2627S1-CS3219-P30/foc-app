@@ -10,6 +10,7 @@ import {
 import type { z } from 'zod';
 import type { Db, Queryable } from '../db.js';
 import { errorMessage } from '../logging.js';
+import { METRICS, type Metrics } from '../metrics.js';
 import { PAYLOAD_SCHEMAS } from './catalogue.js';
 import { EVENT_PUBLISHER } from './events.module.js';
 import type { EventPublisher } from './publisher.js';
@@ -202,6 +203,8 @@ export interface OutboxRelayOptions {
   /** How often the stats line is logged. Default 60 s. */
   statsIntervalMs?: number;
   logger?: Pick<LoggerService, 'log' | 'warn' | 'error'>;
+  /** Exports throughput and backlog as Prometheus metrics (PLT-04). */
+  metrics?: Metrics;
 }
 
 export interface OutboxRelayStats {
@@ -242,6 +245,7 @@ export class OutboxRelay implements OnApplicationBootstrap, BeforeApplicationShu
   private readonly maxBackoffMs: number;
   private readonly publishTimeoutMs: number;
   private readonly statsIntervalMs: number;
+  private readonly metrics?: Metrics;
 
   private readonly counters: OutboxRelayStats = { published: 0, failed: 0 };
   private lastStatsAt = 0;
@@ -260,6 +264,26 @@ export class OutboxRelay implements OnApplicationBootstrap, BeforeApplicationShu
     this.maxBackoffMs = options.maxBackoffMs ?? 60_000;
     this.publishTimeoutMs = options.publishTimeoutMs ?? 10_000;
     this.statsIntervalMs = options.statsIntervalMs ?? 60_000;
+    this.metrics = options.metrics;
+    if (this.metrics) {
+      // Sampled when Prometheus scrapes, so the dashboard sees the backlog as it is now
+      // rather than as of the last stats line.
+      let sample: Promise<{ backlog: number; oldestAgeMs: number }> | undefined;
+      const sampleOnce = () => {
+        sample ??= this.sampleBacklog().finally(() => (sample = undefined));
+        return sample;
+      };
+      this.metrics.addGauge({
+        name: 'foc_outbox_backlog',
+        help: 'Outbox rows not yet published.',
+        collect: async (set) => set({}, (await sampleOnce()).backlog),
+      });
+      this.metrics.addGauge({
+        name: 'foc_outbox_oldest_unpublished_age_seconds',
+        help: 'Age of the oldest unpublished outbox row; 0 when the outbox is drained.',
+        collect: async (set) => set({}, (await sampleOnce()).oldestAgeMs / 1e3),
+      });
+    }
   }
 
   get stats(): OutboxRelayStats {
@@ -304,7 +328,11 @@ export class OutboxRelay implements OnApplicationBootstrap, BeforeApplicationShu
       const { published, failed } = await this.claimAndPublish();
       total += published;
       this.counters.published += published;
-      if (failed) this.counters.failed += 1;
+      this.metrics?.outboxPublished.inc(published);
+      if (failed) {
+        this.counters.failed += 1;
+        this.metrics?.outboxFailures.inc();
+      }
       if (Date.now() - this.lastStatsAt >= this.statsIntervalMs) await this.logStats();
       if (failed || published === 0) break;
     }
@@ -313,18 +341,27 @@ export class OutboxRelay implements OnApplicationBootstrap, BeforeApplicationShu
 
   /** Samples the backlog, logs the stats line, and returns what it logged. */
   async logStats(): Promise<OutboxRelayStats> {
+    const { backlog, oldestAgeMs } = await this.sampleBacklog();
+    this.lastStatsAt = Date.now();
+    this.counters.backlog = backlog;
+    this.counters.oldestUnpublishedAgeMs = oldestAgeMs;
+    this.counters.sampledAt = new Date(this.lastStatsAt).toISOString();
+    this.logger.log({ ...this.counters, msg: 'outbox relay stats' });
+    return this.stats;
+  }
+
+  /** Unpublished rows and the age of the oldest, in one statement. */
+  private async sampleBacklog(): Promise<{ backlog: number; oldestAgeMs: number }> {
     const { rows } = await this.db.query<{ backlog: number; oldest_age_ms: number | null }>(
       `SELECT count(*)::int AS backlog,
               (extract(epoch FROM now() - min(occurred_at)) * 1000)::float8 AS oldest_age_ms
          FROM outbox_events
         WHERE published_at IS NULL`,
     );
-    this.lastStatsAt = Date.now();
-    this.counters.backlog = rows[0]?.backlog ?? 0;
-    this.counters.oldestUnpublishedAgeMs = Math.max(0, Math.round(rows[0]?.oldest_age_ms ?? 0));
-    this.counters.sampledAt = new Date(this.lastStatsAt).toISOString();
-    this.logger.log({ ...this.counters, msg: 'outbox relay stats' });
-    return this.stats;
+    return {
+      backlog: rows[0]?.backlog ?? 0,
+      oldestAgeMs: Math.max(0, Math.round(rows[0]?.oldest_age_ms ?? 0)),
+    };
   }
 
   private schedule(delayMs: number): void {
@@ -446,8 +483,8 @@ export function provideOutboxRelay(
   const { db, ...rest } = options;
   return {
     provide: OUTBOX_RELAY,
-    useFactory: (database: Db, publisher: EventPublisher) =>
-      new OutboxRelay({ ...rest, db: database, publisher }),
-    inject: [db, EVENT_PUBLISHER],
+    useFactory: (database: Db, publisher: EventPublisher, metrics?: Metrics) =>
+      new OutboxRelay({ ...rest, db: database, publisher, metrics }),
+    inject: [db, EVENT_PUBLISHER, { token: METRICS, optional: true }],
   };
 }

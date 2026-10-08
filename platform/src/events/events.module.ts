@@ -6,6 +6,7 @@ import {
   type OnApplicationShutdown,
   type OnModuleInit,
 } from '@nestjs/common';
+import { METRICS, type Metrics } from '../metrics.js';
 import { BrokerConnection } from './connection.js';
 import { EventConsumer } from './consumer.js';
 import { EventPublisher } from './publisher.js';
@@ -48,7 +49,12 @@ export class EventsModule implements OnModuleInit, OnApplicationShutdown {
       providers: [
         { provide: BROKER, useValue: broker },
         { provide: EVENT_PUBLISHER, useValue: new EventPublisher(broker, options.producer) },
-        { provide: EVENT_CONSUMER, useValue: new EventConsumer(broker) },
+        {
+          provide: EVENT_CONSUMER,
+          // The platform's registry when PlatformModule is imported; a bare module consumes unmeasured.
+          useFactory: (metrics?: Metrics) => new EventConsumer(broker, metrics),
+          inject: [{ token: METRICS, optional: true }],
+        },
       ],
       exports: [BROKER, EVENT_PUBLISHER, EVENT_CONSUMER],
     };
