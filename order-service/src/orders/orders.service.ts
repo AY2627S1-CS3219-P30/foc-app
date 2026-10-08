@@ -8,6 +8,7 @@ import { SupplierClient } from './supplier.client.js';
 import type { OpenOrderSummary, OrderReceipt, OrderRow, OrderView } from './types.js';
 import type { CreateOrderInput } from './validation.js';
 
+const MY_ERRANDS_LIMIT = 100;
 const notFound = () => new ApiException(404, 'NOT_FOUND', 'Order not found.');
 
 export function projectOrder(
@@ -70,6 +71,23 @@ export class OrdersService {
 
   async listOpen(): Promise<OpenOrderSummary[]> {
     return this.orders.listOpen();
+  }
+
+  /** The caller's own errands, each in their private projection, with `truncated` past the cap. */
+  async listMine(caller: AuthContext): Promise<{
+    items: Array<OrderView & { myRole: 'REQUESTER' | 'COURIER' }>;
+    truncated: boolean;
+  }> {
+    // One extra row tells us whether the cap cut the list off.
+    const orders = await this.orders.listMine(caller.userId, MY_ERRANDS_LIMIT + 1);
+    return {
+      items: orders.slice(0, MY_ERRANDS_LIMIT).flatMap((order) => {
+        const view = projectOrder(order, caller);
+        if (!view) return [];
+        return [{ ...view, myRole: order.requesterId === caller.userId ? 'REQUESTER' : 'COURIER' }];
+      }),
+      truncated: orders.length > MY_ERRANDS_LIMIT,
+    };
   }
 
   async getById(orderId: string, caller: AuthContext, privateView = false): Promise<OrderView> {
