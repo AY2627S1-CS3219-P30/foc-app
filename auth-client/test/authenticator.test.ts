@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createAuthenticator, type AuthConfig } from '../src/index.js';
 import {
   SERVICE_KEY,
@@ -347,15 +347,16 @@ describe('correlation (PLT-04)', () => {
   });
 
   it("a burst sharing one check sends the first caller's ID, once", async () => {
-    fake.behaviour.introspectDelayMs = 50;
+    fake.behaviour.introspectDelayMs = 500;
     const auth = make();
     const u = fake.addSession();
     const token = `Bearer ${await fake.mint(u)}`;
 
-    await Promise.all([
-      auth.authenticate(token, { correlationId: 'trace-first' }),
-      auth.authenticate(token, { correlationId: 'trace-second' }),
-    ]);
+    // The second caller joins while the first one's check is in flight. Started together, either
+    // could finish verifying its token first under load, and the test would race the product.
+    const first = auth.authenticate(token, { correlationId: 'trace-first' });
+    await vi.waitFor(() => expect(fake.stats.introspectCalls).toBe(1));
+    await Promise.all([first, auth.authenticate(token, { correlationId: 'trace-second' })]);
 
     expect(fake.stats.introspectCalls).toBe(1);
     expect(fake.stats.lastIntrospectCorrelationId).toBe('trace-first');
