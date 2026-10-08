@@ -85,6 +85,7 @@ async function checkPrivacy(
       history: await get(`/orders/${orderId}/history`),
       receipt: await get(`/orders/${orderId}/receipt`),
       list: await get(`/orders`),
+      mine: await get(`/orders/mine`),
     };
 
     if (!viewer.auth) {
