@@ -199,7 +199,8 @@ trimmed), expectedVersion }` → `RESOLVE_FOR_COURIER` / `RESOLVE_FOR_REQUESTER`
 
 ## Every PR
 
-Branch from `docs/order-service-plan`, never from `main`.
+Branch from `order-service`, after merging `main` into it so it carries the earlier PRs. Open the
+PR against `main`.
 
 README (transition notes, env, endpoints), `contracts/order-service.openapi.yaml`,
 `PROJECT_PR_CONTEXT.md`, in-memory tests at the agreed seams, one non-author review. You open the
