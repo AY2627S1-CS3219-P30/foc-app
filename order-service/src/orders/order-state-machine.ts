@@ -19,6 +19,8 @@ export const ORDER_ACTIONS = [
   'REPORT_NON_RECEIPT',
   'RESOLVE_FOR_COURIER',
   'RESOLVE_FOR_REQUESTER',
+  'ADMIN_ASSIGNED',
+  'ADMIN_UNASSIGNED',
   'TRANSFER_CONFIRMED',
   'RELEASE_CONFIRMED',
 ] as const;
@@ -222,6 +224,21 @@ export const ORDER_TRANSITIONS: readonly TransitionRule[] = [
     actors: ['ADMIN'],
     guard: (c) => c.reasonProvided === true,
     decide: () => ({ to: 'RELEASE_PENDING_CREDIT', releaseReason: 'CANCELLED', emitted: release }),
+  },
+  // The scheduler names, or stops naming, the one administrator who may decide a dispute. The
+  // status stays DISPUTED and nothing is announced, but the version moves, so a replaced
+  // administrator's decision is stale.
+  {
+    from: 'DISPUTED',
+    action: 'ADMIN_ASSIGNED',
+    actors: ['SYSTEM'],
+    decide: () => ({ to: 'DISPUTED', emitted: [] }),
+  },
+  {
+    from: 'DISPUTED',
+    action: 'ADMIN_UNASSIGNED',
+    actors: ['SYSTEM'],
+    decide: () => ({ to: 'DISPUTED', emitted: [] }),
   },
   {
     from: 'COMPLETION_PENDING_CREDIT',

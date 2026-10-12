@@ -6,9 +6,10 @@ import {
   type OnApplicationShutdown,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { OrdersRepository } from './orders.repository.js';
+import { OrdersRepository, type TransitionCommand } from './orders.repository.js';
 import type { OrderAction } from './order-state-machine.js';
 import type { OrderRow } from './types.js';
+import { UserDirectoryClient, UserDirectoryUnavailableError } from './user-directory.client.js';
 
 export const LIFECYCLE_SCHEDULER_OPTIONS = Symbol('LIFECYCLE_SCHEDULER_OPTIONS');
 
@@ -25,6 +26,9 @@ export interface SweepResult {
   pickupTimedOut: number;
   skipped: number;
   creditWaitAlerts: number;
+  adminsAssigned: number;
+  adminsUnassigned: number;
+  referralAlerts: number;
 }
 
 /** Thrown inside a transition to skip an order whose timer is no longer due once locked. */
@@ -40,6 +44,12 @@ class NotDue extends Error {}
  * again against the database clock, and the state table decides. An order that a participant
  * changed in the meantime, or that a second instance already handled, is simply skipped, so every
  * timer takes effect exactly once and accept-versus-expire is decided by the row's version.
+ *
+ * It also keeps every dispute referred to one administrator who may act (ORD-11): an assigned
+ * administrator the User Service no longer reports as one is cleared, and each unassigned dispute
+ * goes to the eligible administrator with the fewest undecided disputes. Anyone who was ever the
+ * errand's requester or courier is ineligible. While the User Service is down nothing is assigned,
+ * and the next run tries again; with no eligible administrator, one REFERRAL_UNASSIGNED alert.
  */
 @Injectable()
 export class LifecycleScheduler implements OnApplicationBootstrap, OnApplicationShutdown {
@@ -49,6 +59,7 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
 
   constructor(
     @Inject(OrdersRepository) private readonly orders: OrdersRepository,
+    @Inject(UserDirectoryClient) private readonly directory: UserDirectoryClient,
     @Inject(LIFECYCLE_SCHEDULER_OPTIONS) private readonly options: LifecycleSchedulerOptions,
   ) {}
 
@@ -68,7 +79,7 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
     this.running = this.sweep();
     try {
       const result = await this.running;
-      if (result.expired + result.pickupTimedOut + result.creditWaitAlerts > 0) {
+      if (Object.entries(result).some(([key, count]) => key !== 'skipped' && count > 0)) {
         this.logger.log({ ...result, msg: 'lifecycle timers applied' });
       }
     } catch (err) {
@@ -81,7 +92,15 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
   async sweep(): Promise<SweepResult> {
     const now = await this.orders.databaseNow();
     const limit = this.options.batchSize ?? 100;
-    const result: SweepResult = { expired: 0, pickupTimedOut: 0, skipped: 0, creditWaitAlerts: 0 };
+    const result: SweepResult = {
+      expired: 0,
+      pickupTimedOut: 0,
+      skipped: 0,
+      creditWaitAlerts: 0,
+      adminsAssigned: 0,
+      adminsUnassigned: 0,
+      referralAlerts: 0,
+    };
 
     for (const orderId of await this.orders.findOverdueOpen(now, limit)) {
       const applied = await this.fire(orderId, 'ACCEPTANCE_DEADLINE_PASSED', now, (order) => {
@@ -113,7 +132,77 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
         msg: 'order still waiting for the Credit Service; operator attention needed',
       });
     }
+
+    try {
+      await this.referDisputes(now, limit, result);
+    } catch (error) {
+      if (!(error instanceof UserDirectoryUnavailableError)) throw error;
+      this.logger.warn({
+        err: error,
+        msg: 'User Service unavailable; referrals wait for next run',
+      });
+    }
     return result;
+  }
+
+  private async referDisputes(now: Date, limit: number, result: SweepResult): Promise<void> {
+    const disputes = await this.orders.listDisputes(limit);
+
+    // An assigned administrator who can no longer act loses the dispute; the loop below reassigns it.
+    const canAct = new Map<string, boolean>();
+    for (const dispute of disputes) {
+      const adminId = dispute.adminId;
+      if (adminId === null) continue;
+      if (!canAct.has(adminId))
+        canAct.set(adminId, (await this.directory.permissions(adminId)).isAdmin);
+      if (canAct.get(adminId)) continue;
+      const cleared = await this.fire(
+        dispute.orderId,
+        'ADMIN_UNASSIGNED',
+        now,
+        (order) => {
+          if (order.referredAdminId !== adminId) throw new NotDue();
+        },
+        {
+          patch: { referred_admin_id: null },
+          reason: `Administrator ${adminId} can no longer act.`,
+        },
+      );
+      if (cleared) {
+        result.adminsUnassigned += 1;
+        dispute.adminId = null;
+      }
+    }
+
+    const unassigned = disputes.filter((dispute) => dispute.adminId === null);
+    if (unassigned.length === 0) return;
+    const admins = await this.directory.listAdmins();
+    for (const { orderId } of unassigned) {
+      const participants = new Set(await this.orders.participants(orderId));
+      const eligible = admins.filter((adminId) => !participants.has(adminId));
+      if (eligible.length === 0) {
+        if (await this.orders.raiseReferralUnassigned(orderId, { activeAdmins: admins.length })) {
+          result.referralAlerts += 1;
+          this.logger.warn({
+            orderId,
+            alert: 'REFERRAL_UNASSIGNED',
+            msg: 'no eligible administrator for a dispute; operator attention needed',
+          });
+        }
+        continue;
+      }
+      const adminId = await this.orders.leastReferred(eligible);
+      const assigned = await this.fire(
+        orderId,
+        'ADMIN_ASSIGNED',
+        now,
+        (order) => {
+          if (order.referredAdminId !== null) throw new NotDue();
+        },
+        { patch: { referred_admin_id: adminId }, reason: `Referred to administrator ${adminId}.` },
+      );
+      if (assigned) result.adminsAssigned += 1;
+    }
   }
 
   private async fire(
@@ -121,6 +210,7 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
     action: OrderAction,
     now: Date,
     verify: (order: OrderRow) => void,
+    extra: Pick<TransitionCommand, 'patch' | 'reason'> = {},
   ): Promise<boolean> {
     try {
       const outcome = await this.orders.transition({
@@ -130,6 +220,7 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
         correlationId: `scheduler-${randomUUID()}`,
         now,
         verify,
+        ...extra,
       });
       return outcome.kind === 'applied';
     } catch (error) {

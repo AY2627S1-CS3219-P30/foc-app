@@ -13,7 +13,7 @@ import { createPending, footprint, reservationReply } from './support/lifecycle.
 
 const MINUTE = 60_000;
 const sweeper = (t: TestApp) =>
-  new LifecycleScheduler(t.orders, {
+  new LifecycleScheduler(t.orders, t.directory, {
     pickupTimeoutMs: 30 * MINUTE,
     creditWaitTimeoutMs: 5 * MINUTE,
     intervalMs: 10_000,
