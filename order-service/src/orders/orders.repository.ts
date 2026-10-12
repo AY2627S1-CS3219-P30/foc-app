@@ -10,6 +10,7 @@ import {
 import { ORDER_DB, type OrderDatabase } from '../db/db.js';
 import {
   ORDER_TRANSITIONS,
+  RESOLVE_ACTIONS,
   decideTransition,
   type OrderAction,
   type OrderActor,
@@ -418,20 +419,12 @@ export class OrdersRepository {
           correlationId: input.correlationId,
         } as Parameters<typeof insertOutboxEvent>[1]);
       } else if (input.action === 'ALERT') {
-        const raised = await tx.query(
-          `INSERT INTO order_operator_alerts (order_id, kind, detail)
-           VALUES ($1, 'CREDIT_STATE_CONFLICT', $2::jsonb)
-           ON CONFLICT (order_id, kind) DO NOTHING
-           RETURNING order_id`,
-          [
-            order.orderId,
-            JSON.stringify({
-              orderStatus: order.status,
-              creditStatus: input.credit?.status ?? null,
-            }),
-          ],
+        alertRaised = await this.raiseAlert(
+          order.orderId,
+          'CREDIT_STATE_CONFLICT',
+          { orderStatus: order.status, creditStatus: input.credit?.status ?? null },
+          tx,
         );
-        alertRaised = raised.rows.length > 0;
       }
       const action =
         input.action === 'REISSUE'
@@ -748,7 +741,9 @@ export class OrdersRepository {
 
   /**
    * Of the given administrators, the one with the fewest undecided disputes; ties go to the fewest
-   * referrals ever kept, then the lowest user ID.
+   * referrals ever kept, then the lowest user ID. A referral cleared because its admin lost the role
+   * is not kept, so it stops counting; that only matters once the admin is reinstated, and recording
+   * the admin on the ADMIN_ASSIGNED history row would count it.
    */
   async leastReferred(adminIds: string[]): Promise<string> {
     const result = await this.db.query<{ admin_id: string } & Row>(
@@ -764,17 +759,19 @@ export class OrdersRepository {
     return result.rows[0]!.admin_id;
   }
 
-  /** Raises REFERRAL_UNASSIGNED for the dispute; true only the first time (one alert per order). */
-  async raiseReferralUnassigned(
+  /** Raises an operator alert for the order; true only the first time (one per order and kind). */
+  async raiseAlert(
     orderId: string,
+    kind: 'CREDIT_STATE_CONFLICT' | 'REFERRAL_UNASSIGNED',
     detail: Record<string, unknown>,
+    db: Queryable = this.db,
   ): Promise<boolean> {
-    const raised = await this.db.query(
+    const raised = await db.query(
       `INSERT INTO order_operator_alerts (order_id, kind, detail)
-       VALUES ($1, 'REFERRAL_UNASSIGNED', $2::jsonb)
+       VALUES ($1, $2, $3::jsonb)
        ON CONFLICT (order_id, kind) DO NOTHING
        RETURNING order_id`,
-      [orderId, JSON.stringify(detail)],
+      [orderId, kind, JSON.stringify(detail)],
     );
     return raised.rows.length > 0;
   }
@@ -810,15 +807,15 @@ export class OrdersRepository {
       } & Row
     >(
       `SELECT order_id, action, actor_id, reason, occurred_at FROM order_status_history
-        WHERE action IN ('RESOLVE_FOR_COURIER', 'RESOLVE_FOR_REQUESTER')
+        WHERE action = ANY($1::text[])
         ORDER BY occurred_at DESC, history_id
-        LIMIT $1`,
-      [limit],
+        LIMIT $2`,
+      [Object.values(RESOLVE_ACTIONS), limit],
     );
     return result.rows.map((row) => ({
       orderId: row.order_id,
       adminId: row.actor_id,
-      outcome: row.action === 'RESOLVE_FOR_COURIER' ? 'COURIER' : 'REQUESTER',
+      outcome: row.action === RESOLVE_ACTIONS.COURIER ? 'COURIER' : 'REQUESTER',
       reason: row.reason,
       decidedAt: iso(row.occurred_at),
     }));

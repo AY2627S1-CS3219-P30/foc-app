@@ -163,10 +163,7 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
         (order) => {
           if (order.referredAdminId !== adminId) throw new NotDue();
         },
-        {
-          patch: { referred_admin_id: null },
-          reason: `Administrator ${adminId} can no longer act.`,
-        },
+        { referred_admin_id: null },
       );
       if (cleared) {
         result.adminsUnassigned += 1;
@@ -181,7 +178,11 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
       const participants = new Set(await this.orders.participants(orderId));
       const eligible = admins.filter((adminId) => !participants.has(adminId));
       if (eligible.length === 0) {
-        if (await this.orders.raiseReferralUnassigned(orderId, { activeAdmins: admins.length })) {
+        if (
+          await this.orders.raiseAlert(orderId, 'REFERRAL_UNASSIGNED', {
+            activeAdmins: admins.length,
+          })
+        ) {
           result.referralAlerts += 1;
           this.logger.warn({
             orderId,
@@ -199,7 +200,7 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
         (order) => {
           if (order.referredAdminId !== null) throw new NotDue();
         },
-        { patch: { referred_admin_id: adminId }, reason: `Referred to administrator ${adminId}.` },
+        { referred_admin_id: adminId },
       );
       if (assigned) result.adminsAssigned += 1;
     }
@@ -210,7 +211,7 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
     action: OrderAction,
     now: Date,
     verify: (order: OrderRow) => void,
-    extra: Pick<TransitionCommand, 'patch' | 'reason'> = {},
+    patch?: TransitionCommand['patch'],
   ): Promise<boolean> {
     try {
       const outcome = await this.orders.transition({
@@ -220,7 +221,7 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
         correlationId: `scheduler-${randomUUID()}`,
         now,
         verify,
-        ...extra,
+        patch,
       });
       return outcome.kind === 'applied';
     } catch (error) {

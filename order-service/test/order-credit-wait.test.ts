@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Logger } from '@nestjs/common';
-import { LifecycleScheduler } from '../src/orders/lifecycle.scheduler.js';
 import {
   asAdmin,
   asRequester,
@@ -9,15 +8,9 @@ import {
   http,
   type TestApp,
 } from './helpers/app.js';
-import { createPending, footprint, reservationReply } from './support/lifecycle.js';
+import { createPending, footprint, reservationReply, sweep } from './support/lifecycle.js';
 
 const MINUTE = 60_000;
-const sweeper = (t: TestApp) =>
-  new LifecycleScheduler(t.orders, t.directory, {
-    pickupTimeoutMs: 30 * MINUTE,
-    creditWaitTimeoutMs: 5 * MINUTE,
-    intervalMs: 10_000,
-  });
 
 describe('credit-wait surfacing (OS-FR1.1.3, OS-NFR4.1.2)', () => {
   let t: TestApp | undefined;
@@ -39,8 +32,8 @@ describe('credit-wait surfacing (OS-FR1.1.3, OS-NFR4.1.2)', () => {
     const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     const before = await footprint(t, orderId);
 
-    expect((await sweeper(t).sweep()).creditWaitAlerts).toBe(1);
-    expect((await sweeper(t).sweep()).creditWaitAlerts).toBe(0); // raised once
+    expect((await sweep(t)).creditWaitAlerts).toBe(1);
+    expect((await sweep(t)).creditWaitAlerts).toBe(0); // raised once
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![0]).toMatchObject({ orderId, alert: 'CREDIT_WAIT_EXCEEDED' });
     // Surfaced, not rejected: the order is untouched.
@@ -79,7 +72,7 @@ describe('credit-wait surfacing (OS-FR1.1.3, OS-NFR4.1.2)', () => {
       `UPDATE orders SET created_at = now() - interval '2 hours' WHERE order_id = $1`,
       [orderId],
     );
-    await sweeper(t).sweep();
+    await sweep(t);
     const view = await http(t)
       .get(`/orders/${orderId}`)
       .set('Authorization', asRequester)

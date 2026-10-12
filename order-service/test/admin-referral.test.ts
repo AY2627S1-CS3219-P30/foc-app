@@ -10,6 +10,7 @@ import {
   type TestApp,
 } from './helpers/app.js';
 import {
+  RELEASE_RESULTS_QUEUE,
   SECRET,
   SEEDED_ORDER,
   TRANSFER_RESULTS_QUEUE,
@@ -18,6 +19,7 @@ import {
   dispute,
   footprint,
   outboxOf,
+  released,
   reservationReply,
   sweep,
   transferred,
@@ -131,6 +133,13 @@ describe('administrator referral (ORD-11)', () => {
     }).expect(403);
     expect(refused.body.error.code).toBe('CONFLICT_OF_INTEREST');
     expect(await footprint(t)).toEqual(before);
+
+    const decided = await resolve(t, asOtherAdmin, {
+      outcome: 'REQUESTER',
+      reason: 'No delivery photo.',
+      expectedVersion: before.order!.version,
+    }).expect(200);
+    expect(decided.body.status).toBe('RELEASE_PENDING_CREDIT');
   });
 
   it('clears an admin who can no longer act and reassigns on the next run', async () => {
@@ -258,6 +267,12 @@ describe('administrator decision (ORD-11)', () => {
 
     const decided = await resolve(t, asAdmin, body).expect(200);
     expect(decided.body.status).toBe('RELEASE_PENDING_CREDIT');
+    expect(await outboxOf(t, EVENTS.CREDIT_RELEASE_REQUESTED)).toHaveLength(1);
+    await resolve(t, asAdmin, { ...body, expectedVersion: 8 }).expect(409);
+
+    // The decision finalises only once the Credit Service confirms the release.
+    await deliver(t, RELEASE_RESULTS_QUEUE, released());
+    expect(await t.orders.findById(SEEDED_ORDER)).toMatchObject({ status: 'CANCELLED' });
     expect(await outboxOf(t, EVENTS.CREDIT_RELEASE_REQUESTED)).toHaveLength(1);
   });
 

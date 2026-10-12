@@ -7,7 +7,7 @@ import {
   OrdersRepository,
   type TransitionCommand,
 } from './orders.repository.js';
-import type { OrderAction } from './order-state-machine.js';
+import { RESOLVE_ACTIONS, type OrderAction } from './order-state-machine.js';
 import { SupplierClient } from './supplier.client.js';
 import type { OpenOrderSummary, OrderReceipt, OrderRow, OrderView } from './types.js';
 import type { CreateOrderInput, ResolveOrderInput } from './validation.js';
@@ -236,7 +236,7 @@ export class OrdersService {
         { status: order.status, version: order.version },
       );
     }
-    const action = input.outcome === 'COURIER' ? 'RESOLVE_FOR_COURIER' : 'RESOLVE_FOR_REQUESTER';
+    const action = RESOLVE_ACTIONS[input.outcome];
     return this.command(orderId, action, input.expectedVersion, caller, correlationId, {
       reason: input.reason,
       // Checked under the row lock, so a decision racing a reassignment cannot slip through.

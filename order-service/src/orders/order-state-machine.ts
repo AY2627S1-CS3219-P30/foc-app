@@ -27,6 +27,12 @@ export const ORDER_ACTIONS = [
 
 export type OrderAction = (typeof ORDER_ACTIONS)[number];
 
+/** The action that carries out each outcome an administrator can decide a dispute for. */
+export const RESOLVE_ACTIONS = {
+  COURIER: 'RESOLVE_FOR_COURIER',
+  REQUESTER: 'RESOLVE_FOR_REQUESTER',
+} as const satisfies Record<string, OrderAction>;
+
 export const ORDER_ACTORS = [
   'REQUESTER',
   'ASSIGNED_COURIER',

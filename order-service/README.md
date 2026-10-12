@@ -232,8 +232,8 @@ on its next run:
    go to the fewest referrals kept overall, then the lower user ID.
 
 Both go through the ordinary transition path under the row lock: the status stays `DISPUTED`, the
-version moves (so a replaced administrator's decision is stale), the history row's reason names the
-administrator, and no message is sent. If the User Service does not answer, nothing is referred and
+version moves (so a replaced administrator's decision is stale), a history row is written, and no
+message is sent. If the User Service does not answer, nothing is referred and
 the next run tries again; timers are unaffected. If no administrator is eligible, one
 `REFERRAL_UNASSIGNED` operator alert is recorded for the errand, however many runs see it.
 

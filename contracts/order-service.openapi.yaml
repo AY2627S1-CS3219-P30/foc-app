@@ -654,8 +654,7 @@ components:
               reason:
                 type: [string, 'null']
                 description: |
-                  An administrator's reason for a decision, or which administrator a referral
-                  (`ADMIN_ASSIGNED`, `ADMIN_UNASSIGNED`, status unchanged) names; otherwise null.
+                  An administrator's reason for a decision; otherwise null.
               version: { type: integer, minimum: 1 }
               occurredAt: { type: string, format: date-time }
     ResolveDispute:
