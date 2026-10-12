@@ -1,6 +1,7 @@
-import { and, eq, sql, type SQL } from 'drizzle-orm';
+import { and, eq, gte, lt, sql, type SQL } from 'drizzle-orm';
 import { execute, type Database } from '../db/db.js';
 import { auditRecords, profiles, userRoles, users } from '../db/schema.js';
+import type { AuditQuery } from '../users/validation.js';
 import { rolesOf, type AccountStatus, type Role } from '../users/users.repository.js';
 
 export type AuditAction =
@@ -165,11 +166,14 @@ export const adminRepository = {
     return { rows, total: totalRows[0]?.n ?? 0 };
   },
 
-  async listAudit(
-    db: Database,
-    f: { page: number; pageSize: number; targetUserId?: string },
-  ): Promise<{ rows: AuditRow[]; total: number }> {
-    const where = f.targetUserId ? eq(auditRecords.targetUserId, f.targetUserId) : undefined;
+  async listAudit(db: Database, f: AuditQuery): Promise<{ rows: AuditRow[]; total: number }> {
+    const conditions: SQL[] = [];
+    if (f.targetUserId) conditions.push(eq(auditRecords.targetUserId, f.targetUserId));
+    if (f.actorId) conditions.push(eq(auditRecords.actorId, f.actorId));
+    if (f.action) conditions.push(eq(auditRecords.action, f.action));
+    if (f.from) conditions.push(gte(auditRecords.occurredAt, f.from));
+    if (f.to) conditions.push(lt(auditRecords.occurredAt, f.to));
+    const where = conditions.length ? and(...conditions) : undefined;
 
     const totalRows = await db
       .select({ n: sql<number>`count(*)::int` })
