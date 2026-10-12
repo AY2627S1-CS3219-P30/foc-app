@@ -90,5 +90,11 @@ describe('user-service honours its published contract', () => {
       '/internal/users/{userId}',
       await http(app).get(`/internal/users/${student.id}`),
     );
+    contract.assert(
+      'get',
+      '/internal/admins',
+      await http(app).get('/internal/admins').set('X-Service-Key', SERVICE_KEY),
+    );
+    contract.assert('get', '/internal/admins', await http(app).get('/internal/admins'));
   });
 });
