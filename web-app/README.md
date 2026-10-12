@@ -26,6 +26,7 @@ Open <http://localhost:3000>.
 | `bun start` | Serve the production build |
 | `bun run lint` | Lint |
 | `bun test` | Unit tests |
+| `bun run e2e` | Account journey in a browser against the running stack (see below) |
 | `bun run generate` | Regenerate `tokens.css` and the API types after editing `tokens.ts` or a contract |
 
 ## Design system
@@ -58,6 +59,24 @@ the top bar and sidebar; `@media (min-width: 1440px)` widens the gutters. Nothin
   <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
 </Field>
 ```
+
+## End-to-end checks
+
+`e2e/account-journey.e2e.ts` runs the account journey (USR-05) in Chromium at 360, 768 and 1440 px against
+the real User Service: sign-up with a failed submit, activation through the dev mailbox, sign-in with a
+rejected password, the mode switch and log-out. Only the keyboard drives the forms, and every focus stop
+must show a ring. Every screen must not scroll sideways and must have no critical axe issue; serious axe
+issues are listed in the test annotations without failing. CI runs it in the `e2e` job.
+
+```bash
+docker compose up -d --build   # from the repo root; serves :3000 with the dev mailbox
+cd web-app
+bunx playwright install chromium   # once
+bun run e2e
+```
+
+`E2E_BASE_URL` points it elsewhere. Each run registers one account per width, well inside the sign-up
+limit of 20 an hour per address. Specs are named `*.e2e.ts` so `bun test` leaves them alone.
 
 ## API clients
 
