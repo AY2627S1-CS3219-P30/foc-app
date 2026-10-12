@@ -160,7 +160,9 @@ export async function createTestApp(
   const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication();
   app.useGlobalFilters(new ErrorEnvelopeFilter());
-  await app.init();
+  // Bound to 127.0.0.1, where supertest connects: left unbound, supertest listens on [::] and can
+  // land on a port another local process holds on 127.0.0.1 (macOS allows both) and reach it.
+  await app.listen(0, '127.0.0.1');
   return {
     app,
     db,
