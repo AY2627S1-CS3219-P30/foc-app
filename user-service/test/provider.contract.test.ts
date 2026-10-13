@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ContractValidator } from '@foc/test-harness';
-import { SERVICE_KEY, createTestApp, validRegistration, type TestApp } from './helpers/app.js';
+import { RateLimiter } from '../src/auth/rate-limiter.js';
+import {
+  SERVICE_KEY,
+  createTestApp,
+  openLimiters,
+  validRegistration,
+  type TestApp,
+} from './helpers/app.js';
 import { ORIGIN, activeStudent, bearer, http, login, seededAdmin } from './helpers/actors.js';
 
 /**
@@ -16,6 +23,20 @@ describe('user-service honours its published contract', () => {
     app = await createTestApp();
   });
   afterAll(async () => app.close());
+
+  /**
+   * `contract.assert` accepts any status the operation documents. A case that exists for one
+   * particular status pins it first, so it cannot pass on a different refusal.
+   */
+  const assertStatus = (
+    method: string,
+    path: string,
+    status: number,
+    response: { status: number; body: unknown },
+  ) => {
+    expect(response.status, JSON.stringify(response.body)).toBe(status);
+    contract.assert(method, path, response);
+  };
 
   it('GET /health and the JWKS document', async () => {
     contract.assert('get', '/health', await http(app).get('/health'));
@@ -141,13 +162,13 @@ describe('user-service honours its published contract', () => {
     );
 
     const demote = await as(root).put(role, { role: 'STUDENT', reason: 'contract' });
-    contract.assert(
-      'post',
-      '/admin/role-requests/{requestId}/reject',
-      await as(root).post(`/admin/role-requests/${demote.body.request.id}/reject`, {
+    const reject = () =>
+      as(root).post(`/admin/role-requests/${demote.body.request.id}/reject`, {
         reason: 'withdrawn',
-      }),
-    );
+      });
+    contract.assert('post', '/admin/role-requests/{requestId}/reject', await reject());
+    // Already decided: ROLE_REQUEST_NOT_PENDING.
+    assertStatus('post', '/admin/role-requests/{requestId}/reject', 409, await reject());
 
     contract.assert(
       'post',
@@ -177,5 +198,49 @@ describe('user-service honours its published contract', () => {
       '/admin/audit-records',
       await as(second).get('/admin/audit-records?action=ROLE_CHANGE_REQUESTED'),
     );
+  });
+
+  it('the refusals and limits on suspending, reactivating and re-entering a password', async () => {
+    // An app of its own: the shared one sets every limit out of a test's reach.
+    const limited = await createTestApp({
+      adminSettings: { suspensionsLimitPerHour: 1 },
+      rateLimiters: { ...openLimiters(), stepUpPerUser: new RateLimiter(1, 60_000) },
+    });
+    try {
+      // Seeding re-enters the password once, which is all this app allows.
+      const admin = await seededAdmin(limited, 'limit146@u.nus.edu');
+      const post = (path: string, body: object) =>
+        http(limited).post(path).set('Authorization', bearer(admin)).send(body);
+      assertStatus(
+        'post',
+        '/auth/step-up',
+        429,
+        await post('/auth/step-up', { password: validRegistration().password }),
+      );
+
+      const unactivated = await http(limited)
+        .post('/auth/register')
+        .send(validRegistration('e0146002@u.nus.edu'))
+        .expect(201);
+      const first = await activeStudent(limited, 'e0146003@u.nus.edu');
+      const next = await activeStudent(limited, 'e0146004@u.nus.edu');
+      const suspend = (userId: string) =>
+        post(`/admin/users/${userId}/suspend`, { reason: 'contract' });
+
+      // SELF_SUSPENSION_FORBIDDEN.
+      assertStatus('post', '/admin/users/{userId}/suspend', 409, await suspend(admin.id));
+      // ACCOUNT_NOT_ACTIVE: there is no suspension to lift.
+      assertStatus(
+        'post',
+        '/admin/users/{userId}/reactivate',
+        409,
+        await post(`/admin/users/${unactivated.body.userId}/reactivate`, { reason: 'contract' }),
+      );
+      assertStatus('post', '/admin/users/{userId}/suspend', 200, await suspend(first.id));
+      // One suspension an hour here, so the second is RATE_LIMITED.
+      assertStatus('post', '/admin/users/{userId}/suspend', 429, await suspend(next.id));
+    } finally {
+      await limited.close();
+    }
   });
 });
