@@ -90,9 +90,13 @@ test("account journey: register, activate, sign in, profile, mode switch, log ou
     const courier = page.getByRole("radio", { name: "Courier" }).first();
     const [from, to] = (await requester.isChecked()) ? [requester, courier] : [courier, requester];
     await tabTo(page, from);
+    // Wait for the save itself: the switch is not busy yet the moment the key lands.
+    const saved = page.waitForResponse(
+      (r) => r.url().endsWith("/users/me") && r.request().method() === "PATCH",
+    );
     await page.keyboard.press("ArrowRight");
     await expect(to).toBeChecked();
-    await expect(page.locator("fieldset[aria-busy=true]")).toHaveCount(0);
+    expect((await saved).ok(), "the mode switch was not saved").toBe(true);
 
     await page.reload();
     await expect(to).toBeChecked();
