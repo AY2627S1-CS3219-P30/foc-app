@@ -6,7 +6,7 @@ import { expect, test, type Locator, type Page, type TestInfo } from "@playwrigh
  * - the journey works at 360, 768 and 1440 px, with nothing scrolling sideways;
  * - a failed submit keeps what was typed and marks the offending field;
  * - sign-up, activation and sign-in are done by keyboard alone, and every focus stop is visible;
- * - axe reports no critical issue on any account screen;
+ * - axe reports no critical or serious issue on any account screen;
  * - every call goes to the real User Service.
  *
  * Only the keyboard drives the forms: no click() or fill().
@@ -157,7 +157,7 @@ async function expectVisibleFocus(page: Page) {
   expect(focus.ok, `no visible focus ring on ${focus.what}`).toBe(true);
 }
 
-/** Nothing scrolls sideways, and axe finds no critical issue. Serious ones are reported, not failed. */
+/** Nothing scrolls sideways, and axe finds no critical or serious issue (contrast is rated serious). */
 async function checkScreen(page: Page, testInfo: TestInfo, screen: string) {
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -165,16 +165,15 @@ async function checkScreen(page: Page, testInfo: TestInfo, screen: string) {
   expect(overflow, `${screen} scrolls sideways by ${overflow}px`).toBeLessThanOrEqual(0);
 
   const { violations } = await new AxeBuilder({ page }).analyze();
-  const critical = violations.filter((v) => v.impact === "critical");
-  const serious = violations.filter((v) => v.impact === "serious");
+  const blocking = violations.filter((v) => v.impact === "critical" || v.impact === "serious");
   testInfo.annotations.push({
     type: "axe",
-    description: `${screen}: ${critical.length} critical, ${serious.length} serious${
-      serious.length ? ` (${serious.map((v) => v.id).join(", ")})` : ""
+    description: `${screen}: ${blocking.length} critical or serious${
+      blocking.length ? ` (${blocking.map((v) => v.id).join(", ")})` : ""
     }`,
   });
   expect(
-    critical.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`),
-    `critical axe issues on ${screen}`,
+    blocking.map((v) => `${v.impact} ${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`),
+    `critical or serious axe issues on ${screen}`,
   ).toEqual([]);
 }
