@@ -25,7 +25,13 @@ export type EventHandler<T> = (
 
 export interface SubscribeOptions<T> {
   queue: string;
-  eventType: string;
+  eventType: string | readonly string[];
+  /**
+   * Envelope producer(s) this handler trusts. This is an authorization check on
+   * the broker identity claim; deployments must pair it with per-service broker
+   * credentials/ACLs so another publisher cannot forge the claim.
+   */
+  expectedProducer?: string | readonly string[];
   payloadSchema: z.ZodType<T>;
   handler: EventHandler<T>;
   /** How many messages to hold unacknowledged at once. */
@@ -108,7 +114,9 @@ export class EventConsumer {
       throw err;
     }
 
-    this.logger.log(`Consuming ${options.queue} for ${options.eventType}`);
+    const eventTypes =
+      typeof options.eventType === 'string' ? options.eventType : options.eventType.join(', ');
+    this.logger.log(`Consuming ${options.queue} for ${eventTypes}`);
   }
 
   /** Settles on the channel the message arrived on: a delivery tag means nothing on another. */
@@ -124,6 +132,22 @@ export class EventConsumer {
     let envelope: Envelope<T>;
     try {
       envelope = parseEnvelope(message.content, options.payloadSchema);
+      const eventTypes =
+        typeof options.eventType === 'string' ? [options.eventType] : options.eventType;
+      if (!eventTypes.includes(envelope.eventType)) {
+        throw new UnparseableMessageError(
+          `event type ${envelope.eventType} does not match subscription ${eventTypes.join(', ')}`,
+        );
+      }
+      const expected =
+        typeof options.expectedProducer === 'string'
+          ? [options.expectedProducer]
+          : options.expectedProducer;
+      if (expected && !expected.includes(envelope.producer)) {
+        throw new UnparseableMessageError(
+          `producer ${envelope.producer} is not trusted for ${options.eventType}`,
+        );
+      }
     } catch (err) {
       const reason = errorMessage(err);
       this.logger.error({ queue: options.queue, reason, msg: 'message is unparseable' });
@@ -157,6 +181,21 @@ export class EventConsumer {
       });
     } catch (err) {
       const reason = errorMessage(err);
+      if (err instanceof UnparseableMessageError) {
+        this.logger.error({ queue: options.queue, reason, msg: 'message is unparseable' });
+        if (transient) {
+          channel.nack(message, false, false);
+          return;
+        }
+        await this.publishTo(channel, DLX, options.queue, message, {
+          ...message.properties.headers,
+          [HEADER_FAILURE]: reason.slice(0, 500),
+          [HEADER_ORIGINAL_QUEUE]: options.queue,
+          [HEADER_ATTEMPT]: attempt,
+        });
+        channel.ack(message);
+        return;
+      }
       if (transient) {
         this.logger.warn({
           correlationId: envelope.correlationId,

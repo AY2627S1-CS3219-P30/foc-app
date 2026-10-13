@@ -7,15 +7,20 @@
   },
   "workspaces": [
     "platform",
+    "test-harness",
     "user-service",
     "auth-client",
     "supplier-service",
     "order-service",
-    "credit-service"
+    "credit-service",
+    "system-tests"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:contract": "npm run contracts:compat -w @foc/test-harness && npm test -w @foc/test-harness -- contracts compat && npm test --workspaces --if-present -- --passWithNoTests .contract.test",
+    "test:concurrency": "npm test --workspaces --if-present -- --passWithNoTests .postgres.test",
+    "contracts:events": "npm run contracts:events -w @foc/test-harness",
     "lint": "eslint .",
     "format": "prettier --write \"**/*.{ts,mjs,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,mjs,json,md}\"",
@@ -23,7 +28,8 @@
     "dev:user": "npm run dev -w user-service",
     "dev:supplier": "npm run dev -w supplier-service",
     "dev:order": "npm run dev -w order-service",
-    "dev:credit": "npm run dev -w credit-service"
+    "dev:credit": "npm run dev -w credit-service",
+    "report:conservation": "docker compose up -d --wait postgres rabbitmq && TEST_POSTGRES_URL=postgres://postgres:${POSTGRES_PASSWORD:-postgres_dev}@localhost:${POSTGRES_PORT:-55432}/postgres RABBITMQ_URL=amqp://${RABBITMQ_USER:-foc}:${RABBITMQ_PASSWORD:-foc_dev}@localhost:${RABBITMQ_PORT:-55672} npm run load -w @foc/system-tests"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",

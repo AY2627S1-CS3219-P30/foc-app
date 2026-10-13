@@ -10,11 +10,12 @@ import { OUTBOX_TABLE_SQL, OutboxRelay, insertOutboxEvent } from './outbox.js';
  * time, so outbox.test.ts cannot show this. Skipped unless a database is given:
  *
  *   docker compose up -d postgres
- *   TEST_DATABASE_URL=postgres://postgres:postgres_dev@localhost:55432/postgres npm test -w @foc/platform
+ *   TEST_POSTGRES_URL=postgres://postgres:postgres_dev@localhost:55432/postgres npm test -w @foc/platform
  *
  * Everything happens in a throwaway schema, dropped afterwards.
  */
-const DATABASE = process.env.TEST_DATABASE_URL;
+// TEST_DATABASE_URL is the variable's earlier name, still honoured for existing shells.
+const DATABASE = process.env.TEST_POSTGRES_URL ?? process.env.TEST_DATABASE_URL;
 const suite = DATABASE ? describe : describe.skip;
 
 const SCHEMA = `outbox_test_${Math.random().toString(36).slice(2, 8)}`;

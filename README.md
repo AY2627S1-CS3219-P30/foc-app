@@ -80,8 +80,9 @@ npm run dev:credit     # http://localhost:3004
 ```
 
 Supplier, Order and Credit verify callers through the User Service, so they also
-need `USER_SERVICE_URL` and `INTERNAL_SERVICE_KEY` (and Supplier its `DATABASE_URL`)
-in your `.env` or shell; see `.env.example`. A missing one stops the service at
+need `USER_SERVICE_URL` and `INTERNAL_SERVICE_KEY`. User, Supplier and Credit own
+persistence and require their service-specific `DATABASE_URL` too. Put them in
+your `.env` or shell; see `.env.example`. A missing value stops the service at
 boot and names it.
 
 Check it is alive:
@@ -142,9 +143,9 @@ their defaults, because a locally installed copy usually holds 5432 and 5672 and
 at <http://localhost:15672> (`foc` / `foc_dev`).
 
 **Connections.** Compose gives each service its own `DATABASE_URL` and the shared
-`RABBITMQ_URL`, whether or not it uses them yet, so a service that starts using
-one needs no Compose change. Services talk to the browser directly with CORS; a
-thin gateway is a later ticket.
+`RABBITMQ_URL`. User, Supplier and Credit apply their own migrations through
+one-shot containers before starting. Services talk to the browser directly with
+CORS; a thin gateway is a later ticket.
 
 ### 7. Check your setup
 
@@ -409,7 +410,7 @@ transaction at a time:
 
 ```bash
 docker compose up -d postgres
-TEST_DATABASE_URL=postgres://postgres:postgres_dev@localhost:55432/postgres npm test -w @foc/platform
+TEST_POSTGRES_URL=postgres://postgres:postgres_dev@localhost:55432/postgres npm test -w @foc/platform
 ```
 
 Not done yet: published outbox rows and old inbox rows are never pruned.
@@ -423,15 +424,15 @@ to all four, because it can break any of them. So does any path the filter does
 not recognise, such as a new package: it fails closed, running everything rather
 than nothing.
 
-| Job               | Runs when                                       | What it does                                                                    |
-| ----------------- | ----------------------------------------------- | ------------------------------------------------------------------------------- |
-| `Detect changes`  | always                                          | Works out what is affected                                                      |
-| `Lint and format` | any Node code changed                           | `eslint` and `prettier --check` across the repo                                 |
-| `Shared packages` | any Node code changed                           | Build and test `platform/` and every other shared package, with a real RabbitMQ |
-| `<service>`       | that service or shared code changed             | Typecheck, test, and build its image                                            |
-| `web-app`         | `web-app/**` changed                            | `bun install`, lint, build                                                      |
-| `Compose smoke`   | container wiring changed, or any push to `main` | Brings the whole stack up and runs the smoke checks                             |
-| **`CI`**          | **always**                                      | The gate — fails if anything above failed                                       |
+| Job               | Runs when                                       | What it does                                                           |
+| ----------------- | ----------------------------------------------- | ---------------------------------------------------------------------- |
+| `Detect changes`  | always                                          | Works out what is affected                                             |
+| `Lint and format` | any Node code changed                           | `eslint`, `prettier --check`, and the contract compatibility check     |
+| `Shared packages` | any Node code changed                           | Build and test every shared package, with real RabbitMQ and PostgreSQL |
+| `<service>`       | that service or shared code changed             | Typecheck, test, and build its image                                   |
+| `web-app`         | `web-app/**` changed                            | `bun install`, lint, build                                             |
+| `Compose smoke`   | container wiring changed, or any push to `main` | Brings the whole stack up and runs the smoke checks                    |
+| **`CI`**          | **always**                                      | The gate — fails if anything above failed                              |
 
 ### Why there is a separate `CI` job
 
@@ -466,8 +467,12 @@ npm run lint
 npm run format:check
 npm run typecheck
 npm test
+npm run test:contract        # contract compatibility + provider checks
 ./scripts-smoke.sh --up      # the Compose smoke job
 ```
+
+Every test suite, its naming convention and the variables that switch on the real-PostgreSQL and
+RabbitMQ suites are described in [docs/testing.md](docs/testing.md).
 
 ## Repository Structure
 

@@ -19,6 +19,9 @@ describe('identity-change invalidation is wired (USR-07)', () => {
     // Imported after the variable is set: the module reads its configuration at load time.
     const { AppModule } = await import('../src/app.module.js');
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const { LifecycleScheduler } = await import('../src/orders/lifecycle.scheduler.js');
+    // There is no database here; the scheduler has its own tests.
+    vi.spyOn(moduleRef.get(LifecycleScheduler), 'onApplicationBootstrap').mockReturnValue();
     broker = moduleRef.get<BrokerConnection>(BROKER);
     vi.spyOn(broker, 'connect').mockResolvedValue();
     const consumer = moduleRef.get<EventConsumer>(EVENT_CONSUMER);
@@ -47,5 +50,16 @@ describe('identity-change invalidation is wired (USR-07)', () => {
       messageTtlMs: expect.any(Number),
       maxLength: expect.any(Number),
     });
+  });
+
+  it('subscribes and declares the Credit reply queues, each bound only to its own result', () => {
+    for (const [queue, routingKey] of [
+      ['foc.order.reservation-results', 'credit.reserved'],
+      ['foc.order.transfer-results', 'credit.transferred'],
+      ['foc.order.release-results', 'credit.released'],
+    ] as const) {
+      expect(subscribed).toContain(queue);
+      expect(broker.subscription(queue)?.routingKeys).toContain(routingKey);
+    }
   });
 });
