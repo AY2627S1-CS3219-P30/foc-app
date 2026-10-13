@@ -40,6 +40,8 @@ This context file was produced with Codex by summarizing the repository, live Gi
   - Order hosts #152 reconciliation.
   - Merging is allowed after verification.
 - **Remaining Order lifecycle work (agreed 2026-10-08):** in order: my errands (ORD-13 #227, `GET /orders/mine`) → ORD-11 #171 → ORD-10 #170 → ORD-06 #149.
+  - My errands merged in PR #225.
+  - ORD-11 #171 is implemented on `feat/171-admin-referral-decision` and in review. The lifecycle scheduler refers each dispute to one active administrator from User Service's new `GET /internal/admins`, never to anyone who was the errand's requester or courier, and clears a referral whose administrator can no longer act. Only the referred administrator decides, with a reason kept in the history (`POST /admin/orders/:id/resolve`). `GET /admin/orders/referred` and `GET /admin/orders/decisions` serve the admin console. Migration `0010` adds the history reason, lets a stored receipt's delivery time be null (the published receipt adds `deliveryRecorded` instead of changing `deliveredAt`), and adds the `REFERRAL_UNASSIGNED` alert.
 - **Open follow-ups, not assigned to this workstream:**
   - ORD-06 #149 owns the courier-suspension path (reopen with the deadline extended).
   - TST-02 #160 owns HTTP end-to-end journeys.

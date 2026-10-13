@@ -343,6 +343,75 @@ paths:
               schema: { $ref: '#/components/schemas/CreditWaitList' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/AdminOnly' }
+  /admin/orders/referred:
+    get:
+      operationId: listReferredDisputes
+      summary: Disputes referred to the calling administrator, and those referred to no one yet.
+      description: |
+        Every disputed errand is referred to one administrator, chosen automatically from the
+        administrators who may act and never one who was its requester or courier. The caller's
+        own referrals carry their private details; disputes not yet referred to anyone appear
+        without them. `referredBy` is the action that disputed the errand. At most 100, oldest
+        change first. Administrators only.
+      responses:
+        '200':
+          description: The caller's referrals and the unreferred disputes.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReferredOrders' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/AdminOnly' }
+  /admin/orders/decisions:
+    get:
+      operationId: listDisputeDecisions
+      summary: The most recent dispute decisions.
+      description: |
+        The 100 most recent decisions, newest first: the errand, the deciding administrator, the
+        outcome and their reason. Administrators only.
+      responses:
+        '200':
+          description: Recent decisions.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DisputeDecisions' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/AdminOnly' }
+  /admin/orders/{orderId}/resolve:
+    post:
+      operationId: resolveDispute
+      summary: The referred administrator decides a dispute (DISPUTED → COMPLETION_PENDING_CREDIT or RELEASE_PENDING_CREDIT).
+      description: |
+        Only the administrator the dispute is referred to may decide it, with a reason of 1 to 500
+        characters (trimmed) that is kept in the errand's history. `COURIER` requests the reward's
+        transfer to the courier; `REQUESTER` requests its release back to the requester (the errand
+        ends cancelled). Either way the errand waits for the Credit Service's confirmation.
+
+        `403 CONFLICT_OF_INTEREST`: the caller was ever this errand's requester or courier.
+        `403 NOT_REFERRED_ADMIN`: the dispute is referred to another administrator, or to no one
+        yet. A repeated decision, or one made on a stale version (for example after the dispute was
+        referred to someone else), is a `409` and changes nothing.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ResolveDispute' }
+      responses:
+        '200':
+          description: The order after the decision, projected for the administrator.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/DecisionForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/LifecycleConflict' }
+        '422': { $ref: '#/components/responses/InvalidOrder' }
   /orders/{orderId}/receipt:
     get:
       operationId: getOrderReceipt
@@ -525,7 +594,17 @@ components:
         expectedVersion: { type: integer, minimum: 1 }
     OrderReceipt:
       type: object
-      required: [orderId, requesterId, courierId, supplier, reward, creditTransactionId, timestamps]
+      required:
+        [
+          orderId,
+          requesterId,
+          courierId,
+          supplier,
+          reward,
+          creditTransactionId,
+          deliveryRecorded,
+          timestamps,
+        ]
       properties:
         orderId: { type: string, format: uuid }
         requesterId: { type: string }
@@ -533,6 +612,11 @@ components:
         supplier: { $ref: '#/components/schemas/SupplierSnapshot' }
         reward: { type: integer, minimum: 1, maximum: 5 }
         creditTransactionId: { type: string, format: uuid }
+        deliveryRecorded:
+          type: boolean
+          description: |
+            False when an administrator decided the dispute for the courier before any delivery was
+            recorded.
         timestamps:
           type: object
           required:
@@ -541,7 +625,13 @@ components:
             createdAt: { type: string, format: date-time }
             acceptedAt: { type: string, format: date-time }
             pickedUpAt: { type: string, format: date-time }
-            deliveredAt: { type: string, format: date-time }
+            deliveredAt:
+              type: string
+              format: date-time
+              description: |
+                When the courier recorded delivery. If `deliveryRecorded` is false, an administrator
+                completed the errand before any delivery was recorded, and this is the time of that
+                decision.
             completionRequestedAt: { type: string, format: date-time }
             completedAt: { type: string, format: date-time }
     OrderHistory:
@@ -553,15 +643,59 @@ components:
           type: array
           items:
             type: object
-            required: [previousStatus, newStatus, action, actorType, actorId, version, occurredAt]
+            required:
+              [previousStatus, newStatus, action, actorType, actorId, reason, version, occurredAt]
             properties:
               previousStatus: { type: [string, 'null'] }
               newStatus: { type: string }
               action: { type: string }
               actorType: { type: string }
               actorId: { type: [string, 'null'] }
+              reason:
+                type: [string, 'null']
+                description: |
+                  An administrator's reason for a decision; otherwise null.
               version: { type: integer, minimum: 1 }
               occurredAt: { type: string, format: date-time }
+    ResolveDispute:
+      type: object
+      additionalProperties: false
+      required: [outcome, reason, expectedVersion]
+      properties:
+        outcome: { type: string, enum: [COURIER, REQUESTER] }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+        expectedVersion: { type: integer, minimum: 1 }
+    ReferredOrders:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            allOf:
+              - $ref: '#/components/schemas/Order'
+              - type: object
+                required: [referredBy, assignedToMe]
+                properties:
+                  referredBy: { type: string }
+                  assignedToMe: { type: boolean }
+    DisputeDecisions:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            required: [orderId, adminId, outcome, reason, decidedAt]
+            properties:
+              orderId: { type: string, format: uuid }
+              adminId: { type: string }
+              outcome: { type: string, enum: [COURIER, REQUESTER] }
+              reason: { type: string }
+              decidedAt: { type: string, format: date-time }
     ReconciliationAttempts:
       type: object
       required: [items]
@@ -665,6 +799,13 @@ components:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     AdminOnly:
       description: The caller is not an administrator.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    DecisionForbidden:
+      description: |
+        The caller is not an administrator, took part in the errand (`CONFLICT_OF_INTEREST`), or is
+        not the administrator the dispute is referred to (`NOT_REFERRED_ADMIN`). Nothing changes.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }

@@ -3,12 +3,20 @@ import { afterAll, beforeAll, describe, it } from 'vitest';
 import { ContractValidator } from '@foc/test-harness';
 import {
   asAdmin,
+  asOtherAdmin,
   asRequester,
   asStranger,
   createTestApp,
   http,
   type TestApp,
 } from './helpers/app.js';
+import {
+  TRANSFER_RESULTS_QUEUE,
+  deliver,
+  dispute,
+  sweep,
+  transferred,
+} from './support/lifecycle.js';
 
 const SEEDED_ORDER = '00000000-0000-4000-8000-000000000129';
 const order = {
@@ -171,5 +179,55 @@ describe('order-service honours its published contract', () => {
     contract.assert('get', view, await http(app).get(view).set('Authorization', asAdmin));
     contract.assert('get', view, await http(app).get(view).set('Authorization', asStranger));
     contract.assert('get', view, await http(app).get(view));
+  });
+
+  it('dispute referral, decision and decision log (200, 400, 401, 403, 404, 409, 422)', async () => {
+    const lifecycle = await createTestApp();
+    try {
+      await dispute(lifecycle, 'PICKED_UP'); // version 5
+      await sweep(lifecycle); // referred to admin-1, version 6
+      const get = (path: string, auth?: string) => {
+        const request = http(lifecycle).get(path);
+        return auth ? request.set('Authorization', auth) : request;
+      };
+      const referred = '/admin/orders/referred';
+      contract.assert('get', referred, await get(referred, asAdmin));
+      contract.assert('get', referred, await get(referred, asOtherAdmin));
+      contract.assert('get', referred, await get(referred, asStranger));
+      contract.assert('get', referred, await get(referred));
+
+      const template = '/admin/orders/{orderId}/resolve';
+      const resolve = (auth: string | undefined, body: object, id = SEEDED_ORDER) => {
+        const request = http(lifecycle).post(`/admin/orders/${id}/resolve`);
+        return (auth ? request.set('Authorization', auth) : request).send(body);
+      };
+      const decision = { outcome: 'COURIER', reason: 'Handed over in person.', expectedVersion: 6 };
+      contract.assert('post', template, await resolve(undefined, decision));
+      contract.assert('post', template, await resolve(asAdmin, decision, 'not-a-uuid'));
+      contract.assert('post', template, await resolve(asAdmin, { ...decision, reason: '' }));
+      contract.assert('post', template, await resolve(asOtherAdmin, decision));
+      contract.assert('post', template, await resolve(asAdmin, decision, randomUUID()));
+      contract.assert('post', template, await resolve(asAdmin, decision));
+      contract.assert('post', template, await resolve(asAdmin, decision));
+
+      const decisions = '/admin/orders/decisions';
+      contract.assert('get', decisions, await get(decisions, asOtherAdmin));
+      contract.assert('get', decisions, await get(decisions, asStranger));
+      contract.assert('get', decisions, await get(decisions));
+      contract.assert(
+        'get',
+        '/orders/{orderId}/history',
+        await get(`/orders/${SEEDED_ORDER}/history`, asAdmin),
+      );
+      // Completed by decision before any delivery was recorded: the receipt says so.
+      await deliver(lifecycle, TRANSFER_RESULTS_QUEUE, transferred());
+      contract.assert(
+        'get',
+        '/orders/{orderId}/receipt',
+        await get(`/orders/${SEEDED_ORDER}/receipt`, asRequester),
+      );
+    } finally {
+      await lifecycle.close();
+    }
   });
 });

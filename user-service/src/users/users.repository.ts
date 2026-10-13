@@ -226,6 +226,17 @@ export const usersRepository = {
     await db.update(profiles).set(set).where(eq(profiles.userId, userId));
   },
 
+  /** Every ACTIVE user holding ADMIN, by ID alone. */
+  async listActiveAdminIds(db: Database): Promise<string[]> {
+    const rows = await db
+      .select({ userId: users.id })
+      .from(users)
+      .innerJoin(userRoles, and(eq(userRoles.userId, users.id), eq(userRoles.role, 'ADMIN')))
+      .where(eq(users.status, 'ACTIVE'))
+      .orderBy(users.id);
+    return rows.map((row) => row.userId);
+  },
+
   /** Deliberately selects only what the least-data lookup may return — never a hash or token. */
   async findIdentity(db: Database, userId: string): Promise<IdentityRow | null> {
     const rows = await db

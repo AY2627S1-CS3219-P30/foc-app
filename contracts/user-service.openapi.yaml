@@ -550,6 +550,36 @@ paths:
         '401': { $ref: '#/components/responses/ServiceUnauthenticated' }
         '503': { $ref: '#/components/responses/DependencyUnavailable' }
 
+  /internal/admins:
+    get:
+      tags: [Internal]
+      operationId: listActiveAdmins
+      summary: The administrators who may act now
+      description: |
+        Every `ACTIVE` account holding `ADMIN`, by user ID alone, so another service can route work
+        (such as a disputed errand) to one of them. Reveals no more than `/internal/users/{userId}`.
+      security: [{ serviceKey: [] }]
+      responses:
+        '200':
+          description: The active administrators.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                additionalProperties: false
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [userId]
+                      additionalProperties: false
+                      properties:
+                        userId: { type: string, format: uuid }
+              example: { items: [{ userId: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30 }] }
+        '401': { $ref: '#/components/responses/ServiceUnauthenticated' }
+
   /internal/introspect:
     get:
       tags: [Internal]

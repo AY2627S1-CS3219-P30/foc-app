@@ -51,6 +51,37 @@ export function parseAcceptOrder(value: unknown): { expectedVersion: number } {
   return result.data;
 }
 
+const resolveOrderSchema = z
+  .object({
+    outcome: z.enum(['COURIER', 'REQUESTER']),
+    reason: z.string().trim().min(1).max(500),
+    expectedVersion: z.number().int().positive(),
+  })
+  .strict();
+
+export type ResolveOrderInput = z.infer<typeof resolveOrderSchema>;
+
+export function parseResolveOrder(value: unknown): ResolveOrderInput {
+  const result = resolveOrderSchema.safeParse(value);
+  if (!result.success) {
+    throw new ApiException(
+      422,
+      'VALIDATION_FAILED',
+      'The decision is invalid.',
+      result.error.issues,
+    );
+  }
+  return result.data;
+}
+
+const orderIdSchema = z.uuid();
+
+export function parseOrderId(id: string): string {
+  const parsed = orderIdSchema.safeParse(id);
+  if (!parsed.success) throw new ApiException(400, 'INVALID_ORDER_ID', 'Order ID must be a UUID.');
+  return parsed.data;
+}
+
 export function parseIdempotencyKey(value: string | undefined): string {
   if (!value) {
     throw new ApiException(400, 'IDEMPOTENCY_KEY_REQUIRED', 'Idempotency-Key is required.');

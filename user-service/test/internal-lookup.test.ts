@@ -165,3 +165,31 @@ describe('GET /internal/introspect (session liveness + identity)', () => {
       .expect(401);
   });
 });
+
+describe('GET /internal/admins', () => {
+  it('lists only active administrators, by user ID alone', async () => {
+    const register = async (email: string) =>
+      (await http().post('/auth/register').send(validRegistration(email)).expect(201)).body
+        .userId as string;
+    const active = await register('e0123457@u.nus.edu');
+    const suspended = await register('e0123458@u.nus.edu');
+    const pending = await register('e0123459@u.nus.edu');
+    for (const id of [active, suspended, pending]) {
+      await t.db.query("INSERT INTO user_roles (user_id, role) VALUES ($1, 'ADMIN')", [id]);
+    }
+    await t.db.query("UPDATE users SET status = 'ACTIVE' WHERE id = $1", [active]);
+    await t.db.query("UPDATE users SET status = 'SUSPENDED' WHERE id = $1", [suspended]);
+
+    const res = await asService('/internal/admins').expect(200);
+    const ids = (res.body.items as Array<{ userId: string }>).map((item) => item.userId);
+    expect(ids).toContain(active);
+    expect(ids).not.toContain(suspended);
+    expect(ids).not.toContain(pending);
+    expect(ids).not.toContain(userId); // an active student without the role
+    for (const item of res.body.items) expect(Object.keys(item)).toEqual(['userId']);
+  });
+
+  it('requires a service credential', async () => {
+    await http().get('/internal/admins').expect(401);
+  });
+});
