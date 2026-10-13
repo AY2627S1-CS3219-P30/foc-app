@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   EVENTS,
+  StaleEventError,
   UnparseableMessageError,
   insertOutboxEvent,
   type Queryable,
@@ -572,6 +573,7 @@ export class OrdersRepository {
           previousStatus: null,
           newStatus: 'PENDING_CREDIT',
           occurredAt,
+          orderVersion: 1,
         },
       });
       await fault?.('status-outbox-written');
@@ -618,6 +620,16 @@ export class OrdersRepository {
       return false;
     }
     if (order.status !== 'PENDING_CREDIT') {
+      // A second copy of a confirmation already applied, arriving after the errand moved on. Credit
+      // sends one by design when a request is sent again, so it is ignored and recorded rather than
+      // set aside for an operator (EI-NFR2.1.1). Anything else contradicts the record.
+      const appliedAt =
+        input.outcome.kind === 'RESERVED' ? await reservedAtVersion(tx, input.orderId) : undefined;
+      if (appliedAt !== undefined) {
+        throw new StaleEventError(
+          `reservation confirmation was applied at version ${appliedAt}; the errand is now ${order.status} at version ${order.version}`,
+        );
+      }
       throw new UnparseableMessageError(
         `reservation result cannot move order from ${order.status} to ${target}`,
       );
@@ -665,6 +677,7 @@ export class OrdersRepository {
         previousStatus: 'PENDING_CREDIT',
         newStatus: target,
         occurredAt,
+        orderVersion: nextVersion,
       },
     });
     return true;
@@ -711,6 +724,7 @@ export class OrdersRepository {
           previousStatus: 'OPEN',
           newStatus: 'ACCEPTED',
           occurredAt,
+          orderVersion: order.version,
         },
       });
       return { accepted: true, order };
@@ -951,6 +965,7 @@ function emittedEvent(eventType: string, before: OrderRow, after: OrderRow, occu
         previousStatus: before.status,
         newStatus: after.status,
         occurredAt,
+        orderVersion: after.version,
       },
     };
   }
@@ -993,4 +1008,14 @@ function creditRequest(order: OrderRow) {
     return emittedEvent(EVENTS.CREDIT_RELEASE_REQUESTED, order, order, order.updatedAt);
   }
   throw new Error(`order in ${order.status} is not waiting on a Credit request`);
+}
+
+/** The errand version at which Credit's reservation was applied, if it ever was. */
+async function reservedAtVersion(tx: Queryable, orderId: string): Promise<number | undefined> {
+  const { rows } = await tx.query<{ order_version: number }>(
+    `SELECT order_version FROM order_status_history
+      WHERE order_id = $1 AND action = 'CREDIT_RESERVED'`,
+    [orderId],
+  );
+  return rows[0] ? Number(rows[0].order_version) : undefined;
 }
