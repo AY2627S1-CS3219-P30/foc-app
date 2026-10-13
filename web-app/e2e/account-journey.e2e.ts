@@ -136,8 +136,9 @@ async function replaceFocused(page: Page, text: string) {
 }
 
 /**
- * The focused element draws an outline or a box-shadow. A visually hidden radio draws its ring on
- * its label instead (ModeSwitch), so that counts too.
+ * The focused element draws a visible outline: every focus ring in the app is one (globals.css,
+ * ModeSwitch). A box-shadow does not count, since a checked ModeSwitch label has one at rest. A
+ * visually hidden radio draws its ring on its label instead (ModeSwitch), so that counts too.
  */
 async function expectVisibleFocus(page: Page) {
   const focus = await page.evaluate(() => {
@@ -145,7 +146,9 @@ async function expectVisibleFocus(page: Page) {
     if (!el || el === document.body) return { ok: true, what: "body" }; // between cycles
     const ring = (e: Element) => {
       const s = getComputedStyle(e);
-      return (s.outlineStyle !== "none" && parseFloat(s.outlineWidth) > 0) || s.boxShadow !== "none";
+      // Computed colours read rgba(r, g, b, 0) or color(… / 0) when fully transparent.
+      const clear = /^rgba\(.*,\s*0\)$|\/\s*0\)$|^transparent$/.test(s.outlineColor);
+      return s.outlineStyle !== "none" && parseFloat(s.outlineWidth) > 0 && !clear;
     };
     const label = el.id ? document.querySelector(`label[for="${CSS.escape(el.id)}"]`) : null;
     const what = `${el.tagName.toLowerCase()} "${(el.getAttribute("aria-label") ?? el.textContent ?? "").trim().slice(0, 40)}"`;
