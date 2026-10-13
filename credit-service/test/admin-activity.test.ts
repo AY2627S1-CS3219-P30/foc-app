@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AdminActivity } from '../src/credits/admin-activity.js';
 import { asAdmin, asStudent, createTestApp, http, issue, type TestApp } from './helpers/app.js';
 
 const THRESHOLD = 3;
@@ -39,6 +40,25 @@ describe('watching the admins: bulk wallet reads (ADM-04)', () => {
     }
     await read('user-b');
     expect(await alerts()).toEqual([]);
+  });
+
+  it('still answers the read when the alert check itself fails, and says so in the log', async () => {
+    // Watching the admin is a side effect of the read; it must not be what makes the read fail.
+    const check = vi
+      .spyOn(AdminActivity.prototype, 'afterWalletRead')
+      .mockRejectedValue(new Error('alert store unavailable'));
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    try {
+      const wallet = await read('user-a');
+      expect(wallet.body).toMatchObject({ userId: 'user-a', available: 10 });
+      await read('user-a', 'ledger');
+      expect(error).toHaveBeenCalledWith(
+        expect.objectContaining({ msg: 'wallet-read alert check failed', adminUserId: 'admin-1' }),
+      );
+    } finally {
+      check.mockRestore();
+      error.mockRestore();
+    }
   });
 
   it('raises the alert at the threshold, once, and writes it to the log', async () => {

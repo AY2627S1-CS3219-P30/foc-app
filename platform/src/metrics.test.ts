@@ -222,3 +222,26 @@ describe('GET /metrics', () => {
     );
   });
 });
+
+describe('the scrape token on the module path (PLT-04)', () => {
+  it('holds METRICS_TOKEN to the same rule as the environment schema', async () => {
+    const { PlatformModule } = await import('./platform.module.js');
+    const options = { serviceName: 'test-service', version: '1', logLevel: 'silent' };
+    const before = process.env.METRICS_TOKEN;
+    try {
+      // A service validates its environment at boot; a module built without that still must
+      // not accept a token the schema would refuse.
+      process.env.METRICS_TOKEN = 'too-short';
+      expect(() => PlatformModule.forRoot(options)).toThrow(
+        'METRICS_TOKEN must be at least 16 characters',
+      );
+      process.env.METRICS_TOKEN = 'long-enough-for-the-schema';
+      expect(() => PlatformModule.forRoot(options)).not.toThrow();
+      delete process.env.METRICS_TOKEN;
+      expect(() => PlatformModule.forRoot(options)).not.toThrow();
+    } finally {
+      if (before === undefined) delete process.env.METRICS_TOKEN;
+      else process.env.METRICS_TOKEN = before;
+    }
+  });
+});
