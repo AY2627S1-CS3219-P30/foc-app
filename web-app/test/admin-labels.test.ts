@@ -35,10 +35,17 @@ describe("describeAlert", () => {
 });
 
 describe("dayRange", () => {
-  it("spans whole days in the browser's time zone", () => {
+  it("spans whole days in the browser's time zone, the last one to the start of the next", () => {
     const { from, to } = dayRange("2026-10-01", "2026-10-02");
     expect(new Date(from!).getTime()).toBe(new Date(2026, 9, 1).getTime());
-    expect(new Date(to!).getTime()).toBe(new Date(2026, 9, 2, 23, 59, 59, 999).getTime());
+    // `to` is exclusive in the API, so 2 Oct is covered up to, not including, midnight on 3 Oct.
+    expect(new Date(to!).getTime()).toBe(new Date(2026, 9, 3).getTime());
+  });
+
+  it("covers a single day, and the last day of a month", () => {
+    const one = dayRange("2026-10-08", "2026-10-08");
+    expect(new Date(one.to!).getTime() - new Date(one.from!).getTime()).toBe(24 * 60 * 60 * 1000);
+    expect(new Date(dayRange("", "2026-10-31").to!).getTime()).toBe(new Date(2026, 10, 1).getTime());
   });
 
   it("leaves out an empty or malformed end", () => {

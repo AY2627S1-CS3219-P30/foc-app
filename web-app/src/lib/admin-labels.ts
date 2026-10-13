@@ -104,14 +104,15 @@ export function describeAlert(alert: Pick<AdminAlert, "kind" | "actorId" | "deta
 }
 
 /**
- * A day range from two `<input type="date">` values, as the instants the API filters on: the start
- * of the first day and the end of the last, in the browser's time zone. Empty inputs are left out.
+ * A day range from two `<input type="date">` values, as the instants the API filters on, in the
+ * browser's time zone. The API takes `from` inclusive and `to` exclusive, so the last day runs to the
+ * start of the day after it. Empty inputs are left out.
  */
 export function dayRange(from: string, to: string): { from?: string; to?: string } {
-  const day = (value: string, end: boolean) => {
+  const day = (value: string, after: boolean) => {
     const [y, m, d] = value.split("-").map(Number);
     if (!y || !m || !d) return undefined;
-    return (end ? new Date(y, m - 1, d, 23, 59, 59, 999) : new Date(y, m - 1, d)).toISOString();
+    return new Date(y, m - 1, after ? d + 1 : d).toISOString();
   };
   return { from: from ? day(from, false) : undefined, to: to ? day(to, true) : undefined };
 }

@@ -8,6 +8,7 @@ import {
   type AccountStatus,
   type Role,
 } from '../users/users.repository.js';
+import type { AuditQuery } from '../users/validation.js';
 import {
   adminRepository as admin,
   type AdminAlertKind,
@@ -228,15 +229,7 @@ export class AdminService {
     }
   }
 
-  async listAudit(f: {
-    page: number;
-    pageSize: number;
-    targetUserId?: string;
-    actorId?: string;
-    action?: AuditAction;
-    from?: string;
-    to?: string;
-  }) {
+  async listAudit(f: AuditQuery) {
     const { rows, total } = await admin.listAudit(this.db, f);
     return { page: f.page, pageSize: f.pageSize, total, items: rows.map(toAuditView) };
   }

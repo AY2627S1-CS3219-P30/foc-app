@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ApiException } from '@foc/platform';
+import { AUDIT_ACTIONS } from '../admin/admin.repository.js';
 
 export const registerSchema = z.strictObject({
   // Trimmed first: a pasted address with a stray space is still that address.
@@ -55,31 +56,28 @@ export const userListQuerySchema = z.object({
 
 export const introspectQuerySchema = z.strictObject({ sid: z.uuid(), sub: z.uuid() });
 
+const instant = z.iso.datetime({ offset: true }).transform((v) => new Date(v));
+
+/**
+ * `from` is inclusive and `to` exclusive, so consecutive windows never count a record twice.
+ * Strict, so a misspelt filter such as `?actor=` is rejected rather than returning the whole trail.
+ */
 export const auditQuerySchema = z
-  .object({
+  .strictObject({
     page,
     pageSize,
     targetUserId: z.uuid().optional(),
     actorId: z.uuid().optional(),
-    action: z
-      .enum([
-        'SUSPEND',
-        'REACTIVATE',
-        'ROLE_GRANT',
-        'ROLE_REVOKE',
-        'ADMIN_BOOTSTRAP',
-        'ROLE_CHANGE_REQUESTED',
-        'ROLE_CHANGE_REJECTED',
-      ])
-      .optional(),
-    /** Inclusive bounds on when the action happened (RFC 3339). */
-    from: z.iso.datetime({ offset: true }).optional(),
-    to: z.iso.datetime({ offset: true }).optional(),
+    action: z.enum(AUDIT_ACTIONS).optional(),
+    from: instant.optional(),
+    to: instant.optional(),
   })
-  .refine((q) => !q.from || !q.to || Date.parse(q.from) <= Date.parse(q.to), {
-    message: '`from` must not be after `to`.',
-    path: ['from'],
+  .refine((v) => !v.from || !v.to || v.from < v.to, {
+    path: ['to'],
+    message: '`to` must be later than `from`.',
   });
+
+export type AuditQuery = z.output<typeof auditQuerySchema>;
 
 export const roleRequestQuerySchema = z.object({
   page,
