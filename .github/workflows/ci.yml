@@ -31,6 +31,7 @@ jobs:
       web: ${{ steps.filter.outputs.web }}
       node: ${{ steps.filter.outputs.node }}
       stack: ${{ steps.filter.outputs.stack }}
+      supplier_stack: ${{ steps.filter.outputs.supplier_stack }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -282,6 +283,53 @@ jobs:
           ./scripts-smoke.sh --up
 
   # ---------------------------------------------------------------------------
+  # The supplier page against the real Supplier Service, verifying tokens with
+  # the real User Service: a student browses and is refused a create; an admin
+  # creates, edits and deletes through the page (web-app/README.md). Only the
+  # services it needs come up; the whole stack is the smoke job's.
+  # ---------------------------------------------------------------------------
+  supplier-stack:
+    name: Supplier listing integration
+    needs: detect
+    if: needs.detect.outputs.supplier_stack == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Start the User and Supplier Services
+        run: |
+          cp .env.example .env
+          docker compose -p foc-it up -d --build user-service supplier-service
+          for port in 3001 3002; do
+            for _ in $(seq 1 60); do
+              curl -fsS "http://localhost:${port}/health" >/dev/null 2>&1 && break
+              sleep 2
+            done
+            curl -fsS "http://localhost:${port}/health" || {
+              echo "::error::Nothing healthy on port ${port}"
+              exit 1
+            }
+            echo
+          done
+      - run: bun install --frozen-lockfile
+        working-directory: web-app
+      - name: Supplier listing integration test
+        working-directory: web-app
+        env:
+          SUPPLIER_SERVICE_URL: http://localhost:3002
+          USER_SERVICE_URL: http://localhost:3001
+        run: bun test test/suppliers.integration.test.tsx
+      - name: Service logs
+        if: failure()
+        run: docker compose -p foc-it logs --no-color --tail=200 user-service supplier-service
+      - name: Tear down
+        if: always()
+        run: docker compose -p foc-it down -v
+
+  # ---------------------------------------------------------------------------
   # Required status check.
   #
   # This exists because a *skipped* job never reports a status, so naming the
@@ -292,7 +340,7 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [detect, quality, service, packages, web-app, stack]
+    needs: [detect, quality, service, packages, web-app, stack, supplier-stack]
     runs-on: ubuntu-latest
     steps:
       - name: Check results
