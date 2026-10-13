@@ -68,7 +68,30 @@ paths:
                 properties:
                   service: { type: string, const: user-service }
                   status: { type: string, enum: [ok] }
+                  dependencies:
+                    description: >-
+                      Each dependency the service asks on every call. `database` is mandatory;
+                      `broker` is not (the outbox holds events until it is back).
+                    type: object
+                    additionalProperties: { type: string, enum: [up, down] }
               example: { service: user-service, status: ok }
+        '503':
+          description: >-
+            The database is unavailable. The service answers 200 again as soon as it is back, with
+            no restart (PL-NFR3.1.2).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [service, status]
+                properties:
+                  service: { type: string, const: user-service }
+                  status: { type: string, const: unavailable }
+                  dependencies:
+                    type: object
+                    additionalProperties: { type: string, enum: [up, down] }
+              example:
+                { service: user-service, status: unavailable, dependencies: { database: down } }
 
   /auth/register:
     post:

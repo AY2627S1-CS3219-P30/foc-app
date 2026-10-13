@@ -117,7 +117,7 @@ to read `/internal/orders/{orderId}/credit-status`);
 documented in [`.env.example`](../.env.example). A missing required value stops startup.
 
 ```bash
-cp .env.example .env
+./scripts-init-env.sh   # creates .env; every secret is generated on your machine
 docker compose up -d --build
 curl http://localhost:3004/health
 ```
@@ -135,6 +135,6 @@ shared test harness creates, migrates and drops a uniquely named database per ru
 automatically, see [docs/testing.md](../docs/testing.md)):
 
 ```bash
-TEST_POSTGRES_URL=postgres://postgres:postgres_dev@localhost:55432/postgres \
-  npm test -w @foc/credit-service
+set -a; . ./.env; set +a   # the stack's addresses and logins, from your .env
+TEST_POSTGRES_URL=$HOST_POSTGRES_URL npm test -w @foc/credit-service
 ```

@@ -5,8 +5,16 @@ import {
   type MiddlewareConsumer,
   type NestModule,
 } from '@nestjs/common';
+import { DiscoveryModule, DiscoveryService } from '@nestjs/core';
 import type { DestinationStream, Logger as PinoLogger } from 'pino';
-import { HealthController, SERVICE_INFO, type ServiceInfo } from './health.controller.js';
+import {
+  HEALTH_INDICATORS,
+  HealthController,
+  SERVICE_INFO,
+  isHealthIndicator,
+  type HealthIndicator,
+  type ServiceInfo,
+} from './health.controller.js';
 import { createLogger, requestLogger } from './logging.js';
 import { METRICS, METRICS_ACCESS, Metrics, MetricsController } from './metrics.js';
 
@@ -24,8 +32,9 @@ export interface PlatformModuleOptions {
 
 /**
  * Everything a FoC service gets for free: structured JSON logging with a
- * correlation ID on every line, request logging, a /health endpoint, and
- * Prometheus metrics at /metrics. Imported once per service in its root module.
+ * correlation ID on every line, request logging, a /health endpoint that asks
+ * the service's dependencies, and Prometheus metrics at /metrics. Imported once
+ * per service in its root module.
  */
 @Module({})
 export class PlatformModule implements NestModule {
@@ -39,9 +48,25 @@ export class PlatformModule implements NestModule {
     const logger = createLogger(options.serviceName, options.logLevel, options.logDestination);
     return {
       module: PlatformModule,
+      imports: [DiscoveryModule],
       controllers: [HealthController, MetricsController],
       providers: [
         { provide: SERVICE_INFO, useValue: info },
+        {
+          // Every provider in the application that can report its health (PgDb, the broker
+          // connection), found when /health is asked, so a service registers nothing. The same
+          // instance under two tokens is asked once.
+          provide: HEALTH_INDICATORS,
+          useFactory: (discovery: DiscoveryService) => (): HealthIndicator[] => [
+            ...new Set(
+              discovery
+                .getProviders()
+                .map((wrapper) => wrapper.instance as unknown)
+                .filter(isHealthIndicator),
+            ),
+          ],
+          inject: [DiscoveryService],
+        },
         { provide: LOGGER, useValue: logger },
         { provide: METRICS, useValue: new Metrics(options.serviceName) },
         {

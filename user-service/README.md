@@ -179,10 +179,11 @@ who knows it can claim the account:
 
 ```bash
 curl -s localhost:3001/auth/password -H 'content-type: application/json' \
-  -d '{"email":"admin@u.nus.edu","currentPassword":"dev-only-admin-password-change-me","newPassword":"<your own>"}'
+  -d '{"email":"admin@u.nus.edu","currentPassword":"<ADMIN_SEED_PASSWORD from .env>","newPassword":"<your own>"}'
 ```
 
-In Compose the dev default is `admin@u.nus.edu` / `dev-only-admin-password-change-me`. To recover from a
+In Compose the bootstrap admin is `admin@u.nus.edu`, and its password is `ADMIN_SEED_PASSWORD` in your
+`.env`, which `./scripts-init-env.sh` generated on your machine. To recover from a
 misbehaving appointed admin when no bootstrap admin is reachable, add a new address to `ADMIN_SEED_EMAILS`,
 rotate `ADMIN_SEED_PASSWORD`, redeploy and claim the account at once (roles.md §4). The address must never
 have been registered: the seed skips an existing account, even an unactivated one someone registered to

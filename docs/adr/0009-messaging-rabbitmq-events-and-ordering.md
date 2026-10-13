@@ -164,11 +164,12 @@ code, even when its payload happens to fit the old schema (EI-NFR3.1.2).
   way, the seeded administrator never got a wallet. Events that need a consumer are listed in
   `REQUIRES_CONSUMER`; an event with no durable consumer yet, such as `order.status-changed`, is
   not, and is dropped if nobody is bound.
-- One more container to run and watch. Every service still shares one broker login; a login per
-  service, limited to its own routing keys, is PLT-06
-  ([#155](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/155)).
-- A message's producer is a claim inside the envelope until then
-  ([ADR 0004](0004-authentication-and-trust.md)).
+- One more container to run and watch. Each service has a broker login of its own, limited to its
+  own routing keys and queues (PLT-06,
+  [#155](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/155)).
+- A message's producer is still a claim inside the envelope, but it is now checked against the
+  broker account that published the message, which the broker vouches for, so one service cannot
+  pass a message off as another's ([ADR 0004](0004-authentication-and-trust.md)).
 
 ## Revisit if
 

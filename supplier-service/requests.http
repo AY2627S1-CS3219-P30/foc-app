@@ -21,10 +21,10 @@
 @supplierBase = http://localhost:3002
 
 @adminEmail = admin@u.nus.edu
-@bootstrapPassword = dev-only-admin-password-change-me
-@adminPassword = Admin-Passw0rd-Changed-01
+@bootstrapPassword = <ADMIN_SEED_PASSWORD from your .env>
+@adminPassword = <set your own>
 @studentEmail = sup02.student@u.nus.edu
-@studentPassword = Student-Passw0rd-01
+@studentPassword = <set your own>
 
 # ─────────────────────────────────────────────────────────────
 # 1 · Tokens

@@ -1,8 +1,9 @@
-# syntax=docker/dockerfile:1
 # Multi-stage build for the Next.js web app. Uses Bun, matching the lockfile in
 # this folder; the backend services use npm and are built from the repo root.
 
-FROM oven/bun:1-alpine AS base
+# Pinned to an exact version and digest (PLT-06): a tag alone can be moved to different
+# content, and then two builds of the same commit differ. To update, change both together.
+FROM oven/bun:1.4.2-alpine@sha256:d888c0ae6c86d7866ff10c5aafdd9077b36aee6455b33dd270fb93c0dd5cef6f AS base
 WORKDIR /app
 
 FROM base AS deps
@@ -30,7 +31,7 @@ RUN bun run build
 # ---- runtime ----------------------------------------------------------------
 # `output: "standalone"` emits a minimal server plus only the dependencies it
 # actually imports, so nothing from the build stage needs to come along.
-FROM node:22-alpine AS runtime
+FROM node:22.23.3-alpine3.24@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS runtime
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
 COPY --from=build /app/.next/standalone ./

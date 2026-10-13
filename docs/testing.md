@@ -43,8 +43,9 @@ Against the Compose stack:
 
 ```bash
 docker compose up -d postgres rabbitmq
-export TEST_POSTGRES_URL=postgres://postgres:postgres_dev@localhost:55432/postgres
-export RABBITMQ_URL=amqp://foc:foc_dev@localhost:55672
+set -a; . ./.env; set +a   # the stack's addresses and logins, from your .env
+export TEST_POSTGRES_URL=$HOST_POSTGRES_URL
+export RABBITMQ_URL=$HOST_RABBITMQ_URL
 npm test
 ```
 

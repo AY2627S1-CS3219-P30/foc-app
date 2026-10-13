@@ -17,7 +17,7 @@ import { deadLetterQueueName } from './topology.js';
  * unless RABBITMQ_URL is set, like broker.integration.test.ts:
  *
  *   docker compose up -d rabbitmq
- *   RABBITMQ_URL=amqp://foc:foc_dev@localhost:55672 npm test -w @foc/platform
+ *   set -a; . ./.env; set +a; RABBITMQ_URL=$HOST_RABBITMQ_URL npm test -w @foc/platform
  */
 const URL = process.env.RABBITMQ_URL;
 const suite = URL ? describe : describe.skip;

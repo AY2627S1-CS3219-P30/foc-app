@@ -10,6 +10,7 @@ import { PredecessorMissingError, StaleEventError, createEnvelope } from './enve
 import {
   DLX,
   HEADER_ATTEMPT,
+  HEADER_FAILURE,
   HEADER_ORIGINAL_QUEUE,
   deadLetterQueueName,
   retryExchangeName,
@@ -38,6 +39,8 @@ class FakeChannel extends EventEmitter {
   }> = [];
   /** The body of each publish, in the same order as `published`. */
   readonly publishedBodies: Buffer[] = [];
+  /** The properties of each publish, in the same order as `published`. */
+  readonly publishedOptions: Options.Publish[] = [];
   readonly acked: ConsumeMessage[] = [];
   readonly nacked: Array<{ message: ConsumeMessage; requeue: boolean }> = [];
 
@@ -77,6 +80,7 @@ class FakeChannel extends EventEmitter {
     this.check();
     this.published.push({ exchange, routingKey, headers: options.headers ?? {} });
     this.publishedBodies.push(content);
+    this.publishedOptions.push(options);
     done?.(null);
     return true;
   }
@@ -101,11 +105,16 @@ class FakeChannel extends EventEmitter {
     this.open = false;
     this.emit('close');
   }
-  deliver(queue: string, body: unknown, headers: Record<string, unknown> = {}): ConsumeMessage {
+  deliver(
+    queue: string,
+    body: unknown,
+    headers: Record<string, unknown> = {},
+    properties: Record<string, unknown> = {},
+  ): ConsumeMessage {
     const message = {
       content: Buffer.from(typeof body === 'string' ? body : JSON.stringify(body)),
       fields: { routingKey: 'user.activated', deliveryTag: ++deliveryTag, redelivered: false },
-      properties: { headers },
+      properties: { ...properties, headers },
     } as unknown as ConsumeMessage;
     this.consumers.get(queue)!(message);
     return message;
@@ -137,10 +146,14 @@ class FakeConnection extends EventEmitter {
 
 const WORK: SubscriptionSpec = { queue: 'foc.test.work', routingKeys: ['user.activated'] };
 
-function setup(subscriptions: SubscriptionSpec[] = [WORK], metrics?: Metrics) {
+function setup(
+  subscriptions: SubscriptionSpec[] = [WORK],
+  metrics?: Metrics,
+  url = 'amqp://broker.test',
+) {
   const connections: FakeConnection[] = [];
   const outage = { failures: 0 };
-  const broker = new BrokerConnection('amqp://broker.test', 'test', subscriptions, [100, 200], {
+  const broker = new BrokerConnection(url, 'test', subscriptions, [100, 200], {
     connect: async () => {
       if (outage.failures > 0) {
         outage.failures--;
@@ -330,9 +343,10 @@ describe('retry routing', () => {
       },
     ]);
     expect(channel().acked).toEqual([message]);
-    // ... and the delay queue dead-letters onto the default exchange, which delivers by queue name.
+    // ... and the delay queue dead-letters onto the service's requeue exchange, which delivers by
+    // queue name. Not the default exchange: no service account may write to that (PLT-06).
     expect(channel().queues.get(retryQueueName('test', 1))).toMatchObject({
-      deadLetterExchange: '',
+      deadLetterExchange: 'foc.test.requeue',
     });
   });
 
@@ -656,6 +670,7 @@ describe('metrics (PLT-04)', () => {
     expect(await series(metrics.eventsDeadLettered)).toEqual([
       { queue: WORK.queue, reason: 'unparseable' },
       { queue: WORK.queue, reason: 'unsupported_version' },
+      { queue: WORK.queue, reason: 'untrusted_sender' },
       { queue: WORK.queue, reason: 'exhausted' },
     ]);
   });
@@ -757,5 +772,115 @@ describe('metrics (PLT-04)', () => {
     expect(
       await value(metrics.eventsDeadLettered, { queue: WORK.queue, reason: 'unparseable' }),
     ).toBe(1);
+  });
+});
+
+describe('a message is held to the account that published it (PLT-06)', () => {
+  /** A service that signs in to the broker as itself: account `test`, service `test`. */
+  const AS_ITSELF = 'amqp://test:secret@broker.test';
+
+  async function consuming(url?: string, metrics?: Metrics) {
+    const { broker, consumer, channel } = setup([WORK], metrics, url);
+    await broker.connect();
+    const seen: string[] = [];
+    await consumer.subscribe(subscription(WORK.queue, (e) => void seen.push(e.payload.userId)));
+    return { channel, seen };
+  }
+
+  it('handles an event published by the account its producer signs in with', async () => {
+    const { channel, seen } = await consuming(AS_ITSELF);
+
+    channel().deliver(WORK.queue, activation('user-1'), {}, { userId: 'user-service' });
+    await settle();
+
+    expect(seen).toEqual(['user-1']);
+    expect(channel().published).toEqual([]);
+  });
+
+  it('sets aside an event that names the right producer but was published by another account', async () => {
+    const metrics = new Metrics('test');
+    const { channel, seen } = await consuming(AS_ITSELF, metrics);
+
+    // The envelope says user-service; the broker says the Order Service published it.
+    const forged = channel().deliver(WORK.queue, activation(), {}, { userId: 'order-service' });
+    await settle();
+
+    expect(seen).toEqual([]);
+    expect(channel().published).toEqual([
+      {
+        exchange: DLX,
+        routingKey: WORK.queue,
+        headers: expect.objectContaining({
+          [HEADER_FAILURE]:
+            'sender order-service may not publish user.activated: only user-service may',
+        }),
+      },
+    ]);
+    expect(channel().acked).toEqual([forged]);
+    const { values } = await metrics.eventsDeadLettered.get();
+    expect(values.find((v) => v.labels.reason === 'untrusted_sender')?.value).toBe(1);
+  });
+
+  it('sets aside an event whose publisher did not identify itself', async () => {
+    const { channel, seen } = await consuming(AS_ITSELF);
+
+    channel().deliver(WORK.queue, activation());
+    await settle();
+
+    expect(seen).toEqual([]);
+    expect(channel().published[0]!.headers[HEADER_FAILURE]).toBe(
+      'sender unknown may not publish user.activated: only user-service may',
+    );
+  });
+
+  it('is not taken in by a sender written into a header', async () => {
+    const { channel, seen } = await consuming(AS_ITSELF);
+
+    channel().deliver(
+      WORK.queue,
+      activation(),
+      { 'x-foc-sender': 'user-service' },
+      { userId: 'order-service' },
+    );
+    await settle();
+
+    expect(seen).toEqual([]);
+  });
+
+  it('retries under its own account and still knows who first sent the event', async () => {
+    const { broker, consumer, channel } = setup([WORK], undefined, AS_ITSELF);
+    await broker.connect();
+    let attempts = 0;
+    const seen: string[] = [];
+    await consumer.subscribe(
+      subscription(WORK.queue, (e) => {
+        attempts += 1;
+        if (attempts === 1) throw new Error('not yet');
+        seen.push(e.payload.userId);
+      }),
+    );
+
+    channel().deliver(WORK.queue, activation('user-9'), {}, { userId: 'user-service' });
+    await settle();
+
+    // Published again as itself: the broker would refuse it under the User Service's name.
+    const retry = channel().publishedOptions[0]!;
+    expect(retry.userId).toBe('test');
+    expect(retry.headers).toMatchObject({ 'x-foc-sender': 'user-service', [HEADER_ATTEMPT]: 2 });
+
+    // The retry comes back carrying its own account, and is accepted for what it records.
+    channel().deliver(WORK.queue, activation('user-9'), retry.headers, { userId: retry.userId });
+    await settle();
+    expect(seen).toEqual(['user-9']);
+  });
+
+  it('does not ask who sent it when every service shares one login', async () => {
+    // A test run or `npm run dev`: one account, so nothing to tell apart.
+    const { channel, seen } = await consuming('amqp://foc:secret@broker.test');
+
+    channel().deliver(WORK.queue, activation('user-1'));
+    await settle();
+
+    expect(seen).toEqual(['user-1']);
   });
 });

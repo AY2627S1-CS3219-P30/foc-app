@@ -104,6 +104,8 @@ export class EventPublisher {
           contentType: 'application/json',
           persistent: true,
           mandatory,
+          // The broker checks this against the login, so a consumer can rely on it (sender.ts).
+          userId: this.broker.account,
           messageId: envelope.eventId,
           correlationId: envelope.correlationId,
           timestamp: Date.now(),

@@ -1,8 +1,9 @@
-# syntax=docker/dockerfile:1
 # Multi-stage build for credit-service. Produces a small runtime image with no build
 # toolchain and no dev dependencies, running as a non-root user (PL-NFR2.1.2).
 
-FROM node:22-alpine AS base
+# Pinned to an exact version and digest (PLT-06): a tag alone can be moved to different
+# content, and then two builds of the same commit differ. To update, change both together.
+FROM node:22.23.3-alpine3.24@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402 AS base
 WORKDIR /app
 
 # ---- dependencies -----------------------------------------------------------
@@ -39,7 +40,7 @@ COPY --from=build /app/credit-service/dist credit-service/dist
 # Applied by the one-shot migrate container before the service starts.
 COPY --from=build /app/credit-service/drizzle credit-service/drizzle
 
-# node:22-alpine ships an unprivileged `node` user; never run as root.
+# The Node image ships an unprivileged `node` user; never run as root.
 USER node
 EXPOSE 3004
 
