@@ -140,7 +140,7 @@ error code, to a real request:
 - a bystander: `403 ACTION_FORBIDDEN`
 - delivery before pickup: `409 INVALID_ORDER_STATE`
 - the courier confirming their own delivery: `403 ACTION_FORBIDDEN`
-- a second completion: `409`, one transfer, the courier's balance unchanged
+- a second completion: `409 INVALID_ORDER_STATE`, one transfer, the courier's balance unchanged
 
 ### 5. Messages that go wrong (Part 3.4) — 3:00
 
@@ -149,7 +149,8 @@ mid-workflow, the same event three times, a late duplicate of a reply, a version
 and the Order Service forging an activation.
 
 Switch to the dashboard. Point at: duplicates and stale steps counted, dead letters waiting by
-queue, `DeadLetterWaiting` firing.
+queue, `DeadLetterWaiting` firing. Say it plainly if asked: no Alertmanager runs in this stack, so
+an alert is shown on the dashboard and at <http://localhost:9090/alerts> and nobody is paged.
 
 Switch to the admin console's Operations tab; Patrick drives it. Three dead letters are waiting
 on `foc.credit.wallet-provisioning`, each with its reason:
@@ -194,6 +195,20 @@ docker compose start postgres
 curl -i localhost:3003/health                   # 200 again within two seconds; no service restarted
 ```
 
+If there is time, the broker, which is the other case the instructions name:
+
+```bash
+docker compose stop rabbitmq
+curl -s localhost:3003/health                   # still 200: {"status":"ok",...,"dependencies":{"database":"up","broker":"down"}}
+./scripts-demo-journey.sh                       # part B stops at "the errand did not open": it is saved as PENDING_CREDIT
+docker compose start rabbitmq                   # the errand opens by itself about 15 s later
+```
+
+A service keeps taking writes without the broker, because the event is saved with the errand and
+sent when the broker is back. That is the difference from losing the database. Skip this if the
+slot is running late; `./scripts-restart-check.sh` covers Postgres only, so this step has no
+script behind it.
+
 Say: `down -v` is the one command that deletes data. The full version of this part, with a request
 waiting in a queue across each restart, is `./scripts-restart-check.sh`, which CI runs.
 
@@ -232,6 +247,13 @@ Use that exact command. In rehearsal, plain `docker compose up -d --build credit
 the new image every time but twice left the old container running; `--force-recreate` replaced it
 five times out of five. `--no-deps` skips the migrate job, so leave it off if the change adds a
 migration.
+
+If the journey still passes after the change, the old container is still running. Check what it
+holds, and run the `up` command again:
+
+```bash
+docker compose exec -T credit-service grep ALLOCATION /app/credit-service/dist/credits/types.js
+```
 
 For a change to shared code in `platform/`, every service image is rebuilt:
 `docker compose up -d --build`, about half a minute with the cache warm.

@@ -88,12 +88,13 @@ operator would. Each fails with a non-zero exit code and says which check failed
 them, in this order, whenever a change can affect the stack. `./scripts-init-env.sh` must have
 created `.env` first.
 
-| Script                            | Checks                                                                                                                                              |
-| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `./scripts-scan-secrets.sh`       | No secret in any tracked file (gitleaks) or in an image the repository builds                                                                       |
-| `./scripts-smoke.sh --up`         | Health, database isolation, broker topology, metrics and alerts, non-root containers, loopback data stores, hidden internal routes, broker accounts |
-| `./scripts-demo-failures.sh --up` | A killed consumer, a duplicate, a stale reply, an unsupported version, a forged event; credits conserved                                            |
-| `./scripts-restart-check.sh --up` | Stop and start, remove and recreate, Postgres stopped under running services                                                                        |
+| Script                                     | Checks                                                                                                                                              |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `./scripts-scan-secrets.sh`                | No secret in any tracked file (gitleaks) or in an image the repository builds                                                                       |
+| `./scripts-smoke.sh --up`                  | Health, database isolation, broker topology, metrics and alerts, non-root containers, loopback data stores, hidden internal routes, broker accounts |
+| `./scripts-demo-failures.sh --up`          | A killed consumer, a duplicate, a stale reply, an unsupported version, a forged event; credits conserved                                            |
+| `./scripts-restart-check.sh --up`          | Stop and start, remove and recreate, Postgres stopped under running services                                                                        |
+| `./scripts-demo-journey.sh --up --redrive` | Registration to wallet, an errand end to end, a cancellation, six refusals, a dead letter redriven                                                  |
 
 ## Adding tests
 
