@@ -117,10 +117,6 @@ export class UnparseableMessageError extends Error {
 }
 
 /**
- * EI-NFR3.1.2 — a message in a major version this consumer was not written for. It is set aside
- * whole, stating that the form is unsupported; no part of it is acted on.
- */
-/**
  * A message that names a producer but was published by another service's broker account
  * (PLT-06). Permanent, like any message that cannot be believed: set aside at once, with who
  * really sent it, and never handled.
@@ -134,6 +130,10 @@ export class UntrustedSenderError extends UnparseableMessageError {
   }
 }
 
+/**
+ * EI-NFR3.1.2 — a message in a major version this consumer was not written for. It is set aside
+ * whole, stating that the form is unsupported; no part of it is acted on.
+ */
 export class UnsupportedVersionError extends UnparseableMessageError {
   constructor(eventType: string, schemaVersion: number, supported: readonly number[]) {
     super(
