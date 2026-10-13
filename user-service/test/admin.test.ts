@@ -350,6 +350,8 @@ describe('audit trail (US-NFR4.1.2)', () => {
       'action=DELETE_EVERYTHING',
       'from=yesterday',
       'from=2026-10-13', // a date without a time and offset is ambiguous
+      'from=2026-10-13T10:00:00', // so is a local time without an offset
+      'from=2026-10-13T10:00:00+08:00', // an unencoded `+` decodes to a space
       'from=2026-10-13T10:00:00Z&to=2026-10-13T09:00:00Z',
       'from=2026-10-13T10:00:00Z&to=2026-10-13T10:00:00Z',
     ]) {
