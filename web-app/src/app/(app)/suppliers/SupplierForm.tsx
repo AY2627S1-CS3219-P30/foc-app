@@ -58,6 +58,8 @@ export function SupplierForm({
 }) {
   const [form, setForm] = useState(() => initial(supplier));
   const [errors, setErrors] = useState<FieldError[]>([]);
+  // Server errors reference openingHours by submitted index, so keep the submitted day order.
+  const [submittedDays, setSubmittedDays] = useState<string[]>([]);
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const set = <K extends keyof Omit<InputData, 'hours'>>(key: K, value: InputData[K]) =>
@@ -69,6 +71,19 @@ export function SupplierForm({
           item.field === key ||
           item.field.startsWith(`${key}.`) ||
           item.field.startsWith(`${key}[`),
+      )
+      .map((item) => item.message)
+      .join(' ') || undefined;
+  // Fieldset-level hours errors: skip per-day opens/closes errors, which are
+  // already shown (and announced) at that day's input.
+  const hoursError =
+    errors
+      .filter(
+        (item) =>
+          (item.field === 'openingHours' ||
+            item.field.startsWith('openingHours.') ||
+            item.field.startsWith('openingHours[')) &&
+          !/^openingHours(?:\.\d+|\[\d+\])\.(?:opens|closes)$/.test(item.field),
       )
       .map((item) => item.message)
       .join(' ') || undefined;
@@ -93,6 +108,7 @@ export function SupplierForm({
       return;
     }
     setSaving(true);
+    setSubmittedDays(daysWithHours);
     try {
       await onSave({
         name: form.name,
@@ -103,7 +119,13 @@ export function SupplierForm({
         imageUrl: form.imageUrl.trim() || null,
         latitude,
         longitude,
-        tags: form.tags.trim() ? form.tags.split(',').map((tag) => tag.trim()) : null,
+        tags: (() => {
+          const tags = form.tags
+            .split(',')
+            .map((tag) => tag.trim())
+            .filter(Boolean);
+          return tags.length ? tags : null;
+        })(),
         openingHours: daysWithHours.map((day) => ({
           day,
           opens: form.hours[day].opens,
@@ -186,7 +208,7 @@ export function SupplierForm({
             <span>{day}</span>
             <Field
               label={`${day} opens`}
-              error={error(`openingHours.${daysWithHours.indexOf(day)}.opens`)}
+              error={error(`openingHours.${submittedDays.indexOf(day)}.opens`)}
             >
               <Input
                 type="time"
@@ -204,7 +226,7 @@ export function SupplierForm({
             </Field>
             <Field
               label={`${day} closes`}
-              error={error(`openingHours.${daysWithHours.indexOf(day)}.closes`)}
+              error={error(`openingHours.${submittedDays.indexOf(day)}.closes`)}
             >
               <Input
                 type="time"
@@ -222,7 +244,7 @@ export function SupplierForm({
             </Field>
           </div>
         ))}
-        {error('openingHours') && <p role="alert">{error('openingHours')}</p>}
+        {hoursError && <p role="alert">{hoursError}</p>}
       </fieldset>
       {message && (
         <p role="alert" className={styles.formError}>

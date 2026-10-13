@@ -8,7 +8,7 @@ import { ResponsiveShell } from '@/components/ResponsiveShell';
 import { Select } from '@/components/Select';
 import { EmptyState, ErrorState, LoadingState } from '@/components/States';
 import { SupplierCard } from '@/components/SupplierCard';
-import { bearer, unwrap } from '@/lib/api-client';
+import { ApiError, bearer, unwrap } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth';
 import { ADMIN_NAV, STUDENT_NAV } from '@/lib/nav';
 import {
@@ -16,7 +16,7 @@ import {
   supplierApi,
   type Supplier,
   type SupplierInput,
-  type SupplierPage,
+  type SupplierListing,
   type SupplierType,
 } from '@/lib/supplier-api';
 import { BUILDINGS, SUPPLIER_TYPES, TYPE_LABELS } from '@/lib/supplier-display';
@@ -24,7 +24,7 @@ import { SupplierForm } from './SupplierForm';
 import styles from './suppliers.module.css';
 
 type Sort = 'name' | 'type' | 'building' | 'updatedAt';
-type Listing = { page: SupplierPage; suppliers: Supplier[] };
+type Listing = SupplierListing;
 
 export default function SuppliersPage() {
   const { authed, user } = useAuth();
@@ -55,55 +55,81 @@ export default function SuppliersPage() {
   const reload = useCallback(() => setRevision((current) => current + 1), []);
 
   useEffect(() => {
-    let current = true;
+    // Aborting cancels the superseded requests; their AbortError is ignored like any stale result.
+    const controller = new AbortController();
+    const { signal } = controller;
     const load = async () => {
       setLoading(true);
       setProblem('');
       try {
         const result = await authed((token) =>
-          listSupplierDetails(token, {
-            q: search || undefined,
-            type: type || undefined,
-            building: building || undefined,
-            sort,
-            order,
-            page,
-            pageSize: 20,
-          }),
+          listSupplierDetails(
+            token,
+            {
+              q: search || undefined,
+              type: type || undefined,
+              building: building || undefined,
+              sort,
+              order,
+              page,
+              pageSize: 20,
+            },
+            signal,
+          ),
         );
-        if (current) {
+        if (!signal.aborted) {
           const lastPage = Math.max(1, Math.ceil(result.page.total / result.page.pageSize));
           if (page > lastPage) setPage(lastPage);
           else setListing(result);
         }
       } catch (cause) {
-        if (current)
+        if (!signal.aborted)
           setProblem(cause instanceof Error ? cause.message : 'Could not load suppliers.');
       } finally {
-        if (current) setLoading(false);
+        if (!signal.aborted) setLoading(false);
       }
     };
     void load();
-    return () => {
-      current = false;
-    };
+    return () => controller.abort();
   }, [authed, search, type, building, sort, order, page, revision]);
 
   const save = async (body: SupplierInput) => {
-    await authed((token) =>
-      editing && editing !== 'new'
-        ? unwrap(
-            supplierApi.PUT('/suppliers/{supplierId}', {
-              params: {
-                path: { supplierId: editing.supplierId },
-                header: { 'If-Match': String(editing.version) },
-              },
+    try {
+      await authed((token) =>
+        editing && editing !== 'new'
+          ? unwrap(
+              supplierApi.PUT('/suppliers/{supplierId}', {
+                params: {
+                  path: { supplierId: editing.supplierId },
+                  header: { 'If-Match': String(editing.version) },
+                },
+                headers: bearer(token),
+                body,
+              }),
+            )
+          : unwrap(supplierApi.POST('/suppliers', { headers: bearer(token), body })),
+      );
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 412 && editing && editing !== 'new') {
+        // Someone else changed it: refresh the list and adopt the latest version so a
+        // retry from the still-open form (which keeps the admin's input) can succeed.
+        reload();
+        const supplierId = editing.supplierId;
+        const fresh = await authed((token) =>
+          unwrap(
+            supplierApi.GET('/suppliers/{supplierId}', {
+              params: { path: { supplierId } },
               headers: bearer(token),
-              body,
             }),
-          )
-        : unwrap(supplierApi.POST('/suppliers', { headers: bearer(token), body })),
-    );
+          ),
+        ).catch(() => null);
+        if (fresh)
+          setEditing((current) =>
+            current && current !== 'new' && current.supplierId === supplierId ? fresh : current,
+          );
+      }
+      throw cause;
+    }
     setEditing(null);
     reload();
   };
@@ -126,6 +152,7 @@ export default function SuppliersPage() {
       );
       reload();
     } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 412) reload();
       setActionProblem(cause instanceof Error ? cause.message : 'Could not delete the supplier.');
     }
   };
@@ -250,6 +277,7 @@ export default function SuppliersPage() {
             <>
               <p role="status" className={styles.count}>
                 {listing.page.total} supplier{listing.page.total === 1 ? '' : 's'} found
+                {listing.failed > 0 && ` (${listing.failed} couldn't be loaded)`}
               </p>
               {listing.suppliers.length ? (
                 <div className={styles.cards}>
