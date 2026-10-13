@@ -20,7 +20,7 @@ test("account journey: register, activate, sign in, profile, mode switch, log ou
   const email = `e2e-${testInfo.project.name}-${Date.now()}@u.nus.edu`;
   const name = "E2E Student";
 
-  await test.step("a signed-out visitor is sent to sign in, and back afterwards", async () => {
+  await test.step("a signed-out visitor is sent to sign in", async () => {
     await page.goto("/profile");
     await expect(page).toHaveURL(/\/login\?next=%2Fprofile$/);
   });
@@ -102,12 +102,19 @@ test("account journey: register, activate, sign in, profile, mode switch, log ou
     await expect(to).toBeChecked();
   });
 
-  await test.step("log out ends the session", async () => {
+  await test.step("log out, then signing in again returns to the page asked for", async () => {
     await tabTo(page, page.getByRole("button", { name: "Log out" }));
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/login$/);
     await page.goto("/profile");
     await expect(page).toHaveURL(/\/login\?next=%2Fprofile$/);
+
+    await hydrated(page.getByRole("button", { name: "Sign in" }));
+    await typeInto(page, field(page, "NUS email"), email);
+    await typeInto(page, field(page, "Password"), PASSWORD);
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(/\/profile$/);
+    await expect(page.getByRole("heading", { name: "Your details" })).toBeVisible();
   });
 });
 
