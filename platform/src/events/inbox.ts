@@ -103,3 +103,54 @@ export function withInbox<T>(db: Db, consumer: string, handler: InboxHandler<T>)
     await processOnce(db, consumer, envelope, (tx) => handler(envelope, tx, context));
   };
 }
+
+/**
+ * Records the inbox id but invokes an idempotent command handler on every
+ * delivery, including a delivery whose event id was already committed.
+ *
+ * Use this only when the handler has a separate business key and persists its
+ * result. It exists for request/reply sagas: if a reply was published but lost,
+ * redelivering the same command must append another copy of the recorded reply
+ * without applying the economic effect again. The inbox still participates in
+ * the transaction and still distinguishes first delivery from transport replay
+ * for operations and diagnostics.
+ */
+export async function processReplayable(
+  db: Db,
+  consumer: string,
+  event: Pick<Envelope, 'eventId' | 'eventType'>,
+  effect: (tx: Queryable, firstDelivery: boolean) => Promise<void> | void,
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const { rows } = await tx.query(
+      `INSERT INTO processed_events (consumer, event_id, event_type)
+       VALUES ($1, $2, $3)
+       ON CONFLICT DO NOTHING
+       RETURNING event_id`,
+      [consumer, event.eventId, event.eventType],
+    );
+    const firstDelivery = rows.length > 0;
+    await effect(tx, firstDelivery);
+    return firstDelivery;
+  });
+}
+
+export type ReplayableInboxHandler<T> = (
+  envelope: Envelope<T>,
+  tx: Queryable,
+  context: HandlerContext,
+  firstDelivery: boolean,
+) => Promise<void> | void;
+
+/** EventConsumer adapter for {@link processReplayable}. */
+export function withReplayableInbox<T>(
+  db: Db,
+  consumer: string,
+  handler: ReplayableInboxHandler<T>,
+): EventHandler<T> {
+  return async (envelope, context) => {
+    await processReplayable(db, consumer, envelope, (tx, firstDelivery) =>
+      handler(envelope, tx, context, firstDelivery),
+    );
+  };
+}

@@ -36,6 +36,8 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/platform/dist platform/dist
 COPY --from=build /app/auth-client/dist auth-client/dist
 COPY --from=build /app/order-service/dist order-service/dist
+# Applied by the one-shot migrate container before the service starts.
+COPY --from=build /app/order-service/drizzle order-service/drizzle
 
 # node:22-alpine ships an unprivileged `node` user; never run as root.
 USER node

@@ -1,0 +1,33 @@
+{
+  "name": "@foc/test-harness",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared test fixtures (ephemeral PostgreSQL/RabbitMQ), OpenAPI response validation and contract compatibility checks (TST-01)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "contracts:events": "tsx src/cli/write-event-schemas.ts",
+    "contracts:compat": "tsx src/cli/contract-compat.ts"
+  },
+  "dependencies": {
+    "@foc/platform": "*",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "amqplib": "^2.0.1",
+    "js-yaml": "^4.1.0",
+    "pg": "^8.23.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/amqplib": "^0.10.8",
+    "@types/js-yaml": "^4.0.9",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.1"
+  }
+}

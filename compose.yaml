@@ -138,6 +138,17 @@ services:
       supplier-service-migrate:
         condition: service_completed_successfully
 
+  order-service-migrate:
+    build: { context: ., dockerfile: order-service/Dockerfile }
+    command: ['node', 'order-service/dist/db/migrate.js']
+    restart: 'no'
+    environment:
+      DATABASE_URL: postgres://order_service:order_service_dev@postgres:5432/foc_order
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [foc]
+
   order-service:
     <<: *service-base
     build: { context: ., dockerfile: order-service/Dockerfile }
@@ -149,9 +160,33 @@ services:
       # Verifies callers through the User Service (@foc/auth-client, USR-07). The key
       # must be one of the User Service's INTERNAL_SERVICE_KEYS.
       USER_SERVICE_URL: http://user-service:3001
+      SUPPLIER_SERVICE_URL: http://supplier-service:3002
       INTERNAL_SERVICE_KEY: ${ORDER_INTERNAL_KEY:-dev-only-internal-service-key-change-me}
+      CREDIT_WAIT_TIMEOUT_MS: ${ORDER_CREDIT_WAIT_TIMEOUT_MS:-300000}
+      ACCEPTANCE_WINDOW_MS: ${ORDER_ACCEPTANCE_WINDOW_MS:-3600000}
+      PICKUP_TIMEOUT_MS: ${ORDER_PICKUP_TIMEOUT_MS:-1800000}
+      LIFECYCLE_SWEEP_INTERVAL_MS: ${ORDER_LIFECYCLE_SWEEP_INTERVAL_MS:-10000}
+      # Reconciliation reads Credit's status with this service's INTERNAL_SERVICE_KEY, which must
+      # be one of Credit's INTERNAL_SERVICE_KEYS (CREDIT_INBOUND_SERVICE_KEYS).
+      CREDIT_SERVICE_URL: http://credit-service:3004
+      RECONCILE_INTERVAL_MS: ${ORDER_RECONCILE_INTERVAL_MS:-60000}
+      RECONCILE_RETRY_MS: ${ORDER_RECONCILE_RETRY_MS:-300000}
     ports: ['${ORDER_SERVICE_PORT:-3003}:3003']
-    depends_on: *consumer-deps
+    depends_on:
+      <<: *consumer-deps
+      order-service-migrate:
+        condition: service_completed_successfully
+
+  credit-service-migrate:
+    build: { context: ., dockerfile: credit-service/Dockerfile }
+    command: ['node', 'credit-service/dist/db/migrate.js']
+    restart: 'no'
+    environment:
+      DATABASE_URL: postgres://credit_service:credit_service_dev@postgres:5432/foc_credit
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [foc]
 
   credit-service:
     <<: *service-base
@@ -165,8 +200,13 @@ services:
       # must be one of the User Service's INTERNAL_SERVICE_KEYS.
       USER_SERVICE_URL: http://user-service:3001
       INTERNAL_SERVICE_KEY: ${CREDIT_INTERNAL_KEY:-dev-only-internal-service-key-change-me}
+      # Inbound read-only /internal/** callers. Order presents its existing service key.
+      INTERNAL_SERVICE_KEYS: ${CREDIT_INBOUND_SERVICE_KEYS:-dev-only-internal-service-key-change-me}
     ports: ['${CREDIT_SERVICE_PORT:-3004}:3004']
-    depends_on: *consumer-deps
+    depends_on:
+      <<: *consumer-deps
+      credit-service-migrate:
+        condition: service_completed_successfully
 
   # ---- web ------------------------------------------------------------------
   web-app:

@@ -1,0 +1,881 @@
+{
+  "id": "01307c54-e3cb-4717-ba16-f0c8f409c0dc",
+  "prevId": "6d966192-05f6-463f-9210-be2099fa1a9c",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.admin_wallet_reads": {
+      "name": "admin_wallet_reads",
+      "schema": "",
+      "columns": {
+        "audit_id": {
+          "name": "audit_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "admin_user_id": {
+          "name": "admin_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_user_id": {
+          "name": "target_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resource": {
+          "name": "resource",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "correlation_id": {
+          "name": "correlation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "admin_wallet_reads_target_idx": {
+          "name": "admin_wallet_reads_target_idx",
+          "columns": [
+            {
+              "expression": "target_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "occurred_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "admin_wallet_reads_resource_enum": {
+          "name": "admin_wallet_reads_resource_enum",
+          "value": "\"admin_wallet_reads\".\"resource\" IN ('WALLET', 'LEDGER')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.credit_audit_alerts": {
+      "name": "credit_audit_alerts",
+      "schema": "",
+      "columns": {
+        "alert_id": {
+          "name": "alert_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "order_id": {
+          "name": "order_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operation_type": {
+          "name": "operation_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "code": {
+          "name": "code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "details": {
+          "name": "details",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "correlation_id": {
+          "name": "correlation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "credit_audit_alerts_order_idx": {
+          "name": "credit_audit_alerts_order_idx",
+          "columns": [
+            {
+              "expression": "order_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "occurred_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.credit_operations": {
+      "name": "credit_operations",
+      "schema": "",
+      "columns": {
+        "order_id": {
+          "name": "order_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operation_type": {
+          "name": "operation_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requester_id": {
+          "name": "requester_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "courier_id": {
+          "name": "courier_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amount": {
+          "name": "amount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rejection_reason": {
+          "name": "rejection_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "available_at_decision": {
+          "name": "available_at_decision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "transaction_id": {
+          "name": "transaction_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "result_payload": {
+          "name": "result_payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "credit_operations_terminal_order_key": {
+          "name": "credit_operations_terminal_order_key",
+          "columns": [
+            {
+              "expression": "order_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"credit_operations\".\"operation_type\" IN ('RELEASE', 'TRANSFER')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "credit_operations_courier_id_wallets_user_id_fk": {
+          "name": "credit_operations_courier_id_wallets_user_id_fk",
+          "tableFrom": "credit_operations",
+          "tableTo": "wallets",
+          "columnsFrom": [
+            "courier_id"
+          ],
+          "columnsTo": [
+            "user_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "credit_operations_transaction_id_credit_transactions_transaction_id_fk": {
+          "name": "credit_operations_transaction_id_credit_transactions_transaction_id_fk",
+          "tableFrom": "credit_operations",
+          "tableTo": "credit_transactions",
+          "columnsFrom": [
+            "transaction_id"
+          ],
+          "columnsTo": [
+            "transaction_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "credit_operations_order_id_operation_type_pk": {
+          "name": "credit_operations_order_id_operation_type_pk",
+          "columns": [
+            "order_id",
+            "operation_type"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "credit_operations_type_enum": {
+          "name": "credit_operations_type_enum",
+          "value": "\"credit_operations\".\"operation_type\" IN ('RESERVE', 'RELEASE', 'TRANSFER')"
+        },
+        "credit_operations_amount_positive": {
+          "name": "credit_operations_amount_positive",
+          "value": "\"credit_operations\".\"amount\" > 0"
+        },
+        "credit_operations_outcome_enum": {
+          "name": "credit_operations_outcome_enum",
+          "value": "\"credit_operations\".\"outcome\" IN ('PENDING', 'SUCCEEDED', 'REJECTED')"
+        },
+        "credit_operations_rejection_reason_enum": {
+          "name": "credit_operations_rejection_reason_enum",
+          "value": "\"credit_operations\".\"rejection_reason\" IS NULL OR \"credit_operations\".\"rejection_reason\" IN ('INSUFFICIENT_CREDITS', 'AMOUNT_OUT_OF_RANGE')"
+        },
+        "credit_operations_outcome_shape": {
+          "name": "credit_operations_outcome_shape",
+          "value": "(\"credit_operations\".\"outcome\" = 'PENDING' AND \"credit_operations\".\"transaction_id\" IS NULL AND \"credit_operations\".\"rejection_reason\" IS NULL)\n          OR (\"credit_operations\".\"outcome\" = 'SUCCEEDED' AND \"credit_operations\".\"transaction_id\" IS NOT NULL AND \"credit_operations\".\"rejection_reason\" IS NULL)\n          OR (\"credit_operations\".\"outcome\" = 'REJECTED' AND \"credit_operations\".\"transaction_id\" IS NULL AND \"credit_operations\".\"rejection_reason\" IS NOT NULL)"
+        },
+        "credit_operations_party_shape": {
+          "name": "credit_operations_party_shape",
+          "value": "(\"credit_operations\".\"operation_type\" = 'TRANSFER' AND \"credit_operations\".\"courier_id\" IS NOT NULL)\n          OR (\"credit_operations\".\"operation_type\" <> 'TRANSFER' AND \"credit_operations\".\"courier_id\" IS NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.credit_transactions": {
+      "name": "credit_transactions",
+      "schema": "",
+      "columns": {
+        "transaction_id": {
+          "name": "transaction_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "order_id": {
+          "name": "order_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "transaction_type": {
+          "name": "transaction_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "wallet_user_id": {
+          "name": "wallet_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amount": {
+          "name": "amount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "credit_transactions_order_type_key": {
+          "name": "credit_transactions_order_type_key",
+          "columns": [
+            {
+              "expression": "order_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "transaction_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"credit_transactions\".\"order_id\" IS NOT NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "credit_transactions_issue_wallet_key": {
+          "name": "credit_transactions_issue_wallet_key",
+          "columns": [
+            {
+              "expression": "wallet_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "transaction_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"credit_transactions\".\"transaction_type\" = 'ISSUE'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "credit_transactions_terminal_order_key": {
+          "name": "credit_transactions_terminal_order_key",
+          "columns": [
+            {
+              "expression": "order_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"credit_transactions\".\"order_id\" IS NOT NULL AND \"credit_transactions\".\"transaction_type\" IN ('RELEASE', 'TRANSFER')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "credit_transactions_wallet_user_id_wallets_user_id_fk": {
+          "name": "credit_transactions_wallet_user_id_wallets_user_id_fk",
+          "tableFrom": "credit_transactions",
+          "tableTo": "wallets",
+          "columnsFrom": [
+            "wallet_user_id"
+          ],
+          "columnsTo": [
+            "user_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "credit_transactions_type_enum": {
+          "name": "credit_transactions_type_enum",
+          "value": "\"credit_transactions\".\"transaction_type\" IN ('ISSUE', 'RESERVE', 'RELEASE', 'TRANSFER')"
+        },
+        "credit_transactions_amount_positive": {
+          "name": "credit_transactions_amount_positive",
+          "value": "\"credit_transactions\".\"amount\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.ledger_entries": {
+      "name": "ledger_entries",
+      "schema": "",
+      "columns": {
+        "entry_id": {
+          "name": "entry_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "transaction_id": {
+          "name": "transaction_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entry_no": {
+          "name": "entry_no",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "wallet_user_id": {
+          "name": "wallet_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "account": {
+          "name": "account",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "direction": {
+          "name": "direction",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resulting_available": {
+          "name": "resulting_available",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resulting_reserved": {
+          "name": "resulting_reserved",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "ledger_entries_transaction_entry_key": {
+          "name": "ledger_entries_transaction_entry_key",
+          "columns": [
+            {
+              "expression": "transaction_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entry_no",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ledger_entries_wallet_history_idx": {
+          "name": "ledger_entries_wallet_history_idx",
+          "columns": [
+            {
+              "expression": "wallet_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "occurred_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "ledger_entries_transaction_id_credit_transactions_transaction_id_fk": {
+          "name": "ledger_entries_transaction_id_credit_transactions_transaction_id_fk",
+          "tableFrom": "ledger_entries",
+          "tableTo": "credit_transactions",
+          "columnsFrom": [
+            "transaction_id"
+          ],
+          "columnsTo": [
+            "transaction_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "ledger_entries_wallet_user_id_wallets_user_id_fk": {
+          "name": "ledger_entries_wallet_user_id_wallets_user_id_fk",
+          "tableFrom": "ledger_entries",
+          "tableTo": "wallets",
+          "columnsFrom": [
+            "wallet_user_id"
+          ],
+          "columnsTo": [
+            "user_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "ledger_entries_account_enum": {
+          "name": "ledger_entries_account_enum",
+          "value": "\"ledger_entries\".\"account\" IN ('PLATFORM_ISSUANCE', 'AVAILABLE', 'RESERVED')"
+        },
+        "ledger_entries_direction_enum": {
+          "name": "ledger_entries_direction_enum",
+          "value": "\"ledger_entries\".\"direction\" IN ('DEBIT', 'CREDIT')"
+        },
+        "ledger_entries_amount_positive": {
+          "name": "ledger_entries_amount_positive",
+          "value": "\"ledger_entries\".\"amount\" > 0"
+        },
+        "ledger_entries_result_pair": {
+          "name": "ledger_entries_result_pair",
+          "value": "(\"ledger_entries\".\"resulting_available\" IS NULL) = (\"ledger_entries\".\"resulting_reserved\" IS NULL)"
+        },
+        "ledger_entries_wallet_result": {
+          "name": "ledger_entries_wallet_result",
+          "value": "(\"ledger_entries\".\"wallet_user_id\" IS NULL) = (\"ledger_entries\".\"resulting_available\" IS NULL)"
+        },
+        "ledger_entries_result_nonnegative": {
+          "name": "ledger_entries_result_nonnegative",
+          "value": "\"ledger_entries\".\"resulting_available\" IS NULL OR (\"ledger_entries\".\"resulting_available\" >= 0 AND \"ledger_entries\".\"resulting_reserved\" >= 0)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.outbox_events": {
+      "name": "outbox_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "seq": {
+          "name": "seq",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "outbox_events_seq_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "event_type": {
+          "name": "event_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "schema_version": {
+          "name": "schema_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "aggregate_id": {
+          "name": "aggregate_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "correlation_id": {
+          "name": "correlation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "causation_id": {
+          "name": "causation_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "published_at": {
+          "name": "published_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attempts": {
+          "name": "attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "next_attempt_at": {
+          "name": "next_attempt_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "outbox_events_pending_idx": {
+          "name": "outbox_events_pending_idx",
+          "columns": [
+            {
+              "expression": "seq",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"outbox_events\".\"published_at\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "outbox_events_pending_aggregate_idx": {
+          "name": "outbox_events_pending_aggregate_idx",
+          "columns": [
+            {
+              "expression": "aggregate_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "seq",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"outbox_events\".\"published_at\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.processed_events": {
+      "name": "processed_events",
+      "schema": "",
+      "columns": {
+        "consumer": {
+          "name": "consumer",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event_type": {
+          "name": "event_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "processed_at": {
+          "name": "processed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "processed_events_consumer_event_id_pk": {
+          "name": "processed_events_consumer_event_id_pk",
+          "columns": [
+            "consumer",
+            "event_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.wallets": {
+      "name": "wallets",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "available": {
+          "name": "available",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "reserved": {
+          "name": "reserved",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "wallets_available_nonnegative": {
+          "name": "wallets_available_nonnegative",
+          "value": "\"wallets\".\"available\" >= 0"
+        },
+        "wallets_reserved_nonnegative": {
+          "name": "wallets_reserved_nonnegative",
+          "value": "\"wallets\".\"reserved\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

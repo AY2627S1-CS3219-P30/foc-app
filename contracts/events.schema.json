@@ -1,0 +1,536 @@
+{
+  "$comment": "Generated from platform/src/events/catalogue.ts by `npm run contracts:events`. Do not edit.",
+  "events": {
+    "credit.released": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requesterId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "amount": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "transactionId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "requesterBalance": {
+          "type": "object",
+          "properties": {
+            "available": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "reserved": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "total": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "available",
+            "reserved",
+            "total"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "orderId",
+        "requesterId",
+        "amount",
+        "transactionId",
+        "requesterBalance"
+      ],
+      "additionalProperties": false
+    },
+    "credit.reservation-rejected": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "orderId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "requesterId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "amount": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "reason": {
+              "type": "string",
+              "const": "INSUFFICIENT_CREDITS"
+            },
+            "available": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "orderId",
+            "requesterId",
+            "amount",
+            "reason",
+            "available"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "orderId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "requesterId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "amount": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "reason": {
+              "type": "string",
+              "const": "AMOUNT_OUT_OF_RANGE"
+            }
+          },
+          "required": [
+            "orderId",
+            "requesterId",
+            "amount",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "orderId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "requesterId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "amount": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "reason": {
+              "type": "string",
+              "const": "CONFLICTING_REQUEST"
+            }
+          },
+          "required": [
+            "orderId",
+            "requesterId",
+            "amount",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "credit.reserved": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requesterId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "amount": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "orderId",
+        "requesterId",
+        "amount"
+      ],
+      "additionalProperties": false
+    },
+    "credit.transferred": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requesterId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "amount": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "courierId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "transactionId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "requesterBalance": {
+          "type": "object",
+          "properties": {
+            "available": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "reserved": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "total": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "available",
+            "reserved",
+            "total"
+          ],
+          "additionalProperties": false
+        },
+        "courierBalance": {
+          "type": "object",
+          "properties": {
+            "available": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "reserved": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "total": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "available",
+            "reserved",
+            "total"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "orderId",
+        "requesterId",
+        "amount",
+        "courierId",
+        "transactionId",
+        "requesterBalance",
+        "courierBalance"
+      ],
+      "additionalProperties": false
+    },
+    "order.completion-requested": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requesterId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "amount": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "courierId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "orderId",
+        "requesterId",
+        "amount",
+        "courierId"
+      ],
+      "additionalProperties": false
+    },
+    "order.release-requested": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requesterId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "amount": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "orderId",
+        "requesterId",
+        "amount"
+      ],
+      "additionalProperties": false
+    },
+    "order.reservation-requested": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requesterId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "amount": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "orderId",
+        "requesterId",
+        "amount"
+      ],
+      "additionalProperties": false
+    },
+    "order.status-changed": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "orderId": {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        "previousStatus": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "PENDING_CREDIT",
+                "OPEN",
+                "ACCEPTED",
+                "PICKED_UP",
+                "DELIVERED",
+                "DISPUTED",
+                "COMPLETION_PENDING_CREDIT",
+                "RELEASE_PENDING_CREDIT",
+                "REJECTED",
+                "COMPLETED",
+                "CANCELLED",
+                "EXPIRED"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "newStatus": {
+          "type": "string",
+          "enum": [
+            "PENDING_CREDIT",
+            "OPEN",
+            "ACCEPTED",
+            "PICKED_UP",
+            "DELIVERED",
+            "DISPUTED",
+            "COMPLETION_PENDING_CREDIT",
+            "RELEASE_PENDING_CREDIT",
+            "REJECTED",
+            "COMPLETED",
+            "CANCELLED",
+            "EXPIRED"
+          ]
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        }
+      },
+      "required": [
+        "orderId",
+        "previousStatus",
+        "newStatus",
+        "occurredAt"
+      ],
+      "additionalProperties": false
+    },
+    "user.activated": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "activatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        }
+      },
+      "required": [
+        "userId",
+        "activatedAt"
+      ],
+      "additionalProperties": false
+    },
+    "user.reactivated": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "SUSPENDED"
+          ]
+        },
+        "reasonRef": {
+          "type": "string"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        }
+      },
+      "required": [
+        "userId",
+        "status",
+        "occurredAt"
+      ],
+      "additionalProperties": false
+    },
+    "user.role-changed": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "STUDENT",
+              "ADMIN"
+            ]
+          }
+        },
+        "reasonRef": {
+          "type": "string"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        }
+      },
+      "required": [
+        "userId",
+        "roles",
+        "occurredAt"
+      ],
+      "additionalProperties": false
+    },
+    "user.suspended": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ACTIVE",
+            "SUSPENDED"
+          ]
+        },
+        "reasonRef": {
+          "type": "string"
+        },
+        "occurredAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+        }
+      },
+      "required": [
+        "userId",
+        "status",
+        "occurredAt"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

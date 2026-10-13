@@ -83,18 +83,20 @@ While an order is in any `*_PENDING_CREDIT` state, no participant action, admini
 
 ## Messages
 
-Routing keys are in `platform/src/events/catalogue.ts`. Only the reservation messages have payload schemas today; the rest are proposed here and join the catalogue with ORD-04 and ORD-05, once the Credit Service owner agrees.
+Routing keys and executable payload schemas are in `platform/src/events/catalogue.ts`. Reservation,
+completion/transfer and release messages are catalogued; order-status payloads remain proposed until
+the Order lifecycle implementation adds them.
 
 | Message | Direction | Carries | Schema |
 | ----- | ----- | ----- | ----- |
 | `order.reservation-requested` | Sent | order, requester, amount | In catalogue |
 | `credit.reserved` | Received | order, requester, amount, restated so the reply can be checked against the request | In catalogue |
 | `credit.reservation-rejected` | Received | the same, plus the reason: insufficient credits (with the available balance) or amount out of range | In catalogue |
-| `order.completion-requested` | Sent | order, requester, courier, amount | Proposed |
-| `credit.transferred` | Received | order, courier, amount, and a transfer reference for the receipt (D1 OS-FR5.1.3) | Proposed |
-| `order.release-requested` | Sent | order, requester, amount | Proposed |
-| `credit.released` | Received | order, requester, amount | Proposed |
-| `order.status-changed` | Sent | order, previous status, new status, when | Proposed |
+| `order.completion-requested` | Sent | order, requester, courier, amount | In catalogue |
+| `credit.transferred` | Received | request facts, transfer reference, and both resulting wallet balances (D1 OS-FR5.1.3) | In catalogue |
+| `order.release-requested` | Sent | order, requester, amount | In catalogue |
+| `credit.released` | Received | request facts, release reference, and requester resulting balance | In catalogue |
+| `order.status-changed` | Sent | order, previous status, new status, when; no private fields | In catalogue |
 | `user.suspended` | Received | user | In catalogue |
 
 ## Sending and receiving safely
@@ -102,6 +104,176 @@ Routing keys are in `platform/src/events/catalogue.ts`. Only the reservation mes
 - **Sending.** A transition that sends a message writes it to this service's outbox table in the same database transaction as the status change. Nothing calls the publisher directly. The shared relay from EVT-02 (#135) publishes each row after commit, so a crash between saving and sending delays the message but never loses it. The outbox table arrives with the first order migration (ORD-01, ORD-02).
 - **Receiving.** Each received message's id is recorded in the same transaction as the transition it causes, so a redelivered reply changes nothing (EVT-02).
 - **Dependency.** The User Service already writes catalogue-validated suspension events to its outbox, and the shared relay publishes them when RabbitMQ is configured (as it is in Compose). The remaining work is the Order Service consumer and its suspension transition handling; until those are implemented, suspension events do not change orders.
+
+## Persistence and projections
+
+The generated migration under `order-service/drizzle/` creates the Order-owned `orders`,
+`order_status_history`, `order_idempotency_keys`, `processed_events`, and `outbox_events` tables.
+Database constraints enforce the closed
+status set, reward range, non-empty item list, version counter, terminal rejection shape, and the
+courier required by assigned/delivery states. `order_status_history` records the previous and new
+status, action, actor, order version, and timestamp; one history row is permitted per order version.
+
+`src/orders/order-state-machine.ts` is the executable source for transition, actor, guard, and emitted
+event rules. The generated matrix test evaluates every status × action × actor combination and checks
+reachability and exits, while the table above remains its human-readable counterpart. XState is not
+used: the lifecycle is a finite declarative table and introducing another runtime would add a second
+representation without improving the current guard model. Revisit this if parallel/nested states are
+introduced.
+
+`GET /orders/:id` returns an authenticated projection. Exact delivery instructions and participant IDs
+are visible only to the requester, assigned courier, or the administrator named by a referral.
+`PENDING_CREDIT` and `REJECTED` errands are private to their requester, and absent resources and
+hidden private resources both return `404` to avoid revealing their existence. The complete schema is in
+`contracts/order-service.openapi.yaml`.
+
+`POST /orders` requires an active authenticated requester and an `Idempotency-Key`. It validates the
+entire request, fetches an active Supplier and captures its snapshot, then commits the private
+`PENDING_CREDIT` row, initial history, idempotency claim, public status fact, and
+`order.reservation-requested` outbox row in one transaction. A replay with the same requester, key,
+and body returns the recorded order without contacting Supplier again; reuse with different facts is
+refused. The shared relay publishes committed rows after the transaction, so Credit downtime delays
+opening but never rejects or loses the errand. Credit's validated reply moves the row to `OPEN` with
+its acceptance deadline or to terminal `REJECTED` with the recorded reason and available balance.
+The transactional inbox and business-state check make 100 duplicate replies one transition.
+
+`CREDIT_WAIT_TIMEOUT_MS` defines when a `PENDING_CREDIT` row is surfaced to an operator (ORD-09,
+below); creation never rejects it merely because the timer passes. `created_at`, status, and the existing
+`orders_status_created_idx` provide the durable discovery boundary that recovery will consume.
+
+`GET /orders` returns at most 100 unexpired `OPEN` errands ordered by acceptance deadline. Its
+structured item summary omits item notes, exact delivery instructions, participant IDs, and every
+pending or rejected order. `GET /orders/:id` gives that same public projection to an unrelated
+student. A caller can explicitly request `?view=private`; only the requester, assigned courier, or
+the administrator named in `referred_admin_id` receives it, and every other caller receives `403`.
+ORD-11 (#171) owns setting the referral owner and deciding the dispute; this read surface only
+enforces the authorization boundary.
+
+`GET /orders/mine` returns `{ items, truncated }`: the caller's errands in any status, as requester
+or current courier, each in its private projection with `myRole` (`REQUESTER` or `COURIER`). It is
+ordered by most recent change, at most 100, with no paging yet; `truncated` is true when older
+errands were left out. A courier who withdrew or timed out is no longer on the errand, so it drops
+out of their list.
+
+`POST /orders/:id/accept` requires the version observed during discovery. A single conditional
+`UPDATE` checks `OPEN`, that exact version, a live deadline, and that the courier is not the
+requester. The winner becomes the sole courier at version + 1; history and the privacy-safe status
+event commit in the same transaction. Every loser receives `409` with the current status and
+version. Authentication fails closed for suspended accounts, and acceptance deliberately performs
+no Credit balance check: a zero-credit student must be able to earn credits by delivering.
+
+### Fulfilment, completion and receipt (ORD-04)
+
+`POST /orders/:id/pickup` and `POST /orders/:id/deliver` (assigned courier) and
+`POST /orders/:id/confirm-receipt` (requester) each take `{ "expectedVersion" }`. Every lifecycle
+command after acceptance goes through one repository path: it locks the row, resolves the caller's
+role against the order (requester, assigned courier, other student, administrator), asks the
+executable transition table for a decision, and only then writes the version-checked update, the
+history row and every emitted event in one transaction. A caller who may never do the action gets
+`403 ACTION_FORBIDDEN`; a wrong state gets `409 INVALID_ORDER_STATE`; a stale version gets
+`409 ORDER_CHANGED`. Each carries the current status and version, and none of them changes anything.
+
+Confirmation moves the order to `COMPLETION_PENDING_CREDIT` and writes `order.completion-requested`
+(order, requester, courier, reward) to the outbox. No participant, administrator or timer action
+exists from that state in the transition table, so only Credit's reply can move it (OS-FR7.1.3).
+`credit.transferred` is accepted only from `credit-service`, through the transactional inbox, and
+only if it restates the recorded requester, courier and amount. A mismatch, an unknown order, or an
+order not waiting for a transfer changes nothing and is dead-lettered for an operator. Credit has
+no transfer-failure event, so an unconfirmed transfer simply stays pending. A confirmation repeated
+under a new event ID with the same transaction is a no-op; a different transaction is refused.
+
+The confirming transaction records `completed_at` and the Credit transaction ID, and writes the
+`order_receipts` row: order, requester, courier, supplier snapshot, reward, every state timestamp and
+the Credit transaction reference (OS-FR5.1.2). `GET /orders/:id/receipt` returns it to the
+participants and the referred administrator. Database triggers make `order_receipts` and
+`order_status_history` append-only.
+
+### Cancellation, withdrawal and expiry (ORD-05)
+
+`POST /orders/:id/cancel` (requester, `OPEN` or `ACCEPTED`) and `POST /orders/:id/withdraw`
+(assigned courier, `ACCEPTED`) take `{ "expectedVersion" }` and use the same transition path.
+Cancelling moves the order to `RELEASE_PENDING_CREDIT` with reason `cancelled`. A withdrawal removes
+the courier: before the acceptance deadline the order reopens with its deadline unchanged, and
+after it the order moves to `RELEASE_PENDING_CREDIT` with reason `expired`. Every move into
+`RELEASE_PENDING_CREDIT` writes exactly one `order.release-requested` in the same transaction.
+`PICKED_UP` and later states refuse cancellation.
+
+The **lifecycle scheduler** owns every timer. It runs once as soon as the service is ready and then
+every `LIFECYCLE_SWEEP_INTERVAL_MS` (at most 60 s, enforced at boot). An `OPEN` order past its
+deadline expires. An `ACCEPTED` order whose `accepted_at` is older than `PICKUP_TIMEOUT_MS` loses
+its courier and follows the withdrawal path. Due timers are found with the database clock, then each
+one fires through the ordinary transition path: the row is locked and the timer is re-checked under
+the lock. So a timer that fell due during downtime fires within one interval of restart, overlapping
+sweeps or instances apply it exactly once, and accept-versus-expire is settled by the row's version:
+acceptance's conditional update requires `acceptance_deadline_at > now()`, and expiry requires
+`OPEN` at the locked version.
+
+`credit.released` from `credit-service` closes the order as `CANCELLED` or `EXPIRED` according to the
+recorded reason. It records `released_at` and the Credit transaction ID, with the same matching,
+dead-lettering and duplicate rules as a transfer. A release for a completed order, or a transfer for
+a released one, is refused, so transfer and release are mutually exclusive outcomes. ORD-06 (#149)
+owns the courier-suspension path (reopen with the deadline extended).
+
+### Recovery and privacy verification (ORD-09)
+
+- **Kill after commit (OS-NFR4.1.1).** Every transition writes its events to the outbox in its own
+  transaction, and the relay publishes each row under the row's ID as the event ID.
+  `order-recovery.postgres.test.ts` SIGKILLs a real process right after it commits a creation and a
+  cancellation. A relay started afterwards publishes each committed event exactly once. A process
+  SIGKILLed after the broker accepted an event, but before marking it published, has that event
+  resent under the same ID, and a consumer's inbox applies it once.
+- **Pending credit survives restarts (OS-NFR4.1.2).** A `PENDING_CREDIT` order is ordinary committed
+  state. Its requester can read it at any age, and its reservation request is republished by the
+  relay, so the order opens when Credit replies, with no manual step.
+- **Operator surfacing (OS-FR1.1.3).** Each lifecycle sweep raises one `CREDIT_WAIT_EXCEEDED` alert
+  for every order waiting longer than `CREDIT_WAIT_TIMEOUT_MS`. The alert is recorded once in the
+  append-only `order_operator_alerts` table and logged as a structured `warn` line (`alert`,
+  `orderId`, `waitingMs`). `GET /admin/orders/pending-credit` (administrators only) lists every such
+  order with how long it has waited. The order is never rejected for waiting.
+- **Privacy (OS-NFR5.1).** `GET /orders/:id/history` returns the private status history to the
+  requester, the current courier and the referred administrator only. `order-privacy.test.ts` checks
+  every read surface (detail, private view, history, receipt, open list) for anonymous, requester,
+  current courier, former courier (withdrawn or timed out), unrelated student, referred
+  administrator and unreferred administrator at every lifecycle state. It looks for the delivery
+  instructions, item notes and every participant ID, and asserts status events carry no private
+  fields.
+- **Refused mutations (OS-NFR5.1.2).** `order-mutation-matrix.test.ts` tries every command endpoint as
+  every caller (plus a suspended account) in every reachable state. Whatever the transition table
+  refuses returns `403` or `409` and leaves the order, history and outbox unchanged. The one
+  exception is deliberate: an order whose existence is private (`PENDING_CREDIT`, `REJECTED`)
+  answers anyone but its requester with the non-enumerating `404` used by every read.
+
+### Credit reconciliation (CRD-07)
+
+Order hosts the reconciliation job (repository owner's decision, 2026-10-01). Every
+`RECONCILE_INTERVAL_MS` it takes orders that have waited in a `*_PENDING_CREDIT` state longer than
+`CREDIT_WAIT_TIMEOUT_MS`, skipping any whose request is still in the outbox (that is the relay's job)
+and any attempted within `RECONCILE_RETRY_MS`. For each one it reads Credit's authoritative
+`GET /internal/orders/{id}/credit-status` with this service's `INTERNAL_SERVICE_KEY`, which must be
+one of Credit's `INTERNAL_SERVICE_KEYS`.
+
+| Order waits in | Credit says | Action |
+| ----- | ----- | ----- |
+| `PENDING_CREDIT` | `NONE` or `RESERVED` | Re-issue `order.reservation-requested` |
+| `COMPLETION_PENDING_CREDIT` | `RESERVED` or `TRANSFERRED` | Re-issue `order.completion-requested` |
+| `RELEASE_PENDING_CREDIT` | `RESERVED` or `RELEASED` | Re-issue `order.release-requested` |
+| anything else | — | One `CREDIT_STATE_CONFLICT` operator alert; nothing re-issued |
+
+Re-issuing is the only repair. Credit applies each operation at most once per order and answers a
+repeat with its recorded result, which then moves the order through the ordinary consumer. The job
+never changes an order or any balance itself. Each decision is recorded under the order's row lock
+in the append-only `order_reconciliation_attempts` table, after re-checking the order's version and
+the retry window, so overlapping runs in one process or several act once. If Credit is unreachable,
+nothing is repaired and the attempt is recorded as `CREDIT_UNAVAILABLE`. Each run logs a
+`credit reconciliation run` metrics line (candidates, re-issued, alerted, unavailable, skipped,
+duration). `GET /admin/orders/reconciliation-attempts` shows recent decisions to administrators.
+`system-tests/test/reconciliation.test.ts` runs the real Order and Credit code to show that every
+lost request or reply converges with exactly one Credit transaction per operation, including under
+duplicate delivery and overlapping runs.
+
+The first migration includes a deterministic demonstration errand at
+`00000000-0000-4000-8000-000000000129`; after Compose is healthy, an authenticated caller can retrieve
+its projection from `/orders/00000000-0000-4000-8000-000000000129`.
 
 # UML Diagram
 ```mermaid
@@ -174,7 +346,7 @@ Run these from the repository root.
 | ----------------------------------------- | ----------------------------- |
 | `npm run dev:order`                       | Start with reload on change   |
 | `npm run build -w @foc/order-service`     | Compile TypeScript to `dist/` |
-| `npm test -w @foc/order-service`          | Run this service's tests      |
+| `npm test -w @foc/order-service`          | Run PGlite tests and, with `TEST_POSTGRES_URL`, the real-PostgreSQL race, recovery and SIGKILL suites on ephemeral databases (docs/testing.md) |
 | `npm run typecheck -w @foc/order-service` | Type-check without emitting   |
 | `npm run lint`                            | Lint every service            |
 
@@ -186,13 +358,35 @@ Run these from the repository root.
 | `PORT`         | `3003`          | Bind port                               |
 | `NODE_ENV`     | `development`   | `development` \| `test` \| `production` |
 | `LOG_LEVEL`    | `info`          | Defaults to `info`                      |
+| `DATABASE_URL` | `postgres://…`   | Order-owned PostgreSQL database         |
+| `SUPPLIER_SERVICE_URL` | `http://localhost:3002` | Supplier validation and snapshot reads |
+| `CREDIT_WAIT_TIMEOUT_MS` | `300000` | Age at which a PENDING_CREDIT order is surfaced to an operator |
+| `ACCEPTANCE_WINDOW_MS` | `3600000` | Deadline started when reservation succeeds |
+| `PICKUP_TIMEOUT_MS` | `1800000` | Courier removed if no pickup this long after acceptance |
+| `LIFECYCLE_SWEEP_INTERVAL_MS` | `10000` | Timer sweep interval; at most `60000` |
+| `CREDIT_SERVICE_URL` | `http://localhost:3004` | Credit status reads for reconciliation |
+| `RECONCILE_INTERVAL_MS` | `60000` | How often reconciliation runs |
+| `RECONCILE_RETRY_MS` | `300000` | Least time between repair attempts for one order |
 
 A missing required variable stops the service at boot and names the variable.
 Nothing falls back to an insecure default.
 
 ```bash
-SERVICE_NAME=order-service PORT=3003 npm run dev:order
+SERVICE_NAME=order-service PORT=3003 \
+  DATABASE_URL=postgres://order_service:order_service_dev@localhost:55432/foc_order \
+  SUPPLIER_SERVICE_URL=http://localhost:3002 \
+  CREDIT_WAIT_TIMEOUT_MS=300000 ACCEPTANCE_WINDOW_MS=3600000 \
+  PICKUP_TIMEOUT_MS=1800000 LIFECYCLE_SWEEP_INTERVAL_MS=10000 \
+  CREDIT_SERVICE_URL=http://localhost:3004 RECONCILE_INTERVAL_MS=60000 RECONCILE_RETRY_MS=300000 \
+  npm run dev:order
 curl -i http://localhost:3003/health
+```
+
+Apply the same generated migrations used by Compose with:
+
+```bash
+DATABASE_URL=postgres://order_service:order_service_dev@localhost:55432/foc_order \
+  npm run db:migrate -w @foc/order-service
 ```
 
 ### What you get from `@foc/platform`
@@ -215,4 +409,4 @@ user and declares a `HEALTHCHECK`. `compose.yaml` runs it on port 3003.
 
 ### Next tickets
 
-ORD-01, ORD-02, ORD-03
+ORD-06 (#149) suspension handling; ORD-10 delivery disputes and auto-confirmation.

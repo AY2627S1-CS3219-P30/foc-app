@@ -5,7 +5,13 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import type { Db, Queryable, Row } from '../db.js';
 import { EVENTS, type UserActivatedPayload } from './catalogue.js';
 import { createEnvelope, type Envelope } from './envelope.js';
-import { INBOX_TABLE_SQL, processOnce, withInbox } from './inbox.js';
+import {
+  INBOX_TABLE_SQL,
+  processOnce,
+  processReplayable,
+  withInbox,
+  withReplayableInbox,
+} from './inbox.js';
 
 /** The inbox table plus a stand-in for a consumer's own state: one wallet per activation. */
 async function consumerDb(): Promise<Db> {
@@ -26,6 +32,8 @@ async function consumerDb(): Promise<Db> {
   await db.exec(INBOX_TABLE_SQL);
   // Deliberately no unique constraint: the inbox alone must prevent a second wallet.
   await db.exec('CREATE TABLE wallets (user_id text NOT NULL, balance int NOT NULL)');
+  await db.exec('CREATE TABLE operations (business_key text PRIMARY KEY)');
+  await db.exec('CREATE TABLE replies (business_key text NOT NULL)');
   return db;
 }
 
@@ -147,6 +155,49 @@ describe('withInbox', () => {
 
     expect(attempts).toBe(2);
     expect(await wallets(db)).toHaveLength(1);
+    await db.close();
+  });
+});
+
+describe('replayable inbox', () => {
+  it('records one inbox id but reruns an idempotent command to reproduce 100 replies', async () => {
+    const db = await consumerDb();
+    const event = activation();
+    const deliveries: boolean[] = [];
+    const handler = withReplayableInbox<UserActivatedPayload>(
+      db,
+      'request-reply',
+      async (_event, tx, _context, firstDelivery) => {
+        deliveries.push(firstDelivery);
+        await tx.query(
+          `INSERT INTO operations (business_key) VALUES ('order-1') ON CONFLICT DO NOTHING`,
+        );
+        await tx.query(`INSERT INTO replies (business_key) VALUES ('order-1')`);
+      },
+    );
+
+    for (let copy = 0; copy < 100; copy++) {
+      await handler(event, { ...context, attempt: copy + 1 });
+    }
+
+    expect(deliveries.filter(Boolean)).toHaveLength(1);
+    expect((await db.query(`SELECT * FROM processed_events`)).rows).toHaveLength(1);
+    expect((await db.query(`SELECT * FROM operations`)).rows).toHaveLength(1);
+    expect((await db.query(`SELECT * FROM replies`)).rows).toHaveLength(100);
+    await db.close();
+  });
+
+  it('rolls back the inbox and reply together when a replayable handler fails', async () => {
+    const db = await consumerDb();
+    const event = activation();
+    await expect(
+      processReplayable(db, 'request-reply', event, async (tx) => {
+        await tx.query(`INSERT INTO replies (business_key) VALUES ('order-1')`);
+        throw new Error('reply write failed');
+      }),
+    ).rejects.toThrow('reply write failed');
+    expect((await db.query(`SELECT * FROM processed_events`)).rows).toHaveLength(0);
+    expect((await db.query(`SELECT * FROM replies`)).rows).toHaveLength(0);
     await db.close();
   });
 });

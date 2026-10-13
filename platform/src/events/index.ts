@@ -9,16 +9,24 @@ export {
 export {
   EVENTS,
   PAYLOAD_SCHEMAS,
+  creditReleaseRequestedPayload,
   creditReservationRejectedPayload,
   creditReservationRequestedPayload,
+  creditsReleasedPayload,
   creditsReservedPayload,
+  creditsTransferredPayload,
+  orderCompletionRequestedPayload,
   userActivatedPayload,
   userRoleChangedPayload,
   userStatusChangedPayload,
+  type CreditReleaseRequestedPayload,
   type CreditReservationRejectedPayload,
   type CreditReservationRequestedPayload,
+  type CreditsReleasedPayload,
   type CreditsReservedPayload,
+  type CreditsTransferredPayload,
   type EventType,
+  type OrderCompletionRequestedPayload,
   type UserActivatedPayload,
   type UserRoleChangedPayload,
   type UserStatusChangedPayload,
@@ -67,4 +75,12 @@ export {
   type OutboxRowValues,
   type OutboxRelayStats,
 } from './outbox.js';
-export { INBOX_TABLE_SQL, processOnce, withInbox, type InboxHandler } from './inbox.js';
+export {
+  INBOX_TABLE_SQL,
+  processOnce,
+  processReplayable,
+  withInbox,
+  withReplayableInbox,
+  type InboxHandler,
+  type ReplayableInboxHandler,
+} from './inbox.js';

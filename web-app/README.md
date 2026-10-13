@@ -83,8 +83,11 @@ Service's address below.
 
 **Accounts are live (USR-05).** Register, activate, sign in, change password, profile and the
 requester↔courier switch call the real User Service (`src/lib/user-api.ts`, `src/lib/auth.tsx`).
-Errands, wallet and suppliers still run on the in-memory mock store (`src/lib/store.tsx`); replacing
-that is [WEB-01](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/146).
+The supplier listing calls the real Supplier Service through `src/lib/supplier-api.ts`.
+Search, type and building filters, sort order, and paging are sent to `GET /suppliers`;
+the page then retrieves each visible supplier by ID for the location and hours on its card.
+Admin create, edit, and delete use the same service with the signed-in access token.
+Errands and wallet still run on the in-memory mock store (`src/lib/store.tsx`).
 
 ### Sessions
 
@@ -115,6 +118,11 @@ holds the React state around them.
   takes it as an `ARG`; setting it on a running container does nothing). Unset, a development build
   uses `http://localhost:3001`; a production build shows a configuration error on the account
   screens rather than calling localhost. The build itself still succeeds.
+- `NEXT_PUBLIC_SUPPLIER_SERVICE_URL` is also inlined at build time. Local development defaults
+  to `http://localhost:3002`; production builds require it. The Compose build already supplies
+  the browser-facing address. To try the full stack, run `docker compose up --build` at the
+  repository root, open `http://localhost:3000/suppliers`, and sign in. Rebuild after changing
+  either service URL. The Supplier Service must allow the web app origin in `CORS_ORIGINS`.
 - **The web app and the User Service must be same-site** (same registrable domain, e.g.
   `app.example.com` and `api.example.com`; the port does not matter, so `localhost:3000` and
   `localhost:3001` are fine). The refresh cookie is `SameSite=Strict`
@@ -140,6 +148,39 @@ design-token rules, and the session rules above (single-flight refresh, retry af
 sign out, pending sign-out, cross-tab sign-out) against a fake `fetch`, fake locks and a fake tab
 channel. They use Bun's built-in runner, so `test/` is excluded from the Next typecheck. CI runs them
 in the `web-app` job.
+
+### Integration tests
+
+`test/suppliers.integration.test.tsx` renders the supplier page against the real Supplier Service,
+which verifies tokens with the real User Service. A fresh student (registered and activated through the
+User Service's development mailbox) browses the seeded suppliers and is refused `POST /suppliers` with
+`403`; the seeded admin creates, edits and deletes a supplier through the page. It is skipped unless
+`SUPPLIER_SERVICE_URL` is set, so a plain `bun test` passes without a stack.
+
+```bash
+# From the repository root: just the two services and what they need (PostgreSQL, RabbitMQ).
+docker compose -p foc-it --env-file .env.example up -d --build user-service supplier-service
+
+cd web-app
+SUPPLIER_SERVICE_URL=http://localhost:3002 bun test test/suppliers.integration.test.tsx
+
+docker compose -p foc-it down -v   # from the repository root
+```
+
+Run the file on its own: the page's client reads its base URL when it is first imported, and another
+test file may import it first. `USER_SERVICE_URL` defaults to `http://localhost:3001`. The User Service
+must run in development mode (the Compose default), which mounts the mailbox.
+
+The admin is `ADMIN_EMAIL` (default `admin@u.nus.edu`). On a fresh stack the test claims it, replacing
+the bootstrap `ADMIN_SEED_PASSWORD` with `ADMIN_PASSWORD` (default `supplier-integration-admin`), as an
+operator must before that account can sign in; later runs sign in with `ADMIN_PASSWORD`. Against your
+own long-lived stack, set `ADMIN_PASSWORD` to the admin's current password, or the test will claim the
+account with its default. Each run leaves a new student account behind and deactivates the supplier it
+created.
+
+CI runs it in the `Supplier listing integration` job when `supplier-service/`, the supplier page, its
+client (`src/lib/supplier-*`, `SupplierCard`), the test itself, or anything shared or stack-wide changes
+(`scripts-ci-detect.sh`).
 
 When you do wire it up, the services run on ports 3001–3004 — see the root
 [README](../README.md). Every service returns the same error envelope and echoes

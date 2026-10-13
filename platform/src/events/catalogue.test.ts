@@ -2,9 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   EVENTS,
   PAYLOAD_SCHEMAS,
+  creditReleaseRequestedPayload,
   creditReservationRejectedPayload,
   creditReservationRequestedPayload,
+  creditsReleasedPayload,
   creditsReservedPayload,
+  creditsTransferredPayload,
+  orderCompletionRequestedPayload,
+  orderStatusChangedPayload,
 } from './catalogue.js';
 
 const reservation = { orderId: 'order-1', requesterId: 'user-1', amount: 3 };
@@ -80,5 +85,85 @@ describe('credit reservation payloads', () => {
   it('refuses a rejection with a reason no consumer knows how to handle', () => {
     const rejection = { ...reservation, reason: 'NO_WALLET' };
     expect(creditReservationRejectedPayload.safeParse(rejection).success).toBe(false);
+  });
+
+  it('represents a reused order id whose requester or amount conflicts', () => {
+    expect(
+      creditReservationRejectedPayload.safeParse({
+        ...reservation,
+        reason: 'CONFLICTING_REQUEST',
+      }).success,
+    ).toBe(true);
+  });
+});
+
+describe('credit terminal-operation payloads', () => {
+  const completion = { ...reservation, courierId: 'courier-1' };
+  const requesterBalance = { available: 7, reserved: 0, total: 7 };
+  const courierBalance = { available: 13, reserved: 0, total: 13 };
+  const transactionId = 'f0d9cb8c-a732-4c37-a0a8-66baa3f15161';
+
+  it('requires Order to identify every party to a completion', () => {
+    expect(orderCompletionRequestedPayload.safeParse(completion).success).toBe(true);
+    const { courierId: _, ...missingCourier } = completion;
+    expect(orderCompletionRequestedPayload.safeParse(missingCourier).success).toBe(false);
+  });
+
+  it('records the transfer reference and both resulting balances', () => {
+    expect(
+      creditsTransferredPayload.safeParse({
+        ...completion,
+        transactionId,
+        requesterBalance,
+        courierBalance,
+      }).success,
+    ).toBe(true);
+  });
+
+  it('rejects a transferred balance whose total is inconsistent', () => {
+    expect(
+      creditsTransferredPayload.safeParse({
+        ...completion,
+        transactionId,
+        requesterBalance: { ...requesterBalance, total: 8 },
+        courierBalance,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('defines release requests and their durable recorded result', () => {
+    expect(creditReleaseRequestedPayload.safeParse(reservation).success).toBe(true);
+    expect(
+      creditsReleasedPayload.safeParse({ ...reservation, transactionId, requesterBalance }).success,
+    ).toBe(true);
+  });
+
+  it.each([0, -1, 1.5])('rejects malformed terminal amount %s', (amount) => {
+    expect(orderCompletionRequestedPayload.safeParse({ ...completion, amount }).success).toBe(
+      false,
+    );
+    expect(creditReleaseRequestedPayload.safeParse({ ...reservation, amount }).success).toBe(false);
+  });
+});
+
+describe('order status change payload', () => {
+  it('shares only the lifecycle fact and requires a UUID order identifier', () => {
+    expect(
+      orderStatusChangedPayload.safeParse({
+        orderId: 'c42e69d5-c1d0-41b5-9e6b-aedb026f7c91',
+        previousStatus: 'PENDING_CREDIT',
+        newStatus: 'OPEN',
+        occurredAt: new Date().toISOString(),
+      }).success,
+    ).toBe(true);
+    expect(
+      orderStatusChangedPayload.safeParse({
+        orderId: 'c42e69d5-c1d0-41b5-9e6b-aedb026f7c91',
+        previousStatus: null,
+        newStatus: 'PENDING_CREDIT',
+        occurredAt: new Date().toISOString(),
+        deliveryInstructions: 'must not be published',
+      }).success,
+    ).toBe(false);
   });
 });
