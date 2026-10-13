@@ -154,8 +154,9 @@ limiting is in memory, so it is per instance. Refresh lifetime is sliding: each 
 `GET /admin/audit-records` returns newest first and combines its filters with AND: `targetUserId`, `actorId`
 (a UUID; bootstrap rows have no actor), `action` (`SUSPEND`, `REACTIVATE`, `ROLE_GRANT`, `ROLE_REVOKE`,
 `ADMIN_BOOTSTRAP`), and a window `from` (inclusive) to `to` (exclusive), each an ISO 8601 date-time with an
-offset, such as `2026-10-13T00:00:00+08:00`. A malformed filter, an unknown parameter, or `to` not after
-`from` returns `422 VALIDATION_FAILED`. Paging uses `page` and `pageSize`, as on `/admin/users`.
+offset, such as `2026-10-13T00:00:00Z` or `2026-10-13T00:00:00%2B08:00` (encode `+` as `%2B`; a raw `+` in a
+query string decodes to a space). A malformed filter, an unknown parameter, or `to` not after `from` returns
+`422 VALIDATION_FAILED`. Paging uses `page` and `pageSize`, as on `/admin/users`.
 
 **First admin.** Set `ADMIN_SEED_EMAILS` and `ADMIN_SEED_PASSWORD`; the accounts are created at boot, each
 with an `ADMIN_BOOTSTRAP` audit row (actor `SYSTEM`). An address that already has an account is skipped,

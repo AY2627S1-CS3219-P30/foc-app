@@ -499,12 +499,12 @@ paths:
             { type: string, enum: [SUSPEND, REACTIVATE, ROLE_GRANT, ROLE_REVOKE, ADMIN_BOOTSTRAP] }
         - name: from
           in: query
-          description: Inclusive lower bound on `occurredAt`. A date-time with an offset.
+          description: Inclusive lower bound on `occurredAt`. A date-time with an offset; send `+` as `%2B`, or use `Z`.
           schema: { type: string, format: date-time }
-          example: '2026-10-13T00:00:00+08:00'
+          example: '2026-10-13T00:00:00Z'
         - name: to
           in: query
-          description: Exclusive upper bound on `occurredAt`. A date-time with an offset.
+          description: Exclusive upper bound on `occurredAt`. A date-time with an offset; send `+` as `%2B`, or use `Z`.
           schema: { type: string, format: date-time }
       responses:
         '200':

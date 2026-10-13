@@ -1392,11 +1392,11 @@ export interface operations {
                 actorId?: string;
                 action?: "SUSPEND" | "REACTIVATE" | "ROLE_GRANT" | "ROLE_REVOKE" | "ADMIN_BOOTSTRAP";
                 /**
-                 * @description Inclusive lower bound on `occurredAt`. A date-time with an offset.
-                 * @example 2026-10-13T00:00:00+08:00
+                 * @description Inclusive lower bound on `occurredAt`. A date-time with an offset; send `+` as `%2B`, or use `Z`.
+                 * @example 2026-10-13T00:00:00Z
                  */
                 from?: string;
-                /** @description Exclusive upper bound on `occurredAt`. A date-time with an offset. */
+                /** @description Exclusive upper bound on `occurredAt`. A date-time with an offset; send `+` as `%2B`, or use `Z`. */
                 to?: string;
             };
             header?: never;
