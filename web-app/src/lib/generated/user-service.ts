@@ -327,7 +327,7 @@ export interface paths {
          * Read the append-only audit trail (ADMIN)
          * @description Read-only. There is no endpoint that creates, edits or deletes an audit record.
          *     Filters combine with AND. `from` is inclusive and `to` exclusive, so consecutive windows never
-         *     count a record twice; `to` must be later than `from`.
+         *     count a record twice; `to` must be later than `from`. An unknown query parameter is rejected.
          */
         get: operations["listAuditRecords"];
         put?: never;

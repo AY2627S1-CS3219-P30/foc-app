@@ -55,9 +55,12 @@ export const introspectQuerySchema = z.strictObject({ sid: z.uuid(), sub: z.uuid
 
 const instant = z.iso.datetime({ offset: true }).transform((v) => new Date(v));
 
-/** `from` is inclusive and `to` exclusive, so consecutive windows never count a record twice. */
+/**
+ * `from` is inclusive and `to` exclusive, so consecutive windows never count a record twice.
+ * Strict, so a misspelt filter such as `?actor=` is rejected rather than returning the whole trail.
+ */
 export const auditQuerySchema = z
-  .object({
+  .strictObject({
     page,
     pageSize,
     targetUserId: z.uuid().optional(),

@@ -359,6 +359,16 @@ describe('audit trail (US-NFR4.1.2)', () => {
     }
   });
 
+  it('rejects an unknown filter rather than returning the whole trail', async () => {
+    const res = await as(root).get(`/admin/audit-records?actor=${root.id}`);
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('VALIDATION_FAILED');
+    expect(res.body.error.details).toEqual([
+      expect.objectContaining({ field: 'actor', code: 'UNKNOWN_FIELD' }),
+    ]);
+    await as(root).get('/admin/audit-records?page=1&pageSize=5').expect(200);
+  });
+
   it('is append-only: the database rejects UPDATE and DELETE', async () => {
     await as(root).suspend(student.id).expect(200);
     await expect(t.db.query("UPDATE audit_records SET reason = 'rewritten'")).rejects.toThrow(
