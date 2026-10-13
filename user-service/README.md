@@ -156,8 +156,15 @@ limiting is in memory, so it is per instance. Refresh lifetime is sliding: each 
 | `GET /admin/role-requests`, `POST …/:id/approve`, `…/reject` | ADMIN. A second admin approves or rejects (with the password); the requester may withdraw; the target decides nothing                                   |
 | `POST /auth/step-up`                                         | Any signed-in user. Re-enter the password; role changes and suspending an admin need it within 5 minutes                                                |
 | `POST /auth/password`                                        | Anyone who proves the current password. Replaces it and revokes every session; login's rate limits apply                                                |
-| `GET /admin/audit-records`                                   | ADMIN. Read-only, append-only; filter by target, actor, action, time                                                                                    |
+| `GET /admin/audit-records`                                   | ADMIN. Read-only, append-only. Filters below                                                                                                            |
 | `GET /admin/reads`, `GET /admin/alerts`                      | ADMIN. Who opened which account; unusual admin activity. Read-only, append-only                                                                         |
+
+`GET /admin/audit-records` returns newest first and combines its filters with AND: `targetUserId`, `actorId`
+(a UUID; bootstrap rows have no actor), `action` (`SUSPEND`, `REACTIVATE`, `ROLE_GRANT`, `ROLE_REVOKE`,
+`ADMIN_BOOTSTRAP`, `ROLE_CHANGE_REQUESTED`, `ROLE_CHANGE_REJECTED`), and a window `from` (inclusive) to `to` (exclusive), each an ISO 8601 date-time with an
+offset, such as `2026-10-13T00:00:00Z` or `2026-10-13T00:00:00%2B08:00` (encode `+` as `%2B`; a raw `+` in a
+query string decodes to a space). A malformed filter, an unknown parameter, or `to` not after `from` returns
+`422 VALIDATION_FAILED`. Paging uses `page` and `pageSize`, as on `/admin/users`.
 
 **Controlling the admins** ([ADR 0008](../docs/adr/0008-controlling-administrators.md)): two people for
 every role change, password re-entry for the riskiest actions, a record of every account an admin opens,

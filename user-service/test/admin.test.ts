@@ -336,6 +336,70 @@ describe('audit trail (US-NFR4.1.2)', () => {
     expect(own.items.map((i: { action: string }) => i.action)).toEqual(['ADMIN_BOOTSTRAP']);
   });
 
+  it('filters by actor, action and date window, combined with AND', async () => {
+    await as(root).suspend(student.id, 'one').expect(200);
+    await as(root2).reactivate(student.id, 'two').expect(200);
+    const list = async (query: string) =>
+      (await as(root).get(`/admin/audit-records?${query}`).expect(200)).body as {
+        total: number;
+        items: { action: string; actorId: string | null; occurredAt: string }[];
+      };
+
+    const byRoot2 = await list(`actorId=${root2.id}`);
+    expect(byRoot2.items.map((i) => i.action)).toEqual(['REACTIVATE']);
+
+    const suspensions = await list('action=SUSPEND');
+    expect(suspensions.total).toBe(1);
+    expect(suspensions.items[0]!.actorId).toBe(root.id);
+
+    const bootstraps = await list('action=ADMIN_BOOTSTRAP');
+    expect(bootstraps.total).toBe(2);
+    expect(bootstraps.items.every((i) => i.actorId === null)).toBe(true);
+
+    // Combined filters narrow rather than widen.
+    expect((await list(`actorId=${root.id}&action=REACTIVATE`)).total).toBe(0);
+    expect((await list(`targetUserId=${student.id}&action=SUSPEND`)).total).toBe(1);
+
+    // `from` is inclusive, `to` exclusive.
+    const [newest] = (await list(`targetUserId=${student.id}`)).items;
+    const at = encodeURIComponent(newest!.occurredAt);
+    expect(
+      (await list(`targetUserId=${student.id}&from=${at}`)).items.map((i) => i.action),
+    ).toEqual(['REACTIVATE']);
+    expect((await list(`targetUserId=${student.id}&to=${at}`)).items.map((i) => i.action)).toEqual([
+      'SUSPEND',
+    ]);
+    const future = encodeURIComponent(new Date(Date.now() + 60_000).toISOString());
+    expect((await list(`from=${future}`)).total).toBe(0);
+  });
+
+  it('rejects malformed filters', async () => {
+    for (const query of [
+      'actorId=not-a-uuid',
+      'action=DELETE_EVERYTHING',
+      'from=yesterday',
+      'from=2026-10-13', // a date without a time and offset is ambiguous
+      'from=2026-10-13T10:00:00', // so is a local time without an offset
+      'from=2026-10-13T10:00:00+08:00', // an unencoded `+` decodes to a space
+      'from=2026-10-13T10:00:00Z&to=2026-10-13T09:00:00Z',
+      'from=2026-10-13T10:00:00Z&to=2026-10-13T10:00:00Z',
+    ]) {
+      const res = await as(root).get(`/admin/audit-records?${query}`);
+      expect(res.status, query).toBe(422);
+      expect(res.body.error.code, query).toBe('VALIDATION_FAILED');
+    }
+  });
+
+  it('rejects an unknown filter rather than returning the whole trail', async () => {
+    const res = await as(root).get(`/admin/audit-records?actor=${root.id}`);
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe('VALIDATION_FAILED');
+    expect(res.body.error.details).toEqual([
+      expect.objectContaining({ field: 'actor', code: 'UNKNOWN_FIELD' }),
+    ]);
+    await as(root).get('/admin/audit-records?page=1&pageSize=5').expect(200);
+  });
+
   it('is append-only: the database rejects UPDATE and DELETE', async () => {
     await as(root).suspend(student.id).expect(200);
     await expect(t.db.query("UPDATE audit_records SET reason = 'rewritten'")).rejects.toThrow(

@@ -1,4 +1,4 @@
-import { and, eq, gte, lte, sql, type SQL } from 'drizzle-orm';
+import { and, eq, gte, lt, sql, type SQL } from 'drizzle-orm';
 import { execute, type Database } from '../db/db.js';
 import {
   adminAlerts,
@@ -9,16 +9,21 @@ import {
   userRoles,
   users,
 } from '../db/schema.js';
+import type { AuditQuery } from '../users/validation.js';
 import { rolesOf, type AccountStatus, type Role } from '../users/users.repository.js';
 
-export type AuditAction =
-  | 'SUSPEND'
-  | 'REACTIVATE'
-  | 'ROLE_GRANT'
-  | 'ROLE_REVOKE'
-  | 'ADMIN_BOOTSTRAP'
-  | 'ROLE_CHANGE_REQUESTED'
-  | 'ROLE_CHANGE_REJECTED';
+/** Mirrored by `audit_records_action_check` in the schema, the contract and the README. */
+export const AUDIT_ACTIONS = [
+  'SUSPEND',
+  'REACTIVATE',
+  'ROLE_GRANT',
+  'ROLE_REVOKE',
+  'ADMIN_BOOTSTRAP',
+  'ROLE_CHANGE_REQUESTED',
+  'ROLE_CHANGE_REJECTED',
+] as const;
+
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
 /** A role-change request's lifecycle (ADR 0008). `EXPIRED` is set lazily, when a stale request is next touched. */
 export type RoleRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED';
@@ -279,24 +284,13 @@ export const adminRepository = {
     return { rows, total: totalRows[0]?.n ?? 0 };
   },
 
-  async listAudit(
-    db: Database,
-    f: {
-      page: number;
-      pageSize: number;
-      targetUserId?: string;
-      actorId?: string;
-      action?: AuditAction;
-      from?: string;
-      to?: string;
-    },
-  ): Promise<{ rows: AuditRow[]; total: number }> {
+  async listAudit(db: Database, f: AuditQuery): Promise<{ rows: AuditRow[]; total: number }> {
     const conditions: SQL[] = [];
     if (f.targetUserId) conditions.push(eq(auditRecords.targetUserId, f.targetUserId));
     if (f.actorId) conditions.push(eq(auditRecords.actorId, f.actorId));
     if (f.action) conditions.push(eq(auditRecords.action, f.action));
-    if (f.from) conditions.push(gte(auditRecords.occurredAt, new Date(f.from)));
-    if (f.to) conditions.push(lte(auditRecords.occurredAt, new Date(f.to)));
+    if (f.from) conditions.push(gte(auditRecords.occurredAt, f.from));
+    if (f.to) conditions.push(lt(auditRecords.occurredAt, f.to));
     const where = conditions.length ? and(...conditions) : undefined;
 
     const totalRows = await db
