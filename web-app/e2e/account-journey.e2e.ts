@@ -149,13 +149,17 @@ async function replaceFocused(page: Page, text: string) {
 /**
  * The focused element draws a visible outline: every focus ring in the app is one (globals.css,
  * ModeSwitch). A box-shadow does not count, since a checked ModeSwitch label has one at rest. A
- * visually hidden radio draws its ring on its label instead (ModeSwitch), so that counts too.
+ * visually hidden radio draws its ring on its label instead (ModeSwitch), so that counts too; its
+ * own outline, from the global rule, cannot be seen and does not.
  */
 async function expectVisibleFocus(page: Page) {
   const focus = await page.evaluate(() => {
     const el = document.activeElement as HTMLElement | null;
     if (!el || el === document.body) return { ok: true, what: "body" }; // between cycles
     const ring = (e: Element) => {
+      const box = e.getBoundingClientRect();
+      if (box.width <= 1 || box.height <= 1) return false;
+      if (!e.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return false;
       const s = getComputedStyle(e);
       // Computed colours read rgba(r, g, b, 0) or color(… / 0) when fully transparent.
       const clear = /^rgba\(.*,\s*0\)$|\/\s*0\)$|^transparent$/.test(s.outlineColor);
