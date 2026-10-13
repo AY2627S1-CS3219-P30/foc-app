@@ -211,8 +211,10 @@ describe('supplier listing', () => {
 describe('supplier version conflicts', () => {
   /** A fake supplier service where another admin has already moved the supplier to version 2. */
   function fakeService() {
-    const calls: { method: string; path: string; ifMatch: string | null }[] = [];
+    const calls: { method: string; path: string; ifMatch: string | null; body?: unknown }[] = [];
     let current = { ...supplier, version: 2 };
+    /** Set to make the supplier disappear after the next conflict, as if deleted in between. */
+    const state = { deleteOnConflict: false, deleted: false };
     const json = (status: number, body: unknown) =>
       new Response(JSON.stringify(body), {
         status,
@@ -221,24 +223,34 @@ describe('supplier version conflicts', () => {
     const fetch = async (request: Request) => {
       const { pathname } = new URL(request.url);
       const ifMatch = request.headers.get('if-match');
-      calls.push({ method: request.method, path: pathname, ifMatch });
+      const text = request.method === 'PUT' ? await request.text() : '';
+      calls.push({
+        method: request.method,
+        path: pathname,
+        ifMatch,
+        body: text && JSON.parse(text),
+      });
+      if (state.deleted && pathname !== '/suppliers')
+        return json(404, { error: { code: 'NOT_FOUND', message: 'Supplier not found.' } });
       if (request.method === 'GET' && pathname === '/suppliers')
         return json(200, {
-          items: [{ supplierId: current.supplierId, name: current.name }],
+          items: state.deleted ? [] : [{ supplierId: current.supplierId, name: current.name }],
           page: 1,
           pageSize: 20,
-          total: 1,
+          total: state.deleted ? 0 : 1,
         });
       if (request.method === 'GET') return json(200, current);
-      if (ifMatch !== String(current.version))
+      if (ifMatch !== String(current.version)) {
+        state.deleted = state.deleteOnConflict;
         return json(412, {
           error: { code: 'VERSION_CONFLICT', message: 'Someone else changed this supplier.' },
         });
+      }
       if (request.method === 'DELETE') return new Response(null, { status: 204 });
       current = { ...current, version: current.version + 1 };
       return json(200, current);
     };
-    return { calls, fetch };
+    return { calls, fetch, state };
   }
 
   const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -267,31 +279,66 @@ describe('supplier version conflicts', () => {
     return { ...rendered, restore: () => (globalThis.fetch = realFetch) };
   }
 
-  it('reloads after a failed save so a retry from the open form uses the fresh version', async () => {
+  const submitForm = async (container: HTMLElement) => {
+    await act(async () => {
+      container
+        .querySelector('form')!
+        .dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await settle();
+    await settle();
+  };
+  const typeName = (container: HTMLElement, value: string) =>
+    act(() => {
+      const input = container.querySelector('form input') as HTMLInputElement;
+      Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!.set!.call(
+        input,
+        value,
+      );
+      input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    });
+  const listCalls = (service: ReturnType<typeof fakeService>) =>
+    service.calls.filter((c) => c.method === 'GET' && c.path === '/suppliers');
+
+  it('keeps typed edits after a 412 and retries with the refreshed version', async () => {
     const service = fakeService();
     const { container, root, restore } = await renderPage(service, supplier);
     try {
       await act(async () => button(container, 'Edit').click());
-      const submit = async () => {
-        await act(async () => {
-          container
-            .querySelector('form')!
-            .dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
-        });
-        await settle();
-        await settle();
-      };
-      await submit();
-      expect(container.textContent).toContain('Someone else changed this supplier.');
-      expect(container.querySelector('form')).not.toBeNull();
-      const listCalls = service.calls.filter((c) => c.method === 'GET' && c.path === '/suppliers');
-      expect(listCalls).toHaveLength(2);
-      await submit();
-      expect(service.calls.filter((c) => c.method === 'PUT').map((c) => c.ifMatch)).toEqual([
-        '1',
-        '2',
+      await typeName(container, 'Renamed Café');
+      await submitForm(container);
+      expect(container.textContent).toContain(
+        'This supplier was changed by someone else. Your edits are kept; review and save again to overwrite.',
+      );
+      expect((container.querySelector('form input') as HTMLInputElement).value).toBe(
+        'Renamed Café',
+      );
+      expect(listCalls(service)).toHaveLength(2);
+      await submitForm(container);
+      const puts = service.calls.filter((c) => c.method === 'PUT');
+      expect(puts.map((c) => c.ifMatch)).toEqual(['1', '2']);
+      expect(puts.map((c) => (c.body as { name: string }).name)).toEqual([
+        'Renamed Café',
+        'Renamed Café',
       ]);
       expect(container.querySelector('form')).toBeNull();
+    } finally {
+      restore();
+      await act(() => root.unmount());
+    }
+  });
+
+  it('closes the form and says so when the supplier was deleted after a 412', async () => {
+    const service = fakeService();
+    service.state.deleteOnConflict = true;
+    const { container, root, restore } = await renderPage(service, supplier);
+    try {
+      await act(async () => button(container, 'Edit').click());
+      await submitForm(container);
+      expect(container.querySelector('form')).toBeNull();
+      expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+        'This supplier was deleted.',
+      );
     } finally {
       restore();
       await act(() => root.unmount());
@@ -308,6 +355,7 @@ describe('supplier version conflicts', () => {
       await settle();
       await settle();
       expect(container.textContent).toContain('Someone else changed this supplier.');
+      expect(listCalls(service)).toHaveLength(2);
       await act(async () => button(container, 'Delete').click());
       await settle();
       expect(service.calls.filter((c) => c.method === 'DELETE').map((c) => c.ifMatch)).toEqual([

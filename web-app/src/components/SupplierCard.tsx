@@ -6,6 +6,9 @@ import type { Supplier } from '@/lib/supplier-api';
 import { displayImageUrl, hoursLabel, TYPE_LABELS } from '@/lib/supplier-display';
 import styles from './SupplierCard.module.css';
 
+/** The id of a card's name heading, a focus target once the card has been re-rendered. */
+export const supplierHeadingId = (supplierId: string) => `supplier-${supplierId}-name`;
+
 export function SupplierCard({
   supplier,
   admin,
@@ -14,7 +17,8 @@ export function SupplierCard({
 }: {
   supplier: Supplier;
   admin?: boolean;
-  onEdit?: () => void;
+  /** Receives the Edit button, so focus can return to it when the form closes. */
+  onEdit?: (opener: HTMLButtonElement) => void;
   onDelete?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -39,7 +43,9 @@ export function SupplierCard({
         )}
       </div>
       <div className={styles.info}>
-        <h2 className={styles.name}>{supplier.name}</h2>
+        <h2 id={supplierHeadingId(supplier.supplierId)} className={styles.name} tabIndex={-1}>
+          {supplier.name}
+        </h2>
         <p className={styles.meta}>
           {TYPE_LABELS[supplier.type]} · {supplier.building}, floor {supplier.floor}
         </p>
@@ -55,7 +61,7 @@ export function SupplierCard({
           </Button>
           {admin && (
             <>
-              <Button variant="outline" onClick={onEdit}>
+              <Button variant="outline" onClick={(event) => onEdit?.(event.currentTarget)}>
                 Edit
               </Button>
               <Button variant="outline" onClick={onDelete}>

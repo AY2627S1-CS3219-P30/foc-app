@@ -1,13 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/Button';
 import { Field } from '@/components/Field';
 import { Input } from '@/components/Input';
 import { ResponsiveShell } from '@/components/ResponsiveShell';
 import { Select } from '@/components/Select';
 import { EmptyState, ErrorState, LoadingState } from '@/components/States';
-import { SupplierCard } from '@/components/SupplierCard';
+import { SupplierCard, supplierHeadingId } from '@/components/SupplierCard';
 import { ApiError, bearer, unwrap } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth';
 import { ADMIN_NAV, STUDENT_NAV } from '@/lib/nav';
@@ -25,6 +25,21 @@ import styles from './suppliers.module.css';
 
 type Sort = 'name' | 'type' | 'building' | 'updatedAt';
 type Listing = SupplierListing;
+/** Where focus goes back to when the supplier form closes. */
+type FocusReturn = {
+  opener: HTMLElement | null;
+  supplierId?: string;
+  /** Wait out the reload after a save, which replaces the opener's card (its key has the version). */
+  afterReload: boolean;
+};
+
+/** Brings the inline form into view and tells keyboard and screen-reader users it opened. */
+function revealForm(heading: HTMLElement | null) {
+  if (!heading) return;
+  heading.focus({ preventScroll: true });
+  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  heading.scrollIntoView({ block: 'start', behavior: reduceMotion ? 'auto' : 'smooth' });
+}
 
 export default function SuppliersPage() {
   const { authed, user } = useAuth();
@@ -43,6 +58,62 @@ export default function SuppliersPage() {
   const [problem, setProblem] = useState('');
   const [actionProblem, setActionProblem] = useState('');
   const [editing, setEditing] = useState<Supplier | 'new' | null>(null);
+  const formHeading = useRef<HTMLHeadingElement>(null);
+  const resultsCount = useRef<HTMLParagraphElement>(null);
+  const formDirty = useRef(false);
+  const opener = useRef<HTMLElement | null>(null);
+  const focusReturn = useRef<FocusReturn | null>(null);
+  const editingKey = editing === 'new' ? 'new' : (editing?.supplierId ?? null);
+  const onDirtyChange = useCallback((dirty: boolean) => {
+    formDirty.current = dirty;
+  }, []);
+
+  // Keyed on the supplier, not the object, so a refresh after a version conflict doesn't jump.
+  useEffect(() => {
+    if (editingKey) revealForm(formHeading.current);
+  }, [editingKey]);
+
+  useEffect(() => {
+    const target = focusReturn.current;
+    if (!target || editing) return;
+    if (target.afterReload) {
+      if (loading) target.afterReload = false;
+      return;
+    }
+    if (target.opener?.isConnected) {
+      focusReturn.current = null;
+      target.opener.focus();
+      return;
+    }
+    if (loading) return;
+    focusReturn.current = null;
+    const heading = target.supplierId
+      ? document.getElementById(supplierHeadingId(target.supplierId))
+      : null;
+    (heading ?? resultsCount.current)?.focus();
+  }, [editing, loading]);
+
+  const openForm = (target: Supplier | 'new', from: HTMLElement) => {
+    const key = target === 'new' ? 'new' : target.supplierId;
+    if (key !== editingKey) {
+      if (editing && formDirty.current && !window.confirm('Discard your changes?')) return;
+      formDirty.current = false;
+      setEditing(target);
+    } else revealForm(formHeading.current);
+    opener.current = from;
+    focusReturn.current = null;
+  };
+
+  const closeForm = (afterReload: boolean) => {
+    focusReturn.current = {
+      opener: opener.current,
+      supplierId: editing && editing !== 'new' ? editing.supplierId : undefined,
+      afterReload,
+    };
+    opener.current = null;
+    formDirty.current = false;
+    setEditing(null);
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -110,27 +181,44 @@ export default function SuppliersPage() {
           : unwrap(supplierApi.POST('/suppliers', { headers: bearer(token), body })),
       );
     } catch (cause) {
-      if (cause instanceof ApiError && cause.status === 412 && editing && editing !== 'new') {
-        // Someone else changed it: refresh the list and adopt the latest version so a
-        // retry from the still-open form (which keeps the admin's input) can succeed.
-        reload();
-        const supplierId = editing.supplierId;
-        const fresh = await authed((token) =>
-          unwrap(
-            supplierApi.GET('/suppliers/{supplierId}', {
-              params: { path: { supplierId } },
-              headers: bearer(token),
-            }),
-          ),
-        ).catch(() => null);
-        if (fresh)
-          setEditing((current) =>
-            current && current !== 'new' && current.supplierId === supplierId ? fresh : current,
-          );
+      if (!(cause instanceof ApiError && cause.status === 412 && editing && editing !== 'new'))
+        throw cause;
+      // Someone else saved first. Swap in the current version without remounting the form (it is
+      // keyed by supplierId), so the admin's typed values stay and the next save sends the new version.
+      reload();
+      const { code } = cause;
+      const supplierId = editing.supplierId;
+      const fresh = await authed((token) =>
+        unwrap(
+          supplierApi.GET('/suppliers/{supplierId}', {
+            params: { path: { supplierId } },
+            headers: bearer(token),
+          }),
+        ),
+      ).catch((refetch: unknown) => {
+        if (refetch instanceof ApiError && refetch.status === 404) return null;
+        throw new ApiError(
+          412,
+          code,
+          'This supplier was changed by someone else and its latest version could not be loaded. Try saving again.',
+        );
+      });
+      const isOpen = (current: Supplier | 'new' | null) =>
+        current !== null && current !== 'new' && current.supplierId === supplierId;
+      if (!fresh) {
+        setEditing((current) => (isOpen(current) ? null : current));
+        setActionProblem('This supplier was deleted.');
+        return;
       }
-      throw cause;
+      setEditing((current) => (isOpen(current) ? fresh : current));
+      throw new ApiError(
+        412,
+        code,
+        'This supplier was changed by someone else. Your edits are kept; review and save again to overwrite.',
+      );
     }
-    setEditing(null);
+    // A new supplier's opener (Add supplier) survives the reload, so focus can go back at once.
+    closeForm(editing !== 'new');
     reload();
   };
 
@@ -152,8 +240,9 @@ export default function SuppliersPage() {
       );
       reload();
     } catch (cause) {
-      if (cause instanceof ApiError && cause.status === 412) reload();
       setActionProblem(cause instanceof Error ? cause.message : 'Could not delete the supplier.');
+      // The card may be out of date (a 412 means someone else changed it); show the current state.
+      if (cause instanceof ApiError) reload();
     }
   };
 
@@ -175,7 +264,7 @@ export default function SuppliersPage() {
       <div className={styles.content}>
         {admin && (
           <div className={styles.adminBar}>
-            <Button onClick={() => setEditing('new')}>Add supplier</Button>
+            <Button onClick={(event) => openForm('new', event.currentTarget)}>Add supplier</Button>
           </div>
         )}
         {editing && admin && (
@@ -183,7 +272,9 @@ export default function SuppliersPage() {
             key={editing === 'new' ? 'new' : editing.supplierId}
             supplier={editing === 'new' ? undefined : editing}
             onSave={save}
-            onCancel={() => setEditing(null)}
+            onCancel={() => closeForm(false)}
+            onDirtyChange={onDirtyChange}
+            headingRef={formHeading}
           />
         )}
         <div className={styles.filters}>
@@ -275,7 +366,7 @@ export default function SuppliersPage() {
         ) : (
           listing && (
             <>
-              <p role="status" className={styles.count}>
+              <p role="status" ref={resultsCount} tabIndex={-1} className={styles.count}>
                 {listing.page.total} supplier{listing.page.total === 1 ? '' : 's'} found
                 {listing.failed > 0 && ` (${listing.failed} couldn't be loaded)`}
               </p>
@@ -286,7 +377,7 @@ export default function SuppliersPage() {
                       key={`${supplier.supplierId}:${supplier.version}`}
                       supplier={supplier}
                       admin={admin}
-                      onEdit={() => setEditing(supplier)}
+                      onEdit={(button) => openForm(supplier, button)}
                       onDelete={() => void remove(supplier)}
                     />
                   ))}

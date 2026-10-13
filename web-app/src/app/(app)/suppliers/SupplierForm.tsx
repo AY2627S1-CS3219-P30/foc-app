@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type Ref } from 'react';
 import { Button } from '@/components/Button';
 import { Field } from '@/components/Field';
 import { Input } from '@/components/Input';
@@ -51,12 +51,23 @@ export function SupplierForm({
   supplier,
   onSave,
   onCancel,
+  onDirtyChange,
+  headingRef,
 }: {
   supplier?: Supplier;
   onSave: (body: SupplierInput) => Promise<void>;
   onCancel: () => void;
+  /** Called whenever the form starts or stops differing from what it opened with. */
+  onDirtyChange?: (dirty: boolean) => void;
+  /** The form heading, so the page can move focus to it when the form opens. */
+  headingRef?: Ref<HTMLHeadingElement>;
 }) {
-  const [form, setForm] = useState(() => initial(supplier));
+  // A refreshed supplier after a version conflict keeps the typed edits, so dirtiness is
+  // measured against the values the form opened with.
+  const [pristine] = useState(() => initial(supplier));
+  const [form, setForm] = useState(pristine);
+  const dirty = JSON.stringify(form) !== JSON.stringify(pristine);
+  useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
   const [errors, setErrors] = useState<FieldError[]>([]);
   // Server errors reference openingHours by submitted index, so keep the submitted day order.
   const [submittedDays, setSubmittedDays] = useState<string[]>([]);
@@ -144,7 +155,9 @@ export function SupplierForm({
 
   return (
     <form noValidate onSubmit={(event) => void submit(event)} className={styles.form}>
-      <h2>{supplier ? `Edit ${supplier.name}` : 'Add supplier'}</h2>
+      <h2 ref={headingRef} tabIndex={-1}>
+        {supplier ? `Edit ${supplier.name}` : 'Add supplier'}
+      </h2>
       <Field label="Name" required error={error('name')}>
         <Input value={form.name} onChange={(e) => set('name', e.target.value)} />
       </Field>

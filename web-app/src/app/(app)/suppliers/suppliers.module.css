@@ -64,6 +64,8 @@
 }
 .form h2 {
   font-size: var(--text-xl);
+  /* Clear the sticky phone app bar when the form is scrolled into view. */
+  scroll-margin-top: calc(var(--size-app-bar) + var(--space-4));
 }
 .formError {
   color: var(--color-danger);
