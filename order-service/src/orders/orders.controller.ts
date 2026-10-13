@@ -139,6 +139,30 @@ export class OrdersController {
     return this.run(id, 'WITHDRAW', body, caller, request);
   }
 
+  @Post(':id/report-non-delivery')
+  @HttpCode(200)
+  @Authenticated()
+  reportNonDelivery(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() caller: AuthContext,
+    @Req() request: Request & { correlationId?: string },
+  ) {
+    return this.run(id, 'REPORT_NON_DELIVERY', body, caller, request);
+  }
+
+  @Post(':id/report-non-receipt')
+  @HttpCode(200)
+  @Authenticated()
+  reportNonReceipt(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() caller: AuthContext,
+    @Req() request: Request & { correlationId?: string },
+  ) {
+    return this.run(id, 'REPORT_NON_RECEIPT', body, caller, request);
+  }
+
   private run(
     id: string,
     action: OrderAction,

@@ -45,6 +45,8 @@ type StoredOrder = Row & {
   accepted_at: Date | string | null;
   picked_up_at: Date | string | null;
   delivered_at: Date | string | null;
+  non_delivery_report_at: Date | string | null;
+  auto_confirm_at: Date | string | null;
   completion_requested_at: Date | string | null;
   completed_at: Date | string | null;
   release_requested_at: Date | string | null;
@@ -57,8 +59,8 @@ type StoredOrder = Row & {
 export const ORDER_COLUMNS = `order_id, requester_id, courier_id, referred_admin_id, supplier_snapshot,
   items, delivery_zone, delivery_instructions, reward, status, release_reason, rejection_reason,
   available_at_rejection, version, acceptance_deadline_at, accepted_at, picked_up_at, delivered_at,
-  completion_requested_at, completed_at, release_requested_at, released_at, credit_transaction_id,
-  created_at, updated_at`;
+  non_delivery_report_at, auto_confirm_at, completion_requested_at, completed_at,
+  release_requested_at, released_at, credit_transaction_id, created_at, updated_at`;
 
 const iso = (value: Date | string): string =>
   value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -85,6 +87,8 @@ const mapOrder = (row: StoredOrder): OrderRow => ({
   acceptedAt: nullableIso(row.accepted_at),
   pickedUpAt: nullableIso(row.picked_up_at),
   deliveredAt: nullableIso(row.delivered_at),
+  nonDeliveryReportAt: nullableIso(row.non_delivery_report_at),
+  autoConfirmAt: nullableIso(row.auto_confirm_at),
   completionRequestedAt: nullableIso(row.completion_requested_at),
   completedAt: nullableIso(row.completed_at),
   releaseRequestedAt: nullableIso(row.release_requested_at),
@@ -233,6 +237,18 @@ export class OrdersRepository {
         ORDER BY accepted_at, order_id
         LIMIT $2`,
       [cutoff.toISOString(), limit],
+    );
+    return result.rows.map((row) => row.order_id);
+  }
+
+  /** DELIVERED orders neither confirmed nor reported by their auto-confirmation time (OS-FR4.1.4). */
+  async findAutoConfirmDue(now: Date, limit = 100): Promise<string[]> {
+    const result = await this.db.query<{ order_id: string } & Row>(
+      `SELECT order_id FROM orders
+        WHERE status = 'DELIVERED' AND auto_confirm_at <= $1
+        ORDER BY auto_confirm_at, order_id
+        LIMIT $2`,
+      [now.toISOString(), limit],
     );
     return result.rows.map((row) => row.order_id);
   }
@@ -847,6 +863,10 @@ export class OrdersRepository {
     const context = {
       acceptanceDeadlinePassed:
         order.acceptanceDeadlineAt !== null && new Date(order.acceptanceDeadlineAt) <= now,
+      deliveryPeriodPassed:
+        order.nonDeliveryReportAt !== null && new Date(order.nonDeliveryReportAt) <= now,
+      autoConfirmationPeriodPassed:
+        order.autoConfirmAt !== null && new Date(order.autoConfirmAt) <= now,
       releaseReason: order.releaseReason ?? undefined,
       reasonProvided: (command.reason?.trim() ?? '') !== '',
     };

@@ -286,6 +286,68 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/LifecycleConflict' }
         '422': { $ref: '#/components/responses/InvalidOrder' }
+  /orders/{orderId}/report-non-delivery:
+    post:
+      operationId: reportNonDelivery
+      summary: Requester reports an errand not delivered (PICKED_UP → DISPUTED).
+      description: |
+        Only the requester may report, and only from `nonDeliveryReportAt` (pickup plus the delivery
+        period, 2 hours by default) on; earlier it is refused with 409 `INVALID_ORDER_STATE`. The
+        errand is referred to an administrator, and no timer changes it afterwards.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LifecycleCommand' }
+      responses:
+        '200':
+          description: The order after the transition, projected for the caller.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/ActionForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/LifecycleConflict' }
+        '422': { $ref: '#/components/responses/InvalidOrder' }
+  /orders/{orderId}/report-non-receipt:
+    post:
+      operationId: reportNonReceipt
+      summary: Requester reports a delivered errand not received (DELIVERED → DISPUTED).
+      description: |
+        Instead of confirming, the requester may report the errand not received until
+        `autoConfirmAt` (delivery plus the auto-confirmation period, 24 hours by default). From then
+        the errand is confirmed automatically and a report is refused with 409
+        `INVALID_ORDER_STATE`. A reported errand is referred to an administrator, and no timer
+        changes it afterwards.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LifecycleCommand' }
+      responses:
+        '200':
+          description: The order after the transition, projected for the caller.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/ActionForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/LifecycleConflict' }
+        '422': { $ref: '#/components/responses/InvalidOrder' }
   /orders/{orderId}/history:
     get:
       operationId: getOrderHistory
@@ -510,6 +572,17 @@ components:
         requesterId: { type: string }
         courierId: { type: string }
         deliveryInstructions: { type: string }
+        nonDeliveryReportAt:
+          type: string
+          format: date-time
+          description: |
+            Private. Set once pickup is recorded: from then the requester may report non-delivery.
+        autoConfirmAt:
+          type: string
+          format: date-time
+          description: |
+            Private. Set once delivery is recorded: from then the errand is confirmed automatically
+            unless the requester has confirmed or reported it.
         rejection:
           type: object
           required: [reason]

@@ -12,6 +12,8 @@ import {
 } from './helpers/app.js';
 import {
   TRANSFER_RESULTS_QUEUE,
+  advance,
+  backdate,
   deliver,
   dispute,
   sweep,
@@ -141,6 +143,64 @@ describe('order-service honours its published contract', () => {
       );
     } finally {
       await lifecycle.close();
+    }
+  });
+
+  it('non-delivery and non-receipt reports, and the deadlines in the private view (200, 403, 409)', async () => {
+    const pickedUp = await createTestApp();
+    const delivered = await createTestApp();
+    try {
+      const call = (t: TestApp, path: string, auth: string, expectedVersion: number) =>
+        http(t)
+          .post(`/orders/${SEEDED_ORDER}/${path}`)
+          .set('Authorization', auth)
+          .send({ expectedVersion });
+      const nonDelivery = '/orders/{orderId}/report-non-delivery';
+      await advance(pickedUp, 'PICKED_UP');
+      contract.assert(
+        'post',
+        nonDelivery,
+        await call(pickedUp, 'report-non-delivery', asStranger, 4),
+      );
+      contract.assert(
+        'post',
+        nonDelivery,
+        await call(pickedUp, 'report-non-delivery', asRequester, 4),
+      );
+      await backdate(pickedUp, 'non_delivery_report_at', 1);
+      contract.assert(
+        'post',
+        nonDelivery,
+        await call(pickedUp, 'report-non-delivery', asRequester, 4),
+      );
+
+      const nonReceipt = '/orders/{orderId}/report-non-receipt';
+      await advance(delivered, 'DELIVERED');
+      contract.assert(
+        'get',
+        '/orders/{orderId}',
+        await http(delivered)
+          .get(`/orders/${SEEDED_ORDER}?view=private`)
+          .set('Authorization', asRequester),
+      );
+      contract.assert(
+        'post',
+        nonReceipt,
+        await call(delivered, 'report-non-receipt', asStranger, 5),
+      );
+      contract.assert(
+        'post',
+        nonReceipt,
+        await call(delivered, 'report-non-receipt', asRequester, 5),
+      );
+      contract.assert(
+        'post',
+        nonReceipt,
+        await call(delivered, 'report-non-receipt', asRequester, 5),
+      );
+    } finally {
+      await pickedUp.close();
+      await delivered.close();
     }
   });
 
