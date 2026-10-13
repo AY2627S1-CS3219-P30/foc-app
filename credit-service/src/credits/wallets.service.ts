@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ApiException, type Queryable } from '@foc/platform';
 import { z } from 'zod';
 import { AdminActivity } from './admin-activity.js';
@@ -32,6 +32,8 @@ function parseLimit(value: string | undefined): number {
 
 @Injectable()
 export class WalletsService {
+  private readonly logger = new Logger(WalletsService.name);
+
   constructor(
     @Inject(CreditRepository) private readonly credits: CreditRepository,
     @Inject(AdminActivity) private readonly activity: AdminActivity,
@@ -73,7 +75,7 @@ export class WalletsService {
     correlationId: string,
   ): Promise<WalletView> {
     await this.credits.auditAdminRead(adminUserId, targetUserId, 'WALLET', correlationId);
-    await this.activity.afterWalletRead(adminUserId);
+    await this.watch(adminUserId);
     return this.wallet(targetUserId);
   }
 
@@ -85,7 +87,19 @@ export class WalletsService {
     cursor?: string,
   ): Promise<LedgerPage> {
     await this.credits.auditAdminRead(adminUserId, targetUserId, 'LEDGER', correlationId);
-    await this.activity.afterWalletRead(adminUserId);
+    await this.watch(adminUserId);
     return this.ledger(targetUserId, limit, cursor);
+  }
+
+  /**
+   * The bulk-read alert check (ADM-04). The read itself is already recorded, which is the control;
+   * raising the alert is a side effect of it, so a failure here is logged and the read is answered.
+   */
+  private async watch(adminUserId: string): Promise<void> {
+    try {
+      await this.activity.afterWalletRead(adminUserId);
+    } catch (err) {
+      this.logger.error({ err, adminUserId, msg: 'wallet-read alert check failed' });
+    }
   }
 }

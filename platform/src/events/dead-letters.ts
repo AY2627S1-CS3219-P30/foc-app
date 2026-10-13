@@ -343,6 +343,12 @@ export class DeadLetters {
           'This dead letter was already redriven. If it failed again, it is waiting as a new one.',
         );
       }
+      // Published before the row is stamped, inside the transaction. If the stamp or the commit
+      // then fails, the message is already on its queue and the row still reads WAITING, so an
+      // operator can redrive it again. That is safe only because the consumer's inbox recognises
+      // the event id: a second delivery has no second effect (credit-service's operations.test.ts
+      // checks that a redriven user.activated issues exactly one wallet). The other order, stamp
+      // then publish, could mark a dead letter redriven that was never sent.
       await publishToQueue(
         broker.getChannel(),
         row.queue,
