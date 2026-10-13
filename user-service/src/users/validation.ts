@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ApiException } from '@foc/platform';
+import { AUDIT_ACTIONS } from '../admin/admin.repository.js';
 
 export const registerSchema = z.strictObject({
   // Trimmed first: a pasted address with a stray space is still that address.
@@ -61,9 +62,7 @@ export const auditQuerySchema = z
     pageSize,
     targetUserId: z.uuid().optional(),
     actorId: z.uuid().optional(),
-    action: z
-      .enum(['SUSPEND', 'REACTIVATE', 'ROLE_GRANT', 'ROLE_REVOKE', 'ADMIN_BOOTSTRAP'])
-      .optional(),
+    action: z.enum(AUDIT_ACTIONS).optional(),
     from: instant.optional(),
     to: instant.optional(),
   })

@@ -4,8 +4,16 @@ import { auditRecords, profiles, userRoles, users } from '../db/schema.js';
 import type { AuditQuery } from '../users/validation.js';
 import { rolesOf, type AccountStatus, type Role } from '../users/users.repository.js';
 
-export type AuditAction =
-  'SUSPEND' | 'REACTIVATE' | 'ROLE_GRANT' | 'ROLE_REVOKE' | 'ADMIN_BOOTSTRAP';
+/** Mirrored by `audit_records_action_check` in the schema, the contract and the README. */
+export const AUDIT_ACTIONS = [
+  'SUSPEND',
+  'REACTIVATE',
+  'ROLE_GRANT',
+  'ROLE_REVOKE',
+  'ADMIN_BOOTSTRAP',
+] as const;
+
+export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
 /** `SYSTEM` is the boot-time bootstrap; every other row has a human actor. */
 export type AuditActorType = 'USER' | 'SYSTEM';
