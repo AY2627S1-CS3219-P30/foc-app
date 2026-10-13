@@ -94,10 +94,15 @@ check_image() { # image
     cut -d= -f1 | grep -E '(PASSWORD|KEY|TOKEN|SECRET)$' | tr '\n' ' ' || true)
   [[ -z "$named" ]] || problems="$problems; its configuration sets ${named% }"
 
-  if docker image history --no-trunc --format '{{.CreatedBy}}' "$image" | grep -qFf "$work/values"; then
+  # Read whole, then searched: `grep -q` stops at its first match, and under pipefail the command
+  # it cut off would make a match look like no match.
+  local history config
+  history=$(docker image history --no-trunc --format '{{.CreatedBy}}' "$image")
+  config=$(docker image inspect "$image")
+  if grep -qFf "$work/values" <<<"$history"; then
     problems="$problems; a value from .env is in its build history"
   fi
-  if docker image inspect "$image" | grep -qFf "$work/values"; then
+  if grep -qFf "$work/values" <<<"$config"; then
     problems="$problems; a value from .env is in its configuration"
   fi
 

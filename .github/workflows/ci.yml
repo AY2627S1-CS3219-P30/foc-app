@@ -301,6 +301,11 @@ jobs:
       # and a service without its database says 503 instead of accepting a write.
       - name: Restart, recreate and lose a dependency
         run: ./scripts-restart-check.sh --up
+      # PLT-07: the D3 demo's journey through the public API. A student registers and gets a
+      # wallet; an errand is created, accepted, delivered and paid; one is cancelled; six actions
+      # are refused; and a dead letter left by a database outage is redriven by an administrator.
+      - name: The demo journey, end to end
+        run: ./scripts-demo-journey.sh --up --redrive
 
   # ---------------------------------------------------------------------------
   # The supplier page against the real Supplier Service, verifying tokens with

@@ -150,6 +150,7 @@ Then open <http://localhost:3000>.
 | `./scripts-smoke.sh --up`             | Verify a separate copy, then delete it        |
 | `./scripts-demo-failures.sh`          | Force messaging failures on the running stack |
 | `./scripts-restart-check.sh`          | Restart, recreate and take Postgres away      |
+| `./scripts-demo-journey.sh`           | A student, an errand and its credits, by API  |
 
 `docker compose down` keeps your data. Use `-v` only when you want a clean
 database — it is also the only way to re-run `postgres-init.sh`, which runs
@@ -195,6 +196,18 @@ All four should pass on a fresh clone. For the containerized stack:
 ```
 
 If that prints `All smoke checks passed`, you are set up correctly.
+
+To see the system do its job rather than only start, run the journey the D3 demo
+uses: a student registers and gets a wallet, an errand is created, accepted,
+delivered and paid, one is cancelled, and six actions are refused. Each API call
+is printed as it is made.
+
+```bash
+./scripts-demo-journey.sh
+```
+
+The demo itself, part by part with who presents what, is
+[docs/demo/d3-runbook.md](docs/demo/d3-runbook.md).
 
 ---
 
@@ -856,6 +869,7 @@ npm run test:contract        # contract compatibility + provider checks
 ./scripts-smoke.sh --up      # the Compose smoke job
 ./scripts-demo-failures.sh --up   # the failure demo it runs afterwards
 ./scripts-restart-check.sh --up   # restart, recreate, lose Postgres
+./scripts-demo-journey.sh --up --redrive   # the D3 journey, and a dead letter redriven
 ```
 
 Every test suite, its naming convention and the variables that switch on the real-PostgreSQL and
