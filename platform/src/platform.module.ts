@@ -15,6 +15,7 @@ import {
   type HealthIndicator,
   type ServiceInfo,
 } from './health.controller.js';
+import { baseEnvSchema } from './env.js';
 import { createLogger, requestLogger } from './logging.js';
 import { METRICS, METRICS_ACCESS, Metrics, MetricsController } from './metrics.js';
 
@@ -28,6 +29,19 @@ export interface PlatformModuleOptions {
   logDestination?: DestinationStream;
   /** The bearer token `GET /metrics` requires. Defaults to `METRICS_TOKEN`. */
   metricsToken?: string;
+}
+
+/**
+ * `METRICS_TOKEN` from the environment, held to the rule in `baseEnvSchema`. A service has already
+ * validated its environment with `loadEnv` by the time it builds this module; this keeps the rule
+ * for a module built without that.
+ */
+function metricsTokenFromEnv(): string | undefined {
+  const parsed = baseEnvSchema.shape.METRICS_TOKEN.safeParse(
+    process.env.METRICS_TOKEN || undefined,
+  );
+  if (!parsed.success) throw new Error('METRICS_TOKEN must be at least 16 characters.');
+  return parsed.data;
 }
 
 /**
@@ -72,7 +86,7 @@ export class PlatformModule implements NestModule {
         {
           provide: METRICS_ACCESS,
           useValue: {
-            token: options.metricsToken ?? (process.env.METRICS_TOKEN || undefined),
+            token: options.metricsToken ?? metricsTokenFromEnv(),
             production: process.env.NODE_ENV === 'production',
           },
         },

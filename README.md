@@ -372,7 +372,11 @@ permissions, [`sender.ts`](platform/src/events/sender.ts) the check, and
 
 **Privileges.** Every container's main process is unprivileged. The services,
 their migrate containers and the web app also drop every Linux capability and
-cannot gain one (`no-new-privileges`).
+cannot gain one (`no-new-privileges`). The four pre-built images (Postgres,
+RabbitMQ, Prometheus, Grafana) keep their publishers' defaults: they are not
+given `cap_drop` or `no-new-privileges`, because their entrypoints were not
+tested under them here. RabbitMQ is started as its own user; Postgres starts as
+root and drops to `postgres` before it serves.
 
 ### Stopped, restarted, recreated
 

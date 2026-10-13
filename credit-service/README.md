@@ -95,6 +95,20 @@ or economic event input appears without updating and reviewing the explicit surf
 All queues use bounded retry and a dead-letter queue. Every handler uses the transactional inbox.
 The outbox relay publishes committed replies with at-least-once delivery.
 
+What a consumer does with a message that is not the ordinary case (EVT-03, PLT-06):
+
+| Message                                                                         | Outcome                                                                                                      |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| The same event id again                                                         | Acknowledged, no effect, counted (`foc_events_duplicate_total`)                                              |
+| A request sent again under a new event id                                       | Answered from the recorded result; no additional credits move                                                |
+| A completion or release before its reservation; a reservation before the wallet | Retried with the usual delays (`foc_events_deferred_total`); a dead letter if the earlier step never arrives |
+| A major `schemaVersion` this service does not list                              | Dead-lettered whole, before its payload is read (`unsupported_version`)                                      |
+| Published by a broker account other than the trusted producer's                 | Dead-lettered (`untrusted_sender`); see [ADR 0004](../docs/adr/0004-authentication-and-trust.md)             |
+
+`test/delivery.test.ts` drives the real consumers through a broker for the out-of-order and
+unsupported-version cases, and for a crash before and after the transfer commits.
+`test/terminal-operations.test.ts` covers a request that is sent again.
+
 ## Commands
 
 Run from the repository root after `npm ci`:
