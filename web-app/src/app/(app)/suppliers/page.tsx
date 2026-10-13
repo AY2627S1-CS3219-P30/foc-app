@@ -64,12 +64,15 @@ export default function SuppliersPage() {
   const opener = useRef<HTMLElement | null>(null);
   const focusReturn = useRef<FocusReturn | null>(null);
   const editingKey = editing === 'new' ? 'new' : (editing?.supplierId ?? null);
+  /** The open form's key, for async work that must not close a form opened in the meantime. */
+  const openKey = useRef(editingKey);
   const onDirtyChange = useCallback((dirty: boolean) => {
     formDirty.current = dirty;
   }, []);
 
   // Keyed on the supplier, not the object, so a refresh after a version conflict doesn't jump.
   useEffect(() => {
+    openKey.current = editingKey;
     if (editingKey) revealForm(formHeading.current);
   }, [editingKey]);
 
@@ -203,14 +206,19 @@ export default function SuppliersPage() {
           'This supplier was changed by someone else and its latest version could not be loaded. Try saving again.',
         );
       });
-      const isOpen = (current: Supplier | 'new' | null) =>
-        current !== null && current !== 'new' && current.supplierId === supplierId;
       if (!fresh) {
-        setEditing((current) => (isOpen(current) ? null : current));
+        // The reload above may already be done; focus waits for one that starts after the close,
+        // and lands on the results count since the supplier's card is gone.
+        if (openKey.current === supplierId) {
+          closeForm(true);
+          reload();
+        }
         setActionProblem('This supplier was deleted.');
         return;
       }
-      setEditing((current) => (isOpen(current) ? fresh : current));
+      setEditing((current) =>
+        current !== null && current !== 'new' && current.supplierId === supplierId ? fresh : current,
+      );
       throw new ApiError(
         412,
         code,

@@ -339,6 +339,8 @@ describe('supplier version conflicts', () => {
       expect(container.querySelector('[role="alert"]')?.textContent).toContain(
         'This supplier was deleted.',
       );
+      await settle();
+      expect(window.document.activeElement?.textContent).toBe('0 suppliers found');
     } finally {
       restore();
       await act(() => root.unmount());

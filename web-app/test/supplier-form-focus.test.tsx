@@ -7,12 +7,12 @@ Object.assign(globalThis, { window, document: window.document, IS_REACT_ACT_ENVI
 const { act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 
-mock.module('../src/lib/auth', () => ({
-  useAuth: () => ({
-    authed: <T,>(call: (token: string) => Promise<T>) => call('token'),
-    user: { roles: ['ADMIN'] },
-  }),
-}));
+// One object, so `authed` keeps its identity across renders like the real hook's.
+const adminAuth = {
+  authed: <T,>(call: (token: string) => Promise<T>) => call('token'),
+  user: { roles: ['ADMIN'] },
+};
+mock.module('../src/lib/auth', () => ({ useAuth: () => adminAuth }));
 mock.module('../src/components/ResponsiveShell', () => ({
   ResponsiveShell: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
