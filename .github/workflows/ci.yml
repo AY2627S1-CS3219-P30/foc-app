@@ -353,11 +353,27 @@ jobs:
           cp .env.example .env
           docker compose up -d --build
           ./scripts-smoke.sh
-      - name: Install Playwright
+      - run: bun install --frozen-lockfile
         working-directory: web-app
-        run: |
-          bun install --frozen-lockfile
-          bunx playwright install --with-deps chromium
+      # The browser build is fixed by the Playwright version, so key the cache on it.
+      - name: Playwright version
+        id: playwright
+        working-directory: web-app
+        run: echo "version=$(jq -r '.devDependencies["@playwright/test"]' package.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium
+      - name: Install Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        working-directory: web-app
+        run: bunx playwright install --with-deps chromium
+      # A cached browser still needs the system libraries, which live outside the cache.
+      - name: Install Chromium system dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        working-directory: web-app
+        run: bunx playwright install-deps chromium
       - name: Run the account journey
         working-directory: web-app
         run: bun run e2e
