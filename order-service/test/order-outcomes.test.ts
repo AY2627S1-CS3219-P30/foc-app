@@ -167,6 +167,21 @@ describe('requester outcome actions and auto-confirmation (ORD-10)', () => {
       expect(await completionRequests(t)).toHaveLength(1);
     });
 
+    it('the timer, then a report: the report is refused and the transfer stands', async () => {
+      t = await createTestApp();
+      await advance(t, 'DELIVERED');
+      await backdate(t, 'auto_confirm_at', 1);
+      expect((await sweep(t)).autoConfirmed).toBe(1);
+
+      const refused = await post(t, 'report-non-receipt', asRequester, 6).expect(409);
+      expect(refused.body.error.details).toEqual({
+        status: 'COMPLETION_PENDING_CREDIT',
+        version: 6,
+      });
+      expect(await statusOf(t)).toBe('COMPLETION_PENDING_CREDIT');
+      expect(await completionRequests(t)).toHaveLength(1);
+    });
+
     it('report, then the timer: the errand stays with an administrator and nothing is paid', async () => {
       t = await createTestApp();
       await advance(t, 'DELIVERED');

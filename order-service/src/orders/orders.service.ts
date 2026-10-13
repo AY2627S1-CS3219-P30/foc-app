@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type { AuthContext } from '@foc/auth-client';
 import { ApiException } from '@foc/platform';
-import { env } from '../config.js';
 import {
   IdempotencyKeyReusedError,
   OrdersRepository,
@@ -15,19 +14,6 @@ import type { CreateOrderInput, ResolveOrderInput } from './validation.js';
 
 const MY_ERRANDS_LIMIT = 100;
 const notFound = () => new ApiException(404, 'NOT_FOUND', 'Order not found.');
-const later = (at: Date, ms: number) => new Date(at.getTime() + ms).toISOString();
-
-/**
- * The deadline a move starts, saved on the order with the move so that a later change to the
- * configured period cannot shift it (ADR 0006).
- */
-function deadlineStarted(action: OrderAction, at: Date) {
-  if (action === 'RECORD_PICKUP') {
-    return { non_delivery_report_at: later(at, env.DELIVERY_PERIOD_MS) };
-  }
-  if (action === 'RECORD_DELIVERY') return { auto_confirm_at: later(at, env.AUTO_CONFIRM_MS) };
-  return undefined;
-}
 
 export function projectOrder(
   order: OrderRow,
@@ -190,15 +176,12 @@ export class OrdersService {
     correlationId: string,
     extra: Pick<TransitionCommand, 'reason' | 'verify'> = {},
   ): Promise<OrderView> {
-    const now = new Date();
     const result = await this.orders.transition({
       orderId,
       action,
       expectedVersion,
       actor: { kind: 'USER', id: caller.userId, isAdmin: caller.isAdmin },
       correlationId,
-      now,
-      patch: deadlineStarted(action, now),
       ...extra,
     });
     if (result.kind === 'applied') {

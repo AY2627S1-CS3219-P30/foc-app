@@ -204,6 +204,22 @@ describe('order-service honours its published contract', () => {
     }
   });
 
+  it.each(['report-non-delivery', 'report-non-receipt'])(
+    'POST /orders/{orderId}/%s (400, 401, 404, 422)',
+    async (path) => {
+      const template = `/orders/{orderId}/${path}`;
+      const report = (id: string, body: object, auth?: string) => {
+        const req = http(app).post(`/orders/${id}/${path}`);
+        return (auth ? req.set('Authorization', auth) : req).send(body);
+      };
+      const valid = { expectedVersion: 1 };
+      contract.assert('post', template, await report('not-a-uuid', valid, asRequester).expect(400));
+      contract.assert('post', template, await report(SEEDED_ORDER, valid).expect(401));
+      contract.assert('post', template, await report(randomUUID(), valid, asRequester).expect(404));
+      contract.assert('post', template, await report(SEEDED_ORDER, {}, asRequester).expect(422));
+    },
+  );
+
   it('cancel and withdraw (200, 403, 409)', async () => {
     const lifecycle = await createTestApp();
     try {

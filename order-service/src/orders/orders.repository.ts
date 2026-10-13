@@ -7,6 +7,7 @@ import {
   type Queryable,
   type Row,
 } from '@foc/platform';
+import { env } from '../config.js';
 import { ORDER_DB, type OrderDatabase } from '../db/db.js';
 import {
   ORDER_TRANSITIONS,
@@ -213,8 +214,7 @@ export class OrdersRepository {
 
   /** The database clock, so timers and the acceptance check compare against the same time. */
   async databaseNow(): Promise<Date> {
-    const result = await this.db.query<{ now: Date | string } & Row>(`SELECT now() AS now`);
-    return new Date(result.rows[0]!.now);
+    return clockOf(this.db);
   }
 
   /** OPEN orders whose acceptance deadline has passed (OS-FR6.1.2). */
@@ -859,7 +859,9 @@ export class OrdersRepository {
     if (!locked.rows[0]) return { kind: 'rejected', reason: 'NOT_FOUND' };
     const order = mapOrder(locked.rows[0]);
     const actor = resolveActor(order, command.actor);
-    const now = command.now ?? new Date();
+    // The database clock, which the scheduler and acceptance also use, so a participant and a timer
+    // agree on whether a deadline has passed.
+    const now = command.now ?? (await clockOf(tx));
     const context = {
       acceptanceDeadlinePassed:
         order.acceptanceDeadlineAt !== null && new Date(order.acceptanceDeadlineAt) <= now,
@@ -1051,6 +1053,13 @@ function resolveActor(order: OrderRow, actor: CommandActor): OrderActor {
   return actor.isAdmin ? 'ADMIN' : 'OTHER_STUDENT';
 }
 
+async function clockOf(db: Queryable): Promise<Date> {
+  const result = await db.query<{ now: Date | string } & Row>(`SELECT now() AS now`);
+  return new Date(result.rows[0]!.now);
+}
+
+const later = (at: string, ms: number) => new Date(Date.parse(at) + ms).toISOString();
+
 function timestampPatch(
   action: OrderAction,
   decision: TransitionDecision,
@@ -1061,8 +1070,13 @@ function timestampPatch(
     action === 'WITHDRAW' || action === 'PICKUP_TIMEOUT'
       ? { courier_id: null, accepted_at: null }
       : {};
-  if (action === 'RECORD_PICKUP') return { picked_up_at: at };
-  if (action === 'RECORD_DELIVERY') return { delivered_at: at };
+  // Each deadline is saved when its period starts, so a later change to the period cannot move it.
+  if (action === 'RECORD_PICKUP') {
+    return { picked_up_at: at, non_delivery_report_at: later(at, env.DELIVERY_PERIOD_MS) };
+  }
+  if (action === 'RECORD_DELIVERY') {
+    return { delivered_at: at, auto_confirm_at: later(at, env.AUTO_CONFIRM_MS) };
+  }
   if (decision.to === 'COMPLETION_PENDING_CREDIT') return { completion_requested_at: at };
   if (decision.to === 'COMPLETED') return { completed_at: at };
   if (decision.to === 'RELEASE_PENDING_CREDIT') {
