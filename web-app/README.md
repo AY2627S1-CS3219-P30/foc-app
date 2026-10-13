@@ -149,6 +149,39 @@ sign out, pending sign-out, cross-tab sign-out) against a fake `fetch`, fake loc
 channel. They use Bun's built-in runner, so `test/` is excluded from the Next typecheck. CI runs them
 in the `web-app` job.
 
+### Integration tests
+
+`test/suppliers.integration.test.tsx` renders the supplier page against the real Supplier Service,
+which verifies tokens with the real User Service. A fresh student (registered and activated through the
+User Service's development mailbox) browses the seeded suppliers and is refused `POST /suppliers` with
+`403`; the seeded admin creates, edits and deletes a supplier through the page. It is skipped unless
+`SUPPLIER_SERVICE_URL` is set, so a plain `bun test` passes without a stack.
+
+```bash
+# From the repository root: just the two services and what they need (PostgreSQL, RabbitMQ).
+docker compose -p foc-it --env-file .env.example up -d --build user-service supplier-service
+
+cd web-app
+SUPPLIER_SERVICE_URL=http://localhost:3002 bun test test/suppliers.integration.test.tsx
+
+docker compose -p foc-it down -v   # from the repository root
+```
+
+Run the file on its own: the page's client reads its base URL when it is first imported, and another
+test file may import it first. `USER_SERVICE_URL` defaults to `http://localhost:3001`. The User Service
+must run in development mode (the Compose default), which mounts the mailbox.
+
+The admin is `ADMIN_EMAIL` (default `admin@u.nus.edu`). On a fresh stack the test claims it, replacing
+the bootstrap `ADMIN_SEED_PASSWORD` with `ADMIN_PASSWORD` (default `supplier-integration-admin`), as an
+operator must before that account can sign in; later runs sign in with `ADMIN_PASSWORD`. Against your
+own long-lived stack, set `ADMIN_PASSWORD` to the admin's current password, or the test will claim the
+account with its default. Each run leaves a new student account behind and deactivates the supplier it
+created.
+
+CI runs it in the `Supplier listing integration` job when `supplier-service/`, the supplier page, its
+client (`src/lib/supplier-*`, `SupplierCard`), the test itself, or anything shared or stack-wide changes
+(`scripts-ci-detect.sh`).
+
 When you do wire it up, the services run on ports 3001–3004 — see the root
 [README](../README.md). Every service returns the same error envelope and echoes
 an `x-correlation-id` header, so send one and log it alongside the response to
