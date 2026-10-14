@@ -54,21 +54,38 @@ export function changePassword(
     .send({ email, currentPassword, newPassword });
 }
 
+/** Re-enters the password on the actor's session (`POST /auth/step-up`, ADR 0008). */
+export async function stepUp(t: TestApp, actor: Actor, password = PASSWORD): Promise<Actor> {
+  await http(t)
+    .post('/auth/step-up')
+    .set('Authorization', bearer(actor))
+    .send({ password })
+    .expect(204);
+  return actor;
+}
+
 /**
  * Creates a seeded administrator through the real seeding path, replaces the bootstrap password
- * as the first sign-in requires, then logs in with {@link PASSWORD}.
+ * as the first sign-in requires, then logs in with {@link PASSWORD}. The session has re-entered
+ * its password, as an admin about to change roles would have; pass `stepUp: false` for one that
+ * has not.
  */
-export async function seededAdmin(t: TestApp, email: string): Promise<Actor> {
+export async function seededAdmin(
+  t: TestApp,
+  email: string,
+  options: { stepUp?: boolean } = {},
+): Promise<Actor> {
   await seedAdmins(t.orm, {
     emails: [email],
     password: BOOTSTRAP_PASSWORD,
     allowedDomains: ['u.nus.edu'],
   });
   await changePassword(t, email, BOOTSTRAP_PASSWORD, PASSWORD).expect(204);
-  return login(t, email);
+  const actor = await login(t, email);
+  return options.stepUp === false ? actor : stepUp(t, actor);
 }
 
 export const bearer = (a: Pick<Actor, 'accessToken'>) => `Bearer ${a.accessToken}`;
 
 export const TRUNCATE_ALL =
-  'TRUNCATE outbox_events, audit_records, activation_tokens, refresh_sessions, profiles, user_roles, users RESTART IDENTITY CASCADE';
+  'TRUNCATE outbox_events, audit_records, role_change_requests, admin_reads, admin_alerts, activation_tokens, refresh_sessions, profiles, user_roles, users RESTART IDENTITY CASCADE';

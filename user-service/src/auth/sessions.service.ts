@@ -127,6 +127,7 @@ export class SessionsService {
         userId: row.userId,
         tokenHash: sha256Hex(nextToken),
         ttlDays: REFRESH_TTL_DAYS,
+        continues: row.id,
       });
       return { kind: 'ok' as const, userId: row.userId };
     });
@@ -181,6 +182,22 @@ export class SessionsService {
     });
     // Lost a race with another change: the password we verified is no longer the current one.
     if (!replaced) throw invalidCredentials();
+  }
+
+  /**
+   * Password re-entry (ADR 0008): proves the person at the keyboard still knows the password before
+   * the riskiest admin actions. Recorded on the caller's own session — a token refresh keeps it, but
+   * another sign-in or device does not. A wrong password fails exactly as login does.
+   */
+  async stepUp(userId: string, sessionId: string, password: string): Promise<void> {
+    const hash = await users.findPasswordHash(this.db, userId);
+    this.dummyHash ??= hashPassword('not-a-real-password');
+    const valid = await verifyPassword(hash ?? (await this.dummyHash), password);
+    if (!hash || !valid) throw invalidCredentials();
+    if (!(await sessions.markSteppedUp(this.db, sessionId, userId))) {
+      // The session ended between the guard and here (logout or suspension in another tab).
+      throw new ApiException(401, 'UNAUTHENTICATED', 'Authentication required.');
+    }
   }
 
   /** Revokes the caller's whole session family. Idempotent: an unknown or absent token is a no-op. */

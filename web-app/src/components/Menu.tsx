@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { useAuth } from "@/lib/auth";
-import { orderForMode } from "@/lib/nav";
+import { orderForMode, withAdminEntry } from "@/lib/nav";
 import { useStore } from "@/lib/store";
 import { ModeSwitch } from "./ModeSwitch";
 import styles from "./Menu.module.css";
@@ -74,7 +74,7 @@ export function Menu() {
         <div className={styles.mode}>
           <ModeSwitch />
         </div>
-        {orderForMode(ITEMS, user?.profile.preferredMode).map((item) => (
+        {orderForMode(withAdminEntry(ITEMS, user?.roles), user?.profile.preferredMode).map((item) => (
           <Link
             key={item.href}
             href={item.href}
