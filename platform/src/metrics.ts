@@ -58,6 +58,9 @@ export class Metrics {
   readonly eventRetries: Counter<'queue' | 'event_type'>;
   readonly eventsDeadLettered: Counter<'queue' | 'reason'>;
   readonly eventsDropped: Counter<'queue' | 'reason'>;
+  readonly eventsDuplicate: Counter<'queue' | 'event_type'>;
+  readonly eventsStale: Counter<'queue' | 'event_type'>;
+  readonly eventsDeferred: Counter<'queue' | 'event_type'>;
   readonly outboxPublished: Counter;
   readonly outboxFailures: Counter;
   private readonly logger = new Logger(Metrics.name);
@@ -115,6 +118,24 @@ export class Metrics {
       name: 'foc_events_dropped_total',
       help: 'Events a private per-instance queue dropped (it has no retry or dead-letter queue): unparseable, or the handler failed.',
       labelNames: ['queue', 'reason'],
+      registers,
+    });
+    this.eventsDuplicate = new Counter({
+      name: 'foc_events_duplicate_total',
+      help: 'Deliveries of an event this consumer had already applied; acknowledged with no further effect.',
+      labelNames: ['queue', 'event_type'],
+      registers,
+    });
+    this.eventsStale = new Counter({
+      name: 'foc_events_stale_total',
+      help: 'Events older than a change already applied; acknowledged and ignored, never applied.',
+      labelNames: ['queue', 'event_type'],
+      registers,
+    });
+    this.eventsDeferred = new Counter({
+      name: 'foc_events_deferred_total',
+      help: 'Attempts at an event whose earlier step had not happened yet; each is retried, then set aside.',
+      labelNames: ['queue', 'event_type'],
       registers,
     });
     this.outboxPublished = new Counter({

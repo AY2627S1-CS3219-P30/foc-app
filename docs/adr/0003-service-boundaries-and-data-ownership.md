@@ -20,7 +20,7 @@ Reading another service's tables would make deployments and invariants inseparab
 | Credit | wallets, reservations, credit transactions and ledger | authenticated HTTP/events |
 
 No service reads, writes, joins, constrains or migrates another service's tables. Local and deployed
-PostgreSQL use one database and role per service, as provisioned by `postgres-init.sql`. Cross-service
+PostgreSQL use one database and role per service, as provisioned by `postgres-init.sh`. Cross-service
 foreign keys are forbidden; IDs in messages are references validated by the owning workflow.
 
 Order alone decides whether an order transition is valid. Credit alone decides whether and how a

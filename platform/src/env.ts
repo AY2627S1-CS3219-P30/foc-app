@@ -15,6 +15,12 @@ export const baseEnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   SERVICE_NAME: z.string().min(1),
   PORT: z.coerce.number().int().min(1).max(65535),
+  /**
+   * A second port that serves `/internal/**`, which the public port then hides (PL-NFR2.1.2).
+   * Compose sets it per container and does not publish it. Unset, internal routes are on the
+   * public port, which is how `npm run dev` runs.
+   */
+  INTERNAL_PORT: z.coerce.number().int().min(1).max(65535).optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
   /**
    * Comma-separated browser origins allowed to call this service. Defaults to
