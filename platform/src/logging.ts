@@ -69,13 +69,18 @@ const isErrorLike = (value: unknown): value is ErrorLike =>
 /**
  * An error's message, safe for any sink, masked. A Drizzle query error appends every bound value
  * (`params: …`), which can be any column of the row, so its statement is kept with the driver's
- * reason instead.
+ * reason instead. A driver's own error that carries its query (PGlite's does) keeps its message as
+ * the reason: that message is the database's, without the values.
  */
 export function errorMessage(err: unknown): string {
   if (!isErrorLike(err)) return maskPersonalData(String(err));
   const { query, params, cause } = err;
   if (typeof query !== 'string' || params === undefined) return maskPersonalData(err.message);
-  const reason = isErrorLike(cause) ? `: ${cause.message}` : '';
+  const reason = isErrorLike(cause)
+    ? `: ${cause.message}`
+    : err.message.startsWith('Failed query') // Drizzle's, with the values in it
+      ? ''
+      : `: ${err.message}`;
   return maskPersonalData(`Failed query: ${query}${reason}`);
 }
 

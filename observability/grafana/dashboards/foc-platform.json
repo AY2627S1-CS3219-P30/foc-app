@@ -1,8 +1,8 @@
 {
   "uid": "foc-platform",
   "title": "FoC Platform",
-  "description": "PLT-04: HTTP latency, errands per status, consumer lag, retries and dead letters across the four services.",
-  "tags": ["foc", "plt-04"],
+  "description": "PLT-04/PLT-05: HTTP latency, errands per status, consumer lag, retries, dead letters, errands waiting for Credit and firing alerts across the four services.",
+  "tags": ["foc", "plt-04", "plt-05"],
   "timezone": "browser",
   "editable": false,
   "graphTooltip": 1,
@@ -19,7 +19,15 @@
   "templating": {
     "list": []
   },
-  "links": [],
+  "links": [
+    {
+      "title": "Operations (admin console)",
+      "type": "link",
+      "url": "http://localhost:3000/admin/operations",
+      "targetBlank": true,
+      "tooltip": "Find, inspect and redrive dead letters; trace an errand"
+    }
+  ],
   "panels": [
     {
       "id": 1,
@@ -131,7 +139,7 @@
       "id": 3,
       "type": "stat",
       "title": "Dead letters waiting",
-      "description": "Messages set aside in a dead-letter queue, waiting for an operator. Anything above 0 needs a look.",
+      "description": "Dead letters not yet redriven: parked for an operator in the Operations tab, plus any still on a dead-letter queue because the service that owns it is down. Anything above 0 needs a look.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -149,7 +157,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rabbitmq_detailed_queue_messages{queue=~\".+\\\\.dlq\"}) or vector(0)",
+          "expr": "(sum(foc_dead_letters_waiting) or vector(0)) + (sum(rabbitmq_detailed_queue_messages{queue=~\".+\\\\.dlq\"}) or vector(0))",
           "legendFormat": ""
         }
       ],
@@ -543,8 +551,8 @@
     {
       "id": 11,
       "type": "timeseries",
-      "title": "Dead-letter queue depth",
-      "description": "Messages in each dead-letter queue.",
+      "title": "Dead letters waiting by queue",
+      "description": "Parked: failed every retry, kept in its service's database until an operator redrives it. Not yet parked: still on the RabbitMQ dead-letter queue, which only happens while its service is down.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -562,8 +570,17 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (queue) (rabbitmq_detailed_queue_messages{queue=~\".+\\\\.dlq\"})",
-          "legendFormat": "{{queue}}"
+          "expr": "sum by (queue) (foc_dead_letters_waiting)",
+          "legendFormat": "{{queue}} parked"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (queue) (rabbitmq_detailed_queue_messages{queue=~\".+\\\\.dlq\"}) > 0",
+          "legendFormat": "{{queue}} not yet parked"
         }
       ],
       "fieldConfig": {
@@ -699,6 +716,134 @@
         "tooltip": {
           "mode": "multi",
           "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Oldest errand waiting for Credit",
+      "description": "How long the oldest errand in PENDING_CREDIT has waited for its reward to be reserved. Alerts past 5 minutes (ErrandWaitingForCredit).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 44
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max(foc_orders_pending_credit_oldest_age_seconds)",
+          "legendFormat": "oldest"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "Firing alerts",
+      "description": "Alerts from observability/alerts.yml that are firing now. Empty is good.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 44
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "ALERTS{alertstate=\"firing\"}",
+          "format": "table",
+          "instant": true,
+          "legendFormat": ""
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value": true,
+              "__name__": true,
+              "alertstate": true,
+              "job": true
+            },
+            "indexByName": {
+              "alertname": 0,
+              "severity": 1,
+              "service": 2,
+              "queue": 3,
+              "instance": 4
+            },
+            "renameByName": {
+              "alertname": "Alert"
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
         }
       }
     }

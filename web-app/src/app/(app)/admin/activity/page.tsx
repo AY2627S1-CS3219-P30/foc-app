@@ -22,6 +22,7 @@ export default function ActivityPage() {
   return (
     <AdminShell active="/admin/activity" heading="Admin activity">
       <Alerts />
+      <WalletReadAlerts />
       {target === undefined ? (
         <LoadingState label="Loading account reads…" rows={2} />
       ) : (
@@ -87,6 +88,48 @@ function Alerts() {
             </ul>
             <Pager page={d.page} pageSize={d.pageSize} total={d.total} onPage={setPage} />
           </>
+        )}
+      </Loaded>
+    </Section>
+  );
+}
+
+/** ADM-04: the Credit Service's alert when one administrator reads many wallets in an hour. */
+function WalletReadAlerts() {
+  const alerts = useAdminData("activity:wallet-reads", (t) => adminApi.walletReadAlerts(t));
+  const count = (value: unknown) => (typeof value === "number" ? value : "?");
+  return (
+    <Section
+      title="Wallets read"
+      description="Raised by the Credit Service when one administrator reads many people's wallets within an hour. Every wallet read is recorded there; this flags the unusual ones."
+      actions={
+        <Button variant="outline" onClick={alerts.reload}>
+          Refresh
+        </Button>
+      }
+    >
+      <Loaded
+        state={alerts}
+        label="wallet read alerts"
+        isEmpty={(d) => d.items.length === 0}
+        emptyTitle="No alerts"
+        emptyText="No administrator has read an unusual number of wallets."
+      >
+        {(d) => (
+          <ul className={styles.list}>
+            {d.items.map((alert) => (
+              <li key={alert.alertId} className={styles.item}>
+                <div className={styles.tags}>
+                  <Tag tone="warning">Many wallets read</Tag>
+                  <span className={styles.secondary}>{formatWhen(alert.occurredAt)}</span>
+                </div>
+                <span>
+                  <UserLink id={alert.actorId} /> read {count(alert.details.walletsInLastHour)}{" "}
+                  wallets within an hour (the alert is at {count(alert.details.threshold)}).
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
       </Loaded>
     </Section>

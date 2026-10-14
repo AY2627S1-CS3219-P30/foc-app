@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Button } from "@/components/Button";
 import { adminApi } from "@/lib/admin-api";
 import {
@@ -53,7 +54,9 @@ export default function ErrandsPage() {
                 <tbody>
                   {d.items.map((w) => (
                     <tr key={w.orderId}>
-                      <td className={styles.mono}>{shortId(w.orderId)}</td>
+                      <td>
+                        <TraceLink orderId={w.orderId} />
+                      </td>
                       <td>
                         <UserLink id={w.requesterId} />
                       </td>
@@ -105,7 +108,9 @@ export default function ErrandsPage() {
                   {d.items.map((a) => (
                     <tr key={a.attemptId}>
                       <td className={styles.nowrap}>{formatWhen(a.attemptedAt)}</td>
-                      <td className={styles.mono}>{shortId(a.orderId)}</td>
+                      <td>
+                        <TraceLink orderId={a.orderId} />
+                      </td>
                       <td>{a.orderStatus}</td>
                       <td>
                         {a.creditStatus ?? "Unknown"}
@@ -135,5 +140,14 @@ export default function ErrandsPage() {
         </p>
       </Section>
     </AdminShell>
+  );
+}
+
+/** An errand's ID, opening its full trace on the Operations tab (PLT-05). */
+function TraceLink({ orderId }: { orderId: string }) {
+  return (
+    <Link href={`/admin/operations?order=${orderId}#trace`} className={styles.link} title="Trace this errand">
+      {shortId(orderId)}
+    </Link>
   );
 }

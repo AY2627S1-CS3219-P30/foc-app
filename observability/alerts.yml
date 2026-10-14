@@ -1,0 +1,52 @@
+# PLT-05 (EI-NFR4.1.2) — what Prometheus alerts an operator to. Evaluated every 15 s; a firing alert
+# shows on the dashboard's "Firing alerts" panel and at http://localhost:9090/alerts. No
+# Alertmanager runs in the local stack, so nothing is sent anywhere: the dashboard is the pager.
+# Unit-tested by alerts.test.yml (`promtool test rules`, run in CI's Compose smoke job).
+groups:
+  - name: foc-operations
+    rules:
+      # A message failed every retry and is parked for an operator. One is enough: each is an event
+      # the system did not act on, such as a student with no wallet.
+      - alert: DeadLetterWaiting
+        expr: sum by (service, queue) (foc_dead_letters_waiting) > 0
+        labels:
+          severity: page
+        annotations:
+          summary: '{{ $value }} dead letter(s) waiting on {{ $labels.queue }}'
+          description: >-
+            An event failed every retry. Find it in the admin console's Operations tab, fix the
+            cause, then redrive it there.
+
+      # A dead letter is still on its RabbitMQ queue: the service that owns it is not draining it
+      # into its database, most likely because it is down. Nothing can be redriven until it is.
+      - alert: DeadLetterNotParked
+        expr: sum by (queue) (rabbitmq_detailed_queue_messages{queue=~".+\\.dlq"}) > 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: '{{ $value }} dead letter(s) unparked on {{ $labels.queue }}'
+          description: >-
+            The service that consumes this queue has not parked its dead letters for two minutes.
+            Check that it is running.
+
+      # The oldest errand still waiting for Credit to reserve its reward, past the Order Service's
+      # own limit (ORDER_CREDIT_WAIT_TIMEOUT_MS, 5 minutes by default).
+      - alert: ErrandWaitingForCredit
+        expr: max by (service) (foc_orders_pending_credit_oldest_age_seconds) > 300
+        labels:
+          severity: warn
+        annotations:
+          summary: 'An errand has waited {{ $value | humanizeDuration }} for Credit'
+          description: >-
+            Look for a dead letter on the reservation queues, and at the errand's trace in the
+            Operations tab. Reconciliation retries it on its own.
+
+      - alert: ServiceDown
+        expr: up{job="services"} == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: '{{ $labels.instance }} is not answering scrapes'
+          description: Prometheus has not reached its /metrics for a minute.

@@ -285,6 +285,113 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/orders/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Operator alerts across every errand (PLT-05).
+         * @description `CREDIT_WAIT_EXCEEDED` (an errand waited for Credit past CREDIT_WAIT_TIMEOUT_MS) and
+         *     `CREDIT_STATE_CONFLICT` (Credit's record disagrees with the errand's), newest first, at most
+         *     100. Administrators only.
+         */
+        get: operations["listOperatorAlerts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/orders/{orderId}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Reconstruct one errand from its ID (PLT-05, EI-NFR4.1.1).
+         * @description Everything the Order Service recorded about one errand: its state changes, every event it
+         *     caused and how sending each went, reconciliation decisions, operator alerts, and any dead
+         *     letter about it. Credit's half is `GET /admin/orders/{orderId}/credit` on the Credit Service.
+         *     Administrators only.
+         */
+        get: operations["getOrderTimeline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/dead-letters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find this service's dead letters (PLT-05).
+         * @description Events this service's consumers could not handle after every retry, parked for an operator,
+         *     newest first. `q` matches a correlation ID, an aggregate (order or user) ID or an event ID
+         *     exactly. Administrators only.
+         */
+        get: operations["listDeadLetters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/dead-letters/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inspect one dead letter, with the message it carried. */
+        get: operations["getDeadLetter"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/dead-letters/{id}/redrive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deliver a dead letter again, unchanged, to the queue it failed on.
+         * @description Publishes the stored bytes and properties to the queue the message failed on, and nowhere
+         *     else, with its attempts started again. The payload cannot be edited. Recorded with who did it
+         *     and why once the broker confirms. A dead letter is redriven once; if it fails again, it comes
+         *     back as a new one. The consumer's inbox makes a repeated delivery harmless.
+         */
+        post: operations["redriveDeadLetter"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/orders/{orderId}/receipt": {
         parameters: {
             query?: never;
@@ -469,6 +576,104 @@ export interface components {
                 alertRaisedAt: string | null;
             }[];
         };
+        OperatorAlert: {
+            /** @enum {string} */
+            kind: "CREDIT_WAIT_EXCEEDED" | "CREDIT_STATE_CONFLICT";
+            /** Format: date-time */
+            raisedAt: string;
+            /** @description What the alert recorded when it was raised. */
+            detail: unknown;
+        };
+        OperatorAlertList: {
+            items: (components["schemas"]["OperatorAlert"] & {
+                /** Format: uuid */
+                orderId: string;
+            })[];
+        };
+        OrderTimeline: {
+            /** Format: uuid */
+            orderId: string;
+            status: string;
+            requesterId: string;
+            courierId: string | null;
+            reward: number;
+            version: number;
+            creditTransactionId: string | null;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            history: {
+                previousStatus: string | null;
+                newStatus: string;
+                action: string;
+                actorType: string;
+                actorId: string | null;
+                version: number;
+                /** Format: date-time */
+                occurredAt: string;
+            }[];
+            /** @description Every event the errand caused, sent or still waiting in the outbox. */
+            events: {
+                /** Format: uuid */
+                eventId: string;
+                eventType: string;
+                correlationId: string;
+                causationId: string | null;
+                /** Format: date-time */
+                occurredAt: string;
+                /** Format: date-time */
+                publishedAt: string | null;
+                attempts: number;
+                lastError: string | null;
+            }[];
+            reconciliation: {
+                attemptId: string;
+                runId: string;
+                orderStatus: string;
+                creditStatus: string | null;
+                action: string;
+                reissuedEventId: string | null;
+                /** Format: date-time */
+                attemptedAt: string;
+            }[];
+            alerts: components["schemas"]["OperatorAlert"][];
+            deadLetters: components["schemas"]["DeadLetter"][];
+        };
+        DeadLetter: {
+            /** Format: uuid */
+            id: string;
+            /** @description The queue whose consumer failed */
+            queue: string;
+            eventId: string | null;
+            eventType: string | null;
+            /** @description The order or user the event is about. */
+            aggregateId: string | null;
+            correlationId: string | null;
+            failureReason: string | null;
+            attempts: number;
+            /** @enum {string} */
+            status: "WAITING" | "REDRIVEN";
+            /** Format: date-time */
+            parkedAt: string;
+            /** Format: date-time */
+            redrivenAt: string | null;
+            redrivenBy: string | null;
+            redriveReason: string | null;
+        };
+        DeadLetterDetail: components["schemas"]["DeadLetter"] & {
+            /** @description The message as received */
+            body: unknown;
+            headers: {
+                [key: string]: unknown;
+            };
+        };
+        DeadLetterPage: {
+            page: number;
+            pageSize: number;
+            total: number;
+            items: components["schemas"]["DeadLetter"][];
+        };
         ErrorEnvelope: {
             error: {
                 code: string;
@@ -586,6 +791,42 @@ export interface components {
         };
         /** @description Supplier verification is temporarily unavailable or invalid. */
         DependencyUnavailable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description No dead letter has this ID. */
+        DeadLetterNotFound: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description `VALIDATION_FAILED`: an unknown or malformed filter, or a redrive without a reason. */
+        DeadLetterInvalid: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description `ALREADY_REDRIVEN`: if it failed again, it is waiting as a new dead letter. */
+        AlreadyRedriven: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description `BROKER_UNAVAILABLE`: the message broker is not connected. Nothing was sent. */
+        BrokerUnavailable: {
             headers: {
                 [name: string]: unknown;
             };
@@ -991,6 +1232,142 @@ export interface operations {
             };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["AdminOnly"];
+        };
+    };
+    listOperatorAlerts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Alerts, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorAlertList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["AdminOnly"];
+        };
+    };
+    getOrderTimeline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The errand's timeline. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderTimeline"];
+                };
+            };
+            400: components["responses"]["InvalidOrderId"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["AdminOnly"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listDeadLetters: {
+        parameters: {
+            query?: {
+                status?: "WAITING" | "REDRIVEN";
+                queue?: string;
+                q?: string;
+                page?: number;
+                pageSize?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of dead letters. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeadLetterPage"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["AdminOnly"];
+            422: components["responses"]["DeadLetterInvalid"];
+        };
+    };
+    getDeadLetter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The dead letter, its body and headers as received. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeadLetterDetail"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["AdminOnly"];
+            404: components["responses"]["DeadLetterNotFound"];
+        };
+    };
+    redriveDeadLetter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    reason: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Redriven. The dead letter, now REDRIVEN. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeadLetter"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["AdminOnly"];
+            404: components["responses"]["DeadLetterNotFound"];
+            409: components["responses"]["AlreadyRedriven"];
+            422: components["responses"]["DeadLetterInvalid"];
+            503: components["responses"]["BrokerUnavailable"];
         };
     };
     getOrderReceipt: {

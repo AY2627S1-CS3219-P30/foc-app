@@ -9,14 +9,8 @@ import { useAuth } from "@/lib/auth";
 import { useDirectory } from "./_components/Directory";
 import { RoleRequestList } from "./_components/RoleRequestList";
 import { AdminShell, Loaded, Section, Stat, Tag } from "./_components/ui";
-import { useAdminData, type AdminData } from "./_components/use-admin-data";
+import { figure, useAdminData } from "./_components/use-admin-data";
 import styles from "./_components/admin.module.css";
-
-/** A figure from one load: `undefined` while loading, `null` when its service did not answer. */
-function figure<T>(state: AdminData<T>, pick: (data: T) => number): number | null | undefined {
-  if (state.error) return null;
-  return state.data === undefined ? undefined : pick(state.data);
-}
 
 export default function AdminOverviewPage() {
   const { user } = useAuth();
@@ -28,6 +22,17 @@ export default function AdminOverviewPage() {
   const alerts = useAdminData("overview:alerts", (t) => adminApi.alerts(t, { pageSize: 5 }));
   const waits = useAdminData("overview:waits", (t) => adminApi.creditWaits(t));
   const reconciliation = useAdminData("overview:reconciliation", (t) => adminApi.reconciliation(t));
+  const deadOrder = useAdminData("overview:dead-order", (t) =>
+    adminApi.deadLetters(t, "order", { status: "WAITING", pageSize: 1 }),
+  );
+  const deadCredit = useAdminData("overview:dead-credit", (t) =>
+    adminApi.deadLetters(t, "credit", { status: "WAITING", pageSize: 1 }),
+  );
+  const order = figure(deadOrder, (d) => d.total);
+  const credit = figure(deadCredit, (d) => d.total);
+  // Either service not answering makes the sum unknown, not smaller.
+  const deadLetters =
+    order === null || credit === null ? null : order === undefined || credit === undefined ? undefined : order + credit;
 
   return (
     <AdminShell active="/admin" heading="Overview">
@@ -48,6 +53,7 @@ export default function AdminOverviewPage() {
           label="Credit contradictions"
           value={figure(reconciliation, (d) => d.items.filter((a) => a.action === "ALERTED").length)}
         />
+        <Stat href="/admin/operations" label="Dead letters waiting" value={deadLetters} />
       </div>
 
       <Section

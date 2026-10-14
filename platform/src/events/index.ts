@@ -76,6 +76,22 @@ export {
   type OutboxRelayStats,
 } from './outbox.js';
 export {
+  DEAD_LETTERS,
+  DEAD_LETTERS_TABLE_SQL,
+  DeadLetters,
+  HEADER_REDRIVE_OF,
+  parseDeadLetterId,
+  parseDeadLetterQuery,
+  parseRedriveReason,
+  provideDeadLetters,
+  redriveProperties,
+  toDeadLetterRow,
+  type DeadLetter,
+  type DeadLetterDetail,
+  type DeadLetterQuery,
+  type DeadLetterStatus,
+} from './dead-letters.js';
+export {
   INBOX_TABLE_SQL,
   processOnce,
   processReplayable,

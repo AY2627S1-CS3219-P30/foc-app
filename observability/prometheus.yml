@@ -3,6 +3,10 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# PLT-05: dead letters, errands stuck waiting for Credit, services down.
+rule_files:
+  - /etc/prometheus/alerts.yml
+
 scrape_configs:
   # Every service serves /metrics from @foc/platform. Each series carries a
   # `service` label, so one dashboard covers all four. The endpoint wants the
