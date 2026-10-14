@@ -35,9 +35,10 @@ act, but cannot edit a wallet, cannot change their own role, and leaves a record
 - A console in the web app (`/admin`) with seven areas: users, role requests, the audit log,
   activity alerts, wallets (read-only), errands, and operations.
 - Controls on administrators themselves
-  ([ADR 0008](adr/0008-controlling-administrators.md)): a role change needs a second administrator
-  to approve it, the riskiest actions need the password again, and unusual activity (many
-  suspensions, many account or wallet reads in an hour) raises an alert.
+  ([ADR 0008](adr/0008-controlling-administrators.md), proposed, in review with #226): a role
+  change needs a second administrator to approve it, the riskiest actions need the password
+  again, and unusual activity (many suspensions, many account or wallet reads in an hour) raises
+  an alert.
 - A disputed delivery is referred to one administrator, who decides it for the courier or the
   requester. The decision is a state transition in the Order Service like any other, and the
   credits move through the same transfer or release.
@@ -91,9 +92,11 @@ and what they said is kept with the errand for an administrator reviewing a disp
 - **Retention and limits.** Messages are kept with the errand for dispute review, for a period the
   owners still have to set. Sending is rate-limited per participant.
 
-**Integration.** Chat consumes one event from the Order Service and calls one internal endpoint
-on it. It publishes nothing the other services depend on, so the errand and credit workflows are
-unaffected if it is down. In the web app it is a panel on the active-errand view.
+**Integration.** Chat consumes one event from the Order Service, `order.status-changed`, which the
+Order Service already publishes on every transition, and calls one internal endpoint on it to learn
+an errand's requester and courier. That endpoint does not exist yet and is part of the work. It
+publishes nothing the other services depend on, so the errand and credit workflows are unaffected if
+it is down. In the web app it is a panel on the active-errand view.
 
 **Open questions for the owners.** Whether chat is a fifth service or a module of the Order
 Service; the retention period; the rate limit; whether `order.status-changed` gains its first
