@@ -1,0 +1,30 @@
+# PLT-04 — what Prometheus scrapes. Grafana reads it at http://prometheus:9090.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Every service serves /metrics from @foc/platform. Each series carries a
+  # `service` label, so one dashboard covers all four. The endpoint wants the
+  # scrape token (METRICS_TOKEN), which Compose mounts as a file.
+  - job_name: services
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/metrics-token
+    static_configs:
+      - targets:
+          - user-service:3001
+          - supplier-service:3002
+          - order-service:3003
+          - credit-service:3004
+
+  # RabbitMQ's own exporter (the rabbitmq_prometheus plugin, on by default in
+  # the image). The detailed endpoint's queue_coarse_metrics family gives ready
+  # and unacknowledged counts per queue: consumer lag, and dead-letter depth.
+  - job_name: rabbitmq
+    metrics_path: /metrics/detailed
+    params:
+      vhost: ['/']
+      family: ['queue_coarse_metrics']
+    static_configs:
+      - targets: ['rabbitmq:15692']

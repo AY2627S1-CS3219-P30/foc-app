@@ -1,3 +1,4 @@
+import { CORRELATION_HEADER } from '@foc/platform';
 import { authFailure } from './errors.js';
 import type { AuthConfig, Role } from './types.js';
 
@@ -58,7 +59,15 @@ export class IdentityClient {
     this.fetchImpl = config.fetch ?? fetch;
   }
 
-  async introspect(sessionId: string, userId: string): Promise<Introspection> {
+  /**
+   * `correlationId` rides on the request to the User Service when one is made. A burst sharing one
+   * lookup carries the first caller's ID; a cached answer makes no request at all.
+   */
+  async introspect(
+    sessionId: string,
+    userId: string,
+    correlationId?: string,
+  ): Promise<Introspection> {
     const key = `${sessionId}:${userId}`;
 
     const hit = this.cache.get(key);
@@ -67,7 +76,7 @@ export class IdentityClient {
     const pending = this.inflight.get(key);
     if (pending) return pending;
 
-    const request = this.fetchFresh(sessionId, userId)
+    const request = this.fetchFresh(sessionId, userId, correlationId)
       .then((value) => {
         // Cached only if this lookup is still the current one: invalidateUser() detaches a lookup
         // that was in flight when it ran, because its answer may predate the event.
@@ -95,7 +104,11 @@ export class IdentityClient {
     }
   }
 
-  private async fetchFresh(sessionId: string, userId: string): Promise<Introspection> {
+  private async fetchFresh(
+    sessionId: string,
+    userId: string,
+    correlationId: string | undefined,
+  ): Promise<Introspection> {
     const url = new URL('/internal/introspect', this.config.userServiceUrl);
     url.searchParams.set('sid', sessionId);
     url.searchParams.set('sub', userId);
@@ -103,7 +116,11 @@ export class IdentityClient {
     let body: unknown;
     try {
       const res = await this.fetchImpl(url, {
-        headers: { 'x-service-key': this.config.serviceKey, accept: 'application/json' },
+        headers: {
+          'x-service-key': this.config.serviceKey,
+          accept: 'application/json',
+          ...(correlationId ? { [CORRELATION_HEADER]: correlationId } : {}),
+        },
         signal: AbortSignal.timeout(this.timeout),
       });
       if (!res.ok) throw new Error(`introspect responded ${res.status}`);

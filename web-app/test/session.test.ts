@@ -9,7 +9,11 @@ import {
 } from "../src/lib/session";
 import { ApiError, createUserApi } from "../src/lib/user-api";
 
-type Handler = (req: { token?: string; signal: AbortSignal }) => Response | Promise<Response>;
+type Handler = (req: {
+  token?: string;
+  signal: AbortSignal;
+  correlationId: string | null;
+}) => Response | Promise<Response>;
 
 /** A fake User Service behind an injected `fetch`: answers from `routes` and counts calls per route. */
 function fakeService(routes: Record<string, Handler>, timeoutMs?: number) {
@@ -20,7 +24,11 @@ function fakeService(routes: Record<string, Handler>, timeoutMs?: number) {
     const handler = routes[key];
     if (!handler) throw new Error(`unexpected call: ${key}`);
     const auth = request.headers.get("authorization") ?? undefined;
-    return handler({ token: auth?.replace(/^Bearer /, ""), signal: init.signal as AbortSignal });
+    return handler({
+      token: auth?.replace(/^Bearer /, ""),
+      signal: init.signal as AbortSignal,
+      correlationId: request.headers.get("x-correlation-id"),
+    });
   };
   return { api: createUserApi({ baseUrl: "http://user-service.test", fetch, timeoutMs }), calls };
 }
@@ -128,6 +136,28 @@ describe("an expired access token", () => {
 
     expect((await late).id).toBe("u1");
     expect(calls["POST /auth/refresh"]).toBe(1);
+  });
+});
+
+describe("a user action (PLT-04)", () => {
+  it("sends its correlation ID with the refresh it needed, and with the retried call", async () => {
+    const seen: string[] = [];
+    const { api } = fakeService({
+      "POST /auth/refresh": ({ correlationId }) => {
+        seen.push(`refresh ${correlationId}`);
+        return issued("t1");
+      },
+      "GET /users/me": ({ token, correlationId }) => {
+        seen.push(`me ${correlationId}`);
+        return token === "t1" ? me() : unauthenticated();
+      },
+    });
+    const { session } = tab(api);
+    session.signedIn("t0", "u1");
+
+    await session.authed((t) => api.me(t, "action-1"), "action-1");
+
+    expect(seen).toEqual(["me action-1", "refresh action-1", "me action-1"]);
   });
 });
 

@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { Logger } from '@nestjs/common';
 import type { ChannelModel, ConsumeMessage, Options } from 'amqplib';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Metrics } from '../metrics.js';
 import { userActivatedPayload } from './catalogue.js';
 import { BrokerConnection } from './connection.js';
 import { EventConsumer, UnparseableMessageError, type SubscribeOptions } from './consumer.js';
@@ -133,7 +134,7 @@ class FakeConnection extends EventEmitter {
 
 const WORK: SubscriptionSpec = { queue: 'foc.test.work', routingKeys: ['user.activated'] };
 
-function setup(subscriptions: SubscriptionSpec[] = [WORK]) {
+function setup(subscriptions: SubscriptionSpec[] = [WORK], metrics?: Metrics) {
   const connections: FakeConnection[] = [];
   const outage = { failures: 0 };
   const broker = new BrokerConnection('amqp://broker.test', 'test', subscriptions, [100, 200], {
@@ -147,7 +148,7 @@ function setup(subscriptions: SubscriptionSpec[] = [WORK]) {
       return connection as unknown as ChannelModel;
     },
   });
-  const consumer = new EventConsumer(broker);
+  const consumer = new EventConsumer(broker, metrics);
   /** The channel of the n-th connection (default: the latest). */
   const channel = (n = connections.length - 1) => connections[n]!.channels[0]!;
   return { broker, consumer, connections, channel, outage };
@@ -468,5 +469,141 @@ describe('a transient (per-instance) queue', () => {
 
     expect(channel(1).queues.get(CACHE.queue)).toMatchObject({ exclusive: true });
     expect(channel(1).consumers.has(CACHE.queue)).toBe(true);
+  });
+});
+
+describe('metrics (PLT-04)', () => {
+  /** A counter's or histogram's value for one queue, from the registry the consumer reports to. */
+  async function value(
+    metric: {
+      get(): Promise<{ values: { labels: object; value: number; metricName?: string }[] }>;
+    },
+    labels: Record<string, string>,
+    metricName?: string,
+  ): Promise<number> {
+    const { values } = await metric.get();
+    const series = values.find(
+      (v) =>
+        (metricName === undefined || v.metricName === metricName) &&
+        Object.entries(labels).every(
+          ([k, want]) => String((v.labels as Record<string, unknown>)[k]) === want,
+        ),
+    );
+    return series?.value ?? 0;
+  }
+  const onWork = { queue: WORK.queue, event_type: 'user.activated' };
+
+  it("reports a queue's counters at zero from the moment it subscribes, so its first event shows", async () => {
+    const metrics = new Metrics('test-service');
+    const { broker, consumer } = setup([WORK], metrics);
+    await broker.connect();
+    await consumer.subscribe(subscription(WORK.queue, () => undefined));
+
+    const series = async (metric: { get(): Promise<{ values: { labels: object }[] }> }) =>
+      (await metric.get()).values.map((v) => v.labels);
+    expect(await series(metrics.eventRetries)).toEqual([onWork]);
+    expect(await series(metrics.eventsDeadLettered)).toEqual([
+      { queue: WORK.queue, reason: 'unparseable' },
+      { queue: WORK.queue, reason: 'exhausted' },
+    ]);
+  });
+
+  it('counts a handled event, and how long after it occurred it was handled', async () => {
+    const metrics = new Metrics('test-service');
+    const { broker, consumer, channel } = setup([WORK], metrics);
+    await broker.connect();
+    await consumer.subscribe(subscription(WORK.queue, () => undefined));
+
+    channel().deliver(WORK.queue, activation());
+    await settle();
+
+    expect(await value(metrics.eventsHandled, onWork)).toBe(1);
+    expect(await value(metrics.eventLag, onWork, 'foc_event_lag_seconds_count')).toBe(1);
+    expect(
+      await value(metrics.eventHandleDuration, onWork, 'foc_event_handle_duration_seconds_count'),
+    ).toBe(1);
+  });
+
+  it('counts a retry when a handler fails', async () => {
+    const metrics = new Metrics('test-service');
+    const { broker, consumer, channel } = setup([WORK], metrics);
+    await broker.connect();
+    await consumer.subscribe(
+      subscription(WORK.queue, () => {
+        throw new Error('dependency not ready');
+      }),
+    );
+
+    channel().deliver(WORK.queue, activation());
+    await settle();
+
+    expect(await value(metrics.eventRetries, onWork)).toBe(1);
+    expect(await value(metrics.eventsHandled, onWork)).toBe(0);
+  });
+
+  it('counts a dead letter once attempts are spent, as exhausted', async () => {
+    const metrics = new Metrics('test-service');
+    const { broker, consumer, channel } = setup([WORK], metrics);
+    await broker.connect();
+    await consumer.subscribe(
+      subscription(WORK.queue, () => {
+        throw new Error('still broken');
+      }),
+    );
+
+    channel().deliver(WORK.queue, activation(), { [HEADER_ATTEMPT]: broker.maxAttempts });
+    await settle();
+
+    expect(
+      await value(metrics.eventsDeadLettered, { queue: WORK.queue, reason: 'exhausted' }),
+    ).toBe(1);
+    expect(await value(metrics.eventRetries, onWork)).toBe(0);
+  });
+
+  it('labels a per-instance queue by its stable name, and counts what it drops', async () => {
+    const AUTH_STATUS: SubscriptionSpec = {
+      queue: 'foc.test.auth-status.5f0c9e2a-0b1d-4c6e-9a43-2d7f81e0b6c4',
+      metricsLabel: 'foc.test.auth-status',
+      routingKeys: ['user.activated'],
+      exclusive: true,
+      autoDelete: true,
+    };
+    const metrics = new Metrics('test-service');
+    const { broker, consumer, channel } = setup([AUTH_STATUS], metrics);
+    await broker.connect();
+    let failing = false;
+    await consumer.subscribe(
+      subscription(AUTH_STATUS.queue, () => {
+        if (failing) throw new Error('boom');
+      }),
+    );
+
+    channel().deliver(AUTH_STATUS.queue, activation());
+    await settle();
+    failing = true;
+    channel().deliver(AUTH_STATUS.queue, activation());
+    channel().deliver(AUTH_STATUS.queue, 'not json');
+    await settle();
+
+    const stable = { queue: 'foc.test.auth-status' };
+    expect(await value(metrics.eventsHandled, { ...stable, event_type: 'user.activated' })).toBe(1);
+    expect(await value(metrics.eventsDropped, { ...stable, reason: 'handler_failed' })).toBe(1);
+    expect(await value(metrics.eventsDropped, { ...stable, reason: 'unparseable' })).toBe(1);
+    // No series is named after this instance's queue, so a restart adds none.
+    expect(await metrics.render()).not.toContain('5f0c9e2a');
+  });
+
+  it('counts a message that cannot be parsed as an unparseable dead letter, never a retry', async () => {
+    const metrics = new Metrics('test-service');
+    const { broker, consumer, channel } = setup([WORK], metrics);
+    await broker.connect();
+    await consumer.subscribe(subscription(WORK.queue, vi.fn()));
+
+    channel().deliver(WORK.queue, 'not json');
+    await settle();
+
+    expect(
+      await value(metrics.eventsDeadLettered, { queue: WORK.queue, reason: 'unparseable' }),
+    ).toBe(1);
   });
 });
