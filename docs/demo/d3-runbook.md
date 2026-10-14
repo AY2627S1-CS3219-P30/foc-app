@@ -8,14 +8,14 @@ Everything shown is a script in this repository that checks its own output, so a
 passes on screen or says what went wrong. CI runs the same scripts on every pull request, so the
 latest green run on GitHub is always a fallback: open it and read the log aloud.
 
-| Script                                 | Shows (D3 part)                                              | Takes on a warm stack |
-| -------------------------------------- | ------------------------------------------------------------ | --------------------- |
-| `./scripts-smoke.sh`                   | Start-up, isolation, hardening, broker accounts (4)          | 8 s                   |
-| `./scripts-demo-journey.sh --pause`    | Registration to allocation, an errand, refusals (1, 2)       | 7 s, plus narration   |
+| Script                                       | Shows (D3 part)                                               | Takes on a warm stack |
+| -------------------------------------------- | ------------------------------------------------------------- | --------------------- |
+| `./scripts-smoke.sh`                         | Start-up, isolation, hardening, broker accounts (4)           | 8 s                   |
+| `./scripts-demo-journey.sh --pause`          | Registration to allocation, an errand, refusals (1, 2)        | 7 s, plus narration   |
 | `./scripts-demo-journey.sh --stage`          | Prepares one dead letter to redrive live (3.4)                | 95 s, before the slot |
 | `./scripts-demo-journey.sh --redrive-staged` | Redrives it through the API, if the console fails             | 1 s                   |
-| `./scripts-demo-failures.sh`           | Killed consumer, duplicate, stale, bad version, forgery (3.4) | 11 s                  |
-| `./scripts-restart-check.sh`           | Restart, recreate, lose Postgres (4.2, 4.3)                  | 75 s                  |
+| `./scripts-demo-failures.sh`                 | Killed consumer, duplicate, stale, bad version, forgery (3.4) | 11 s                  |
+| `./scripts-restart-check.sh`                 | Restart, recreate, lose Postgres (4.2, 4.3)                   | 75 s                  |
 
 ## Before the slot
 
