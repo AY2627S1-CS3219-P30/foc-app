@@ -26,6 +26,7 @@ Open <http://localhost:3000>.
 | `bun start` | Serve the production build |
 | `bun run lint` | Lint |
 | `bun test` | Unit tests |
+| `bun run e2e` | Account journey in a browser against the running stack (see below) |
 | `bun run generate` | Regenerate `tokens.css` and the API types after editing `tokens.ts` or a contract |
 
 ## Design system
@@ -59,6 +60,24 @@ the top bar and sidebar; `@media (min-width: 1440px)` widens the gutters. Nothin
 </Field>
 ```
 
+## End-to-end checks
+
+`e2e/account-journey.e2e.ts` runs the account journey (USR-05) in Chromium at 360, 768 and 1440 px against
+the real User Service: sign-up with a failed submit, activation through the dev mailbox, sign-in with a
+rejected password, the mode switch and log-out. Only the keyboard drives the forms, and every focus stop
+must show a ring. Every screen must not scroll sideways and must have no critical axe issue; serious axe
+issues are listed in the test annotations without failing. CI runs it in the `e2e` job.
+
+```bash
+docker compose up -d --build   # from the repo root; serves :3000 with the dev mailbox
+cd web-app
+bunx playwright install chromium   # once
+bun run e2e
+```
+
+`E2E_BASE_URL` points it elsewhere. Each run registers one account per width, well inside the sign-up
+limit of 20 an hour per address. Specs are named `*.e2e.ts` so `bun test` leaves them alone.
+
 ## API clients
 
 Types come from the contracts in [`contracts/`](../contracts), generated into `src/lib/generated/` by
@@ -83,8 +102,11 @@ Service's address below.
 
 **Accounts are live (USR-05).** Register, activate, sign in, change password, profile and the
 requester↔courier switch call the real User Service (`src/lib/user-api.ts`, `src/lib/auth.tsx`).
-Errands, wallet and suppliers still run on the in-memory mock store (`src/lib/store.tsx`); replacing
-that is [WEB-01](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/146).
+The supplier listing calls the real Supplier Service through `src/lib/supplier-api.ts`.
+Search, type and building filters, sort order, and paging are sent to `GET /suppliers`;
+the page then retrieves each visible supplier by ID for the location and hours on its card.
+Admin create, edit, and delete use the same service with the signed-in access token.
+Errands and wallet still run on the in-memory mock store (`src/lib/store.tsx`).
 
 ### Sessions
 
@@ -115,6 +137,11 @@ holds the React state around them.
   takes it as an `ARG`; setting it on a running container does nothing). Unset, a development build
   uses `http://localhost:3001`; a production build shows a configuration error on the account
   screens rather than calling localhost. The build itself still succeeds.
+- `NEXT_PUBLIC_SUPPLIER_SERVICE_URL` is also inlined at build time. Local development defaults
+  to `http://localhost:3002`; production builds require it. The Compose build already supplies
+  the browser-facing address. To try the full stack, run `docker compose up --build` at the
+  repository root, open `http://localhost:3000/suppliers`, and sign in. Rebuild after changing
+  either service URL. The Supplier Service must allow the web app origin in `CORS_ORIGINS`.
 - **The web app and the User Service must be same-site** (same registrable domain, e.g.
   `app.example.com` and `api.example.com`; the port does not matter, so `localhost:3000` and
   `localhost:3001` are fine). The refresh cookie is `SameSite=Strict`
@@ -141,6 +168,39 @@ sign out, pending sign-out, cross-tab sign-out) against a fake `fetch`, fake loc
 channel. They use Bun's built-in runner, so `test/` is excluded from the Next typecheck. CI runs them
 in the `web-app` job.
 
+### Integration tests
+
+`test/suppliers.integration.test.tsx` renders the supplier page against the real Supplier Service,
+which verifies tokens with the real User Service. A fresh student (registered and activated through the
+User Service's development mailbox) browses the seeded suppliers and is refused `POST /suppliers` with
+`403`; the seeded admin creates, edits and deletes a supplier through the page. It is skipped unless
+`SUPPLIER_SERVICE_URL` is set, so a plain `bun test` passes without a stack.
+
+```bash
+# From the repository root: just the two services and what they need (PostgreSQL, RabbitMQ).
+docker compose -p foc-it --env-file .env.example up -d --build user-service supplier-service
+
+cd web-app
+SUPPLIER_SERVICE_URL=http://localhost:3002 bun test test/suppliers.integration.test.tsx
+
+docker compose -p foc-it down -v   # from the repository root
+```
+
+Run the file on its own: the page's client reads its base URL when it is first imported, and another
+test file may import it first. `USER_SERVICE_URL` defaults to `http://localhost:3001`. The User Service
+must run in development mode (the Compose default), which mounts the mailbox.
+
+The admin is `ADMIN_EMAIL` (default `admin@u.nus.edu`). On a fresh stack the test claims it, replacing
+the bootstrap `ADMIN_SEED_PASSWORD` with `ADMIN_PASSWORD` (default `supplier-integration-admin`), as an
+operator must before that account can sign in; later runs sign in with `ADMIN_PASSWORD`. Against your
+own long-lived stack, set `ADMIN_PASSWORD` to the admin's current password, or the test will claim the
+account with its default. Each run leaves a new student account behind and deactivates the supplier it
+created.
+
+CI runs it in the `Supplier listing integration` job when `supplier-service/`, the supplier page, its
+client (`src/lib/supplier-*`, `SupplierCard`), the test itself, or anything shared or stack-wide changes
+(`scripts-ci-detect.sh`).
+
 When you do wire it up, the services run on ports 3001–3004 — see the root
 [README](../README.md). Every service returns the same error envelope and echoes
 an `x-correlation-id` header, so send one and log it alongside the response to
@@ -161,6 +221,39 @@ src/
 ├── lib/           auth, API clients (generated/ from contracts), store, navigation, mock data
 └── styles/        design tokens (tokens.ts → generated tokens.css)
 ```
+
+## Admin console (ADM-02)
+
+`/admin` sits in the `(app)` group, so it needs a session, and shows the console to administrators
+only: a student who visits is told it is not for them, and the menu entry appears for administrators
+alone. That is presentation. Every page calls real endpoints (`src/lib/admin-api.ts`), and each of them
+refuses a student with `403` on its own.
+
+| Page | Calls |
+| --- | --- |
+| Overview | Role requests and alerts (User Service); stuck errands and reconciliation (Order Service) |
+| Users, one account | `GET /admin/directory` to find, `GET /admin/users/{userId}` to open (recorded), suspend, reactivate, role change |
+| Role requests | `GET /admin/role-requests`, approve, reject |
+| Audit trail | `GET /admin/audit-records`, by administrator, account, action and dates |
+| Admin activity | `GET /admin/alerts`, `GET /admin/reads` |
+| Errands | `GET /admin/orders/pending-credit`, `GET /admin/orders/reconciliation-attempts`; referrals arrive with ORD-11 (#171) |
+| Wallets | `GET /admin/wallets/{userId}` and its ledger (Credit Service; read-only, every read recorded) |
+| Operations | Placeholder until PLT-05 (#154) |
+
+**Controls on administrators** ([ADR 0008](../docs/adr/0008-controlling-administrators.md)). Every
+write asks for a reason first. Requesting or approving a role change, and suspending an administrator,
+can answer `401 STEP_UP_REQUIRED`: `useStepUp()` then asks for the password (`POST /auth/step-up`) and
+runs the action once more (`src/lib/step-up.ts`). `session.ts` hands `STEP_UP_REQUIRED` and
+`INVALID_CREDENTIALS` straight back to the caller instead of refreshing, since neither is about the
+token. A role change answers `202` while it waits for a second administrator, and the account page
+shows who may approve it.
+
+**Names, not ids.** Tables name accounts from the directory (`_components/Directory.tsx`): email,
+name, roles and status, which is not recorded per account. Opening an account, or listing full
+records, is.
+
+`NEXT_PUBLIC_ORDER_SERVICE_URL` and `NEXT_PUBLIC_CREDIT_SERVICE_URL` work like the User Service's
+address: inlined at build time, with `http://localhost:3003` and `:3004` as the development defaults.
 
 ## Deployment
 

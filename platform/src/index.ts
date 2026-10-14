@@ -14,6 +14,13 @@ export {
   type ServiceInfo,
 } from './health.controller.js';
 export { LOGGER, PlatformModule, type PlatformModuleOptions } from './platform.module.js';
+export {
+  METRICS,
+  Metrics,
+  MetricsController,
+  UNMEASURED_PATHS,
+  type GaugeSetter,
+} from './metrics.js';
 export { startService } from './bootstrap.js';
 export {
   escapeLike,

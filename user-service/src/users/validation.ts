@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ApiException } from '@foc/platform';
+import { AUDIT_ACTIONS } from '../admin/admin.repository.js';
 
 export const registerSchema = z.strictObject({
   // Trimmed first: a pasted address with a stray space is still that address.
@@ -34,6 +35,9 @@ export const profileUpdateSchema = z
 
 export const reasonSchema = z.strictObject({ reason: z.string().trim().min(1).max(500) });
 
+/** `POST /auth/step-up`: the caller's current password, re-entered (ADR 0008). */
+export const stepUpSchema = z.strictObject({ password: z.string().min(1).max(128) });
+
 export const roleChangeSchema = z.strictObject({
   role: z.enum(['STUDENT', 'ADMIN']),
   reason: z.string().trim().min(1).max(500),
@@ -52,10 +56,55 @@ export const userListQuerySchema = z.object({
 
 export const introspectQuerySchema = z.strictObject({ sid: z.uuid(), sub: z.uuid() });
 
-export const auditQuerySchema = z.object({
+const instant = z.iso.datetime({ offset: true }).transform((v) => new Date(v));
+
+/**
+ * `from` is inclusive and `to` exclusive, so consecutive windows never count a record twice.
+ * Strict, so a misspelt filter such as `?actor=` is rejected rather than returning the whole trail.
+ */
+export const auditQuerySchema = z
+  .strictObject({
+    page,
+    pageSize,
+    targetUserId: z.uuid().optional(),
+    actorId: z.uuid().optional(),
+    action: z.enum(AUDIT_ACTIONS).optional(),
+    from: instant.optional(),
+    to: instant.optional(),
+  })
+  .refine((v) => !v.from || !v.to || v.from < v.to, {
+    path: ['to'],
+    message: '`to` must be later than `from`.',
+  });
+
+export type AuditQuery = z.output<typeof auditQuerySchema>;
+
+export const roleRequestQuerySchema = z.object({
   page,
   pageSize,
+  status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'EXPIRED']).optional(),
+});
+
+export const readsQuerySchema = z.object({
+  page,
+  pageSize,
+  actorId: z.uuid().optional(),
   targetUserId: z.uuid().optional(),
+});
+
+export const alertsQuerySchema = z.object({
+  page,
+  pageSize,
+  kind: z
+    .enum([
+      'ROLE_CHANGE',
+      'ADMIN_SUSPENDED',
+      'ADMIN_REACTIVATED',
+      'BULK_SUSPENSIONS',
+      'SUSPENSION_LIMIT_REACHED',
+      'BULK_READS',
+    ])
+    .optional(),
 });
 
 export const activateSchema = z.strictObject({

@@ -138,7 +138,16 @@ export const usersRepository = {
     await db.insert(outboxEvents).values(toOutboxRow(e));
   },
 
-  /** Login lookup. The only place a password hash is read, and it never leaves the auth service. */
+  /** Password re-entry (`POST /auth/step-up`): the hash of a signed-in user, for the auth service only. */
+  async findPasswordHash(db: Database, userId: string): Promise<string | null> {
+    const rows = await db
+      .select({ passwordHash: users.passwordHash })
+      .from(users)
+      .where(eq(users.id, userId));
+    return rows[0]?.passwordHash ?? null;
+  },
+
+  /** Login lookup. One of two places a password hash is read, and it never leaves the auth service. */
   async findCredentials(
     db: Database,
     normalizedEmail: string,

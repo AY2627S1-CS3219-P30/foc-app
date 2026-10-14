@@ -16,7 +16,11 @@ SHARED_RE='^(platform/|test-harness/|system-tests/|package\.json|package-lock\.j
 SERVICE_RE='^(user|supplier|order|credit)-service/'
 # Wiring between containers, as opposed to code inside one. `.env.example`
 # belongs here because the smoke job copies it to `.env`.
-STACK_RE='^(compose\.yaml|postgres-init\.sql|scripts-smoke\.sh|scripts-ci-detect\.sh|platform/|\.env\.example)|Dockerfile|\.dockerignore'
+STACK_RE='^(compose\.yaml|postgres-init\.sql|scripts-smoke\.sh|scripts-ci-detect\.sh|platform/|observability/|\.env\.example)|Dockerfile|\.dockerignore'
+# The supplier page and the service it lists from: their integration test
+# (web-app/test/suppliers.integration.test.tsx) runs against the real Supplier
+# Service whenever either side, or anything shared or stack-wide, changes.
+SUPPLIER_STACK_RE='^(supplier-service/|web-app/src/app/\(app\)/suppliers/|web-app/src/lib/supplier-|web-app/src/components/SupplierCard|web-app/test/suppliers\.integration\.test\.tsx)'
 # Paths that cannot affect a build, a test or a container.
 IGNORED_RE='^docs/|\.md$|^\.github/|^LICENSE$|^\.gitignore$|^\.(vscode|idea|claude)/'
 
@@ -68,6 +72,12 @@ detect() {
   else
     echo 'stack=false'
   fi
+
+  if [[ "$force_stack" == "true" || "$shared" == "true" ]] || matches "$SUPPLIER_STACK_RE" || matches "$STACK_RE"; then
+    echo 'supplier_stack=true'
+  else
+    echo 'supplier_stack=false'
+  fi
 }
 
 # ---- self-test ---------------------------------------------------------------
@@ -115,6 +125,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "gitignore -> nothing"                  ".gitignore" 'node=false'
   check "env example -> stack runs"             ".env.example" 'stack=true'
   check "env example -> no services"            ".env.example" 'services=[]'
+  check "observability -> stack runs"           "observability/prometheus.yml" 'stack=true'
+  check "observability -> no services"          "observability/grafana/dashboards/foc-platform.json" 'services=[]'
   check "new package -> all four services"      "auth-client/src/token-verifier.ts" 'services=["user-service","supplier-service","order-service","credit-service"]'
   check "new package -> node runs"              "auth-client/src/token-verifier.ts" 'node=true'
   check "new package -> stack runs"             "auth-client/src/token-verifier.ts" 'stack=true'
@@ -124,6 +136,16 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "test harness -> stack skipped"         "test-harness/src/compat.ts" 'stack=false'
   check "system tests -> node runs"             "system-tests/test/reconciliation.test.ts" 'node=true'
   check "docs + service -> only that service"   "$(printf 'docs/notes.md\norder-service/src/y.ts')" 'services=["order-service"]'
+  check "supplier service -> supplier stack"    "supplier-service/src/app.module.ts" 'supplier_stack=true'
+  check "supplier page -> supplier stack"       "web-app/src/app/(app)/suppliers/page.tsx" 'supplier_stack=true'
+  check "supplier client -> supplier stack"     "web-app/src/lib/supplier-api.ts" 'supplier_stack=true'
+  check "supplier IT itself -> supplier stack"  "web-app/test/suppliers.integration.test.tsx" 'supplier_stack=true'
+  check "platform -> supplier stack"            "platform/src/env.ts" 'supplier_stack=true'
+  check "compose -> supplier stack"             "compose.yaml" 'supplier_stack=true'
+  check "other web page -> no supplier stack"   "web-app/src/app/page.tsx" 'supplier_stack=false'
+  check "supplier unit test -> no supplier stack" "web-app/test/suppliers-page.test.tsx" 'supplier_stack=false'
+  check "order service -> no supplier stack"    "order-service/src/y.ts" 'supplier_stack=false'
+  check "docs only -> no supplier stack"        "docs/EXECUTION-PLAN.md" 'supplier_stack=false'
 
   echo
   [[ $FAILURES -eq 0 ]] && echo "All detection checks passed." || {

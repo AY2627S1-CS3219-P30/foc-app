@@ -8,6 +8,7 @@ import {
   CREDIT_STATUS_READER,
   CreditStatusClient,
 } from './credit-status.client.js';
+import { OrderMetrics } from './order.metrics.js';
 import { OrdersController } from './orders.controller.js';
 import { OrdersRepository } from './orders.repository.js';
 import { OrdersService } from './orders.service.js';
@@ -23,6 +24,7 @@ export class OrdersModule {
       providers: [
         OrdersRepository,
         OrdersService,
+        OrderMetrics,
         SupplierClient,
         { provide: SUPPLIER_FETCH, useValue: fetch },
         CreditStatusClient,
