@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { ApiException } from '@foc/platform';
+import { ApiException, CORRELATION_HEADER } from '@foc/platform';
 import { z } from 'zod';
 import { env } from '../config.js';
 import type { SupplierSnapshot } from './types.js';
@@ -25,13 +25,21 @@ const invalidSupplier = (message: string) =>
 export class SupplierClient {
   constructor(@Inject(SUPPLIER_FETCH) private readonly fetchImpl: typeof fetch) {}
 
-  async getActive(supplierId: string, authorization: string): Promise<SupplierSnapshot> {
+  /** `correlationId` travels on the lookup, so Supplier logs it under the same ID (PLT-04). */
+  async getActive(
+    supplierId: string,
+    authorization: string,
+    correlationId?: string,
+  ): Promise<SupplierSnapshot> {
     let response: Response;
     try {
       response = await this.fetchImpl(
         `${env.SUPPLIER_SERVICE_URL.replace(/\/$/, '')}/suppliers/${supplierId}`,
         {
-          headers: { Authorization: authorization },
+          headers: {
+            Authorization: authorization,
+            ...(correlationId ? { [CORRELATION_HEADER]: correlationId } : {}),
+          },
           signal: AbortSignal.timeout(2_000),
         },
       );

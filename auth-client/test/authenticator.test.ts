@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createAuthenticator, type AuthConfig } from '../src/index.js';
 import {
   SERVICE_KEY,
@@ -18,6 +18,7 @@ beforeEach(() => {
   fake.behaviour.garbageBody = false;
   fake.stats.introspectCalls = 0;
   fake.stats.jwksCalls = 0;
+  fake.stats.lastIntrospectCorrelationId = undefined;
 });
 
 const make = (over: Partial<AuthConfig> = {}) =>
@@ -332,5 +333,54 @@ describe('key rotation', () => {
     await fake.rotateKey();
     const after = await fake.login();
     expect(await outcome(auth.authenticate(`Bearer ${after.token}`))).toBe('OK');
+  });
+});
+
+describe('correlation (PLT-04)', () => {
+  it("sends the caller's correlation ID on the User Service check, so both log it", async () => {
+    const auth = make();
+    const u = fake.addSession();
+
+    await auth.authenticate(`Bearer ${await fake.mint(u)}`, { correlationId: 'trace-from-order' });
+
+    expect(fake.stats.lastIntrospectCorrelationId).toBe('trace-from-order');
+  });
+
+  it("a burst sharing one check sends the first caller's ID, once", async () => {
+    fake.behaviour.introspectDelayMs = 500;
+    const auth = make();
+    const u = fake.addSession();
+    const token = `Bearer ${await fake.mint(u)}`;
+
+    // The second caller joins while the first one's check is in flight. Started together, either
+    // could finish verifying its token first under load, and the test would race the product.
+    const first = auth.authenticate(token, { correlationId: 'trace-first' });
+    await vi.waitFor(() => expect(fake.stats.introspectCalls).toBe(1));
+    await Promise.all([first, auth.authenticate(token, { correlationId: 'trace-second' })]);
+
+    expect(fake.stats.introspectCalls).toBe(1);
+    expect(fake.stats.lastIntrospectCorrelationId).toBe('trace-first');
+  });
+
+  it('a cached answer makes no call, so the later ID reaches only its own logs', async () => {
+    const auth = make({ cacheTtlMs: 5_000 });
+    const u = fake.addSession();
+    const token = `Bearer ${await fake.mint(u)}`;
+
+    await auth.authenticate(token, { correlationId: 'trace-first' });
+    await auth.authenticate(token, { correlationId: 'trace-cached' });
+
+    expect(fake.stats.introspectCalls).toBe(1);
+    expect(fake.stats.lastIntrospectCorrelationId).toBe('trace-first');
+  });
+
+  it('sends none when the caller has none, rather than inventing one', async () => {
+    const auth = make();
+    const u = fake.addSession();
+
+    await auth.authenticate(`Bearer ${await fake.mint(u)}`);
+
+    expect(fake.stats.introspectCalls).toBe(1);
+    expect(fake.stats.lastIntrospectCorrelationId).toBeUndefined();
   });
 });

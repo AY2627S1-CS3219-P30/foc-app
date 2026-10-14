@@ -5,6 +5,7 @@ import { useState, type FormEvent } from "react";
 import { AuthCard } from "@/components/AuthCard";
 import { Button, buttonClass } from "@/components/Button";
 import { FormAlert, FormField } from "@/components/FormField";
+import { newCorrelationId } from "@/lib/api-client";
 import { useHydrated } from "@/lib/use-hydrated";
 import { ApiError, DEV_MAILBOX_ENABLED, userApi } from "@/lib/user-api";
 import { PASSWORD_MIN, validateRegistration, type Errors } from "@/lib/validation";
@@ -32,10 +33,15 @@ export default function RegisterPage() {
     setSubmitting(true);
     const email = form.email.trim();
     try {
-      await userApi.register({ email, password: form.password, displayName: form.displayName.trim() });
+      // Registering and fetching the dev activation link are one action (PLT-04).
+      const action = newCorrelationId();
+      await userApi.register(
+        { email, password: form.password, displayName: form.displayName.trim() },
+        action,
+      );
       setRegistered(email);
       if (DEV_MAILBOX_ENABLED) {
-        const mail = await userApi.devMailbox(email).catch(() => null);
+        const mail = await userApi.devMailbox(email, action).catch(() => null);
         if (mail && "token" in mail) setDevToken(mail.token);
       }
     } catch (err) {

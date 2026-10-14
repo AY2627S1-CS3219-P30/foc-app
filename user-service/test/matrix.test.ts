@@ -122,6 +122,8 @@ const INTERNAL = [
 /** Routes that are intentionally public, or that authenticate by their own credential (cookie, service key). */
 const PUBLIC = new Set([
   'GET /health',
+  // Prometheus metrics from @foc/platform (PLT-04): counts and timings, no personal data.
+  'GET /metrics',
   'POST /auth/register',
   'POST /auth/activate',
   'POST /auth/login',
