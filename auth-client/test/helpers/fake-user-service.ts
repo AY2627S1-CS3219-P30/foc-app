@@ -29,7 +29,12 @@ async function newKeys(): Promise<Keys> {
 export async function startFakeUserService() {
   let keys = await newKeys();
   const sessions = new Map<string, FakeSession>();
-  const stats = { jwksCalls: 0, introspectCalls: 0 };
+  const stats = {
+    jwksCalls: 0,
+    introspectCalls: 0,
+    /** The `x-correlation-id` the last introspect request carried, if any. */
+    lastIntrospectCorrelationId: undefined as string | undefined,
+  };
   const behaviour = {
     introspectStatus: 200,
     introspectDelayMs: 0,
@@ -53,6 +58,8 @@ export async function startFakeUserService() {
 
     if (url.pathname === '/internal/introspect') {
       stats.introspectCalls++;
+      const correlation = req.headers['x-correlation-id'];
+      stats.lastIntrospectCorrelationId = Array.isArray(correlation) ? correlation[0] : correlation;
       if (req.headers['x-service-key'] !== SERVICE_KEY) return send(401, { error: 'bad key' });
       const respond = () => {
         if (behaviour.introspectStatus !== 200)

@@ -326,6 +326,8 @@ export interface paths {
         /**
          * Read the append-only audit trail (ADMIN)
          * @description Read-only. There is no endpoint that creates, edits or deletes an audit record.
+         *     Filters combine with AND. `from` is inclusive and `to` exclusive, so consecutive windows never
+         *     count a record twice; `to` must be later than `from`. An unknown query parameter is rejected.
          */
         get: operations["listAuditRecords"];
         put?: never;
@@ -1386,6 +1388,16 @@ export interface operations {
                 page?: components["parameters"]["Page"];
                 pageSize?: components["parameters"]["PageSize"];
                 targetUserId?: string;
+                /** @description The administrator who acted. Bootstrap rows have no actor and never match. */
+                actorId?: string;
+                action?: "SUSPEND" | "REACTIVATE" | "ROLE_GRANT" | "ROLE_REVOKE" | "ADMIN_BOOTSTRAP";
+                /**
+                 * @description Inclusive lower bound on `occurredAt`. A date-time with an offset; send `+` as `%2B`, or use `Z`.
+                 * @example 2026-10-13T00:00:00Z
+                 */
+                from?: string;
+                /** @description Exclusive upper bound on `occurredAt`. A date-time with an offset; send `+` as `%2B`, or use `Z`. */
+                to?: string;
             };
             header?: never;
             path?: never;
@@ -1404,6 +1416,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationFailed"];
         };
     };
     lookupUser: {

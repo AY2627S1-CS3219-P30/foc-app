@@ -34,6 +34,8 @@ export const CREDIT_ECONOMIC_SUBSCRIPTIONS = [
 /** Exact HTTP surface. Every route is read-only. The test suite inventories runtime routes. */
 export const CREDIT_HTTP_SURFACE = [
   'GET /health',
+  // Prometheus metrics from @foc/platform (PLT-04): counts and timings, no balances.
+  'GET /metrics',
   'GET /wallets/me',
   'GET /wallets/me/ledger',
   'GET /admin/wallets/:userId',

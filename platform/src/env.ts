@@ -28,6 +28,11 @@ export const baseEnvSchema = z.object({
    * services that have no workflow of their own until Sprint 2.
    */
   RABBITMQ_URL: z.string().min(1).optional(),
+  /**
+   * The bearer token Prometheus sends to `GET /metrics` (PLT-04). Unset, the endpoint is open in
+   * development and refused in production.
+   */
+  METRICS_TOKEN: z.string().min(16).optional(),
 });
 
 export type BaseEnv = z.infer<typeof baseEnvSchema>;

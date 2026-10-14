@@ -479,13 +479,33 @@ paths:
       tags: [Admin]
       operationId: listAuditRecords
       summary: Read the append-only audit trail (ADMIN)
-      description: Read-only. There is no endpoint that creates, edits or deletes an audit record.
+      description: |
+        Read-only. There is no endpoint that creates, edits or deletes an audit record.
+        Filters combine with AND. `from` is inclusive and `to` exclusive, so consecutive windows never
+        count a record twice; `to` must be later than `from`. An unknown query parameter is rejected.
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
         - name: targetUserId
           in: query
           schema: { type: string, format: uuid }
+        - name: actorId
+          in: query
+          description: The administrator who acted. Bootstrap rows have no actor and never match.
+          schema: { type: string, format: uuid }
+        - name: action
+          in: query
+          schema:
+            { type: string, enum: [SUSPEND, REACTIVATE, ROLE_GRANT, ROLE_REVOKE, ADMIN_BOOTSTRAP] }
+        - name: from
+          in: query
+          description: Inclusive lower bound on `occurredAt`. A date-time with an offset; send `+` as `%2B`, or use `Z`.
+          schema: { type: string, format: date-time }
+          example: '2026-10-13T00:00:00Z'
+        - name: to
+          in: query
+          description: Exclusive upper bound on `occurredAt`. A date-time with an offset; send `+` as `%2B`, or use `Z`.
+          schema: { type: string, format: date-time }
       responses:
         '200':
           description: A page of audit records, newest first.
@@ -494,6 +514,7 @@ paths:
               schema: { $ref: '#/components/schemas/AuditRecordPage' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /internal/users/{userId}:
     parameters:
