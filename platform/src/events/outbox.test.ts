@@ -53,22 +53,37 @@ interface Sent {
 /**
  * The real EventPublisher over a fake confirm channel: every message is
  * recorded exactly as it would go on the wire, and `failWhen` makes the broker
- * refuse (nack) a message.
+ * refuse (nack) a message. `unbind` leaves a routing key with no queue: a
+ * mandatory message for it is handed back, then confirmed, and reaches nobody.
  */
 function fakeBroker() {
   const sent: Sent[] = [];
   let failWhen: ((e: Envelope) => boolean) | undefined;
+  const unbound = new Set<string>();
+  const returnListeners: Array<(message: { properties: { messageId: string } }) => void> = [];
   const channel = {
+    on(event: string, listener: (message: { properties: { messageId: string } }) => void) {
+      if (event === 'return') returnListeners.push(listener);
+    },
     publish(
       exchange: string,
       routingKey: string,
       body: Buffer,
-      options: { messageId: string },
+      options: { messageId: string; mandatory?: boolean },
       cb: (err: Error | null) => void,
     ) {
       const envelope = JSON.parse(body.toString('utf8')) as Envelope;
       if (failWhen?.(envelope)) {
         cb(new Error('broker nacked the message'));
+        return true;
+      }
+      if (unbound.has(routingKey)) {
+        if (options.mandatory) {
+          for (const listener of returnListeners) {
+            listener({ properties: { messageId: options.messageId } });
+          }
+        }
+        cb(null);
         return true;
       }
       sent.push({ exchange, routingKey, messageId: options.messageId, body, envelope });
@@ -83,6 +98,8 @@ function fakeBroker() {
     fail(when: ((e: Envelope) => boolean) | undefined) {
       failWhen = when;
     },
+    unbind: (routingKey: string) => void unbound.add(routingKey),
+    bind: (routingKey: string) => void unbound.delete(routingKey),
   };
 }
 
@@ -103,6 +120,17 @@ const suspension = (userId: string) => ({
 /** Commits one event on its own, as a service would alongside its state change. */
 const commit = (db: Db, userId: string, extra: { id?: string; causationId?: string } = {}) =>
   db.transaction((tx) => insertOutboxEvent(tx, { ...suspension(userId), ...extra }));
+
+/** Commits an activation: unlike a suspension, an event that must reach a consumer. */
+const commitActivation = (db: Db, userId: string) =>
+  db.transaction((tx) =>
+    insertOutboxEvent(tx, {
+      eventType: EVENTS.USER_ACTIVATED,
+      aggregateId: userId,
+      correlationId: `corr-${userId}`,
+      payload: { userId, activatedAt: new Date().toISOString() },
+    }),
+  );
 
 const outbox = async (db: Db) =>
   (
@@ -313,6 +341,58 @@ describe('OutboxRelay', () => {
     await lapseBackoff(db);
     await r.tick();
     expect(broker.sent.map((m) => m.envelope.eventId)).toEqual([y1, x1, x2]);
+    await db.close();
+  });
+
+  it('keeps an event nobody is listening for, says why, and publishes it once its consumer has a queue', async () => {
+    const db = await outboxDb();
+    const broker = fakeBroker();
+    const r = relay(db, broker.publisher, { backoffMs: 60_000 });
+    // A clean broker on which the Credit Service has never started.
+    broker.unbind(EVENTS.USER_ACTIVATED);
+    const id = await commitActivation(db, 'user-1');
+
+    expect(await r.tick()).toBe(0);
+    let [row] = await outbox(db);
+    expect(row).toMatchObject({
+      id,
+      published_at: null,
+      attempts: 1,
+      last_error: 'unroutable: no queue is bound for user.activated',
+    });
+    expect(row!.retry_in_ms).toBeGreaterThan(50_000);
+    expect(broker.sent).toEqual([]);
+
+    broker.bind(EVENTS.USER_ACTIVATED);
+    await lapseBackoff(db);
+    expect(await r.tick()).toBe(1);
+    [row] = await outbox(db);
+    expect(row).toMatchObject({ attempts: 2, last_error: null });
+    expect(row!.published_at).toBeInstanceOf(Date);
+    expect(broker.sent.map((m) => m.envelope.eventId)).toEqual([id]);
+    await db.close();
+  });
+
+  it('goes on past an event nobody is listening for, so it holds up only its own aggregate', async () => {
+    const db = await outboxDb();
+    const broker = fakeBroker();
+    const r = relay(db, broker.publisher, { backoffMs: 60_000 });
+    broker.unbind(EVENTS.USER_ACTIVATED);
+    const stuck1 = await commitActivation(db, 'user-1');
+    const stuck2 = await commitActivation(db, 'user-2');
+    const other = await commit(db, 'user-3');
+    const behind = await commit(db, 'user-1'); // user-1's suspension follows user-1's activation
+
+    expect(await r.tick()).toBe(1);
+
+    expect(broker.sent.map((m) => m.envelope.eventId)).toEqual([other]);
+    expect(r.stats.failed).toBe(2);
+    expect(await outbox(db)).toMatchObject([
+      { id: stuck1, published_at: null, attempts: 1 },
+      { id: stuck2, published_at: null, attempts: 1 },
+      { id: other, attempts: 1 },
+      { id: behind, published_at: null, attempts: 0 },
+    ]);
     await db.close();
   });
 

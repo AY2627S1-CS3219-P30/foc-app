@@ -3,6 +3,7 @@ import type { ExtractTablesWithRelations } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import pg from 'pg';
 import type { Logger as PinoLogger } from 'pino';
+import type { HealthIndicator } from './health.controller.js';
 
 /**
  * The Drizzle handle a service's repositories code against. Widened over
@@ -46,14 +47,21 @@ export interface PgDbOptions {
 /**
  * PostgreSQL implementation of {@link Db}. The pool connects lazily, on first
  * query, and is drained when Nest shuts the application down. It is exposed so
- * a Drizzle instance can share it.
+ * a Drizzle instance can share it. `GET /health` asks it for a round trip, and
+ * is `503` while that fails.
  */
-export class PgDb implements Db, OnApplicationShutdown {
+export class PgDb implements Db, OnApplicationShutdown, HealthIndicator {
+  /** A service cannot record anything without its database (PL-NFR3.1.2). */
+  readonly healthName = 'database';
+  readonly mandatory = true;
+
   readonly pool: pg.Pool;
   private closed = false;
 
   constructor(connectionString: string, options: PgDbOptions = {}) {
-    this.pool = new pg.Pool({ connectionString, max: 10 });
+    // Without a connection timeout, a request made while the server is unreachable (rather than
+    // refusing) would wait for ever instead of failing as unavailable.
+    this.pool = new pg.Pool({ connectionString, max: 10, connectionTimeoutMillis: 5_000 });
 
     // node-postgres emits 'error' on the pool when an *idle* client's connection
     // drops out from under us (Postgres restart, network blip). That event fires
@@ -66,6 +74,16 @@ export class PgDb implements Db, OnApplicationShutdown {
       if (options.logger) options.logger.error({ err }, message);
       else console.error(`${message}: ${err.message}`);
     });
+
+    // The pool listens only while a client is idle. A client that is checked out, in a
+    // transaction, has no listener, and node-postgres emits 'error' on it when the server ends
+    // the connection, running query or not: an uncaught exception that would exit the process
+    // exactly when Postgres stops (PL-NFR3.1.2). Nothing to do here but not die. The statement
+    // in flight, or the transaction's next one, fails and is reported by whoever ran it, and the
+    // pool discards the client when it is released.
+    this.pool.on('connect', (client) => {
+      client.on('error', () => undefined);
+    });
   }
 
   async query<T extends Row = Row>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> {
@@ -75,6 +93,11 @@ export class PgDb implements Db, OnApplicationShutdown {
 
   async exec(sql: string): Promise<void> {
     await this.pool.query(sql);
+  }
+
+  /** Asked by `GET /health`: one round trip to the server. */
+  async checkHealth(): Promise<void> {
+    await this.pool.query('SELECT 1');
   }
 
   async transaction<T>(fn: (tx: Queryable) => Promise<T>): Promise<T> {

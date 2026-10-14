@@ -128,10 +128,11 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17.11-alpine3.24@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          # Exists only for this job's container: derived from the run, never written down.
+          POSTGRES_PASSWORD: ${{ github.sha }}
           POSTGRES_DB: foc_credit_test
         ports: ['5432:5432']
         options: >-
@@ -169,7 +170,7 @@ jobs:
           # Turns on the real-PostgreSQL suites (*.postgres.test.ts). The shared
           # test harness creates, migrates and drops a fresh database per suite,
           # so no suite shares data with another (docs/testing.md).
-          TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/postgres
+          TEST_POSTGRES_URL: postgres://postgres:${{ github.sha }}@localhost:5432/postgres
         run: npm test -w @foc/${{ matrix.service }}
 
       - uses: docker/setup-buildx-action@v3
@@ -197,10 +198,11 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17.11-alpine3.24@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          # Exists only for this job's container: derived from the run, never written down.
+          POSTGRES_PASSWORD: ${{ github.sha }}
         ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U postgres"
@@ -208,10 +210,10 @@ jobs:
           --health-timeout 5s
           --health-retries 20
       rabbitmq:
-        image: rabbitmq:4-management-alpine
+        image: rabbitmq:4.3.6-management-alpine@sha256:3ef7f7e89fed709a78f79b8b5f4e30e1312a1d4089da752e23595566d9d61a95
         env:
           RABBITMQ_DEFAULT_USER: foc
-          RABBITMQ_DEFAULT_PASS: foc_dev
+          RABBITMQ_DEFAULT_PASS: ${{ github.sha }}
         ports: ['5672:5672']
         # The same probe compose.yaml uses: `ping` can pass before the broker
         # accepts connections.
@@ -232,8 +234,8 @@ jobs:
       # a later package may import an earlier one's built output.
       - name: Build and test each shared package
         env:
-          RABBITMQ_URL: amqp://foc:foc_dev@localhost:5672
-          TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/postgres
+          RABBITMQ_URL: amqp://foc:${{ github.sha }}@localhost:5672
+          TEST_POSTGRES_URL: postgres://postgres:${{ github.sha }}@localhost:5432/postgres
         run: |
           for pkg in $(jq -r '.workspaces[] | select(endswith("-service") | not)' package.json); do
             echo "::group::$pkg"
@@ -279,13 +281,26 @@ jobs:
       - name: Test the alert rules
         run: |
           docker run --rm -v "$PWD/observability:/rules:ro" --entrypoint promtool \
-            prom/prometheus:v3.13.4 test rules /rules/alerts.test.yml
+            prom/prometheus:v3.13.4@sha256:87861b8cf91579109319ebc300f3f1060e6da9c05d6ae8ad15a20c879e84e32e test rules /rules/alerts.test.yml
       # On failure the script prints each container's logs itself, before it
       # tears the stack down. A separate step afterwards would find nothing.
-      - name: Start the stack and smoke it
+      # PLT-06: no secret in any file git tracks, and none in an image this repository builds.
+      # First, so that it builds the images the steps below then start from cache.
+      - name: Scan the repository and the images for secrets
         run: |
-          cp .env.example .env
-          ./scripts-smoke.sh --up
+          ./scripts-init-env.sh
+          ./scripts-scan-secrets.sh
+      - name: Start the stack and smoke it
+        run: ./scripts-smoke.sh --up
+      # EVT-03: a duplicate, a killed consumer, a stale reply and an unsupported version, on a
+      # stack of its own (the smoke run has removed its copy), ending with credits conserved.
+      - name: Force messaging failures and check the outcome
+        run: ./scripts-demo-failures.sh --up
+      # PLT-06: stop and start every container, remove and recreate them, and take Postgres away
+      # under the running services. Nothing committed is lost, a waiting message is handled once,
+      # and a service without its database says 503 instead of accepting a write.
+      - name: Restart, recreate and lose a dependency
+        run: ./scripts-restart-check.sh --up
 
   # ---------------------------------------------------------------------------
   # The supplier page against the real Supplier Service, verifying tokens with
@@ -306,7 +321,7 @@ jobs:
           bun-version: latest
       - name: Start the User and Supplier Services
         run: |
-          cp .env.example .env
+          ./scripts-init-env.sh
           docker compose -p foc-it up -d --build user-service supplier-service
           for port in 3001 3002; do
             for _ in $(seq 1 60); do
@@ -326,7 +341,11 @@ jobs:
         env:
           SUPPLIER_SERVICE_URL: http://localhost:3002
           USER_SERVICE_URL: http://localhost:3001
-        run: bun test test/suppliers.integration.test.tsx
+        # The seeded admin's bootstrap password is whatever this run's `.env` generated.
+        run: |
+          ADMIN_SEED_PASSWORD="$(grep '^ADMIN_SEED_PASSWORD=' ../.env | cut -d= -f2-)"
+          export ADMIN_SEED_PASSWORD
+          bun test test/suppliers.integration.test.tsx
       - name: Service logs
         if: failure()
         run: docker compose -p foc-it logs --no-color --tail=200 user-service supplier-service
@@ -355,7 +374,7 @@ jobs:
           bun-version: latest
       - name: Start the stack
         run: |
-          cp .env.example .env
+          ./scripts-init-env.sh
           docker compose up -d --build
           ./scripts-smoke.sh
       - run: bun install --frozen-lockfile

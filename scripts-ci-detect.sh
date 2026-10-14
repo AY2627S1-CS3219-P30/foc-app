@@ -15,8 +15,11 @@ set -euo pipefail
 SHARED_RE='^(platform/|test-harness/|system-tests/|package\.json|package-lock\.json|tsconfig\.base\.json|eslint\.config\.mjs|\.prettierrc|\.prettierignore|\.github/workflows/ci\.yml|\.nvmrc)'
 SERVICE_RE='^(user|supplier|order|credit)-service/'
 # Wiring between containers, as opposed to code inside one. `.env.example`
-# belongs here because the smoke job copies it to `.env`.
-STACK_RE='^(compose\.yaml|postgres-init\.sql|scripts-smoke\.sh|scripts-ci-detect\.sh|platform/|observability/|\.env\.example)|Dockerfile|\.dockerignore'
+# belongs here because the smoke job builds `.env` from it.
+STACK_RE='^(compose(\.dev)?\.yaml|postgres-init\.sh|rabbitmq-init\.sh|scripts-(smoke|demo-failures|restart-check|scan-secrets|init-env|env|lib|ci-detect)\.sh|platform/|observability/|\.env\.example|\.gitleaks\.toml)|Dockerfile|\.dockerignore'
+# The deployment files that test-harness/test/compose-config.test.ts reads (PLT-06): a change to
+# one runs the Node job, where that test lives, without fanning out to every service.
+DEPLOY_CONFIG_RE='^(compose(\.dev)?\.yaml|postgres-init\.sh|rabbitmq-init\.sh|scripts-init-env\.sh|\.env\.example)|Dockerfile|\.dockerignore'
 # The supplier page and the service it lists from: their integration test
 # (web-app/test/suppliers.integration.test.tsx) runs against the real Supplier
 # Service whenever either side, or anything shared or stack-wide, changes.
@@ -61,7 +64,7 @@ detect() {
   # The web app's API types are generated from contracts/, and its tests check they are current.
   matches '^(web-app|contracts)/' && echo 'web=true' || echo 'web=false'
 
-  if [[ "$shared" == "true" ]] || matches "$SERVICE_RE"; then
+  if [[ "$shared" == "true" ]] || matches "$SERVICE_RE" || matches "$DEPLOY_CONFIG_RE"; then
     echo 'node=true'
   else
     echo 'node=false'
@@ -112,6 +115,15 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "README only -> nothing runs"           "README.md" 'services=[]'
   check "compose -> stack runs"                 "compose.yaml" 'stack=true'
   check "compose -> no services"                "compose.yaml" 'services=[]'
+  check "compose -> node runs its config tests" "compose.yaml" 'node=true'
+  check "env example -> node runs"              ".env.example" 'node=true'
+  check "postgres init -> stack runs"           "postgres-init.sh" 'stack=true'
+  check "dev override -> node runs"             "compose.dev.yaml" 'node=true'
+  check "dev override -> no services"           "compose.dev.yaml" 'services=[]'
+  check "broker init -> stack runs"             "rabbitmq-init.sh" 'stack=true'
+  check "env generator -> stack runs"           "scripts-init-env.sh" 'stack=true'
+  check "restart check -> stack runs"           "scripts-restart-check.sh" 'stack=true'
+  check "restart check -> node skipped"         "scripts-restart-check.sh" 'node=false'
   check "a Dockerfile -> stack runs"            "order-service/Dockerfile" 'stack=true'
   check "a Dockerfile -> that service too"      "order-service/Dockerfile" 'services=["order-service"]'
   check "web Dockerfile -> stack and web"       "web-app/Dockerfile" 'web=true'
@@ -126,6 +138,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "env example -> stack runs"             ".env.example" 'stack=true'
   check "env example -> no services"            ".env.example" 'services=[]'
   check "observability -> stack runs"           "observability/prometheus.yml" 'stack=true'
+  check "failure demo -> stack runs"            "scripts-demo-failures.sh" 'stack=true'
+  check "failure demo -> no services"           "scripts-demo-failures.sh" 'services=[]'
   check "observability -> no services"          "observability/grafana/dashboards/foc-platform.json" 'services=[]'
   check "new package -> all four services"      "auth-client/src/token-verifier.ts" 'services=["user-service","supplier-service","order-service","credit-service"]'
   check "new package -> node runs"              "auth-client/src/token-verifier.ts" 'node=true'

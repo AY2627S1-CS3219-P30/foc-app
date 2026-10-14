@@ -123,10 +123,13 @@ async function checkPrivacy(
     [orderId, EVENTS.ORDER_STATUS_CHANGED],
   );
   for (const { payload } of events.rows) {
+    // The lifecycle fact and the errand's version after it (a counter, so a reader can tell an older
+    // change), and nothing about who took part or where it is delivered.
     expect(Object.keys(payload).sort()).toEqual([
       'newStatus',
       'occurredAt',
       'orderId',
+      'orderVersion',
       'previousStatus',
     ]);
   }

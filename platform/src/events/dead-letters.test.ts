@@ -71,8 +71,27 @@ class FakeChannel {
       return false;
     }
     this.published.push({ exchange, routingKey, content, options });
+    // A mandatory message no queue is bound for is handed back before it is confirmed.
+    if (this.unrouted && options.mandatory) {
+      for (const listener of this.returnListeners) listener({ properties: options });
+    }
     done(null);
     return true;
+  }
+  unrouted = false;
+  private returnListeners: Array<(message: { properties: Options.Publish }) => void> = [];
+  on(event: string, listener: (message: { properties: Options.Publish }) => void) {
+    if (event === 'return') this.returnListeners.push(listener);
+    return this;
+  }
+  removeListener(event: string, listener: (message: { properties: Options.Publish }) => void) {
+    if (event === 'return') {
+      this.returnListeners = this.returnListeners.filter((l) => l !== listener);
+    }
+    return this;
+  }
+  listenerCount() {
+    return this.returnListeners.length;
   }
   async close() {}
 }
@@ -83,6 +102,8 @@ function fakeBroker(channel: FakeChannel, connected = true) {
   const broker = {
     connected,
     durableQueues: () => ['foc.credit.wallet-provisioning', 'foc.credit.reservations'],
+    requeueExchange: 'foc.credit-service.requeue',
+    account: undefined as string | undefined,
     onConnected: (listener: (ch: ConfirmChannel) => Promise<void>) => listeners.push(listener),
     isConnected: () => broker.connected,
     getChannel: () => channel as unknown as ConfirmChannel,
@@ -207,6 +228,8 @@ describe('finding and reading (PLT-05)', () => {
     const letters = new DeadLetters(db);
     const channel = new FakeChannel() as unknown as ConfirmChannel;
     await letters.park(channel, QUEUE, deadLettered());
+    // Parked at a later instant, so "newest first" does not fall back to the rows' random ids.
+    await new Promise((r) => setTimeout(r, 5));
     const order = createEnvelope({
       eventType: 'order.reservation-requested',
       schemaVersion: 1,
@@ -253,8 +276,11 @@ describe('redrive (PLT-05)', () => {
 
     expect(channel.published).toHaveLength(1);
     const sent = channel.published[0]!;
-    expect(sent.exchange).toBe(''); // the default exchange: this queue, not every one bound to the type
+    // The service's own requeue exchange, by queue name: this queue, not every one bound to the
+    // type, and not the default exchange, which would let a service write to any queue (PLT-06).
+    expect(sent.exchange).toBe('foc.credit-service.requeue');
     expect(sent.routingKey).toBe(QUEUE);
+    expect(sent.options.mandatory).toBe(true);
     expect(sent.content.equals(message.content)).toBe(true); // the payload, byte for byte
     expect(sent.options).toMatchObject({
       messageId: activation.eventId,
@@ -269,6 +295,40 @@ describe('redrive (PLT-05)', () => {
       redrivenBy: 'admin-1',
       redriveReason: 'credit database is back',
     });
+  });
+
+  it('redrives under its own account, keeping the account that first published the message', async () => {
+    const db = await deadLetterDb();
+    const channel = new FakeChannel();
+    const broker = fakeBroker(channel);
+    broker.account = 'credit-service';
+    const letters = new DeadLetters(db, broker as unknown as BrokerConnection);
+    // As the broker dead-lettered it: still carrying the User Service's user-id.
+    const message = deadLettered();
+    Object.assign(message.properties, { userId: 'user-service' });
+    await letters.park(channel as unknown as ConfirmChannel, QUEUE, message);
+    const [item] = (await letters.list({ page: 1, pageSize: 10 })).items;
+
+    await letters.redrive(item!.id, operator);
+
+    const sent = channel.published[0]!;
+    // The broker refuses a publish under another account's name ...
+    expect(sent.options.userId).toBe('credit-service');
+    // ... and the consumer still holds the message to whoever first sent it.
+    expect(sent.options.headers).toMatchObject({ 'x-foc-sender': 'user-service' });
+  });
+
+  it('does not mark a dead letter redriven when the broker had no queue to put it on', async () => {
+    const { channel, letters, id } = await parked();
+    channel.unrouted = true;
+
+    await expect(letters.redrive(id, operator)).rejects.toThrow(
+      `redrive was not delivered: ${QUEUE} is not bound to foc.credit-service.requeue`,
+    );
+
+    // Still waiting, so it can be redriven once the queue is back; and nothing left listening.
+    expect((await letters.get(id)).status).toBe('WAITING');
+    expect(channel.listenerCount()).toBe(0);
   });
 
   it('redrives a dead letter once; a second attempt is refused and sends nothing', async () => {

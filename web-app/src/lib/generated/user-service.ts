@@ -1277,6 +1277,36 @@ export interface operations {
                         service: "user-service";
                         /** @enum {string} */
                         status: "ok";
+                        /** @description Each dependency the service asks on every call. `database` is mandatory; `broker` is not (the outbox holds events until it is back). */
+                        dependencies?: {
+                            [key: string]: "up" | "down";
+                        };
+                    };
+                };
+            };
+            /** @description The database is unavailable. The service answers 200 again as soon as it is back, with no restart (PL-NFR3.1.2). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "service": "user-service",
+                     *       "status": "unavailable",
+                     *       "dependencies": {
+                     *         "database": "down"
+                     *       }
+                     *     }
+                     */
+                    "application/json": {
+                        /** @constant */
+                        service: "user-service";
+                        /** @constant */
+                        status: "unavailable";
+                        dependencies?: {
+                            [key: string]: "up" | "down";
+                        };
                     };
                 };
             };
