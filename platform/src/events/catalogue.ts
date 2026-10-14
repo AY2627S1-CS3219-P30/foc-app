@@ -45,6 +45,28 @@ export const EVENTS = {
 
 export type EventType = (typeof EVENTS)[keyof typeof EVENTS];
 
+/**
+ * Events that must reach a consumer: a wallet, and every step of the reservation, transfer and
+ * release workflows. The publisher sends these as mandatory, so a broker with no queue bound for
+ * one hands it back and the publish fails, instead of confirming a message it then discards. That
+ * happens on a clean broker when a producer starts before its consumer has ever declared its
+ * queue (EI-NFR1).
+ *
+ * Left out on purpose: the cache invalidations (`user.suspended`, `user.reactivated`,
+ * `user.role-changed`) go to whichever instances are running, and `order.status-changed` has no
+ * reader yet. An event gains an entry here with its first durable consumer.
+ */
+export const REQUIRES_CONSUMER: ReadonlySet<string> = new Set<EventType>([
+  EVENTS.USER_ACTIVATED,
+  EVENTS.CREDIT_RESERVATION_REQUESTED,
+  EVENTS.CREDITS_RESERVED,
+  EVENTS.CREDIT_RESERVATION_REJECTED,
+  EVENTS.ORDER_COMPLETION_REQUESTED,
+  EVENTS.CREDITS_TRANSFERRED,
+  EVENTS.CREDIT_RELEASE_REQUESTED,
+  EVENTS.CREDITS_RELEASED,
+]);
+
 export const userActivatedPayload = z.object({
   userId: z.string().min(1),
   activatedAt: z.iso.datetime(),
@@ -173,13 +195,20 @@ export const orderStatus = z.enum([
   'EXPIRED',
 ]);
 
-/** Public lifecycle fact. It deliberately carries no participant or delivery details. */
+/**
+ * Public lifecycle fact. It deliberately carries no participant or delivery details.
+ *
+ * `orderVersion` is the errand's version after the change. Delivery order is not guaranteed, so a
+ * reader keeps the highest version it has applied and ignores a change at or below it
+ * (EI-NFR2.1.1). Optional: it was added within version 1, and a change written before it parses.
+ */
 export const orderStatusChangedPayload = z
   .object({
     orderId: z.uuid(),
     previousStatus: orderStatus.nullable(),
     newStatus: orderStatus,
     occurredAt: z.iso.datetime(),
+    orderVersion: z.number().int().positive().optional(),
   })
   .strict();
 export type OrderStatusChangedPayload = z.infer<typeof orderStatusChangedPayload>;

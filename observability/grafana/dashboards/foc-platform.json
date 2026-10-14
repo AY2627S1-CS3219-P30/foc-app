@@ -1,8 +1,8 @@
 {
   "uid": "foc-platform",
   "title": "FoC Platform",
-  "description": "PLT-04/PLT-05: HTTP latency, errands per status, consumer lag, retries, dead letters, errands waiting for Credit and firing alerts across the four services.",
-  "tags": ["foc", "plt-04", "plt-05"],
+  "description": "PLT-04/PLT-05: HTTP latency, errands per status, consumer lag, retries, dead letters, errands waiting for Credit, repeated and stale steps, and firing alerts across the four services.",
+  "tags": ["foc", "plt-04", "plt-05", "evt-03"],
   "timezone": "browser",
   "editable": false,
   "graphTooltip": 1,
@@ -844,6 +844,72 @@
         "cellHeight": "sm",
         "footer": {
           "show": false
+        }
+      }
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Repeated, stale and waiting steps (last hour)",
+      "description": "Deliveries a consumer had already applied (no further effect), steps older than a change already applied (ignored), and attempts at a step whose earlier step had not happened yet (retried, then set aside). None of these moves credits twice or out of order.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 52
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (queue) (increase(foc_events_duplicate_total[1h])) > 0",
+          "legendFormat": "{{queue}} repeated"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (queue) (increase(foc_events_stale_total[1h])) > 0",
+          "legendFormat": "{{queue}} stale, ignored"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (queue) (increase(foc_events_deferred_total[1h])) > 0",
+          "legendFormat": "{{queue}} waiting on an earlier step"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         }
       }
     }

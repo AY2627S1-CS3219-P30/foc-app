@@ -7,6 +7,7 @@ import {
   EventPublisher,
   HEADER_ATTEMPT,
   HEADER_FAILURE,
+  UnroutableEventError,
   deadLetterQueueName,
   userActivatedPayload,
 } from '@foc/platform';
@@ -36,6 +37,24 @@ async function peek(broker: BrokerConnection, queue: string): Promise<ConsumeMes
   const channel = broker.getChannel();
   return new Promise((resolve) => void channel.consume(queue, (m) => m && resolve(m)));
 }
+
+describe('the requeue exchange (PLT-06)', () => {
+  it('delivers by queue name to one durable queue, and takes nothing for a queue it does not serve', async () => {
+    const { memory, broker } = await connect();
+    try {
+      expect(broker.requeueExchange).toBe('foc.test.requeue');
+
+      memory.publish(broker.requeueExchange, QUEUE, { again: true });
+      expect(memory.depth(QUEUE)).toBe(1);
+
+      // No binding for another service's queue: nothing can be aimed at it from here.
+      memory.publish(broker.requeueExchange, 'foc.other.queue', { again: true });
+      expect(memory.depth(QUEUE)).toBe(1);
+    } finally {
+      await broker.close();
+    }
+  });
+});
 
 describe('in-memory broker (for suites without RabbitMQ)', () => {
   let close: (() => Promise<void>) | undefined;
@@ -120,6 +139,39 @@ describe('in-memory broker (for suites without RabbitMQ)', () => {
     await vi.waitFor(() => expect(broker.isConnected()).toBe(true), { timeout: 5_000 });
     const again = await peek(broker, QUEUE);
     expect(again.fields.redelivered).toBe(true);
+  });
+
+  it('hands back a mandatory message no queue is bound for, then delivers it once one is', async () => {
+    const memory = createMemoryBroker();
+    // A producer on a clean broker: the consumer of its event has never declared a queue.
+    const producer = new BrokerConnection('amqp://memory', 'user-service', [], [5], {
+      connect: memory.connect,
+    });
+    await producer.connect();
+    const publisher = new EventPublisher(producer, 'user-service');
+    const event = {
+      eventType: EVENTS.USER_ACTIVATED,
+      schemaVersion: 1,
+      aggregateId: 'u-3',
+      correlationId: 'c-3',
+      payload: activation('u-3'),
+    };
+    await expect(publisher.publish(event)).rejects.toBeInstanceOf(UnroutableEventError);
+
+    const consumerSide = new BrokerConnection(
+      'amqp://memory',
+      'credit-service',
+      [{ queue: QUEUE, routingKeys: [EVENTS.USER_ACTIVATED] }],
+      [5],
+      { connect: memory.connect },
+    );
+    await consumerSide.connect();
+    close = async () => {
+      await producer.close();
+      await consumerSide.close();
+    };
+    await publisher.publish(event);
+    expect(memory.depth(QUEUE)).toBe(1);
   });
 
   it('refuses a publish to an exchange nobody declared', async () => {

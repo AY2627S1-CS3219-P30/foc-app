@@ -1,11 +1,13 @@
 import { Logger } from '@nestjs/common';
 import amqp, { type ChannelModel, type ConfirmChannel } from 'amqplib';
+import type { HealthIndicator } from '../health.controller.js';
 import {
   DLX,
   EXCHANGE,
   RETRY_DELAYS_MS,
   deadLetterQueueName,
   isTransient,
+  requeueExchangeName,
   retryLevels,
   type SubscriptionSpec,
 } from './topology.js';
@@ -18,6 +20,14 @@ export interface BrokerConnectionOptions {
   connect?: (url: string) => Promise<ChannelModel>;
 }
 
+const accountIn = (url: string): string | undefined => {
+  try {
+    return decodeURIComponent(new URL(url).username) || undefined;
+  } catch {
+    return undefined;
+  }
+};
+
 /**
  * Owns the connection and the topology. One per service.
  *
@@ -29,7 +39,14 @@ export interface BrokerConnectionOptions {
  * disconnected throws rather than silently dropping, so a caller can decide
  * what to do.
  */
-export class BrokerConnection {
+export class BrokerConnection implements HealthIndicator {
+  /**
+   * Reported by `GET /health` but not mandatory: while the broker is away a service still takes
+   * writes, and the outbox holds their events until it is back (EI-FR1.1).
+   */
+  readonly healthName = 'broker';
+  readonly mandatory = false;
+
   private readonly logger = new Logger(BrokerConnection.name);
   private connection?: ChannelModel;
   private channel?: ConfirmChannel;
@@ -37,6 +54,12 @@ export class BrokerConnection {
   private reconnectDelayMs = 1_000;
   private readonly listeners: ConnectedListener[] = [];
   private readonly open: (url: string) => Promise<ChannelModel>;
+
+  /**
+   * The broker account this service signs in with, from the connection URL. The broker checks the
+   * `user-id` of everything published on this connection against it (see sender.ts).
+   */
+  readonly account: string | undefined;
 
   constructor(
     private readonly url: string,
@@ -47,10 +70,27 @@ export class BrokerConnection {
     options: BrokerConnectionOptions = {},
   ) {
     this.open = options.connect ?? ((u) => amqp.connect(u));
+    this.account = accountIn(url);
+  }
+
+  /**
+   * Whether a consumer holds each message to the account that published it (PLT-06). True when
+   * this service signs in as itself, as Compose has every service do: then a message that names
+   * a producer must have been published by that producer's account. With one shared login, as
+   * in a test run or `npm run dev`, there is nothing to tell apart and the envelope is taken at
+   * its word, as before.
+   */
+  get verifiesSenders(): boolean {
+    return this.account !== undefined && this.account === this.namespace;
   }
 
   get retryNamespace(): string {
     return this.namespace;
+  }
+
+  /** Delivers by queue name to this service's own durable queues only: retries and redrives. */
+  get requeueExchange(): string {
+    return requeueExchangeName(this.namespace);
   }
 
   /** Attempts allowed before a message is set aside, derived from the delays. */
@@ -158,16 +198,19 @@ export class BrokerConnection {
     await ch.assertExchange(EXCHANGE, 'topic', { durable: true });
     await ch.assertExchange(DLX, 'topic', { durable: true });
 
-    // One fanout exchange per delay level, dead-lettering onto the default
+    // Puts a message back on one of this service's queues by name: see requeueExchangeName.
+    await ch.assertExchange(this.requeueExchange, 'direct', { durable: true });
+
+    // One fanout exchange per delay level, dead-lettering onto the requeue
     // exchange. The consumer publishes a failed message here with the queue it
     // failed on as its routing key; fanout keeps that key, and when the TTL
-    // expires the default exchange delivers it to that queue and no other.
+    // expires the requeue exchange delivers it to that queue and no other.
     for (const { exchange, queue, ttlMs } of retryLevels(this.namespace, this.retryDelaysMs)) {
       await ch.assertExchange(exchange, 'fanout', { durable: true });
       await ch.assertQueue(queue, {
         durable: true,
         messageTtl: ttlMs,
-        deadLetterExchange: '',
+        deadLetterExchange: this.requeueExchange,
       });
       await ch.bindQueue(queue, exchange, '');
     }
@@ -194,6 +237,7 @@ export class BrokerConnection {
           messageTtl: sub.messageTtlMs,
           maxLength: sub.maxLength,
         });
+        await ch.bindQueue(sub.queue, this.requeueExchange, sub.queue);
       }
       for (const key of sub.routingKeys) {
         await ch.bindQueue(sub.queue, EXCHANGE, key);
@@ -208,6 +252,10 @@ export class BrokerConnection {
 
   isConnected(): boolean {
     return Boolean(this.channel);
+  }
+
+  async checkHealth(): Promise<void> {
+    if (!this.isConnected()) throw new Error('Broker is not connected');
   }
 
   async close(): Promise<void> {

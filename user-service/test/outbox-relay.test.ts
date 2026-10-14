@@ -36,6 +36,8 @@ interface Sent {
 function fakeBroker() {
   const sent: Sent[] = [];
   const channel = {
+    // The publisher listens for messages the broker hands back as unroutable; this broker routes all.
+    on() {},
     publish(_exchange: string, routingKey: string, body: Buffer, _o: unknown, cb: () => void) {
       sent.push({ routingKey, body, envelope: JSON.parse(body.toString('utf8')) });
       cb();

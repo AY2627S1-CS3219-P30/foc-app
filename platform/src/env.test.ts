@@ -28,6 +28,17 @@ describe('loadEnv', () => {
     expect(() => loadEnv({}, bad as NodeJS.ProcessEnv)).toThrowError(/PORT/);
   });
 
+  it('reads the internal port as a number, and leaves it unset when it is not given', () => {
+    expect(loadEnv({}, valid as NodeJS.ProcessEnv).INTERNAL_PORT).toBeUndefined();
+    const env = loadEnv({}, { ...valid, INTERNAL_PORT: '4001' } as NodeJS.ProcessEnv);
+    expect(env.INTERNAL_PORT).toBe(4001);
+  });
+
+  it('rejects an internal port that is not a port', () => {
+    const bad = { ...valid, INTERNAL_PORT: 'internal' };
+    expect(() => loadEnv({}, bad as NodeJS.ProcessEnv)).toThrowError(/INTERNAL_PORT/);
+  });
+
   it('never includes a variable value in the error message', () => {
     const schema = { JWT_SECRET: z.string().min(32) };
     const bad = { ...valid, JWT_SECRET: 'too-short-secret' };

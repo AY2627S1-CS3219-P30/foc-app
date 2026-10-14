@@ -13,6 +13,7 @@ import {
   HEADER_ORIGINAL_QUEUE,
   deadLetterQueueName,
 } from './topology.js';
+import { resendProperties } from './sender.js';
 
 /**
  * PLT-05 (EI-FR3.1.2) — dead letters an operator can find, read and redrive.
@@ -215,11 +216,15 @@ export function toDeadLetterRow(queue: string, message: ConsumeMessage) {
 export function redriveProperties(
   stored: Options.Publish & { headers?: Record<string, unknown> },
   deadLetterId: string,
+  account?: string,
 ): Options.Publish {
-  const headers = { ...(stored.headers ?? {}) };
+  // Published by this service, so under its own account; who first sent it is kept, and the
+  // consumer holds the redriven message to that (sender.ts).
+  const resent = resendProperties(stored, account);
+  const headers = { ...resent.headers };
   for (const header of FAILURE_HEADERS) delete headers[header];
   headers[HEADER_REDRIVE_OF] = deadLetterId;
-  return { ...stored, headers, persistent: true };
+  return { ...resent, headers, persistent: true };
 }
 
 /**
@@ -351,9 +356,10 @@ export class DeadLetters {
       // then publish, could mark a dead letter redriven that was never sent.
       await publishToQueue(
         broker.getChannel(),
+        broker.requeueExchange,
         row.queue,
         Buffer.from(row.body ?? new Uint8Array()),
-        redriveProperties(row.properties ?? {}, row.id),
+        redriveProperties(row.properties ?? {}, row.id, broker.account),
       );
       const updated = await tx.query<DeadLetterRow>(
         `UPDATE dead_letters
@@ -450,15 +456,34 @@ async function insert(db: Queryable, r: ReturnType<typeof toDeadLetterRow>): Pro
   );
 }
 
-/** Publishes to one queue by name through the default exchange, and waits for the broker's confirm. */
+/**
+ * Publishes to one queue by name through the service's redrive exchange, and waits for the
+ * broker's confirm. Sent as mandatory: if the queue is not bound (it was deleted), the broker
+ * hands the message back and this fails, so the dead letter stays waiting instead of being marked
+ * redriven and lost.
+ */
 function publishToQueue(
   channel: ConfirmChannel,
+  exchange: string,
   queue: string,
   body: Buffer,
   properties: Options.Publish,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    channel.publish('', queue, body, properties, (err) => (err ? reject(err) : resolve()));
+    let handedBack = false;
+    const onReturn = (message: { properties: { messageId?: unknown } }) => {
+      if (message.properties.messageId === properties.messageId) handedBack = true;
+    };
+    // The broker returns an unroutable mandatory message before it confirms it.
+    channel.on('return', onReturn);
+    channel.publish(exchange, queue, body, { ...properties, mandatory: true }, (err) => {
+      channel.removeListener('return', onReturn);
+      if (err) return reject(err instanceof Error ? err : new Error(String(err)));
+      if (handedBack) {
+        return reject(new Error(`redrive was not delivered: ${queue} is not bound to ${exchange}`));
+      }
+      resolve();
+    });
   });
 }
 

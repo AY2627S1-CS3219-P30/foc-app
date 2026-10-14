@@ -2,13 +2,21 @@ export {
   createEnvelope,
   envelopeSchema,
   parseEnvelope,
+  DEFAULT_SUPPORTED_VERSIONS,
+  EventValidationError,
+  PredecessorMissingError,
+  StaleEventError,
   UnparseableMessageError,
+  UnroutableEventError,
+  UnsupportedVersionError,
+  UntrustedSenderError,
   type Envelope,
   type NewEventInput,
 } from './envelope.js';
 export {
   EVENTS,
   PAYLOAD_SCHEMAS,
+  REQUIRES_CONSUMER,
   creditReleaseRequestedPayload,
   creditReservationRejectedPayload,
   creditReservationRequestedPayload,
@@ -41,6 +49,7 @@ export {
   RETRY_DELAYS_MS,
   deadLetterQueueName,
   isTransient,
+  requeueExchangeName,
   retryExchangeName,
   retryLevels,
   retryQueueName,
@@ -49,6 +58,7 @@ export {
 export { BrokerConnection } from './connection.js';
 export type { BrokerConnectionOptions, ConnectedListener } from './connection.js';
 export { EventPublisher } from './publisher.js';
+export type { EventPublisherOptions } from './publisher.js';
 export {
   EventConsumer,
   type EventHandler,
@@ -100,3 +110,4 @@ export {
   type InboxHandler,
   type ReplayableInboxHandler,
 } from './inbox.js';
+export { HEADER_SENDER, resendProperties, senderOf } from './sender.js';
