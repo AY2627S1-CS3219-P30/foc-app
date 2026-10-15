@@ -258,11 +258,12 @@ export async function referTo(t: TestApp, adminId: string, orderId = SEEDED_ORDE
 }
 
 /** One scheduler run with the default timers, against the app's (fake) User Service. */
-export const sweep = (t: TestApp) =>
+export const sweep = (t: TestApp, batchSize?: number) =>
   new LifecycleScheduler(t.orders, t.directory, {
     pickupTimeoutMs: 30 * 60_000,
     creditWaitTimeoutMs: 5 * 60_000,
     intervalMs: 10_000,
+    batchSize,
   }).sweep();
 
 /**

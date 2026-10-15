@@ -46,10 +46,12 @@ class NotDue extends Error {}
  * timer takes effect exactly once and accept-versus-expire is decided by the row's version.
  *
  * It also keeps every dispute referred to one administrator who may act (ORD-11): an assigned
- * administrator the User Service no longer reports as one is cleared, and each unassigned dispute
+ * administrator the User Service no longer lists as active is cleared, and each unassigned dispute
  * goes to the eligible administrator with the fewest undecided disputes. Anyone who was ever the
- * errand's requester or courier is ineligible. While the User Service is down nothing is assigned,
- * and the next run tries again; with no eligible administrator, one REFERRAL_UNASSIGNED alert.
+ * errand's requester or courier is ineligible. While the User Service is down, or lists no
+ * administrators at all, nothing is cleared or assigned and the next run tries again; when every
+ * listed administrator took part in the errand, one REFERRAL_UNASSIGNED alert per errand and a
+ * warning on every run until it is referred.
  */
 @Injectable()
 export class LifecycleScheduler implements OnApplicationBootstrap, OnApplicationShutdown {
@@ -146,50 +148,49 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
   }
 
   private async referDisputes(now: Date, limit: number, result: SweepResult): Promise<void> {
-    const disputes = await this.orders.listDisputes(limit);
-
-    // An assigned administrator who can no longer act loses the dispute; the loop below reassigns it.
-    const canAct = new Map<string, boolean>();
-    for (const dispute of disputes) {
-      const adminId = dispute.adminId;
-      if (adminId === null) continue;
-      if (!canAct.has(adminId))
-        canAct.set(adminId, (await this.directory.permissions(adminId)).isAdmin);
-      if (canAct.get(adminId)) continue;
-      const cleared = await this.fire(
-        dispute.orderId,
-        'ADMIN_UNASSIGNED',
-        now,
-        (order) => {
-          if (order.referredAdminId !== adminId) throw new NotDue();
-        },
-        { referred_admin_id: null },
-      );
-      if (cleared) {
-        result.adminsUnassigned += 1;
-        dispute.adminId = null;
-      }
+    if (!(await this.orders.anyDisputed())) return;
+    // One answer per run decides both who keeps a referral and who may receive one.
+    const admins = await this.directory.listAdmins();
+    // An empty list is trusted with nothing: clearing every referral would gain nothing, as there
+    // is no one to refer to, and requests already refuse anyone who has really lost the role.
+    if (admins.length === 0) {
+      this.logger.warn({ msg: 'User Service lists no administrators; dispute referrals paused' });
+      return;
     }
 
-    const unassigned = disputes.filter((dispute) => dispute.adminId === null);
-    if (unassigned.length === 0) return;
-    const admins = await this.directory.listAdmins();
-    for (const { orderId } of unassigned) {
+    for (const { orderId, adminId: heldBy } of await this.orders.listDisputesToRefer(
+      admins,
+      limit,
+    )) {
+      // Referred to someone who can no longer act: clear it, then refer it again below.
+      if (heldBy !== null) {
+        const cleared = await this.fire(
+          orderId,
+          'ADMIN_UNASSIGNED',
+          now,
+          (order) => {
+            if (order.referredAdminId !== heldBy) throw new NotDue();
+          },
+          { referred_admin_id: null },
+          heldBy,
+        );
+        if (!cleared) continue;
+        result.adminsUnassigned += 1;
+      }
+
       const participants = new Set(await this.orders.participants(orderId));
       const eligible = admins.filter((adminId) => !participants.has(adminId));
       if (eligible.length === 0) {
-        if (
-          await this.orders.raiseAlert(orderId, 'REFERRAL_UNASSIGNED', {
-            activeAdmins: admins.length,
-          })
-        ) {
-          result.referralAlerts += 1;
-          this.logger.warn({
-            orderId,
-            alert: 'REFERRAL_UNASSIGNED',
-            msg: 'no eligible administrator for a dispute; operator attention needed',
-          });
-        }
+        // The alert row is kept once per errand; the warning repeats every run it stays stuck.
+        const raised = await this.orders.raiseAlert(orderId, 'REFERRAL_UNASSIGNED', {
+          activeAdmins: admins.length,
+        });
+        if (raised) result.referralAlerts += 1;
+        this.logger.warn({
+          orderId,
+          alert: 'REFERRAL_UNASSIGNED',
+          msg: 'no eligible administrator for a dispute; operator attention needed',
+        });
         continue;
       }
       const adminId = await this.orders.leastReferred(eligible);
@@ -201,17 +202,20 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
           if (order.referredAdminId !== null) throw new NotDue();
         },
         { referred_admin_id: adminId },
+        adminId,
       );
       if (assigned) result.adminsAssigned += 1;
     }
   }
 
+  /** `reason`, when given, is kept on the history row (here: which administrator a referral names). */
   private async fire(
     orderId: string,
     action: OrderAction,
     now: Date,
     verify: (order: OrderRow) => void,
     patch?: TransitionCommand['patch'],
+    reason?: string,
   ): Promise<boolean> {
     try {
       const outcome = await this.orders.transition({
@@ -222,6 +226,7 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
         now,
         verify,
         patch,
+        reason,
       });
       return outcome.kind === 'applied';
     } catch (error) {

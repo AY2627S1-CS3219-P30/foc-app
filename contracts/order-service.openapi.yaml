@@ -654,7 +654,9 @@ components:
               reason:
                 type: [string, 'null']
                 description: |
-                  An administrator's reason for a decision; otherwise null.
+                  An administrator's reason for a decision, or, on `ADMIN_ASSIGNED` and
+                  `ADMIN_UNASSIGNED`, the user ID of the administrator referred or cleared;
+                  otherwise null.
               version: { type: integer, minimum: 1 }
               occurredAt: { type: string, format: date-time }
     ResolveDispute:

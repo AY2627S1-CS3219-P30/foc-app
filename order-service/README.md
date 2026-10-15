@@ -77,7 +77,7 @@ While an order is in any `*_PENDING_CREDIT` state, no participant action, admini
 | ----- | ----- | ----- |
 | Credit Service | Messages, both directions | Reserve, transfer and return each order's reward. Every `*_PENDING_CREDIT` state is waiting for one of its replies. |
 | User Service | HTTP, through `@foc/auth-client` | Who is calling, whether they are an administrator, and that their account is active. Checked on every request; a suspension takes effect within 5 seconds. |
-| User Service | HTTP, `GET /internal/admins` and `GET /internal/users/:id/permissions` | Which administrators may act now, so the scheduler can refer each dispute to one. Called with `INTERNAL_SERVICE_KEY`; if the User Service does not answer, referrals wait for the next run. |
+| User Service | HTTP, `GET /internal/admins` | Which administrators may act now, so the scheduler can refer each dispute to one. Called once per run, only while a dispute exists, with `INTERNAL_SERVICE_KEY`; if the User Service does not answer, referrals wait for the next run. |
 | User Service | Messages, received | Suspensions, which drive the "requester suspended" and "courier suspended" transitions. |
 | Supplier Service | HTTP, `GET /suppliers/:id` | At creation: refuse an inactive supplier and keep a copy of the supplier on the order, so it survives later changes. The call carries the requester's own token, so the Supplier Service needs no service-to-service route. |
 | Web app | HTTP | Every student and administrator command and query. |
@@ -221,21 +221,27 @@ owns the courier-suspension path (reopen with the deadline extended).
 
 Every `DISPUTED` errand is referred to one administrator, who alone reads its private details and
 decides it. The move into `DISPUTED` commits with no administrator; the lifecycle scheduler refers it
-on its next run:
+on its next run. It asks the User Service once for the administrators who may act
+(`GET /internal/admins`: active, holding the role, and past the bootstrap password), then:
 
-1. For each dispute already referred, it asks the User Service whether that administrator may still
-   act (`GET /internal/users/:id/permissions`). If not (suspended or demoted), the referral is
+1. A dispute referred to someone not on that list (suspended, demoted, or unknown) has the referral
    cleared (`ADMIN_UNASSIGNED`).
-2. For each dispute referred to no one, it takes the active administrators (`GET /internal/admins`),
-   drops anyone who was ever the errand's requester or courier (including a courier who withdrew or
-   timed out), and refers it (`ADMIN_ASSIGNED`) to the one with the fewest undecided disputes; ties
-   go to the fewest referrals kept overall, then the lower user ID.
+2. A dispute referred to no one is referred (`ADMIN_ASSIGNED`) to the listed administrator with the
+   fewest undecided disputes, leaving out anyone who was ever the errand's requester or courier
+   (including a courier who withdrew or timed out); ties go to the fewest referrals kept overall,
+   then the lower user ID.
 
 Both go through the ordinary transition path under the row lock: the status stays `DISPUTED`, the
-version moves (so a replaced administrator's decision is stale), a history row is written, and no
-message is sent. If the User Service does not answer, nothing is referred and
-the next run tries again; timers are unaffected. If no administrator is eligible, one
-`REFERRAL_UNASSIGNED` operator alert is recorded for the errand, however many runs see it.
+version moves (so a replaced administrator's decision is stale), a history row naming the
+administrator in its `reason` is written, and no message is sent. Each run takes up to its batch
+size of disputes needing one of these, oldest first; disputes already with an administrator who may
+act are not in that batch, so they never hold up a newer one. If the User Service does not answer,
+or answers that there are no administrators at all, nothing is cleared or referred, a warning is
+logged, and the next run tries again; timers are unaffected. An empty list is not trusted to clear
+referrals: there would be no one to refer them to, and a request from anyone who has really lost the
+role is already refused. If administrators are listed but every one took part in the errand, one
+`REFERRAL_UNASSIGNED` operator alert is recorded for the errand, however many runs see it, and every
+such run logs a warning until the errand is referred.
 
 `POST /admin/orders/:id/resolve` takes `{ "outcome": "COURIER" | "REQUESTER", "reason",
 "expectedVersion" }`, with a reason of 1 to 500 characters (trimmed). `COURIER` moves the errand to
