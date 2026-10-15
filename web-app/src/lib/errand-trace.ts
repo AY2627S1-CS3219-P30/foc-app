@@ -20,6 +20,7 @@ export type TraceEntry = {
 export const OPERATOR_ALERT_KINDS: Record<OperatorAlert["kind"], string> = {
   CREDIT_WAIT_EXCEEDED: "Waited too long for credits",
   CREDIT_STATE_CONFLICT: "Order and Credit disagree",
+  REFERRAL_UNASSIGNED: "No eligible administrator for a dispute",
 };
 
 /** Credit's audit codes; one it adds later still shows, as its code. */
