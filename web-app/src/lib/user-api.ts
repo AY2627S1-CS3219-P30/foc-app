@@ -6,7 +6,7 @@
  * caller and lives in memory only (see session.ts).
  */
 
-import { bearer, createApiClient, serviceUrl, unwrap, type Send } from "./api-client";
+import { bearer, correlation, createApiClient, serviceUrl, unwrap, type Send } from "./api-client";
 import type { components, paths } from "./generated/user-service";
 
 export { ApiError, toApiError, type FieldError } from "./api-client";
@@ -75,24 +75,32 @@ export function createUserApi({
     headers: { "content-type": "application/json" },
   });
 
+  // Each call takes the correlation ID of the user action it belongs to, if any (PLT-04).
+  const as = (id?: string) => ({ headers: correlation(id) });
+  const authedAs = (token: string, id?: string) => ({
+    headers: { ...bearer(token), ...correlation(id) },
+  });
+
   return {
-    register: (body: Schemas["RegisterRequest"]) => unwrap(api.POST("/auth/register", { body })),
-    activate: (token: string) => unwrap(api.POST("/auth/activate", { body: { token } })),
-    login: (email: string, password: string) =>
-      unwrap(api.POST("/auth/login", { body: { email, password } })),
-    refresh: () => unwrap(api.POST("/auth/refresh")),
-    logout: () => unwrap(api.POST("/auth/logout")),
-    changePassword: (body: Schemas["ChangePasswordRequest"]) =>
-      unwrap(api.POST("/auth/password", { body })),
-    me: (token: string) => unwrap(api.GET("/users/me", { headers: bearer(token) })),
-    updateMe: (token: string, body: Schemas["ProfileUpdate"]) =>
-      unwrap(api.PATCH("/users/me", { headers: bearer(token), body })),
+    register: (body: Schemas["RegisterRequest"], id?: string) =>
+      unwrap(api.POST("/auth/register", { body, ...as(id) })),
+    activate: (token: string, id?: string) =>
+      unwrap(api.POST("/auth/activate", { body: { token }, ...as(id) })),
+    login: (email: string, password: string, id?: string) =>
+      unwrap(api.POST("/auth/login", { body: { email, password }, ...as(id) })),
+    refresh: (id?: string) => unwrap(api.POST("/auth/refresh", as(id))),
+    logout: (id?: string) => unwrap(api.POST("/auth/logout", as(id))),
+    changePassword: (body: Schemas["ChangePasswordRequest"], id?: string) =>
+      unwrap(api.POST("/auth/password", { body, ...as(id) })),
+    me: (token: string, id?: string) => unwrap(api.GET("/users/me", authedAs(token, id))),
+    updateMe: (token: string, body: Schemas["ProfileUpdate"], id?: string) =>
+      unwrap(api.PATCH("/users/me", { ...authedAs(token, id), body })),
     /**
      * The activation token the service would have emailed. Call it only when
      * {@link DEV_MAILBOX_ENABLED}: the User Service does not mount it in production.
      */
-    devMailbox: (email: string) =>
-      unwrap(api.GET("/dev/mailbox", { params: { query: { to: email } } })),
+    devMailbox: (email: string, id?: string) =>
+      unwrap(api.GET("/dev/mailbox", { params: { query: { to: email } }, ...as(id) })),
   };
 }
 

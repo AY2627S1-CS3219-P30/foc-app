@@ -16,9 +16,20 @@ export interface LockedSession {
 
 /** All SQL for refresh sessions. Every function takes a {@link Database} so callers control the transaction. */
 export const sessionsRepository = {
+  /**
+   * `continues` names the session a refresh replaces: the new one is the same sign-in, so a recent
+   * password re-entry carries over to it (ADR 0008).
+   */
   async insert(
     db: Database,
-    s: { id: string; familyId: string; userId: string; tokenHash: string; ttlDays: number },
+    s: {
+      id: string;
+      familyId: string;
+      userId: string;
+      tokenHash: string;
+      ttlDays: number;
+      continues?: string;
+    },
   ): Promise<void> {
     await db.insert(refreshSessions).values({
       id: s.id,
@@ -26,6 +37,9 @@ export const sessionsRepository = {
       userId: s.userId,
       tokenHash: s.tokenHash,
       expiresAt: sql`now() + make_interval(days => ${s.ttlDays})`,
+      ...(s.continues && {
+        steppedUpAt: sql`(SELECT ${refreshSessions.steppedUpAt} FROM ${refreshSessions} WHERE ${refreshSessions.id} = ${s.continues})`,
+      }),
     });
   },
 
@@ -129,6 +143,34 @@ export const sessionsRepository = {
       .update(refreshSessions)
       .set({ revokedAt: sql`now()` })
       .where(and(eq(refreshSessions.userId, userId), isNull(refreshSessions.revokedAt)));
+  },
+
+  /** Records a password re-entry on a live session of this user (`POST /auth/step-up`). */
+  async markSteppedUp(db: Database, sessionId: string, userId: string): Promise<boolean> {
+    const rows = await db
+      .update(refreshSessions)
+      .set({ steppedUpAt: sql`now()` })
+      .where(
+        and(
+          eq(refreshSessions.id, sessionId),
+          eq(refreshSessions.userId, userId),
+          isNull(refreshSessions.revokedAt),
+        ),
+      )
+      .returning({ id: refreshSessions.id });
+    return rows.length > 0;
+  },
+
+  /** Whether the password was re-entered on this session within the last `seconds` (ADR 0008). */
+  async steppedUpWithin(db: Database, sessionId: string, seconds: number): Promise<boolean> {
+    const rows = await db
+      .select({
+        fresh: sql<boolean>`coalesce(${refreshSessions.steppedUpAt} > now() - make_interval(secs => ${seconds}), false)`,
+      })
+      .from(refreshSessions)
+      // A revoked session's re-entry counts for nothing, whatever reached here with its id.
+      .where(and(eq(refreshSessions.id, sessionId), isNull(refreshSessions.revokedAt)));
+    return rows[0]?.fresh === true;
   },
 
   /**

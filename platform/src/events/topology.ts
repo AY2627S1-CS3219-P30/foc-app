@@ -51,6 +51,12 @@ export interface SubscriptionSpec {
   messageTtlMs?: number;
   /** Holds at most this many messages, discarding the oldest (`x-max-length`). */
   maxLength?: number;
+  /**
+   * The `queue` label on this queue's metrics, when its name is not stable. A per-instance queue
+   * named with a random suffix would otherwise start new series on every restart, which linger
+   * for the whole retention period. Defaults to `queue`.
+   */
+  metricsLabel?: string;
 }
 
 /**

@@ -16,6 +16,8 @@ x-service-base: &service-base
     LOG_LEVEL: ${LOG_LEVEL:-info}
     CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
     RABBITMQ_URL: amqp://${RABBITMQ_USER:-foc}:${RABBITMQ_PASSWORD:-foc_dev}@rabbitmq:5672
+    # Prometheus sends it to /metrics (PLT-04); the prometheus service reads the same value.
+    METRICS_TOKEN: ${METRICS_TOKEN:-dev-only-metrics-token-change-me}
   depends_on: &service-deps
     postgres:
       condition: service_healthy
@@ -226,6 +228,8 @@ services:
         # The stack's User Service runs in development mode, which mounts the
         # dev mailbox, so the sign-up screen may link straight to activation.
         NEXT_PUBLIC_DEV_MAILBOX: 'true'
+        # Linked from the admin console's Operations tab (PLT-05).
+        NEXT_PUBLIC_GRAFANA_URL: http://localhost:${GRAFANA_PORT:-3005}
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -235,9 +239,68 @@ services:
     ports: ['${WEB_APP_PORT:-3000}:3000']
     networks: [foc]
 
+  # ---- observability (PLT-04) -------------------------------------------------
+  # Prometheus scrapes every service's /metrics and RabbitMQ's queue depths, and
+  # Grafana shows them on one provisioned dashboard: http://localhost:3005, open
+  # to view without signing in. Nothing to set up by hand. Both are published on
+  # 127.0.0.1 only: anonymous viewing is for this machine, not the network.
+  prometheus:
+    image: prom/prometheus:v3.13.4
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    configs:
+      - source: metrics-token
+        target: /etc/prometheus/metrics-token
+    ports: ['127.0.0.1:${PROMETHEUS_PORT:-9090}:9090']
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:9090/-/ready']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [foc]
+
+  grafana:
+    image: grafana/grafana-oss:12.4.3
+    restart: unless-stopped
+    environment:
+      # Anyone who can reach the port may view; changing anything needs the admin.
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-grafana_dev}
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/foc-platform.json
+      # A local stack has no reason to phone home.
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+      GF_ANALYTICS_CHECK_FOR_UPDATES: 'false'
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: 'false'
+      GF_NEWS_NEWS_FEED_ENABLED: 'false'
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/etc/grafana/dashboards:ro
+    ports: ['127.0.0.1:${GRAFANA_PORT:-3005}:3000']
+    depends_on:
+      prometheus: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost:3000/api/health']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [foc]
+
 volumes:
   postgres-data:
   rabbitmq-data:
+  prometheus-data:
+
+configs:
+  # The scrape token, as a file Prometheus reads (prometheus.yml cannot read the environment).
+  metrics-token:
+    content: ${METRICS_TOKEN:-dev-only-metrics-token-change-me}
 
 networks:
   foc:
