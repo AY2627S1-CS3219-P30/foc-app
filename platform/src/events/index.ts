@@ -2,13 +2,20 @@ export {
   createEnvelope,
   envelopeSchema,
   parseEnvelope,
+  DEFAULT_SUPPORTED_VERSIONS,
+  EventValidationError,
+  PredecessorMissingError,
+  StaleEventError,
   UnparseableMessageError,
+  UnroutableEventError,
+  UnsupportedVersionError,
   type Envelope,
   type NewEventInput,
 } from './envelope.js';
 export {
   EVENTS,
   PAYLOAD_SCHEMAS,
+  REQUIRES_CONSUMER,
   creditReleaseRequestedPayload,
   creditReservationRejectedPayload,
   creditReservationRequestedPayload,
@@ -49,6 +56,7 @@ export {
 export { BrokerConnection } from './connection.js';
 export type { BrokerConnectionOptions, ConnectedListener } from './connection.js';
 export { EventPublisher } from './publisher.js';
+export type { EventPublisherOptions } from './publisher.js';
 export {
   EventConsumer,
   type EventHandler,
