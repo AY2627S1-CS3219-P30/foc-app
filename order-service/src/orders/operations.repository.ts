@@ -137,7 +137,10 @@ export class OperationsRepository {
     };
   }
 
-  /** Operator alerts across every errand, newest first: waits on Credit past the limit, and conflicts. */
+  /**
+   * Operator alerts across every errand, newest first: waits on Credit past the limit, conflicts,
+   * and disputes with no eligible administrator.
+   */
   async alerts(limit = 100) {
     const result = await this.db.query<
       { order_id: string; kind: string; raised_at: Date | string; detail: unknown } & Row

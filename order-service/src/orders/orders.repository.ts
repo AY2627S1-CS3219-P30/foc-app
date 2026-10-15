@@ -7,9 +7,11 @@ import {
   type Queryable,
   type Row,
 } from '@foc/platform';
+import { env } from '../config.js';
 import { ORDER_DB, type OrderDatabase } from '../db/db.js';
 import {
   ORDER_TRANSITIONS,
+  RESOLVE_ACTIONS,
   decideTransition,
   type OrderAction,
   type OrderActor,
@@ -44,6 +46,8 @@ type StoredOrder = Row & {
   accepted_at: Date | string | null;
   picked_up_at: Date | string | null;
   delivered_at: Date | string | null;
+  non_delivery_report_at: Date | string | null;
+  auto_confirm_at: Date | string | null;
   completion_requested_at: Date | string | null;
   completed_at: Date | string | null;
   release_requested_at: Date | string | null;
@@ -56,8 +60,8 @@ type StoredOrder = Row & {
 export const ORDER_COLUMNS = `order_id, requester_id, courier_id, referred_admin_id, supplier_snapshot,
   items, delivery_zone, delivery_instructions, reward, status, release_reason, rejection_reason,
   available_at_rejection, version, acceptance_deadline_at, accepted_at, picked_up_at, delivered_at,
-  completion_requested_at, completed_at, release_requested_at, released_at, credit_transaction_id,
-  created_at, updated_at`;
+  non_delivery_report_at, auto_confirm_at, completion_requested_at, completed_at,
+  release_requested_at, released_at, credit_transaction_id, created_at, updated_at`;
 
 const iso = (value: Date | string): string =>
   value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -84,6 +88,8 @@ const mapOrder = (row: StoredOrder): OrderRow => ({
   acceptedAt: nullableIso(row.accepted_at),
   pickedUpAt: nullableIso(row.picked_up_at),
   deliveredAt: nullableIso(row.delivered_at),
+  nonDeliveryReportAt: nullableIso(row.non_delivery_report_at),
+  autoConfirmAt: nullableIso(row.auto_confirm_at),
   completionRequestedAt: nullableIso(row.completion_requested_at),
   completedAt: nullableIso(row.completed_at),
   releaseRequestedAt: nullableIso(row.release_requested_at),
@@ -208,8 +214,7 @@ export class OrdersRepository {
 
   /** The database clock, so timers and the acceptance check compare against the same time. */
   async databaseNow(): Promise<Date> {
-    const result = await this.db.query<{ now: Date | string } & Row>(`SELECT now() AS now`);
-    return new Date(result.rows[0]!.now);
+    return clockOf(this.db);
   }
 
   /** OPEN orders whose acceptance deadline has passed (OS-FR6.1.2). */
@@ -232,6 +237,18 @@ export class OrdersRepository {
         ORDER BY accepted_at, order_id
         LIMIT $2`,
       [cutoff.toISOString(), limit],
+    );
+    return result.rows.map((row) => row.order_id);
+  }
+
+  /** DELIVERED orders neither confirmed nor reported by their auto-confirmation time (OS-FR4.1.4). */
+  async findAutoConfirmDue(now: Date, limit = 100): Promise<string[]> {
+    const result = await this.db.query<{ order_id: string } & Row>(
+      `SELECT order_id FROM orders
+        WHERE status = 'DELIVERED' AND auto_confirm_at <= $1
+        ORDER BY auto_confirm_at, order_id
+        LIMIT $2`,
+      [now.toISOString(), limit],
     );
     return result.rows.map((row) => row.order_id);
   }
@@ -307,11 +324,13 @@ export class OrdersRepository {
         action: string;
         actor_type: string;
         actor_id: string | null;
+        reason: string | null;
         order_version: number;
         occurred_at: Date | string;
       } & Row
     >(
-      `SELECT previous_status, new_status, action, actor_type, actor_id, order_version, occurred_at
+      `SELECT previous_status, new_status, action, actor_type, actor_id, reason, order_version,
+              occurred_at
          FROM order_status_history
         WHERE order_id = $1
         ORDER BY order_version`,
@@ -323,6 +342,7 @@ export class OrdersRepository {
       action: row.action,
       actorType: row.actor_type,
       actorId: row.actor_id,
+      reason: row.reason,
       version: Number(row.order_version),
       occurredAt: iso(row.occurred_at),
     }));
@@ -415,20 +435,12 @@ export class OrdersRepository {
           correlationId: input.correlationId,
         } as Parameters<typeof insertOutboxEvent>[1]);
       } else if (input.action === 'ALERT') {
-        const raised = await tx.query(
-          `INSERT INTO order_operator_alerts (order_id, kind, detail)
-           VALUES ($1, 'CREDIT_STATE_CONFLICT', $2::jsonb)
-           ON CONFLICT (order_id, kind) DO NOTHING
-           RETURNING order_id`,
-          [
-            order.orderId,
-            JSON.stringify({
-              orderStatus: order.status,
-              creditStatus: input.credit?.status ?? null,
-            }),
-          ],
+        alertRaised = await this.raiseAlert(
+          order.orderId,
+          'CREDIT_STATE_CONFLICT',
+          { orderStatus: order.status, creditStatus: input.credit?.status ?? null },
+          tx,
         );
-        alertRaised = raised.rows.length > 0;
       }
       const action =
         input.action === 'REISSUE'
@@ -717,6 +729,128 @@ export class OrdersRepository {
     });
   }
 
+  /** Whether any errand is in dispute, so a run with none never asks the User Service. */
+  async anyDisputed(): Promise<boolean> {
+    const result = await this.db.query(`SELECT 1 FROM orders WHERE status = 'DISPUTED' LIMIT 1`);
+    return result.rows.length > 0;
+  }
+
+  /**
+   * Disputes that need a referral, oldest first: those referred to no one, and those referred to
+   * someone not among `adminIds` (with that administrator, so it can be cleared). Disputes waiting
+   * on an administrator who may act are left out, so however many there are, they never crowd a
+   * newer dispute out of the batch.
+   */
+  async listDisputesToRefer(
+    adminIds: string[],
+    limit = 100,
+  ): Promise<Array<{ orderId: string; adminId: string | null }>> {
+    const result = await this.db.query<
+      { order_id: string; referred_admin_id: string | null } & Row
+    >(
+      `SELECT order_id, referred_admin_id FROM orders
+        WHERE status = 'DISPUTED'
+          AND (referred_admin_id IS NULL OR referred_admin_id <> ALL($1::text[]))
+        ORDER BY updated_at, order_id
+        LIMIT $2`,
+      [adminIds, limit],
+    );
+    return result.rows.map((row) => ({ orderId: row.order_id, adminId: row.referred_admin_id }));
+  }
+
+  /** Everyone who was ever the errand's requester or courier, including couriers who left it. */
+  async participants(orderId: string): Promise<string[]> {
+    const result = await this.db.query<{ user_id: string } & Row>(
+      `SELECT requester_id AS user_id FROM orders WHERE order_id = $1
+       UNION SELECT courier_id FROM orders WHERE order_id = $1 AND courier_id IS NOT NULL
+       UNION SELECT actor_id FROM order_status_history
+              WHERE order_id = $1 AND action = 'ACCEPT' AND actor_id IS NOT NULL`,
+      [orderId],
+    );
+    return result.rows.map((row) => row.user_id);
+  }
+
+  /**
+   * Of the given administrators, the one with the fewest undecided disputes; ties go to the fewest
+   * referrals ever kept, then the lowest user ID. A referral cleared because its admin lost the role
+   * is not kept, so it stops counting; that only matters once the admin is reinstated.
+   */
+  async leastReferred(adminIds: string[]): Promise<string> {
+    const result = await this.db.query<{ admin_id: string } & Row>(
+      `SELECT a.admin_id
+         FROM unnest($1::text[]) AS a(admin_id)
+         LEFT JOIN orders o ON o.referred_admin_id = a.admin_id
+        GROUP BY a.admin_id
+        ORDER BY count(o.order_id) FILTER (WHERE o.status = 'DISPUTED'), count(o.order_id),
+                 a.admin_id
+        LIMIT 1`,
+      [adminIds],
+    );
+    return result.rows[0]!.admin_id;
+  }
+
+  /** Raises an operator alert for the order; true only the first time (one per order and kind). */
+  async raiseAlert(
+    orderId: string,
+    kind: 'CREDIT_STATE_CONFLICT' | 'REFERRAL_UNASSIGNED',
+    detail: Record<string, unknown>,
+    db: Queryable = this.db,
+  ): Promise<boolean> {
+    const raised = await db.query(
+      `INSERT INTO order_operator_alerts (order_id, kind, detail)
+       VALUES ($1, $2, $3::jsonb)
+       ON CONFLICT (order_id, kind) DO NOTHING
+       RETURNING order_id`,
+      [orderId, kind, JSON.stringify(detail)],
+    );
+    return raised.rows.length > 0;
+  }
+
+  /**
+   * Disputes referred to the administrator or to no one yet, each with the action that disputed it.
+   */
+  async listReferred(adminId: string, limit = 100) {
+    const result = await this.db.query<StoredOrder & { referred_by: string }>(
+      `SELECT ${ORDER_COLUMNS},
+              (SELECT h.action FROM order_status_history h
+                WHERE h.order_id = orders.order_id AND h.new_status = 'DISPUTED'
+                  AND h.previous_status IS DISTINCT FROM 'DISPUTED'
+                ORDER BY h.order_version DESC LIMIT 1) AS referred_by
+         FROM orders
+        WHERE status = 'DISPUTED' AND (referred_admin_id = $1 OR referred_admin_id IS NULL)
+        ORDER BY updated_at, order_id
+        LIMIT $2`,
+      [adminId, limit],
+    );
+    return result.rows.map((row) => ({ order: mapOrder(row), referredBy: row.referred_by }));
+  }
+
+  /** The most recent administrator decisions, newest first. */
+  async listDecisions(limit = 100) {
+    const result = await this.db.query<
+      {
+        order_id: string;
+        action: string;
+        actor_id: string;
+        reason: string;
+        occurred_at: Date | string;
+      } & Row
+    >(
+      `SELECT order_id, action, actor_id, reason, occurred_at FROM order_status_history
+        WHERE action = ANY($1::text[])
+        ORDER BY occurred_at DESC, history_id
+        LIMIT $2`,
+      [Object.values(RESOLVE_ACTIONS), limit],
+    );
+    return result.rows.map((row) => ({
+      orderId: row.order_id,
+      adminId: row.actor_id,
+      outcome: row.action === RESOLVE_ACTIONS.COURIER ? 'COURIER' : 'REQUESTER',
+      reason: row.reason,
+      decidedAt: iso(row.occurred_at),
+    }));
+  }
+
   /**
    * The single path for every lifecycle command after acceptance. It locks the row, resolves the
    * caller's role relative to the order, asks the executable transition table for a decision and,
@@ -739,11 +873,18 @@ export class OrdersRepository {
     if (!locked.rows[0]) return { kind: 'rejected', reason: 'NOT_FOUND' };
     const order = mapOrder(locked.rows[0]);
     const actor = resolveActor(order, command.actor);
-    const now = command.now ?? new Date();
+    // The database clock, which the scheduler and acceptance also use, so a participant and a timer
+    // agree on whether a deadline has passed.
+    const now = command.now ?? (await clockOf(tx));
     const context = {
       acceptanceDeadlinePassed:
         order.acceptanceDeadlineAt !== null && new Date(order.acceptanceDeadlineAt) <= now,
+      deliveryPeriodPassed:
+        order.nonDeliveryReportAt !== null && new Date(order.nonDeliveryReportAt) <= now,
+      autoConfirmationPeriodPassed:
+        order.autoConfirmAt !== null && new Date(order.autoConfirmAt) <= now,
       releaseReason: order.releaseReason ?? undefined,
+      reasonProvided: (command.reason?.trim() ?? '') !== '',
     };
 
     const decision = decideTransition(order.status, command.action, actor, context);
@@ -785,8 +926,8 @@ export class OrdersRepository {
     await tx.query(
       `INSERT INTO order_status_history
          (history_id, order_id, previous_status, new_status, action, actor_type, actor_id,
-          order_version, occurred_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          reason, order_version, occurred_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         randomUUID(),
         order.orderId,
@@ -795,6 +936,7 @@ export class OrdersRepository {
         command.action,
         HISTORY_ACTOR[actor],
         command.actor.id,
+        command.reason?.trim() ?? null,
         next.version,
         occurredAt,
       ],
@@ -846,7 +988,7 @@ export class OrdersRepository {
         created_at: Date | string;
         accepted_at: Date | string;
         picked_up_at: Date | string;
-        delivered_at: Date | string;
+        delivered_at: Date | string | null;
         completion_requested_at: Date | string;
         completed_at: Date | string;
       }
@@ -860,11 +1002,13 @@ export class OrdersRepository {
       supplier: row.supplier_snapshot,
       reward: Number(row.reward),
       creditTransactionId: row.credit_transaction_id,
+      deliveryRecorded: row.delivered_at !== null,
       timestamps: {
         createdAt: iso(row.created_at),
         acceptedAt: iso(row.accepted_at),
         pickedUpAt: iso(row.picked_up_at),
-        deliveredAt: iso(row.delivered_at),
+        // The stored row keeps the null; the published receipt always carries a time (v1 contract).
+        deliveredAt: iso(row.delivered_at ?? row.completion_requested_at),
         completionRequestedAt: iso(row.completion_requested_at),
         completedAt: iso(row.completed_at),
       },
@@ -891,6 +1035,8 @@ export interface TransitionCommand {
   verify?: (order: OrderRow) => void;
   /** Extra column values written with the transition. */
   patch?: Record<string, unknown>;
+  /** Why, recorded on the history row; an administrator's decision requires one. */
+  reason?: string;
   /** Extra writes in the same transaction, after the history row. */
   afterApply?: (tx: Queryable, order: OrderRow) => Promise<void>;
 }
@@ -921,6 +1067,13 @@ function resolveActor(order: OrderRow, actor: CommandActor): OrderActor {
   return actor.isAdmin ? 'ADMIN' : 'OTHER_STUDENT';
 }
 
+async function clockOf(db: Queryable): Promise<Date> {
+  const result = await db.query<{ now: Date | string } & Row>(`SELECT now() AS now`);
+  return new Date(result.rows[0]!.now);
+}
+
+const later = (at: string, ms: number) => new Date(Date.parse(at) + ms).toISOString();
+
 function timestampPatch(
   action: OrderAction,
   decision: TransitionDecision,
@@ -931,8 +1084,13 @@ function timestampPatch(
     action === 'WITHDRAW' || action === 'PICKUP_TIMEOUT'
       ? { courier_id: null, accepted_at: null }
       : {};
-  if (action === 'RECORD_PICKUP') return { picked_up_at: at };
-  if (action === 'RECORD_DELIVERY') return { delivered_at: at };
+  // Each deadline is saved when its period starts, so a later change to the period cannot move it.
+  if (action === 'RECORD_PICKUP') {
+    return { picked_up_at: at, non_delivery_report_at: later(at, env.DELIVERY_PERIOD_MS) };
+  }
+  if (action === 'RECORD_DELIVERY') {
+    return { delivered_at: at, auto_confirm_at: later(at, env.AUTO_CONFIRM_MS) };
+  }
   if (decision.to === 'COMPLETION_PENDING_CREDIT') return { completion_requested_at: at };
   if (decision.to === 'COMPLETED') return { completed_at: at };
   if (decision.to === 'RELEASE_PENDING_CREDIT') {

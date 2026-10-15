@@ -2,11 +2,15 @@ import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type { AuthContext } from '@foc/auth-client';
 import { ApiException } from '@foc/platform';
-import { IdempotencyKeyReusedError, OrdersRepository } from './orders.repository.js';
-import type { OrderAction } from './order-state-machine.js';
+import {
+  IdempotencyKeyReusedError,
+  OrdersRepository,
+  type TransitionCommand,
+} from './orders.repository.js';
+import { RESOLVE_ACTIONS, type OrderAction } from './order-state-machine.js';
 import { SupplierClient } from './supplier.client.js';
 import type { OpenOrderSummary, OrderReceipt, OrderRow, OrderView } from './types.js';
-import type { CreateOrderInput } from './validation.js';
+import type { CreateOrderInput, ResolveOrderInput } from './validation.js';
 
 const MY_ERRANDS_LIMIT = 100;
 const notFound = () => new ApiException(404, 'NOT_FOUND', 'Order not found.');
@@ -47,6 +51,8 @@ export function projectOrder(
           requesterId: order.requesterId,
           ...(order.courierId ? { courierId: order.courierId } : {}),
           deliveryInstructions: order.deliveryInstructions,
+          ...(order.nonDeliveryReportAt ? { nonDeliveryReportAt: order.nonDeliveryReportAt } : {}),
+          ...(order.autoConfirmAt ? { autoConfirmAt: order.autoConfirmAt } : {}),
         }
       : {}),
     ...(order.status === 'REJECTED' && canReadPrivate && order.rejectionReason
@@ -168,6 +174,7 @@ export class OrdersService {
     expectedVersion: number,
     caller: AuthContext,
     correlationId: string,
+    extra: Pick<TransitionCommand, 'reason' | 'verify'> = {},
   ): Promise<OrderView> {
     const result = await this.orders.transition({
       orderId,
@@ -175,6 +182,7 @@ export class OrdersService {
       expectedVersion,
       actor: { kind: 'USER', id: caller.userId, isAdmin: caller.isAdmin },
       correlationId,
+      ...extra,
     });
     if (result.kind === 'applied') {
       const projected = projectOrder(result.order, caller);
@@ -206,6 +214,61 @@ export class OrdersService {
       'The order is not in a state that allows this action.',
       details,
     );
+  }
+
+  /**
+   * An administrator's decision on a dispute referred to them, with a required reason (ORD-11).
+   * Anyone who was ever the errand's requester or courier is refused, as is any administrator the
+   * dispute is not referred to; a repeated or stale decision is a 409 like any other command.
+   */
+  async resolve(
+    orderId: string,
+    input: ResolveOrderInput,
+    caller: AuthContext,
+    correlationId: string,
+  ): Promise<OrderView> {
+    const order = await this.orders.findById(orderId);
+    if (!order || !projectOrder(order, caller)) throw notFound();
+    // Who took part cannot change once disputed, so this needs no lock.
+    if ((await this.orders.participants(orderId)).includes(caller.userId)) {
+      throw new ApiException(
+        403,
+        'CONFLICT_OF_INTEREST',
+        'You took part in this errand, so you cannot decide it.',
+        { status: order.status, version: order.version },
+      );
+    }
+    const action = RESOLVE_ACTIONS[input.outcome];
+    return this.command(orderId, action, input.expectedVersion, caller, correlationId, {
+      reason: input.reason,
+      // Checked under the row lock, so a decision racing a reassignment cannot slip through.
+      verify: (current) => {
+        if (current.referredAdminId !== caller.userId) {
+          throw new ApiException(
+            403,
+            'NOT_REFERRED_ADMIN',
+            'This dispute is referred to another administrator.',
+            { status: current.status, version: current.version },
+          );
+        }
+      },
+    });
+  }
+
+  /** Disputes the caller decides, in full, and unassigned ones without private details. */
+  async referred(caller: AuthContext) {
+    const rows = await this.orders.listReferred(caller.userId);
+    return {
+      items: rows.flatMap(({ order, referredBy }) => {
+        const view = projectOrder(order, caller);
+        if (!view) return [];
+        return [{ ...view, referredBy, assignedToMe: order.referredAdminId === caller.userId }];
+      }),
+    };
+  }
+
+  async decisions() {
+    return { items: await this.orders.listDecisions() };
   }
 
   /** The private status history, for the order's participants and its referred administrator. */

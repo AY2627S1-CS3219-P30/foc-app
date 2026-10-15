@@ -16,6 +16,10 @@ export const env = loadEnv({
   ACCEPTANCE_WINDOW_MS: z.coerce.number().int().positive(),
   /** An ACCEPTED order with no pickup this long after acceptance loses its courier (OS-FR6.1.3). */
   PICKUP_TIMEOUT_MS: z.coerce.number().int().positive(),
+  /** After this long since pickup with no delivery, the requester may report non-delivery (OS-FR4.1.5). */
+  DELIVERY_PERIOD_MS: z.coerce.number().int().positive(),
+  /** A delivered errand neither confirmed nor reported this long after delivery confirms itself (OS-FR4.1.4). */
+  AUTO_CONFIRM_MS: z.coerce.number().int().positive(),
   /**
    * How often the lifecycle scheduler looks for due timers. At most 60 s, so a rule that fell due
    * while the service was down takes effect within 60 s of it becoming ready (OS-NFR3.1.1).

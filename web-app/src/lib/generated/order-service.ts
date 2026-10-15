@@ -217,6 +217,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/orders/{orderId}/report-non-delivery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Requester reports an errand not delivered (PICKED_UP → DISPUTED).
+         * @description Only the requester may report, and only from `nonDeliveryReportAt` (pickup plus the delivery
+         *     period, 2 hours by default) on; earlier it is refused with 409 `INVALID_ORDER_STATE`. The
+         *     errand is referred to an administrator, and no timer changes it afterwards.
+         */
+        post: operations["reportNonDelivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orders/{orderId}/report-non-receipt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Requester reports a delivered errand not received (DELIVERED → DISPUTED).
+         * @description Instead of confirming, the requester may report the errand not received until
+         *     `autoConfirmAt` (delivery plus the auto-confirmation period, 24 hours by default). From then
+         *     the errand is confirmed automatically and a report is refused with 409
+         *     `INVALID_ORDER_STATE`. A reported errand is referred to an administrator, and no timer
+         *     changes it afterwards.
+         */
+        post: operations["reportNonReceipt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/orders/{orderId}/history": {
         parameters: {
             query?: never;
@@ -285,6 +331,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/orders/referred": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Disputes referred to the calling administrator, and those referred to no one yet.
+         * @description Every disputed errand is referred to one administrator, chosen automatically from the
+         *     administrators who may act and never one who was its requester or courier. The caller's
+         *     own referrals carry their private details; disputes not yet referred to anyone appear
+         *     without them. `referredBy` is the action that disputed the errand. At most 100, oldest
+         *     change first. Administrators only.
+         */
+        get: operations["listReferredDisputes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/orders/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The most recent dispute decisions.
+         * @description The 100 most recent decisions, newest first: the errand, the deciding administrator, the
+         *     outcome and their reason. Administrators only.
+         */
+        get: operations["listDisputeDecisions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/orders/{orderId}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * The referred administrator decides a dispute (DISPUTED → COMPLETION_PENDING_CREDIT or RELEASE_PENDING_CREDIT).
+         * @description Only the administrator the dispute is referred to may decide it, with a reason of 1 to 500
+         *     characters (trimmed) that is kept in the errand's history. `COURIER` requests the reward's
+         *     transfer to the courier; `REQUESTER` requests its release back to the requester (the errand
+         *     ends cancelled). Either way the errand waits for the Credit Service's confirmation.
+         *
+         *     `403 CONFLICT_OF_INTEREST`: the caller was ever this errand's requester or courier.
+         *     `403 NOT_REFERRED_ADMIN`: the dispute is referred to another administrator, or to no one
+         *     yet. A repeated decision, or one made on a stale version (for example after the dispute was
+         *     referred to someone else), is a `409` and changes nothing.
+         */
+        post: operations["resolveDispute"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/orders/alerts": {
         parameters: {
             query?: never;
@@ -294,9 +413,10 @@ export interface paths {
         };
         /**
          * Operator alerts across every errand (PLT-05).
-         * @description `CREDIT_WAIT_EXCEEDED` (an errand waited for Credit past CREDIT_WAIT_TIMEOUT_MS) and
-         *     `CREDIT_STATE_CONFLICT` (Credit's record disagrees with the errand's), newest first, at most
-         *     100. Administrators only.
+         * @description `CREDIT_WAIT_EXCEEDED` (an errand waited for Credit past CREDIT_WAIT_TIMEOUT_MS),
+         *     `CREDIT_STATE_CONFLICT` (Credit's record disagrees with the errand's) and
+         *     `REFERRAL_UNASSIGNED` (a dispute had no eligible administrator; raised once per errand),
+         *     newest first, at most 100. Administrators only.
          */
         get: operations["listOperatorAlerts"];
         put?: never;
@@ -458,6 +578,17 @@ export interface components {
             requesterId?: string;
             courierId?: string;
             deliveryInstructions?: string;
+            /**
+             * Format: date-time
+             * @description Private. Set once pickup is recorded: from then the requester may report non-delivery.
+             */
+            nonDeliveryReportAt?: string;
+            /**
+             * Format: date-time
+             * @description Private. Set once delivery is recorded: from then the errand is confirmed automatically
+             *     unless the requester has confirmed or reported it.
+             */
+            autoConfirmAt?: string;
             rejection?: {
                 reason: string;
                 available?: number;
@@ -513,6 +644,11 @@ export interface components {
             reward: number;
             /** Format: uuid */
             creditTransactionId: string;
+            /**
+             * @description False when an administrator decided the dispute for the courier before any delivery was
+             *     recorded.
+             */
+            deliveryRecorded: boolean;
             timestamps: {
                 /** Format: date-time */
                 createdAt: string;
@@ -520,7 +656,12 @@ export interface components {
                 acceptedAt: string;
                 /** Format: date-time */
                 pickedUpAt: string;
-                /** Format: date-time */
+                /**
+                 * Format: date-time
+                 * @description When the courier recorded delivery. If `deliveryRecorded` is false, an administrator
+                 *     completed the errand before any delivery was recorded, and this is the time of that
+                 *     decision.
+                 */
                 deliveredAt: string;
                 /** Format: date-time */
                 completionRequestedAt: string;
@@ -537,9 +678,39 @@ export interface components {
                 action: string;
                 actorType: string;
                 actorId: string | null;
+                /**
+                 * @description An administrator's reason for a decision, or, on `ADMIN_ASSIGNED` and
+                 *     `ADMIN_UNASSIGNED`, the user ID of the administrator referred or cleared;
+                 *     otherwise null.
+                 */
+                reason: string | null;
                 version: number;
                 /** Format: date-time */
                 occurredAt: string;
+            }[];
+        };
+        ResolveDispute: {
+            /** @enum {string} */
+            outcome: "COURIER" | "REQUESTER";
+            reason: string;
+            expectedVersion: number;
+        };
+        ReferredOrders: {
+            items: (components["schemas"]["Order"] & {
+                referredBy: string;
+                assignedToMe: boolean;
+            })[];
+        };
+        DisputeDecisions: {
+            items: {
+                /** Format: uuid */
+                orderId: string;
+                adminId: string;
+                /** @enum {string} */
+                outcome: "COURIER" | "REQUESTER";
+                reason: string;
+                /** Format: date-time */
+                decidedAt: string;
             }[];
         };
         ReconciliationAttempts: {
@@ -578,7 +749,7 @@ export interface components {
         };
         OperatorAlert: {
             /** @enum {string} */
-            kind: "CREDIT_WAIT_EXCEEDED" | "CREDIT_STATE_CONFLICT";
+            kind: "CREDIT_WAIT_EXCEEDED" | "CREDIT_STATE_CONFLICT" | "REFERRAL_UNASSIGNED";
             /** Format: date-time */
             raisedAt: string;
             /** @description What the alert recorded when it was raised. */
@@ -757,6 +928,18 @@ export interface components {
         };
         /** @description The caller is not an administrator. */
         AdminOnly: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /**
+         * @description The caller is not an administrator, took part in the errand (`CONFLICT_OF_INTEREST`), or is
+         *     not the administrator the dispute is referred to (`NOT_REFERRED_ADMIN`). Nothing changes.
+         */
+        DecisionForbidden: {
             headers: {
                 [name: string]: unknown;
             };
@@ -1164,6 +1347,70 @@ export interface operations {
             422: components["responses"]["InvalidOrder"];
         };
     };
+    reportNonDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LifecycleCommand"];
+            };
+        };
+        responses: {
+            /** @description The order after the transition, projected for the caller. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Order"];
+                };
+            };
+            400: components["responses"]["InvalidOrderId"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["ActionForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["LifecycleConflict"];
+            422: components["responses"]["InvalidOrder"];
+        };
+    };
+    reportNonReceipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LifecycleCommand"];
+            };
+        };
+        responses: {
+            /** @description The order after the transition, projected for the caller. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Order"];
+                };
+            };
+            400: components["responses"]["InvalidOrderId"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["ActionForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["LifecycleConflict"];
+            422: components["responses"]["InvalidOrder"];
+        };
+    };
     getOrderHistory: {
         parameters: {
             query?: never;
@@ -1232,6 +1479,82 @@ export interface operations {
             };
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["AdminOnly"];
+        };
+    };
+    listReferredDisputes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's referrals and the unreferred disputes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferredOrders"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["AdminOnly"];
+        };
+    };
+    listDisputeDecisions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recent decisions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisputeDecisions"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["AdminOnly"];
+        };
+    };
+    resolveDispute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResolveDispute"];
+            };
+        };
+        responses: {
+            /** @description The order after the decision, projected for the administrator. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Order"];
+                };
+            };
+            400: components["responses"]["InvalidOrderId"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["DecisionForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["LifecycleConflict"];
+            422: components["responses"]["InvalidOrder"];
         };
     };
     listOperatorAlerts: {

@@ -198,6 +198,7 @@ describe('fulfilment, completion saga and receipt (ORD-04)', () => {
       courierId: COURIER,
       reward: SEEDED_REWARD,
       creditTransactionId: transactionId,
+      deliveryRecorded: true,
       supplier: { supplierId: '00000000-0000-4000-8000-000000000125' },
     });
     expect(Object.values(receipt.body.timestamps).every((value) => typeof value === 'string')).toBe(
