@@ -138,7 +138,16 @@ export const usersRepository = {
     await db.insert(outboxEvents).values(toOutboxRow(e));
   },
 
-  /** Login lookup. The only place a password hash is read, and it never leaves the auth service. */
+  /** Password re-entry (`POST /auth/step-up`): the hash of a signed-in user, for the auth service only. */
+  async findPasswordHash(db: Database, userId: string): Promise<string | null> {
+    const rows = await db
+      .select({ passwordHash: users.passwordHash })
+      .from(users)
+      .where(eq(users.id, userId));
+    return rows[0]?.passwordHash ?? null;
+  },
+
+  /** Login lookup. One of two places a password hash is read, and it never leaves the auth service. */
   async findCredentials(
     db: Database,
     normalizedEmail: string,
@@ -226,13 +235,16 @@ export const usersRepository = {
     await db.update(profiles).set(set).where(eq(profiles.userId, userId));
   },
 
-  /** Every ACTIVE user holding ADMIN, by ID alone. */
+  /**
+   * Every ACTIVE user holding ADMIN who can sign in, by ID alone. A seeded admin that has not yet
+   * replaced the bootstrap password cannot hold a session, so it is left out.
+   */
   async listActiveAdminIds(db: Database): Promise<string[]> {
     const rows = await db
       .select({ userId: users.id })
       .from(users)
       .innerJoin(userRoles, and(eq(userRoles.userId, users.id), eq(userRoles.role, 'ADMIN')))
-      .where(eq(users.status, 'ACTIVE'))
+      .where(and(eq(users.status, 'ACTIVE'), eq(users.mustChangePassword, false)))
       .orderBy(users.id);
     return rows.map((row) => row.userId);
   },

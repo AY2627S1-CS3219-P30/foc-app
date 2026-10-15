@@ -7,6 +7,7 @@ image. See [docs/testing.md](../docs/testing.md) for the suites and how to run t
 | ---------------------------- | ---------------------------------------------------------------------------- |
 | `createEphemeralPostgres`    | A uniquely named, migrated PostgreSQL database per suite, dropped on dispose |
 | `createEphemeralBroker`      | Per-run RabbitMQ queue names and retry namespace, deleted on dispose         |
+| `createMemoryBroker`         | RabbitMQ's routing in memory, for suites that run without a broker           |
 | `ContractValidator`          | Validates real HTTP responses against `contracts/<service>.openapi.yaml`     |
 | `findOpenApiBreakingChanges` | Breaking-change detection between two OpenAPI documents                      |
 | `findEventBreakingChanges`   | Breaking-change detection between two versions of the event payload schemas  |

@@ -729,16 +729,31 @@ export class OrdersRepository {
     });
   }
 
-  /** Every dispute and the administrator it is referred to (null while unassigned), oldest first. */
-  async listDisputes(limit = 100): Promise<Array<{ orderId: string; adminId: string | null }>> {
+  /** Whether any errand is in dispute, so a run with none never asks the User Service. */
+  async anyDisputed(): Promise<boolean> {
+    const result = await this.db.query(`SELECT 1 FROM orders WHERE status = 'DISPUTED' LIMIT 1`);
+    return result.rows.length > 0;
+  }
+
+  /**
+   * Disputes that need a referral, oldest first: those referred to no one, and those referred to
+   * someone not among `adminIds` (with that administrator, so it can be cleared). Disputes waiting
+   * on an administrator who may act are left out, so however many there are, they never crowd a
+   * newer dispute out of the batch.
+   */
+  async listDisputesToRefer(
+    adminIds: string[],
+    limit = 100,
+  ): Promise<Array<{ orderId: string; adminId: string | null }>> {
     const result = await this.db.query<
       { order_id: string; referred_admin_id: string | null } & Row
     >(
       `SELECT order_id, referred_admin_id FROM orders
         WHERE status = 'DISPUTED'
+          AND (referred_admin_id IS NULL OR referred_admin_id <> ALL($1::text[]))
         ORDER BY updated_at, order_id
-        LIMIT $1`,
-      [limit],
+        LIMIT $2`,
+      [adminIds, limit],
     );
     return result.rows.map((row) => ({ orderId: row.order_id, adminId: row.referred_admin_id }));
   }
@@ -758,8 +773,7 @@ export class OrdersRepository {
   /**
    * Of the given administrators, the one with the fewest undecided disputes; ties go to the fewest
    * referrals ever kept, then the lowest user ID. A referral cleared because its admin lost the role
-   * is not kept, so it stops counting; that only matters once the admin is reinstated, and recording
-   * the admin on the ADMIN_ASSIGNED history row would count it.
+   * is not kept, so it stops counting; that only matters once the admin is reinstated.
    */
   async leastReferred(adminIds: string[]): Promise<string> {
     const result = await this.db.query<{ admin_id: string } & Row>(

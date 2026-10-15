@@ -35,6 +35,9 @@ export const profileUpdateSchema = z
 
 export const reasonSchema = z.strictObject({ reason: z.string().trim().min(1).max(500) });
 
+/** `POST /auth/step-up`: the caller's current password, re-entered (ADR 0008). */
+export const stepUpSchema = z.strictObject({ password: z.string().min(1).max(128) });
+
 export const roleChangeSchema = z.strictObject({
   role: z.enum(['STUDENT', 'ADMIN']),
   reason: z.string().trim().min(1).max(500),
@@ -75,6 +78,34 @@ export const auditQuerySchema = z
   });
 
 export type AuditQuery = z.output<typeof auditQuerySchema>;
+
+export const roleRequestQuerySchema = z.object({
+  page,
+  pageSize,
+  status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'EXPIRED']).optional(),
+});
+
+export const readsQuerySchema = z.object({
+  page,
+  pageSize,
+  actorId: z.uuid().optional(),
+  targetUserId: z.uuid().optional(),
+});
+
+export const alertsQuerySchema = z.object({
+  page,
+  pageSize,
+  kind: z
+    .enum([
+      'ROLE_CHANGE',
+      'ADMIN_SUSPENDED',
+      'ADMIN_REACTIVATED',
+      'BULK_SUSPENSIONS',
+      'SUSPENSION_LIMIT_REACHED',
+      'BULK_READS',
+    ])
+    .optional(),
+});
 
 export const activateSchema = z.strictObject({
   token: z.string().min(20).max(200),

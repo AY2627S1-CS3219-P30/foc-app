@@ -45,9 +45,23 @@ route uses the ADR-0004 `X-Service-Key` mechanism and accepts only configured se
 | `GET /admin/wallets/{userId}`                  | Admin            | Any wallet; access is audited                                    |
 | `GET /admin/wallets/{userId}/ledger`           | Admin            | Any ledger; access is audited                                    |
 | `GET /internal/orders/{orderId}/credit-status` | Internal service | Read-only `NONE`, `RESERVED`, `RELEASED`, or `TRANSFERRED` state |
+| `GET /admin/orders/{orderId}/credit`           | Admin            | One errand's operations, transactions, alerts, dead letters      |
+| `GET /admin/credit-alerts`                     | Admin            | Audit alerts across errands, newest first                        |
+| `GET /admin/activity-alerts`                   | Admin            | `BULK_WALLET_READS` alerts about administrators (ADM-04)         |
+| `GET /admin/dead-letters`, `/{id}`             | Admin            | Inputs that failed every retry, searchable; the message as kept  |
+| `POST /admin/dead-letters/{id}/redrive`        | Admin            | Sends one dead letter back, unchanged, to the queue it failed on |
 
-There is deliberately no caller-selectable student route and no HTTP mutation route. The complete
-wire contract is [`contracts/credit-service.openapi.yaml`](../contracts/credit-service.openapi.yaml).
+There is deliberately no caller-selectable student route and no HTTP route that moves credit. The
+one write is the redrive (PLT-05): it puts a failed input back, byte for byte, on the queue of the
+subscription that failed it, which decides again through its inbox and checks; the route itself
+records only who redrove it and why. The admin trace and alert routes show no balance, so they are
+not recorded wallet reads. The complete wire contract is
+[`contracts/credit-service.openapi.yaml`](../contracts/credit-service.openapi.yaml).
+
+**Watching the admins (ADM-04).** Every admin wallet or ledger read is recorded in
+`admin_wallet_reads`. When one administrator has read `ADMIN_WALLET_READS_ALERT_PER_HOUR` (50 by
+default) distinct wallets within an hour, the service raises `BULK_WALLET_READS` once for that hour
+in `admin_activity_alerts` and logs it as a warning. Both tables are append-only.
 
 `NONE` has a detail of `UNKNOWN`, `IN_FLIGHT`, or `REJECTED`; rejected reservations also expose the
 recorded rejection reason. `RESERVED` includes the immutable reservation transaction reference.
@@ -56,14 +70,14 @@ read-only and return the same IDs and timestamps.
 
 ## Closed-economy surface audit
 
-| Surface                       | Authorized effect | Trust/correctness boundary                                            |
-| ----------------------------- | ----------------- | --------------------------------------------------------------------- |
-| `user.activated`              | `ISSUE`           | `user-service` producer, inbox, wallet/issuance uniqueness            |
-| `order.reservation-requested` | `RESERVE`         | `order-service` producer, inbox, conditional debit and order key      |
-| `order.completion-requested`  | `TRANSFER`        | `order-service` producer, reservation lock and terminal key           |
-| `order.release-requested`     | `RELEASE`         | `order-service` producer, reservation lock and terminal key           |
-| HTTP routes                   | None              | Runtime route inventory is GET-only; user/admin/internal guards apply |
-| Migrations/operations         | None at runtime   | Migration role changes schema only; no balance-set command exists     |
+| Surface                       | Authorized effect | Trust/correctness boundary                                        |
+| ----------------------------- | ----------------- | ----------------------------------------------------------------- |
+| `user.activated`              | `ISSUE`           | `user-service` producer, inbox, wallet/issuance uniqueness        |
+| `order.reservation-requested` | `RESERVE`         | `order-service` producer, inbox, conditional debit and order key  |
+| `order.completion-requested`  | `TRANSFER`        | `order-service` producer, reservation lock and terminal key       |
+| `order.release-requested`     | `RELEASE`         | `order-service` producer, reservation lock and terminal key       |
+| HTTP routes                   | None              | Reads, plus the admin redrive of an unchanged input; guards apply |
+| Migrations/operations         | None at runtime   | Migration role changes schema only; no balance-set command exists |
 
 There is no purchase, withdrawal, cash-out, gift, arbitrary transfer, balance-set, administrative
 mutation, or direct cross-service database path. `closed-economy.test.ts` fails if a new HTTP route
@@ -98,7 +112,8 @@ Required variables are `SERVICE_NAME`, `PORT`, `DATABASE_URL`, `USER_SERVICE_URL
 `INTERNAL_SERVICE_KEY` (outbound User lookup) and `INTERNAL_SERVICE_KEYS` (inbound Credit callers;
 it must include Order's `INTERNAL_SERVICE_KEY`, which Order's reconciliation job (CRD-07) presents
 to read `/internal/orders/{orderId}/credit-status`);
-`RABBITMQ_URL` enables consumption and outbox relay. Shared variables are
+`RABBITMQ_URL` enables consumption, outbox relay and dead-letter parking. Optional:
+`ADMIN_WALLET_READS_ALERT_PER_HOUR` (default 50). Shared variables are
 documented in [`.env.example`](../.env.example). A missing required value stops startup.
 
 ```bash

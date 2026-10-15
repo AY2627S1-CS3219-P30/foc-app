@@ -63,6 +63,11 @@ export class BrokerConnection {
     return this.subscriptions.find((s) => s.queue === queue);
   }
 
+  /** The queues this service consumes durably. Each has a dead-letter queue, `<queue>.dlq`. */
+  durableQueues(): string[] {
+    return this.subscriptions.filter((s) => !isTransient(s)).map((s) => s.queue);
+  }
+
   /** Runs `listener` after every successful connect, including reconnects. */
   onConnected(listener: ConnectedListener): void {
     this.listeners.push(listener);

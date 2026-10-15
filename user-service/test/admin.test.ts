@@ -26,6 +26,25 @@ const as = (a: Actor) => ({
     http(t).put(`/admin/users/${id}/role`).set('Authorization', bearer(a)).send({ role, reason }),
   get: (path: string) => http(t).get(path).set('Authorization', bearer(a)),
 });
+const approve = (a: Actor, requestId: string, reason = 'approved') =>
+  http(t)
+    .post(`/admin/role-requests/${requestId}/approve`)
+    .set('Authorization', bearer(a))
+    .send({ reason });
+/** The two-person rule (ADR 0008): `requester` asks, `approver` approves. Returns the approval. */
+async function changeRole(
+  requester: Actor,
+  approver: Actor,
+  id: string,
+  role: string,
+  reason = 'test reason',
+) {
+  const asked = await as(requester).role(id, role, reason).expect(202);
+  return approve(approver, asked.body.request.id).expect(200);
+}
+/** Grants and revokes only, leaving out the requests and rejections around them. */
+const roleChanges = async () =>
+  (await audit()).filter((a) => a.action === 'ROLE_GRANT' || a.action === 'ROLE_REVOKE');
 const events = async (type: string) =>
   (await t.db.query('SELECT * FROM outbox_events WHERE event_type = $1', [type])).rows;
 /** Human-initiated audit rows. The bootstrap of `root`/`root2` writes SYSTEM rows, covered in seed.test.ts. */
@@ -159,7 +178,7 @@ describe('suspend / reactivate (US-FR3.1.2, US-FR4.1.4)', () => {
   });
 
   it('lets only a seeded admin suspend another admin', async () => {
-    await as(root).role(student.id, 'ADMIN').expect(200); // student becomes an appointed admin
+    await changeRole(root, root2, student.id, 'ADMIN'); // student becomes an appointed admin
     const appointed = await login(t, student.email);
     const denied = await as(appointed).suspend(root2.id).expect(403);
     expect(denied.body.error.code).toBe('ADMIN_ACTION_NOT_PERMITTED');
@@ -170,7 +189,15 @@ describe('suspend / reactivate (US-FR3.1.2, US-FR4.1.4)', () => {
 describe('roles (US-FR3.1.3, US-FR3.1.3.1)', () => {
   it('appoints an admin, who can then use admin endpoints, and records who granted it', async () => {
     await as(student).get('/admin/users').expect(403);
-    const res = await as(root).role(student.id, 'ADMIN', 'New ops lead').expect(200);
+    const asked = await as(root).role(student.id, 'ADMIN', 'New ops lead').expect(202);
+    expect(asked.body.request).toMatchObject({
+      targetUserId: student.id,
+      role: 'ADMIN',
+      requestedBy: root.id,
+      status: 'PENDING',
+    });
+    await as(student).get('/admin/users').expect(403); // nothing changes until a second admin agrees
+    const res = await approve(root2, asked.body.request.id, 'Agreed').expect(200);
     expect(res.body.roles).toEqual(['ADMIN', 'STUDENT']);
     expect(res.body.isSeededAdmin).toBe(false);
     await as(student).get('/admin/users').expect(200); // same token: role is read live, not from the token
@@ -180,26 +207,26 @@ describe('roles (US-FR3.1.3, US-FR3.1.3.1)', () => {
       ])
     ).rows[0]!;
     expect(grant.granted_by).toBe(root.id);
-    expect((await audit()).at(-1)).toMatchObject({
-      action: 'ROLE_GRANT',
-      target_user_id: student.id,
-      reason: 'New ops lead',
-    });
+    // Both people are on record: who asked and why, then who agreed and why.
+    expect((await audit()).slice(-2)).toMatchObject([
+      { action: 'ROLE_CHANGE_REQUESTED', actor_id: root.id, reason: 'New ops lead' },
+      { action: 'ROLE_GRANT', actor_id: root2.id, target_user_id: student.id, reason: 'Agreed' },
+    ]);
   });
 
   it('is idempotent when the role is already held', async () => {
-    await as(root).role(student.id, 'ADMIN').expect(200);
-    await as(root).role(student.id, 'ADMIN').expect(200);
+    await changeRole(root, root2, student.id, 'ADMIN');
+    await as(root).role(student.id, 'ADMIN').expect(200); // already held: nothing to approve
     expect((await audit()).filter((a) => a.action === 'ROLE_GRANT')).toHaveLength(1);
     expect(await events('user.role-changed')).toHaveLength(1);
   });
 
   it('announces each grant and revoke, so other services drop cached roles at once (USR-07)', async () => {
-    await as(root).role(student.id.toUpperCase(), 'ADMIN').expect(200);
-    await as(root).role(student.id, 'STUDENT').expect(200);
+    await changeRole(root, root2, student.id.toUpperCase(), 'ADMIN');
+    await changeRole(root, root2, student.id, 'STUDENT');
 
     const emitted = await events('user.role-changed');
-    const [grant, revoke] = await audit();
+    const [grant, revoke] = await roleChanges();
     expect(emitted.map((e) => e.payload)).toEqual([
       {
         userId: student.id,
@@ -225,7 +252,7 @@ describe('roles (US-FR3.1.3, US-FR3.1.3.1)', () => {
   });
 
   it('refuses an appointed admin who tries to downgrade another admin — even a seeded one', async () => {
-    await as(root).role(student.id, 'ADMIN').expect(200);
+    await changeRole(root, root2, student.id, 'ADMIN');
     const appointed = await login(t, student.email);
     const a = await as(appointed).role(root.id, 'STUDENT').expect(403);
     expect(a.body.error.code).toBe('ADMIN_DOWNGRADE_NOT_PERMITTED');
@@ -233,17 +260,18 @@ describe('roles (US-FR3.1.3, US-FR3.1.3.1)', () => {
   });
 
   it('lets a seeded admin downgrade an appointed admin, who then loses access immediately', async () => {
-    await as(root).role(student.id, 'ADMIN').expect(200);
+    await changeRole(root, root2, student.id, 'ADMIN');
     const appointed = await login(t, student.email);
     await as(appointed).get('/admin/users').expect(200);
 
-    const res = await as(root).role(appointed.id, 'STUDENT', 'Left the team').expect(200);
+    const res = await changeRole(root, root2, appointed.id, 'STUDENT', 'Left the team');
     expect(res.body.roles).toEqual(['STUDENT']);
     await as(appointed).get('/admin/users').expect(403);
     expect((await audit()).at(-1)).toMatchObject({ action: 'ROLE_REVOKE' });
   });
 
   it('lets a seeded admin downgrade another seeded admin while one remains', async () => {
+    // With two admins and one of them the target, nobody else could approve: it applies at once.
     await as(root).role(root2.id, 'STUDENT').expect(200);
     await as(root).get('/admin/users').expect(200);
   });
@@ -253,7 +281,7 @@ describe('roles (US-FR3.1.3, US-FR3.1.3.1)', () => {
     expect(seeded.body.error.code).toBe('SELF_DEMOTION_FORBIDDEN');
     const recased = await as(root).role(root.id.toUpperCase(), 'STUDENT').expect(409);
     expect(recased.body.error.code).toBe('SELF_DEMOTION_FORBIDDEN');
-    await as(root).role(student.id, 'ADMIN').expect(200);
+    await changeRole(root, root2, student.id, 'ADMIN');
     const appointed = await login(t, student.email);
     const own = await as(appointed).role(appointed.id, 'STUDENT').expect(409);
     expect(own.body.error.code).toBe('SELF_DEMOTION_FORBIDDEN');
@@ -300,6 +328,7 @@ describe('audit trail (US-NFR4.1.2)', () => {
       reason: 'two',
       occurredAt: expect.any(String),
       correlationId: expect.any(String),
+      approval: null, // only a role change says how it was approved
     });
     // The filter is exact: root's own history is only its bootstrap.
     const own = (await as(root).get(`/admin/audit-records?targetUserId=${root.id}`).expect(200))

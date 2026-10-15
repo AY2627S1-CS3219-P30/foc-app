@@ -1,6 +1,6 @@
 {
-  "id": "f6fc50eb-61e2-4a5f-8e26-4163aef0e5d1",
-  "prevId": "5bf8d22c-2290-491b-b101-985a87d4d2e7",
+  "id": "5bf8d22c-2290-491b-b101-985a87d4d2e7",
+  "prevId": "3aaa1a87-5516-4c29-a9aa-a3d1e3e7bfd6",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -654,18 +654,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "non_delivery_report_at": {
-          "name": "non_delivery_report_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "auto_confirm_at": {
-          "name": "auto_confirm_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
         "completion_requested_at": {
           "name": "completion_requested_at",
           "type": "timestamp with time zone",
@@ -830,22 +818,6 @@
           ],
           "isUnique": false,
           "where": "\"orders\".\"status\" = 'OPEN'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "orders_auto_confirm_idx": {
-          "name": "orders_auto_confirm_idx",
-          "columns": [
-            {
-              "expression": "auto_confirm_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"orders\".\"status\" = 'DELIVERED'",
           "concurrently": false,
           "method": "btree",
           "with": {}

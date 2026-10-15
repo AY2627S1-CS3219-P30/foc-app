@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EVENTS } from '@foc/platform';
 import {
   asAdmin,
@@ -19,6 +20,7 @@ import {
   dispute,
   footprint,
   outboxOf,
+  referTo,
   released,
   reservationReply,
   sweep,
@@ -58,7 +60,10 @@ async function secondOrder(t: TestApp): Promise<string> {
 
 describe('administrator referral (ORD-11)', () => {
   let t: TestApp | undefined;
-  afterEach(async () => t?.close());
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await t?.close();
+  });
 
   it('assigns a dispute on the next run, recorded in history without a status change or event', async () => {
     t = await createTestApp();
@@ -79,6 +84,7 @@ describe('administrator referral (ORD-11)', () => {
         newStatus: 'DISPUTED',
         action: 'ADMIN_ASSIGNED',
         actorType: 'SYSTEM',
+        reason: 'admin-1',
         version: 7,
       },
     ]);
@@ -98,6 +104,26 @@ describe('administrator referral (ORD-11)', () => {
     await dispute(t, 'DELIVERED', other);
     await sweep(t);
     expect(await referredAdmin(t, other)).toBe('admin-2');
+  });
+
+  it('refers a new dispute even when a full batch of older ones awaits a decision', async () => {
+    t = await createTestApp();
+    const other = await secondOrder(t);
+    await dispute(t, 'DELIVERED');
+    await sweep(t, 1); // the older dispute now waits on admin-1
+
+    await dispute(t, 'DELIVERED', other);
+    expect(await sweep(t, 1)).toMatchObject({ adminsAssigned: 1 });
+    expect(await referredAdmin(t, other)).toBe('admin-2');
+  });
+
+  it('clears a referral to an ID the User Service does not list, without stopping the run', async () => {
+    t = await createTestApp();
+    await dispute(t, 'DELIVERED');
+    await referTo(t, 'no-such-user');
+
+    expect(await sweep(t)).toMatchObject({ adminsUnassigned: 1, adminsAssigned: 1 });
+    expect(await referredAdmin(t)).toBe('admin-1');
   });
 
   it('never refers a dispute to, nor takes a decision from, an admin who was once its courier', async () => {
@@ -125,6 +151,8 @@ describe('administrator referral (ORD-11)', () => {
     await sweep(t);
     expect(await referredAdmin(t)).toBe('admin-2'); // admin-1 has the lower ID but is conflicted
 
+    // Even with the dispute referred to them, the former courier is refused for the conflict alone.
+    await referTo(t, 'admin-1');
     const before = await footprint(t);
     const refused = await resolve(t, asAdmin, {
       outcome: 'REQUESTER',
@@ -134,6 +162,7 @@ describe('administrator referral (ORD-11)', () => {
     expect(refused.body.error.code).toBe('CONFLICT_OF_INTEREST');
     expect(await footprint(t)).toEqual(before);
 
+    await referTo(t, 'admin-2');
     const decided = await resolve(t, asOtherAdmin, {
       outcome: 'REQUESTER',
       reason: 'No delivery photo.',
@@ -154,9 +183,10 @@ describe('administrator referral (ORD-11)', () => {
       referredAdminId: 'admin-2',
       version: 9,
     });
-    expect((await lastHistory(t, 2)).map((entry) => entry.action)).toEqual([
-      'ADMIN_UNASSIGNED',
-      'ADMIN_ASSIGNED',
+    // Each row names the administrator: the one cleared, then the one referred.
+    expect(await lastHistory(t, 2)).toMatchObject([
+      { action: 'ADMIN_UNASSIGNED', reason: 'admin-1' },
+      { action: 'ADMIN_ASSIGNED', reason: 'admin-2' },
     ]);
 
     // The replaced admin's decision is refused: stale if made from what they last saw,
@@ -182,15 +212,63 @@ describe('administrator referral (ORD-11)', () => {
     expect(await referredAdmin(t)).toBe('admin-1');
   });
 
-  it('raises one REFERRAL_UNASSIGNED alert when no admin is eligible, however many runs', async () => {
+  it('raises one REFERRAL_UNASSIGNED alert per errand but warns on every run it stays unreferred', async () => {
     t = await createTestApp();
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const warnings = () =>
+      warn.mock.calls.filter(
+        ([entry]) => (entry as { alert?: string }).alert === 'REFERRAL_UNASSIGNED',
+      ).length;
+    // The only listed administrator is the errand's own requester, so no one is eligible.
     t.userService.admins.clear();
+    t.userService.admins.add('seed-requester');
     await dispute(t, 'DELIVERED');
 
     const runs = [await sweep(t), await sweep(t), await sweep(t)];
     expect(runs.map((run) => run.referralAlerts)).toEqual([1, 0, 0]);
     expect(await alerts(t)).toBe(1);
+    expect(warnings()).toBe(3);
     expect(await referredAdmin(t)).toBeNull();
+
+    // An admin takes it, then loses the role with nobody else eligible: stuck again, still warned.
+    t.userService.admins.add('admin-1');
+    expect(await sweep(t)).toMatchObject({ adminsAssigned: 1 });
+    t.userService.admins.delete('admin-1');
+    expect(await sweep(t)).toMatchObject({ adminsUnassigned: 1, referralAlerts: 0 });
+    expect(warnings()).toBe(4);
+    expect(await alerts(t)).toBe(1);
+  });
+
+  it('changes nothing while the User Service lists no administrators, then resumes', async () => {
+    t = await createTestApp();
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const other = await secondOrder(t);
+    await dispute(t, 'DELIVERED');
+    await sweep(t); // SEEDED_ORDER → admin-1, version 7
+    await dispute(t, 'DELIVERED', other);
+
+    // A valid but empty answer neither clears the existing referral nor records an alert.
+    t.userService.admins.clear();
+    expect(await sweep(t)).toMatchObject({
+      adminsAssigned: 0,
+      adminsUnassigned: 0,
+      referralAlerts: 0,
+    });
+    expect(await t.orders.findById(SEEDED_ORDER)).toMatchObject({
+      referredAdminId: 'admin-1',
+      version: 7,
+    });
+    expect(await referredAdmin(t, other)).toBeNull();
+    expect(await alerts(t)).toBe(0);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ msg: expect.stringContaining('no administrators') }),
+    );
+
+    // The first run with an administrator listed again clears and refers in one go.
+    t.userService.admins.add('admin-2');
+    expect(await sweep(t)).toMatchObject({ adminsUnassigned: 1, adminsAssigned: 2 });
+    expect(await referredAdmin(t)).toBe('admin-2');
+    expect(await referredAdmin(t, other)).toBe('admin-2');
   });
 });
 
@@ -255,26 +333,30 @@ describe('administrator decision (ORD-11)', () => {
     ]);
   });
 
-  it('refuses every admin but the assigned one, and requests one release for the requester', async () => {
-    t = await createTestApp();
-    await dispute(t, 'DELIVERED');
-    await sweep(t);
-    const body = { outcome: 'REQUESTER', reason: 'No delivery photo.', expectedVersion: 7 };
+  it.each(['DELIVERED', 'PICKED_UP'] as const)(
+    'refuses every admin but the assigned one, and requests one release for the requester (from %s)',
+    async (from) => {
+      t = await createTestApp();
+      await dispute(t, from);
+      await sweep(t);
+      const version = (await t.orders.findById(SEEDED_ORDER))!.version;
+      const body = { outcome: 'REQUESTER', reason: 'No delivery photo.', expectedVersion: version };
 
-    const other = await resolve(t, asOtherAdmin, body).expect(403);
-    expect(other.body.error.code).toBe('NOT_REFERRED_ADMIN');
-    await resolve(t, asRequester, body).expect(403);
+      const other = await resolve(t, asOtherAdmin, body).expect(403);
+      expect(other.body.error.code).toBe('NOT_REFERRED_ADMIN');
+      await resolve(t, asRequester, body).expect(403);
 
-    const decided = await resolve(t, asAdmin, body).expect(200);
-    expect(decided.body.status).toBe('RELEASE_PENDING_CREDIT');
-    expect(await outboxOf(t, EVENTS.CREDIT_RELEASE_REQUESTED)).toHaveLength(1);
-    await resolve(t, asAdmin, { ...body, expectedVersion: 8 }).expect(409);
+      const decided = await resolve(t, asAdmin, body).expect(200);
+      expect(decided.body.status).toBe('RELEASE_PENDING_CREDIT');
+      expect(await outboxOf(t, EVENTS.CREDIT_RELEASE_REQUESTED)).toHaveLength(1);
+      await resolve(t, asAdmin, { ...body, expectedVersion: version + 1 }).expect(409);
 
-    // The decision finalises only once the Credit Service confirms the release.
-    await deliver(t, RELEASE_RESULTS_QUEUE, released());
-    expect(await t.orders.findById(SEEDED_ORDER)).toMatchObject({ status: 'CANCELLED' });
-    expect(await outboxOf(t, EVENTS.CREDIT_RELEASE_REQUESTED)).toHaveLength(1);
-  });
+      // The decision finalises only once the Credit Service confirms the release.
+      await deliver(t, RELEASE_RESULTS_QUEUE, released());
+      expect(await t.orders.findById(SEEDED_ORDER)).toMatchObject({ status: 'CANCELLED' });
+      expect(await outboxOf(t, EVENTS.CREDIT_RELEASE_REQUESTED)).toHaveLength(1);
+    },
+  );
 
   it('completes a dispute raised before delivery with a receipt that records no delivery', async () => {
     t = await createTestApp();

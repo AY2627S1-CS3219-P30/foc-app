@@ -1,6 +1,6 @@
 {
-  "id": "fa101b36-2321-46ef-b7f7-d47922da0251",
-  "prevId": "f6fc50eb-61e2-4a5f-8e26-4163aef0e5d1",
+  "id": "f6fc50eb-61e2-4a5f-8e26-4163aef0e5d1",
+  "prevId": "5bf8d22c-2290-491b-b101-985a87d4d2e7",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -45,15 +45,15 @@
         "order_idempotency_keys_order_id_orders_order_id_fk": {
           "name": "order_idempotency_keys_order_id_orders_order_id_fk",
           "tableFrom": "order_idempotency_keys",
+          "tableTo": "orders",
           "columnsFrom": [
             "order_id"
           ],
-          "tableTo": "orders",
           "columnsTo": [
             "order_id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "restrict"
+          "onDelete": "restrict",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
@@ -112,24 +112,24 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "order_operator_alerts_order_id_orders_order_id_fk": {
           "name": "order_operator_alerts_order_id_orders_order_id_fk",
           "tableFrom": "order_operator_alerts",
+          "tableTo": "orders",
           "columnsFrom": [
             "order_id"
           ],
-          "tableTo": "orders",
           "columnsTo": [
             "order_id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "restrict"
+          "onDelete": "restrict",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
@@ -233,25 +233,25 @@
         "order_receipts_order_id_orders_order_id_fk": {
           "name": "order_receipts_order_id_orders_order_id_fk",
           "tableFrom": "order_receipts",
+          "tableTo": "orders",
           "columnsFrom": [
             "order_id"
           ],
-          "tableTo": "orders",
           "columnsTo": [
             "order_id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "restrict"
+          "onDelete": "restrict",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "order_receipts_credit_transaction_id_unique": {
           "name": "order_receipts_credit_transaction_id_unique",
+          "nullsNotDistinct": false,
           "columns": [
             "credit_transaction_id"
-          ],
-          "nullsNotDistinct": false
+          ]
         }
       },
       "policies": {},
@@ -347,9 +347,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "order_reconciliation_time_idx": {
           "name": "order_reconciliation_time_idx",
@@ -362,24 +362,24 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "order_reconciliation_attempts_order_id_orders_order_id_fk": {
           "name": "order_reconciliation_attempts_order_id_orders_order_id_fk",
           "tableFrom": "order_reconciliation_attempts",
+          "tableTo": "orders",
           "columnsFrom": [
             "order_id"
           ],
-          "tableTo": "orders",
           "columnsTo": [
             "order_id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "restrict"
+          "onDelete": "restrict",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -481,9 +481,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "order_history_order_time_idx": {
           "name": "order_history_order_time_idx",
@@ -502,24 +502,24 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "order_status_history_order_id_orders_order_id_fk": {
           "name": "order_status_history_order_id_orders_order_id_fk",
           "tableFrom": "order_status_history",
+          "tableTo": "orders",
           "columnsFrom": [
             "order_id"
           ],
-          "tableTo": "orders",
           "columnsTo": [
             "order_id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "restrict"
+          "onDelete": "restrict",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -729,9 +729,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "orders_requester_created_idx": {
           "name": "orders_requester_created_idx",
@@ -750,9 +750,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "orders_courier_created_idx": {
           "name": "orders_courier_created_idx",
@@ -771,9 +771,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "orders_referred_admin_created_idx": {
           "name": "orders_referred_admin_created_idx",
@@ -792,9 +792,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "orders_accepted_at_idx": {
           "name": "orders_accepted_at_idx",
@@ -807,10 +807,10 @@
             }
           ],
           "isUnique": false,
-          "with": {},
-          "method": "btree",
           "where": "\"orders\".\"status\" = 'ACCEPTED'",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         },
         "orders_open_deadline_idx": {
           "name": "orders_open_deadline_idx",
@@ -829,10 +829,10 @@
             }
           ],
           "isUnique": false,
-          "with": {},
-          "method": "btree",
           "where": "\"orders\".\"status\" = 'OPEN'",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         },
         "orders_auto_confirm_idx": {
           "name": "orders_auto_confirm_idx",
@@ -845,10 +845,10 @@
             }
           ],
           "isUnique": false,
-          "with": {},
-          "method": "btree",
           "where": "\"orders\".\"status\" = 'DELIVERED'",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -923,15 +923,15 @@
           "primaryKey": false,
           "notNull": true,
           "identity": {
+            "type": "always",
             "name": "outbox_events_seq_seq",
+            "schema": "public",
             "increment": "1",
+            "startWith": "1",
             "minValue": "1",
             "maxValue": "9223372036854775807",
-            "startWith": "1",
             "cache": "1",
-            "cycle": false,
-            "schema": "public",
-            "type": "always"
+            "cycle": false
           }
         },
         "event_type": {
@@ -1017,10 +1017,10 @@
             }
           ],
           "isUnique": false,
-          "with": {},
-          "method": "btree",
           "where": "\"outbox_events\".\"published_at\" IS NULL",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         },
         "outbox_events_pending_aggregate_idx": {
           "name": "outbox_events_pending_aggregate_idx",
@@ -1039,10 +1039,10 @@
             }
           ],
           "isUnique": false,
-          "with": {},
-          "method": "btree",
           "where": "\"outbox_events\".\"published_at\" IS NULL",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1101,10 +1101,10 @@
   },
   "enums": {},
   "schemas": {},
-  "views": {},
   "sequences": {},
   "roles": {},
   "policies": {},
+  "views": {},
   "_meta": {
     "columns": {},
     "schemas": {},

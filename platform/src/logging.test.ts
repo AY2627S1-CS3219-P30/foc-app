@@ -198,6 +198,17 @@ describe('logged errors', () => {
     expect(errorMessage('bob@u.nus.edu refused')).toBe('[email] refused');
   });
 
+  it("give a driver error that carries its query the database's reason, still without values", () => {
+    // PGlite's shape: the database's message, with the statement and values alongside.
+    const err = Object.assign(new Error('wallets table unavailable'), {
+      query: 'insert into "wallets" values ($1)',
+      params: ['alice@u.nus.edu'],
+    });
+    expect(errorMessage(err)).toBe(
+      'Failed query: insert into "wallets" values ($1): wallets table unavailable',
+    );
+  });
+
   it('mask a cause, and each error of an AggregateError', () => {
     const err = new Error('lookup failed', { cause: new Error('no row for bob@u.nus.edu') });
     const aggregate = new AggregateError([new Error('carol@u.nus.edu refused')], 'send failed');

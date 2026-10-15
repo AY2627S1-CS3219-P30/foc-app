@@ -1,5 +1,6 @@
 export { createEphemeralPostgres, TEST_POSTGRES_URL, type EphemeralPostgres } from './postgres.js';
 export { createEphemeralBroker, RABBITMQ_URL, type EphemeralBroker } from './broker.js';
+export { createMemoryBroker, type MemoryBroker } from './memory-broker.js';
 export {
   CONTRACTS_DIR,
   ContractValidator,

@@ -140,7 +140,9 @@ its own credentials. See [`postgres-init.sql`](postgres-init.sql).
 **Ports.** PostgreSQL is published on **55432** and RabbitMQ on **55672**, not
 their defaults, because a locally installed copy usually holds 5432 and 5672 and
 `up` would fail to bind. Override any port in `.env`. RabbitMQ's management UI is
-at <http://localhost:15672> (`foc` / `foc_dev`).
+at <http://localhost:15672> (`foc` / `foc_dev`). The operator dashboard is
+Grafana at <http://localhost:3005>, open to view without signing in, with
+Prometheus behind it at <http://localhost:9090>; see [Observability](#observability).
 
 **Connections.** Compose gives each service its own `DATABASE_URL` and the shared
 `RABBITMQ_URL`. User, Supplier and Credit apply their own migrations through
@@ -176,6 +178,8 @@ If that prints `All smoke checks passed`, you are set up correctly.
 | `supplier-service` | 3002 | Patrick    | `npm run dev:supplier`  |
 | `order-service`    | 3003 | Zhang Yuan | `npm run dev:order`     |
 | `credit-service`   | 3004 | Isaac      | `npm run dev:credit`    |
+| `grafana`          | 3005 | Jonus      | Compose only            |
+| `prometheus`       | 9090 | Jonus      | Compose only            |
 
 ---
 
@@ -185,8 +189,14 @@ Each service imports `PlatformModule` from `platform/` and gets:
 
 - **`GET /health`** returning the service's own identifier
 - **Structured JSON logging** — one line per request, every line carrying a
-  correlation ID read from `x-correlation-id` and echoed back on the response,
-  so one browser action can be followed across services
+  correlation ID read from `x-correlation-id` (the web app sends one with every
+  request) and echoed back on the response. A service passes it on when it calls
+  another (the auth client's identity check, Order's supplier lookup) and in every
+  event, so one browser action can be followed across services
+- **`GET /metrics`** for Prometheus: request latency by route, events handled,
+  retried and dead-lettered, and the outbox backlog (PLT-04). It wants
+  `Authorization: Bearer $METRICS_TOKEN`, since it lists every route with its
+  error rate; without a token it is open in development and refused in production
 - **A shared error envelope**, so the web app handles failures uniformly
 - **Boot-time environment validation** that fails loudly and names the variable
 - **Graceful shutdown** on `SIGTERM`
@@ -197,6 +207,103 @@ there lands once instead of four times.
 See [docs/adr/0001-runtime-and-service-framework.md](docs/adr/0001-runtime-and-service-framework.md)
 for why the stack is what it is, including two constraints worth knowing before
 you add a dependency.
+
+---
+
+## Observability
+
+`docker compose up` also starts Prometheus and Grafana (PLT-04). Open
+<http://localhost:3005>: the **FoC Platform** dashboard is the home page, with
+nothing to set up and no sign-in needed to view it. Both are published on
+`127.0.0.1` only, so anonymous viewing stays on your machine. Prometheus sends
+`METRICS_TOKEN` to each service (Compose mounts it as a file); to read one
+yourself, `curl -H "Authorization: Bearer $METRICS_TOKEN" localhost:3001/metrics`.
+
+| Panel                            | Shows                                                                                                | From                                                         |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| HTTP p95 latency, by service     | time to answer, 95th percentile                                                                      | `http_request_duration_seconds`                              |
+| Requests by status code          | request rate per HTTP status                                                                         | `http_request_duration_seconds_count`                        |
+| Errands by status                | errands in each state right now                                                                      | `foc_orders` (Order Service)                                 |
+| Consumer backlog per queue       | messages waiting for a consumer                                                                      | RabbitMQ's exporter                                          |
+| Event lag p95, by queue          | time from an event occurring to its consumer handling it                                             | `foc_event_lag_seconds`                                      |
+| Retries per minute, by queue     | retries scheduled after a handler failed                                                             | `foc_event_retries_total`                                    |
+| Dead letters waiting, by queue   | parked for an operator (PLT-05); "not yet parked" only while the owning service is down              | `foc_dead_letters_waiting`, RabbitMQ's exporter              |
+| Dead-lettered events by reason   | `unparseable` (set aside at once) or `exhausted` (retries spent); a per-instance queue drops instead | `foc_events_dead_lettered_total`, `foc_events_dropped_total` |
+| Outbox backlog                   | events committed but not yet confirmed by the broker                                                 | `foc_outbox_backlog`, `..._oldest_unpublished_age_seconds`   |
+| Oldest errand waiting for Credit | how long the oldest `PENDING_CREDIT` errand has waited for its reservation                           | `foc_orders_pending_credit_oldest_age_seconds`               |
+| Firing alerts                    | the rules in `observability/alerts.yml` that are firing now                                          | Prometheus `ALERTS`                                          |
+
+- **Follow one request.** Its correlation ID is in the `x-correlation-id`
+  response header. `docker compose logs | grep <id>` then shows every service it
+  reached and every event it caused. The web app gives every call one user
+  action makes the same ID (signing in is the login and the account read), and a
+  credit reconciliation run is `reconcile-<runId>`. Two limits: identity checks
+  that arrive together share one call to the User Service, logged there under the
+  first caller's ID, and a cached check makes no call at all.
+- **Per-instance queues** (each service's `auth-status` cache queue) carry a
+  random suffix; their metrics are labelled without it, so a restart continues
+  the same series.
+- **Rates need traffic.** A rate panel shows a request once Prometheus has
+  scraped before and after it (every 15 s), so give a demo a minute of traffic.
+- **Add a metric.** Inject `METRICS` from `@foc/platform` and call `addGauge`;
+  Order's `foc_orders` in `order-service/src/orders/order.metrics.ts` is the
+  example. Every series carries a `service` label.
+- **Change the dashboard** in `observability/grafana/dashboards/foc-platform.json`.
+  Grafana reloads it within seconds; edits made in the UI are not saved.
+
+### Dead letters and alerts (PLT-05)
+
+An event that fails every retry is **dead-lettered**. The service that consumes
+it (Order or Credit) drains its own `.dlq` queues into a `dead_letters` table in
+its own database, so a dead letter is kept, searchable and never lost to a queue
+purge. The admin console's **Operations** tab (`/admin/operations`) is where an
+operator works with them:
+
+- **Find** a dead letter by correlation ID, errand ID, user ID or event ID, in
+  either service, waiting or already redriven.
+- **Inspect** it: the queue it failed on, why (the `x-foc-failure-reason` the
+  consumer recorded), how many attempts, and the message exactly as it arrived.
+- **Redrive** it, with a reason. The service publishes the stored bytes, unedited,
+  to the queue it failed on and nowhere else, waits for the broker to confirm,
+  then records who redrove it, when and why. A dead letter is redriven once; if
+  it fails again it comes back as a new one. The consumer's inbox makes a repeat
+  harmless: a redriven `user.activated` issues exactly one wallet however often
+  it arrives (`credit-service/test/operations.test.ts`).
+- **Trace an errand** from its ID: every state change, every event sent or still
+  waiting, reconciliation, alerts and dead letters from both services, in order.
+
+A `dead_letters` row cannot be deleted, and changes once, to record its redrive
+(a database trigger refuses anything else). The Credit Service's one HTTP write
+is this redrive; it moves no credit itself, so a balance still changes only
+through the four event subscriptions in `credit-service/src/closed-economy.ts`.
+
+Prometheus evaluates `observability/alerts.yml`. A firing alert shows on the
+dashboard's **Firing alerts** panel and at <http://localhost:9090/alerts>; no
+Alertmanager runs locally, so nothing is sent anywhere.
+
+| Alert                    | Fires when                                                     |
+| ------------------------ | -------------------------------------------------------------- |
+| `DeadLetterWaiting`      | any dead letter is waiting, at once                            |
+| `DeadLetterNotParked`    | a `.dlq` queue has held a message for 2 minutes (service down) |
+| `ErrandWaitingForCredit` | an errand has waited more than 5 minutes for its reservation   |
+| `ServiceDown`            | a service has not answered a scrape for a minute               |
+
+The rules have unit tests, which CI runs before the Compose smoke test:
+
+```bash
+docker run --rm -v "$PWD/observability:/rules:ro" --entrypoint promtool prom/prometheus:v3.13.4 test rules /rules/alerts.test.yml
+```
+
+**When `DeadLetterWaiting` fires:**
+
+1. Open the Operations tab and find the dead letter; its queue says which
+   consumer failed and its reason says why.
+2. Trace the errand (or open the account, for a `user.activated`) to see what
+   happened around it.
+3. Fix the cause: a service or database that was down, a bad deployment, a row
+   in the wrong state. Redriving before then only fails it again.
+4. Redrive it with a reason, then watch the trace: the consumer handles it, or
+   it fails again and comes back as a new dead letter with the new reason.
 
 ---
 
@@ -280,12 +387,12 @@ payload that failed its schema.
 
 ### What happens when a handler fails
 
-| Outcome                 | Behaviour                                                                  |
-| ----------------------- | -------------------------------------------------------------------------- |
-| Handled                 | Acknowledged                                                               |
-| **Transient failure**   | Retried up to 5 times with growing delay — 1s, 5s, 15s, 60s                |
-| **Attempts exhausted**  | Dead-lettered with the failure reason attached                             |
-| **Unparseable message** | Dead-lettered immediately — retrying malformed input only burns the budget |
+| Outcome                 | Behaviour                                                                   |
+| ----------------------- | --------------------------------------------------------------------------- |
+| Handled                 | Acknowledged                                                                |
+| **Transient failure**   | Retried up to 5 times with growing delay — 1s, 5s, 15s, 60s                 |
+| **Attempts exhausted**  | Dead-lettered with the failure reason attached, then parked for an operator |
+| **Unparseable message** | Dead-lettered immediately — retrying malformed input only burns the budget  |
 
 Retry uses delay queues rather than requeueing: a nack-and-requeue loop spins
 hot and starves every other message. A failed message goes to a queue whose only
@@ -324,8 +431,11 @@ docker compose exec rabbitmq rabbitmqctl list_exchanges name type
 docker compose exec rabbitmq rabbitmqctl list_queues name messages
 ```
 
-A queue ending `.dlq` holds messages a consumer could not process. Each carries
-an `x-foc-failure-reason` header, so you can see why without reading logs.
+A queue ending `.dlq` receives messages a consumer could not process. Each
+carries an `x-foc-failure-reason` header, so you can see why without reading
+logs. Its service drains it at once into its `dead_letters` table, so the queue
+reads empty while the service runs; find, inspect and redrive them in the admin
+console's Operations tab ([Dead letters and alerts](#dead-letters-and-alerts-plt-05)).
 
 ### Testing against a real broker
 

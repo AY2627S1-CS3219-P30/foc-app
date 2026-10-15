@@ -92,20 +92,8 @@ export class FakeUserService {
   readonly fetch: typeof fetch = async (input) => {
     if (this.down) throw new TypeError('fetch failed');
     const { pathname } = new URL(String(input));
-    if (pathname === '/internal/admins') {
-      return Response.json({ items: [...this.admins].map((userId) => ({ userId })) });
-    }
-    const match = /^\/internal\/users\/([^/]+)\/permissions$/.exec(pathname);
-    if (!match) return new Response(null, { status: 404 });
-    const userId = decodeURIComponent(match[1]!);
-    const active = this.admins.has(userId);
-    return Response.json({
-      userId,
-      status: active ? 'ACTIVE' : 'SUSPENDED',
-      isAdmin: active,
-      canPlaceOrders: active,
-      canAcceptOrders: active,
-    });
+    if (pathname !== '/internal/admins') return new Response(null, { status: 404 });
+    return Response.json({ items: [...this.admins].map((userId) => ({ userId })) });
   };
 }
 
