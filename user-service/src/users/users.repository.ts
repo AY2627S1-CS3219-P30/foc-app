@@ -226,13 +226,16 @@ export const usersRepository = {
     await db.update(profiles).set(set).where(eq(profiles.userId, userId));
   },
 
-  /** Every ACTIVE user holding ADMIN, by ID alone. */
+  /**
+   * Every ACTIVE user holding ADMIN who can sign in, by ID alone. A seeded admin that has not yet
+   * replaced the bootstrap password cannot hold a session, so it is left out.
+   */
   async listActiveAdminIds(db: Database): Promise<string[]> {
     const rows = await db
       .select({ userId: users.id })
       .from(users)
       .innerJoin(userRoles, and(eq(userRoles.userId, users.id), eq(userRoles.role, 'ADMIN')))
-      .where(eq(users.status, 'ACTIVE'))
+      .where(and(eq(users.status, 'ACTIVE'), eq(users.mustChangePassword, false)))
       .orderBy(users.id);
     return rows.map((row) => row.userId);
   },

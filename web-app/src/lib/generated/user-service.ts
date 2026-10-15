@@ -370,8 +370,10 @@ export interface paths {
         };
         /**
          * The administrators who may act now
-         * @description Every `ACTIVE` account holding `ADMIN`, by user ID alone, so another service can route work
-         *     (such as a disputed errand) to one of them. Reveals no more than `/internal/users/{userId}`.
+         * @description Every `ACTIVE` account holding `ADMIN` that can sign in, by user ID alone, so another service
+         *     can route work (such as a disputed errand) to one of them. A seeded administrator that has
+         *     not yet replaced its bootstrap password is left out. Reveals no more than
+         *     `/internal/users/{userId}`.
          */
         get: operations["listActiveAdmins"];
         put?: never;
