@@ -27,6 +27,12 @@ export const ORDER_ACTIONS = [
 
 export type OrderAction = (typeof ORDER_ACTIONS)[number];
 
+/** The history reason of every outcome a participant's suspension causes. */
+export const SUSPENSION_REASONS = {
+  REQUESTER: 'requester suspended',
+  COURIER: 'courier suspended',
+} as const;
+
 /** The action that carries out each outcome an administrator can decide a dispute for. */
 export const RESOLVE_ACTIONS = {
   COURIER: 'RESOLVE_FOR_COURIER',

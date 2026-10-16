@@ -119,9 +119,17 @@ export class IdempotencyKeyReusedError extends Error {
 export class OrdersRepository {
   constructor(@Inject(ORDER_DB) private readonly db: OrderDatabase) {}
 
-  /** Pass `db` to read inside a transaction already open. */
-  async findById(orderId: string, db: Queryable = this.db): Promise<OrderRow | undefined> {
-    return this.findByIdUsing(db, orderId);
+  async findById(orderId: string): Promise<OrderRow | undefined> {
+    return this.findByIdUsing(this.db, orderId);
+  }
+
+  /** Reads the order under its row lock, held until `tx` ends. */
+  async lockById(tx: Queryable, orderId: string): Promise<OrderRow | undefined> {
+    const result = await tx.query<StoredOrder>(
+      `SELECT ${ORDER_COLUMNS} FROM orders WHERE order_id = $1 FOR UPDATE`,
+      [orderId],
+    );
+    return result.rows[0] ? mapOrder(result.rows[0]) : undefined;
   }
 
   private async findByIdUsing(db: Queryable, orderId: string): Promise<OrderRow | undefined> {
@@ -651,11 +659,17 @@ export class OrdersRepository {
    * delivered, and those they are courier of that are not yet delivered. Locked in `order_id`
    * order, so two suspensions handled at once (the requester and the courier of one errand) wait
    * for each other rather than deadlock.
+   *
+   * A requester's errand still in PENDING_CREDIT is locked too, though no suspension rule moves
+   * it: the reservation reply holds the same lock while it asks the User Service, so whichever of
+   * the two runs second sees what the first did, and a suspension cannot slip between the reply's
+   * question and its answer.
    */
   async lockActiveErrandsOf(tx: Queryable, userId: string): Promise<OrderRow[]> {
     const result = await tx.query<StoredOrder>(
       `SELECT ${ORDER_COLUMNS} FROM orders
-        WHERE (requester_id = $1 AND status IN ('OPEN', 'ACCEPTED', 'PICKED_UP'))
+        WHERE (requester_id = $1
+               AND status IN ('PENDING_CREDIT', 'OPEN', 'ACCEPTED', 'PICKED_UP'))
            OR (courier_id = $1 AND status IN ('ACCEPTED', 'PICKED_UP'))
         ORDER BY order_id
         FOR UPDATE`,

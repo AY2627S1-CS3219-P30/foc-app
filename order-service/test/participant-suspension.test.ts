@@ -96,6 +96,7 @@ describe('participant suspension (ORD-06)', () => {
       previousStatus: 'ACCEPTED',
       newStatus: 'OPEN',
       action: 'COURIER_SUSPENDED',
+      reason: 'courier suspended',
       actorType: 'SYSTEM',
     });
     expect(await creditRequests(t)).toEqual({ releases: 0, transfers: 0 });
@@ -114,6 +115,7 @@ describe('participant suspension (ORD-06)', () => {
     expect(await lastAction(t)).toMatchObject({
       previousStatus: 'PICKED_UP',
       action: 'COURIER_SUSPENDED',
+      reason: 'courier suspended',
       actorType: 'SYSTEM',
     });
     expect(await creditRequests(t)).toEqual({ releases: 0, transfers: 0 });
@@ -136,6 +138,7 @@ describe('participant suspension (ORD-06)', () => {
       expect(await lastAction(t)).toMatchObject({
         previousStatus: status,
         action: 'REQUESTER_SUSPENDED',
+        reason: 'requester suspended',
         actorType: 'SYSTEM',
       });
       expect(await outboxOf(t, EVENTS.CREDIT_RELEASE_REQUESTED)).toEqual([
@@ -210,8 +213,10 @@ describe('participant suspension (ORD-06)', () => {
   it('cancels an errand whose requester was suspended while it waited for its reservation', async () => {
     t = await createTestApp();
     const orderId = await createPending(t);
+    const waiting = await footprint(t, orderId);
+    // Locked, but left to the reservation reply: no rule moves an errand still waiting for it.
     await suspend(t, REQUESTER);
-    expect((await t.orders.findById(orderId))!.status).toBe('PENDING_CREDIT');
+    expect(await footprint(t, orderId)).toEqual(waiting);
 
     await reservationReply(t, orderId);
 
@@ -222,6 +227,7 @@ describe('participant suspension (ORD-06)', () => {
     expect(await lastAction(t, orderId)).toMatchObject({
       previousStatus: 'PENDING_CREDIT',
       action: 'CREDIT_RESERVED',
+      reason: 'requester suspended',
       actorType: 'CREDIT_SERVICE',
     });
     expect(await creditRequests(t, orderId)).toEqual({ releases: 1, transfers: 0 });
@@ -270,6 +276,7 @@ describe('participant suspension (ORD-06)', () => {
     expect(await lastAction(t)).toMatchObject({
       previousStatus: 'PICKED_UP',
       action: 'DELIVERY_PERIOD_PASSED',
+      reason: 'requester suspended',
       actorType: 'SYSTEM',
     });
     expect(await creditRequests(t)).toEqual({ releases: 0, transfers: 0 });
@@ -291,6 +298,7 @@ describe('participant suspension (ORD-06)', () => {
     expect((await t.orders.findHistory(SEEDED_ORDER)).at(-2)).toMatchObject({
       previousStatus: 'PICKED_UP',
       action: 'DELIVERY_PERIOD_PASSED',
+      reason: 'requester suspended',
       actorType: 'SYSTEM',
     });
     expect(await creditRequests(t)).toEqual({ releases: 0, transfers: 0 });

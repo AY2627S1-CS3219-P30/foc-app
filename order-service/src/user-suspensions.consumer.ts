@@ -12,8 +12,8 @@ import {
 } from '@foc/platform';
 import { ORDER_DB } from './db/db.js';
 import { OrdersRepository } from './orders/orders.repository.js';
-import type { OrderAction } from './orders/order-state-machine.js';
-import type { OrderRow } from './orders/types.js';
+import { SUSPENSION_REASONS, type OrderAction } from './orders/order-state-machine.js';
+import type { OrderStatus } from './orders/types.js';
 import { UserDirectoryClient } from './orders/user-directory.client.js';
 
 export const USER_SUSPENSIONS_QUEUE = 'foc.order.user-suspensions';
@@ -56,20 +56,22 @@ export class UserSuspensionsConsumer implements OnApplicationBootstrap {
     });
   }
 
-  private async handle(envelope: Envelope<UserStatusChangedPayload>, tx: Queryable) {
+  private async handle(envelope: Envelope<UserStatusChangedPayload>, tx: Queryable): Promise<void> {
     const { userId } = envelope.payload;
     const suspended = await this.directory.isSuspended(userId);
     let changed = 0;
     if (suspended) {
       for (const order of await this.orders.lockActiveErrandsOf(tx, userId)) {
+        const asRequester = order.requesterId === userId;
         const result = await this.orders.transition(
           {
             orderId: order.orderId,
-            action: suspensionAction(order, userId),
+            action: suspensionAction(order.status, asRequester),
             actor: { kind: 'SYSTEM', id: 'user-suspensions' },
             correlationId: envelope.correlationId,
             causationId: envelope.eventId,
-            requesterSuspended: order.requesterId === userId,
+            requesterSuspended: asRequester,
+            reason: asRequester ? SUSPENSION_REASONS.REQUESTER : SUSPENSION_REASONS.COURIER,
           },
           tx,
         );
@@ -87,8 +89,11 @@ export class UserSuspensionsConsumer implements OnApplicationBootstrap {
   }
 }
 
-/** A picked-up errand's requester refers it only once the delivery period passed (the rule's guard). */
-function suspensionAction(order: OrderRow, userId: string): OrderAction {
-  if (order.requesterId !== userId) return 'COURIER_SUSPENDED';
-  return order.status === 'PICKED_UP' ? 'DELIVERY_PERIOD_PASSED' : 'REQUESTER_SUSPENDED';
+/**
+ * A picked-up errand's requester refers it only once the delivery period passed (its guard). An
+ * errand still waiting for its reservation has no rule for either action and is left to the reply.
+ */
+function suspensionAction(status: OrderStatus, asRequester: boolean): OrderAction {
+  if (!asRequester) return 'COURIER_SUSPENDED';
+  return status === 'PICKED_UP' ? 'DELIVERY_PERIOD_PASSED' : 'REQUESTER_SUSPENDED';
 }

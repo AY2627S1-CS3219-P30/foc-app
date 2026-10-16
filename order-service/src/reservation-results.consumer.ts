@@ -16,6 +16,7 @@ import {
 import { z } from 'zod';
 import { ORDER_DB } from './db/db.js';
 import { OrdersRepository } from './orders/orders.repository.js';
+import { SUSPENSION_REASONS } from './orders/order-state-machine.js';
 import { UserDirectoryClient } from './orders/user-directory.client.js';
 
 export const RESERVATION_RESULTS_QUEUE = 'foc.order.reservation-results';
@@ -66,7 +67,8 @@ export class ReservationResultsConsumer implements OnApplicationBootstrap {
         : (envelope.payload as CreditReservationRejectedPayload);
     // Only an insufficient-credits refusal reports the balance.
     const available = rejection && 'available' in rejection ? rejection.available : null;
-    const order = await this.orders.findById(orderId, tx);
+    // Locked before the User Service is asked: see OrdersRepository.lockActiveErrandsOf.
+    const order = await this.orders.lockById(tx, orderId);
     if (!order) throw new UnparseableMessageError('reservation result names an unknown order');
     if (order.requesterId !== requesterId || order.reward !== amount) {
       throw new UnparseableMessageError('reservation result does not match the recorded request');
@@ -85,6 +87,7 @@ export class ReservationResultsConsumer implements OnApplicationBootstrap {
         correlationId: envelope.correlationId,
         causationId: envelope.eventId,
         requesterSuspended,
+        reason: requesterSuspended ? SUSPENSION_REASONS.REQUESTER : undefined,
         patch: rejection && {
           rejection_reason: rejection.reason,
           available_at_rejection: available,
@@ -94,7 +97,7 @@ export class ReservationResultsConsumer implements OnApplicationBootstrap {
     );
     if (result.kind === 'rejected') {
       // Only a repeat of the reply already recorded is harmless.
-      const current = result.order!;
+      const current = result.order!; // found above, under the lock
       const repeated = rejection
         ? current.status === 'REJECTED' &&
           current.rejectionReason === rejection.reason &&

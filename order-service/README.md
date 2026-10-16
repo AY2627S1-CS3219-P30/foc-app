@@ -293,9 +293,10 @@ after it confirms them, 100 per run.
 
 ### Participant suspension (ORD-06)
 
-An errand stores three user IDs: its requester, its current courier, and the administrator a
-dispute is referred to. It keeps no copy of a name, email, status or role, so a change to any of
-those needs nothing from this service except two:
+An errand refers to users by ID only: its requester, its current courier and the administrator a
+dispute is referred to on the order; who acted on each history row; and the requester and courier
+on its receipt. It keeps no copy of a name, email, status or role, so a change to any of those
+needs nothing from this service except two:
 
 - **A suspension** changes the user's errands, below.
 - **An administrator who loses the role or is suspended** has their referrals cleared and given to
@@ -322,11 +323,18 @@ ordinary transition path:
 
 Anything else is left alone. A delivered errand is confirmed or auto-confirmed as usual, so credits
 keep moving for work already done (CS-FR1.2.1), and an errand already in dispute or waiting on the
-Credit Service is not touched. No suspension moves credits except the requester's cancellation.
+Credit Service is not changed. No suspension moves credits except the requester's cancellation.
+
+Every outcome's history row gives its reason, `requester suspended` or `courier suspended`,
+including the two below that happen later: the scheduler's referral and the cancellation when the
+reservation arrives.
 
 - **While the errand waits for its reservation.** A requester suspended while their errand is in
   `PENDING_CREDIT` is caught when Credit's reservation arrives: the reply handler asks the User
-  Service and, if the requester is suspended, cancels the errand instead of opening it.
+  Service and, if the requester is suspended, cancels the errand instead of opening it. It locks
+  the errand before asking, and the suspension handler locks the requester's waiting errands too,
+  so whichever runs second sees what the other did: either the reply finds the requester suspended,
+  or the suspension finds the errand already `OPEN` and cancels it.
 - **At the end of the delivery period.** Each scheduler run asks the User Service about the
   requester of every picked-up errand past its delivery period, newest first, and refers the errand
   (`DELIVERY_PERIOD_PASSED`) if they are suspended. An errand whose requester is active stays
