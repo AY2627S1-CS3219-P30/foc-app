@@ -16,6 +16,11 @@ export class InternalController {
     return this.users.introspect(sid, sub);
   }
 
+  @Get('admins')
+  admins() {
+    return this.users.listActiveAdmins();
+  }
+
   @Get('users/:userId')
   lookup(@Param('userId') userId: string) {
     return this.users.lookup(parseOrThrow(userIdSchema, userId));

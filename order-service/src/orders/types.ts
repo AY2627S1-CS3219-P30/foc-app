@@ -72,7 +72,8 @@ export interface OrderReceipt {
     createdAt: string;
     acceptedAt: string;
     pickedUpAt: string;
-    deliveredAt: string;
+    /** Null when an administrator completed the errand before any delivery was recorded. */
+    deliveredAt: string | null;
     completionRequestedAt: string;
     completedAt: string;
   };

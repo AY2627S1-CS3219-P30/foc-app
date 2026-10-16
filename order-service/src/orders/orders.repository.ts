@@ -10,6 +10,7 @@ import {
 import { ORDER_DB, type OrderDatabase } from '../db/db.js';
 import {
   ORDER_TRANSITIONS,
+  RESOLVE_ACTIONS,
   decideTransition,
   type OrderAction,
   type OrderActor,
@@ -307,11 +308,13 @@ export class OrdersRepository {
         action: string;
         actor_type: string;
         actor_id: string | null;
+        reason: string | null;
         order_version: number;
         occurred_at: Date | string;
       } & Row
     >(
-      `SELECT previous_status, new_status, action, actor_type, actor_id, order_version, occurred_at
+      `SELECT previous_status, new_status, action, actor_type, actor_id, reason, order_version,
+              occurred_at
          FROM order_status_history
         WHERE order_id = $1
         ORDER BY order_version`,
@@ -323,6 +326,7 @@ export class OrdersRepository {
       action: row.action,
       actorType: row.actor_type,
       actorId: row.actor_id,
+      reason: row.reason,
       version: Number(row.order_version),
       occurredAt: iso(row.occurred_at),
     }));
@@ -415,20 +419,12 @@ export class OrdersRepository {
           correlationId: input.correlationId,
         } as Parameters<typeof insertOutboxEvent>[1]);
       } else if (input.action === 'ALERT') {
-        const raised = await tx.query(
-          `INSERT INTO order_operator_alerts (order_id, kind, detail)
-           VALUES ($1, 'CREDIT_STATE_CONFLICT', $2::jsonb)
-           ON CONFLICT (order_id, kind) DO NOTHING
-           RETURNING order_id`,
-          [
-            order.orderId,
-            JSON.stringify({
-              orderStatus: order.status,
-              creditStatus: input.credit?.status ?? null,
-            }),
-          ],
+        alertRaised = await this.raiseAlert(
+          order.orderId,
+          'CREDIT_STATE_CONFLICT',
+          { orderStatus: order.status, creditStatus: input.credit?.status ?? null },
+          tx,
         );
-        alertRaised = raised.rows.length > 0;
       }
       const action =
         input.action === 'REISSUE'
@@ -717,6 +713,128 @@ export class OrdersRepository {
     });
   }
 
+  /** Whether any errand is in dispute, so a run with none never asks the User Service. */
+  async anyDisputed(): Promise<boolean> {
+    const result = await this.db.query(`SELECT 1 FROM orders WHERE status = 'DISPUTED' LIMIT 1`);
+    return result.rows.length > 0;
+  }
+
+  /**
+   * Disputes that need a referral, oldest first: those referred to no one, and those referred to
+   * someone not among `adminIds` (with that administrator, so it can be cleared). Disputes waiting
+   * on an administrator who may act are left out, so however many there are, they never crowd a
+   * newer dispute out of the batch.
+   */
+  async listDisputesToRefer(
+    adminIds: string[],
+    limit = 100,
+  ): Promise<Array<{ orderId: string; adminId: string | null }>> {
+    const result = await this.db.query<
+      { order_id: string; referred_admin_id: string | null } & Row
+    >(
+      `SELECT order_id, referred_admin_id FROM orders
+        WHERE status = 'DISPUTED'
+          AND (referred_admin_id IS NULL OR referred_admin_id <> ALL($1::text[]))
+        ORDER BY updated_at, order_id
+        LIMIT $2`,
+      [adminIds, limit],
+    );
+    return result.rows.map((row) => ({ orderId: row.order_id, adminId: row.referred_admin_id }));
+  }
+
+  /** Everyone who was ever the errand's requester or courier, including couriers who left it. */
+  async participants(orderId: string): Promise<string[]> {
+    const result = await this.db.query<{ user_id: string } & Row>(
+      `SELECT requester_id AS user_id FROM orders WHERE order_id = $1
+       UNION SELECT courier_id FROM orders WHERE order_id = $1 AND courier_id IS NOT NULL
+       UNION SELECT actor_id FROM order_status_history
+              WHERE order_id = $1 AND action = 'ACCEPT' AND actor_id IS NOT NULL`,
+      [orderId],
+    );
+    return result.rows.map((row) => row.user_id);
+  }
+
+  /**
+   * Of the given administrators, the one with the fewest undecided disputes; ties go to the fewest
+   * referrals ever kept, then the lowest user ID. A referral cleared because its admin lost the role
+   * is not kept, so it stops counting; that only matters once the admin is reinstated.
+   */
+  async leastReferred(adminIds: string[]): Promise<string> {
+    const result = await this.db.query<{ admin_id: string } & Row>(
+      `SELECT a.admin_id
+         FROM unnest($1::text[]) AS a(admin_id)
+         LEFT JOIN orders o ON o.referred_admin_id = a.admin_id
+        GROUP BY a.admin_id
+        ORDER BY count(o.order_id) FILTER (WHERE o.status = 'DISPUTED'), count(o.order_id),
+                 a.admin_id
+        LIMIT 1`,
+      [adminIds],
+    );
+    return result.rows[0]!.admin_id;
+  }
+
+  /** Raises an operator alert for the order; true only the first time (one per order and kind). */
+  async raiseAlert(
+    orderId: string,
+    kind: 'CREDIT_STATE_CONFLICT' | 'REFERRAL_UNASSIGNED',
+    detail: Record<string, unknown>,
+    db: Queryable = this.db,
+  ): Promise<boolean> {
+    const raised = await db.query(
+      `INSERT INTO order_operator_alerts (order_id, kind, detail)
+       VALUES ($1, $2, $3::jsonb)
+       ON CONFLICT (order_id, kind) DO NOTHING
+       RETURNING order_id`,
+      [orderId, kind, JSON.stringify(detail)],
+    );
+    return raised.rows.length > 0;
+  }
+
+  /**
+   * Disputes referred to the administrator or to no one yet, each with the action that disputed it.
+   */
+  async listReferred(adminId: string, limit = 100) {
+    const result = await this.db.query<StoredOrder & { referred_by: string }>(
+      `SELECT ${ORDER_COLUMNS},
+              (SELECT h.action FROM order_status_history h
+                WHERE h.order_id = orders.order_id AND h.new_status = 'DISPUTED'
+                  AND h.previous_status IS DISTINCT FROM 'DISPUTED'
+                ORDER BY h.order_version DESC LIMIT 1) AS referred_by
+         FROM orders
+        WHERE status = 'DISPUTED' AND (referred_admin_id = $1 OR referred_admin_id IS NULL)
+        ORDER BY updated_at, order_id
+        LIMIT $2`,
+      [adminId, limit],
+    );
+    return result.rows.map((row) => ({ order: mapOrder(row), referredBy: row.referred_by }));
+  }
+
+  /** The most recent administrator decisions, newest first. */
+  async listDecisions(limit = 100) {
+    const result = await this.db.query<
+      {
+        order_id: string;
+        action: string;
+        actor_id: string;
+        reason: string;
+        occurred_at: Date | string;
+      } & Row
+    >(
+      `SELECT order_id, action, actor_id, reason, occurred_at FROM order_status_history
+        WHERE action = ANY($1::text[])
+        ORDER BY occurred_at DESC, history_id
+        LIMIT $2`,
+      [Object.values(RESOLVE_ACTIONS), limit],
+    );
+    return result.rows.map((row) => ({
+      orderId: row.order_id,
+      adminId: row.actor_id,
+      outcome: row.action === RESOLVE_ACTIONS.COURIER ? 'COURIER' : 'REQUESTER',
+      reason: row.reason,
+      decidedAt: iso(row.occurred_at),
+    }));
+  }
+
   /**
    * The single path for every lifecycle command after acceptance. It locks the row, resolves the
    * caller's role relative to the order, asks the executable transition table for a decision and,
@@ -744,6 +862,7 @@ export class OrdersRepository {
       acceptanceDeadlinePassed:
         order.acceptanceDeadlineAt !== null && new Date(order.acceptanceDeadlineAt) <= now,
       releaseReason: order.releaseReason ?? undefined,
+      reasonProvided: (command.reason?.trim() ?? '') !== '',
     };
 
     const decision = decideTransition(order.status, command.action, actor, context);
@@ -785,8 +904,8 @@ export class OrdersRepository {
     await tx.query(
       `INSERT INTO order_status_history
          (history_id, order_id, previous_status, new_status, action, actor_type, actor_id,
-          order_version, occurred_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          reason, order_version, occurred_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         randomUUID(),
         order.orderId,
@@ -795,6 +914,7 @@ export class OrdersRepository {
         command.action,
         HISTORY_ACTOR[actor],
         command.actor.id,
+        command.reason?.trim() ?? null,
         next.version,
         occurredAt,
       ],
@@ -846,7 +966,7 @@ export class OrdersRepository {
         created_at: Date | string;
         accepted_at: Date | string;
         picked_up_at: Date | string;
-        delivered_at: Date | string;
+        delivered_at: Date | string | null;
         completion_requested_at: Date | string;
         completed_at: Date | string;
       }
@@ -864,7 +984,7 @@ export class OrdersRepository {
         createdAt: iso(row.created_at),
         acceptedAt: iso(row.accepted_at),
         pickedUpAt: iso(row.picked_up_at),
-        deliveredAt: iso(row.delivered_at),
+        deliveredAt: nullableIso(row.delivered_at),
         completionRequestedAt: iso(row.completion_requested_at),
         completedAt: iso(row.completed_at),
       },
@@ -891,6 +1011,8 @@ export interface TransitionCommand {
   verify?: (order: OrderRow) => void;
   /** Extra column values written with the transition. */
   patch?: Record<string, unknown>;
+  /** Why, recorded on the history row; an administrator's decision requires one. */
+  reason?: string;
   /** Extra writes in the same transaction, after the history row. */
   afterApply?: (tx: Queryable, order: OrderRow) => Promise<void>;
 }
