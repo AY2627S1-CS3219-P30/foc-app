@@ -191,7 +191,7 @@ export const ORDER_TRANSITIONS: readonly TransitionRule[] = [
     from: 'PICKED_UP',
     action: 'DELIVERY_PERIOD_PASSED',
     actors: ['SYSTEM'],
-    guard: (c) => c.requesterSuspended === true,
+    guard: (c) => c.requesterSuspended === true && c.deliveryPeriodPassed === true,
     decide: () => ({ to: 'DISPUTED', emitted: statusChanged }),
   },
   {

@@ -44,6 +44,7 @@ async function subscription(t: TestApp) {
     recorder as unknown as EventConsumer,
     t.db,
     t.orders,
+    t.directory,
   ).onApplicationBootstrap();
   return recorder.subscriptions[0]!;
 }

@@ -24,6 +24,8 @@ import {
   ReservationResultsConsumer,
 } from '../src/reservation-results.consumer.js';
 import { OrdersRepository } from '../src/orders/orders.repository.js';
+import { UserDirectoryClient } from '../src/orders/user-directory.client.js';
+import { FakeUserService } from './helpers/app.js';
 
 const suite = TEST_POSTGRES_URL ? describe : describe.skip;
 let databaseUrl = '';
@@ -129,6 +131,7 @@ suite('kill-after-commit recovery on real PostgreSQL (OS-NFR4.1)', () => {
       } as unknown as EventConsumer,
       db,
       orders,
+      new UserDirectoryClient(new FakeUserService().fetch),
     ).onApplicationBootstrap();
     await recorder.handler!(
       createEnvelope({

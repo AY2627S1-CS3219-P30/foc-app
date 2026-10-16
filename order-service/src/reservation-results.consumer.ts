@@ -14,9 +14,9 @@ import {
   type Queryable,
 } from '@foc/platform';
 import { z } from 'zod';
-import { env } from './config.js';
 import { ORDER_DB } from './db/db.js';
 import { OrdersRepository } from './orders/orders.repository.js';
+import { UserDirectoryClient } from './orders/user-directory.client.js';
 
 export const RESERVATION_RESULTS_QUEUE = 'foc.order.reservation-results';
 // Order matters: a union returns the first schema that accepts the payload, and a rejection also
@@ -25,6 +25,12 @@ export const RESERVATION_RESULTS_QUEUE = 'foc.order.reservation-results';
 const resultPayload = z.union([creditReservationRejectedPayload, creditsReservedPayload]);
 type ResultPayload = CreditsReservedPayload | CreditReservationRejectedPayload;
 
+/**
+ * Opens or rejects an errand on Credit's reservation reply. The reply must restate the requester
+ * and amount Order asked for, or it is dead-lettered. A reservation for a requester suspended
+ * meanwhile cancels the errand and returns the credits (ORD-06): the User Service is asked, and if
+ * it does not answer the handler throws and the reply is retried, never opened on a guess.
+ */
 @Injectable()
 export class ReservationResultsConsumer implements OnApplicationBootstrap {
   private readonly logger = new Logger(ReservationResultsConsumer.name);
@@ -33,6 +39,7 @@ export class ReservationResultsConsumer implements OnApplicationBootstrap {
     @Inject(EVENT_CONSUMER) private readonly consumer: EventConsumer,
     @Inject(ORDER_DB) private readonly db: Db,
     @Inject(OrdersRepository) private readonly orders: OrdersRepository,
+    @Inject(UserDirectoryClient) private readonly directory: UserDirectoryClient,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -52,28 +59,59 @@ export class ReservationResultsConsumer implements OnApplicationBootstrap {
       throw new UnparseableMessageError('aggregateId does not match reservation orderId');
     }
 
-    const outcome =
+    const { orderId, requesterId, amount } = envelope.payload;
+    const rejection =
       envelope.eventType === EVENTS.CREDITS_RESERVED
-        ? ({ kind: 'RESERVED' } as const)
-        : ({
-            kind: 'REJECTED',
-            reason: (envelope.payload as CreditReservationRejectedPayload).reason,
-            ...('available' in envelope.payload ? { available: envelope.payload.available } : {}),
-          } as const);
-    const changed = await this.orders.applyReservationResult(tx, {
-      orderId: envelope.payload.orderId,
-      requesterId: envelope.payload.requesterId,
-      amount: envelope.payload.amount,
-      correlationId: envelope.correlationId,
-      causationId: envelope.eventId,
-      acceptanceWindowMs: env.ACCEPTANCE_WINDOW_MS,
-      outcome,
-    });
+        ? undefined
+        : (envelope.payload as CreditReservationRejectedPayload);
+    // Only an insufficient-credits refusal reports the balance.
+    const available = rejection && 'available' in rejection ? rejection.available : null;
+    const order = await this.orders.findById(orderId, tx);
+    if (!order) throw new UnparseableMessageError('reservation result names an unknown order');
+    if (order.requesterId !== requesterId || order.reward !== amount) {
+      throw new UnparseableMessageError('reservation result does not match the recorded request');
+    }
+    // Asked only when the answer decides the outcome, so a repeated reply needs no User Service.
+    const requesterSuspended =
+      !rejection && order.status === 'PENDING_CREDIT'
+        ? await this.directory.isSuspended(requesterId)
+        : false;
+
+    const result = await this.orders.transition(
+      {
+        orderId,
+        action: rejection ? 'CREDIT_REJECTED' : 'CREDIT_RESERVED',
+        actor: { kind: 'CREDIT_SERVICE', id: 'credit-service' },
+        correlationId: envelope.correlationId,
+        causationId: envelope.eventId,
+        requesterSuspended,
+        patch: rejection && {
+          rejection_reason: rejection.reason,
+          available_at_rejection: available,
+        },
+      },
+      tx,
+    );
+    if (result.kind === 'rejected') {
+      // Only a repeat of the reply already recorded is harmless.
+      const current = result.order!;
+      const repeated = rejection
+        ? current.status === 'REJECTED' &&
+          current.rejectionReason === rejection.reason &&
+          current.availableAtRejection === available
+        : current.status === 'OPEN';
+      if (!repeated) {
+        throw new UnparseableMessageError(
+          `reservation result cannot move order from ${current.status}`,
+        );
+      }
+    }
+    const changed = result.kind === 'applied';
     this.logger.log({
       correlationId: envelope.correlationId,
       eventId: envelope.eventId,
-      orderId: envelope.payload.orderId,
-      outcome: outcome.kind,
+      orderId,
+      outcome: rejection ? 'REJECTED' : 'RESERVED',
       changed,
       msg: 'reservation result handled',
     });

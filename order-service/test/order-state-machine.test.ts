@@ -13,6 +13,7 @@ const contexts: readonly TransitionContext[] = [
   { acceptanceDeadlinePassed: true },
   { deliveryPeriodPassed: true },
   { requesterSuspended: true },
+  { requesterSuspended: true, deliveryPeriodPassed: true },
   { reasonProvided: true },
   { releaseReason: 'CANCELLED' },
   { releaseReason: 'EXPIRED' },

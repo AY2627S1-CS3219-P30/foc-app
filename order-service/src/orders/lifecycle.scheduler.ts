@@ -8,7 +8,6 @@ import {
 import { randomUUID } from 'node:crypto';
 import { OrdersRepository, type TransitionCommand } from './orders.repository.js';
 import type { OrderAction } from './order-state-machine.js';
-import type { OrderRow } from './types.js';
 import { UserDirectoryClient, UserDirectoryUnavailableError } from './user-directory.client.js';
 
 export const LIFECYCLE_SCHEDULER_OPTIONS = Symbol('LIFECYCLE_SCHEDULER_OPTIONS');
@@ -25,6 +24,8 @@ export interface SweepResult {
   expired: number;
   pickupTimedOut: number;
   autoConfirmed: number;
+  /** Picked-up errands referred because the delivery period ended with the requester suspended. */
+  undeliveredReferred: number;
   skipped: number;
   creditWaitAlerts: number;
   adminsAssigned: number;
@@ -36,9 +37,10 @@ export interface SweepResult {
 class NotDue extends Error {}
 
 /**
- * Owns every time-based Order rule (ORD-05, ORD-10): an OPEN order past its acceptance deadline
- * expires, an ACCEPTED order with no pickup within the pickup timeout loses its courier, and a
- * DELIVERED order past its auto-confirmation time is confirmed. It runs once
+ * Owns every time-based Order rule (ORD-05, ORD-10, ORD-06): an OPEN order past its acceptance
+ * deadline expires, an ACCEPTED order with no pickup within the pickup timeout loses its courier, a
+ * PICKED_UP order past its delivery period is referred if the User Service says its requester is
+ * suspended, and a DELIVERED order past its auto-confirmation time is confirmed. It runs once
  * as soon as the service is ready — so timers that fell due during downtime fire within one
  * interval of restart — and then every interval (at most 60 s, OS-NFR3.1.1).
  *
@@ -100,6 +102,7 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
       expired: 0,
       pickupTimedOut: 0,
       autoConfirmed: 0,
+      undeliveredReferred: 0,
       skipped: 0,
       creditWaitAlerts: 0,
       adminsAssigned: 0,
@@ -108,26 +111,32 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
     };
 
     for (const orderId of await this.orders.findOverdueOpen(now, limit)) {
-      const applied = await this.fire(orderId, 'ACCEPTANCE_DEADLINE_PASSED', now, (order) => {
-        if (!order.acceptanceDeadlineAt || new Date(order.acceptanceDeadlineAt) > now) {
-          throw new NotDue();
-        }
+      const applied = await this.fire(orderId, 'ACCEPTANCE_DEADLINE_PASSED', now, {
+        verify: (order) => {
+          if (!order.acceptanceDeadlineAt || new Date(order.acceptanceDeadlineAt) > now) {
+            throw new NotDue();
+          }
+        },
       });
       result[applied ? 'expired' : 'skipped'] += 1;
     }
 
     const cutoff = new Date(now.getTime() - this.options.pickupTimeoutMs);
     for (const orderId of await this.orders.findPickupOverdue(cutoff, limit)) {
-      const applied = await this.fire(orderId, 'PICKUP_TIMEOUT', now, (order) => {
-        // A courier who accepted again after a withdrawal starts a new pickup timer.
-        if (!order.acceptedAt || new Date(order.acceptedAt) > cutoff) throw new NotDue();
+      const applied = await this.fire(orderId, 'PICKUP_TIMEOUT', now, {
+        verify: (order) => {
+          // A courier who accepted again after a withdrawal starts a new pickup timer.
+          if (!order.acceptedAt || new Date(order.acceptedAt) > cutoff) throw new NotDue();
+        },
       });
       result[applied ? 'pickupTimedOut' : 'skipped'] += 1;
     }
 
     for (const orderId of await this.orders.findAutoConfirmDue(now, limit)) {
-      const applied = await this.fire(orderId, 'AUTO_CONFIRM', now, (order) => {
-        if (!order.autoConfirmAt || new Date(order.autoConfirmAt) > now) throw new NotDue();
+      const applied = await this.fire(orderId, 'AUTO_CONFIRM', now, {
+        verify: (order) => {
+          if (!order.autoConfirmAt || new Date(order.autoConfirmAt) > now) throw new NotDue();
+        },
       });
       result[applied ? 'autoConfirmed' : 'skipped'] += 1;
     }
@@ -146,6 +155,7 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
     }
 
     try {
+      await this.referUndelivered(now, limit, result);
       await this.referDisputes(now, limit, result);
     } catch (error) {
       if (!(error instanceof UserDirectoryUnavailableError)) throw error;
@@ -155,6 +165,22 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
       });
     }
     return result;
+  }
+
+  /**
+   * A picked-up errand whose delivery period ended with its requester suspended is referred to an
+   * administrator (OS-FR8.2.2). A suspension after the period refers it at once (ORD-06); this
+   * catches a requester suspended within it. An errand whose requester is active stays PICKED_UP
+   * and is asked about again on every run.
+   */
+  private async referUndelivered(now: Date, limit: number, result: SweepResult): Promise<void> {
+    for (const { orderId, requesterId } of await this.orders.findDeliveryOverdue(now, limit)) {
+      if (!(await this.directory.isSuspended(requesterId))) continue;
+      const applied = await this.fire(orderId, 'DELIVERY_PERIOD_PASSED', now, {
+        requesterSuspended: true,
+      });
+      result[applied ? 'undeliveredReferred' : 'skipped'] += 1;
+    }
   }
 
   private async referDisputes(now: Date, limit: number, result: SweepResult): Promise<void> {
@@ -174,16 +200,13 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
     )) {
       // Referred to someone who can no longer act: clear it, then refer it again below.
       if (heldBy !== null) {
-        const cleared = await this.fire(
-          orderId,
-          'ADMIN_UNASSIGNED',
-          now,
-          (order) => {
+        const cleared = await this.fire(orderId, 'ADMIN_UNASSIGNED', now, {
+          verify: (order) => {
             if (order.referredAdminId !== heldBy) throw new NotDue();
           },
-          { referred_admin_id: null },
-          heldBy,
-        );
+          patch: { referred_admin_id: null },
+          reason: heldBy,
+        });
         if (!cleared) continue;
         result.adminsUnassigned += 1;
       }
@@ -204,16 +227,13 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
         continue;
       }
       const adminId = await this.orders.leastReferred(eligible);
-      const assigned = await this.fire(
-        orderId,
-        'ADMIN_ASSIGNED',
-        now,
-        (order) => {
+      const assigned = await this.fire(orderId, 'ADMIN_ASSIGNED', now, {
+        verify: (order) => {
           if (order.referredAdminId !== null) throw new NotDue();
         },
-        { referred_admin_id: adminId },
-        adminId,
-      );
+        patch: { referred_admin_id: adminId },
+        reason: adminId,
+      });
       if (assigned) result.adminsAssigned += 1;
     }
   }
@@ -223,20 +243,16 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
     orderId: string,
     action: OrderAction,
     now: Date,
-    verify: (order: OrderRow) => void,
-    patch?: TransitionCommand['patch'],
-    reason?: string,
+    command: Pick<TransitionCommand, 'verify' | 'patch' | 'reason' | 'requesterSuspended'>,
   ): Promise<boolean> {
     try {
       const outcome = await this.orders.transition({
+        ...command,
         orderId,
         action,
         actor: { kind: 'SYSTEM', id: 'lifecycle-scheduler' },
         correlationId: `scheduler-${randomUUID()}`,
         now,
-        verify,
-        patch,
-        reason,
       });
       return outcome.kind === 'applied';
     } catch (error) {

@@ -226,6 +226,7 @@ export async function reservationReply(t: TestApp, orderId: string, rejected = f
     recorder as unknown as EventConsumer,
     t.db,
     t.orders,
+    t.directory,
   ).onApplicationBootstrap();
   await recorder.subscriptions[0]!.handler(
     createEnvelope({
