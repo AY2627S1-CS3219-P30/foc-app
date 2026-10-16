@@ -5,7 +5,10 @@ import { env } from '../config.js';
 export const USER_DIRECTORY_FETCH = Symbol('USER_DIRECTORY_FETCH');
 
 const adminsSchema = z.object({ items: z.array(z.object({ userId: z.string().min(1) })) });
-const lookupSchema = z.object({ exists: z.boolean(), status: z.string().optional() });
+const lookupSchema = z.object({
+  exists: z.boolean(),
+  status: z.enum(['PENDING_ACTIVATION', 'ACTIVE', 'SUSPENDED']).optional(),
+});
 
 export class UserDirectoryUnavailableError extends Error {
   constructor(message: string) {

@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { OrdersRepository, type TransitionCommand } from './orders.repository.js';
-import { SUSPENSION_REASONS, type OrderAction } from './order-state-machine.js';
+import { SUSPENSION_EFFECTS, type OrderAction } from './order-state-machine.js';
 import { UserDirectoryClient, UserDirectoryUnavailableError } from './user-directory.client.js';
 
 export const LIFECYCLE_SCHEDULER_OPTIONS = Symbol('LIFECYCLE_SCHEDULER_OPTIONS');
@@ -178,7 +178,7 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
       if (!(await this.directory.isSuspended(requesterId))) continue;
       const applied = await this.fire(orderId, 'DELIVERY_PERIOD_PASSED', now, {
         requesterSuspended: true,
-        reason: SUSPENSION_REASONS.REQUESTER,
+        reason: SUSPENSION_EFFECTS.REQUESTER.reason,
       });
       result[applied ? 'undeliveredReferred' : 'skipped'] += 1;
     }

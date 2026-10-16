@@ -12,8 +12,7 @@ import {
 } from '@foc/platform';
 import { ORDER_DB } from './db/db.js';
 import { OrdersRepository } from './orders/orders.repository.js';
-import { SUSPENSION_REASONS, type OrderAction } from './orders/order-state-machine.js';
-import type { OrderStatus } from './orders/types.js';
+import { SUSPENSION_EFFECTS } from './orders/order-state-machine.js';
 import { UserDirectoryClient } from './orders/user-directory.client.js';
 
 export const USER_SUSPENSIONS_QUEUE = 'foc.order.user-suspensions';
@@ -63,15 +62,19 @@ export class UserSuspensionsConsumer implements OnApplicationBootstrap {
     if (suspended) {
       for (const order of await this.orders.lockActiveErrandsOf(tx, userId)) {
         const asRequester = order.requesterId === userId;
+        const effect = SUSPENSION_EFFECTS[asRequester ? 'REQUESTER' : 'COURIER'];
+        const action = effect.actions[order.status];
+        // An errand waiting for its reservation is locked only; the reply decides it.
+        if (!action) continue;
         const result = await this.orders.transition(
           {
             orderId: order.orderId,
-            action: suspensionAction(order.status, asRequester),
+            action,
             actor: { kind: 'SYSTEM', id: 'user-suspensions' },
             correlationId: envelope.correlationId,
             causationId: envelope.eventId,
             requesterSuspended: asRequester,
-            reason: asRequester ? SUSPENSION_REASONS.REQUESTER : SUSPENSION_REASONS.COURIER,
+            reason: effect.reason,
           },
           tx,
         );
@@ -87,13 +90,4 @@ export class UserSuspensionsConsumer implements OnApplicationBootstrap {
       msg: 'user suspension handled',
     });
   }
-}
-
-/**
- * A picked-up errand's requester refers it only once the delivery period passed (its guard). An
- * errand still waiting for its reservation has no rule for either action and is left to the reply.
- */
-function suspensionAction(status: OrderStatus, asRequester: boolean): OrderAction {
-  if (!asRequester) return 'COURIER_SUSPENDED';
-  return status === 'PICKED_UP' ? 'DELIVERY_PERIOD_PASSED' : 'REQUESTER_SUSPENDED';
 }

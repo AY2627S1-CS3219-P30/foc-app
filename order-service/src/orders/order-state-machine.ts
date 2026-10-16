@@ -27,11 +27,28 @@ export const ORDER_ACTIONS = [
 
 export type OrderAction = (typeof ORDER_ACTIONS)[number];
 
-/** The history reason of every outcome a participant's suspension causes. */
-export const SUSPENSION_REASONS = {
-  REQUESTER: 'requester suspended',
-  COURIER: 'courier suspended',
-} as const;
+/**
+ * What a participant's suspension does to an errand, by their part in it: the action tried from
+ * each status it can change (the rules below decide the result) and the reason recorded with it.
+ * A requester's picked-up errand is referred only once the delivery period has passed.
+ */
+export const SUSPENSION_EFFECTS: Record<
+  'REQUESTER' | 'COURIER',
+  { reason: string; actions: Partial<Record<OrderStatus, OrderAction>> }
+> = {
+  REQUESTER: {
+    reason: 'requester suspended',
+    actions: {
+      OPEN: 'REQUESTER_SUSPENDED',
+      ACCEPTED: 'REQUESTER_SUSPENDED',
+      PICKED_UP: 'DELIVERY_PERIOD_PASSED',
+    },
+  },
+  COURIER: {
+    reason: 'courier suspended',
+    actions: { ACCEPTED: 'COURIER_SUSPENDED', PICKED_UP: 'COURIER_SUSPENDED' },
+  },
+};
 
 /** The action that carries out each outcome an administrator can decide a dispute for. */
 export const RESOLVE_ACTIONS = {

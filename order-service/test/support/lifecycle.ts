@@ -5,6 +5,10 @@ import {
   TRANSFER_RESULTS_QUEUE,
 } from '../../src/credit-terminal-results.consumer.js';
 import { LifecycleScheduler } from '../../src/orders/lifecycle.scheduler.js';
+import {
+  RESERVATION_RESULTS_QUEUE,
+  ReservationResultsConsumer,
+} from '../../src/reservation-results.consumer.js';
 import { asRequester, asStranger, http, type TestApp } from '../helpers/app.js';
 
 export const SEEDED_ORDER = '00000000-0000-4000-8000-000000000129';
@@ -19,16 +23,25 @@ class RecordingConsumer {
   }
 }
 
-/** Boots the terminal-results consumer against a recording broker and returns its subscriptions. */
-export async function terminalSubscriptions(t: TestApp) {
+/** Boots a consumer against a recording broker and returns its subscriptions, by queue. */
+export async function subscriptionsOf(
+  create: (broker: EventConsumer) => { onApplicationBootstrap(): Promise<void> },
+): Promise<Record<string, SubscribeOptions<unknown>>> {
   const recorder = new RecordingConsumer();
-  await new CreditTerminalResultsConsumer(
-    recorder as unknown as EventConsumer,
-    t.db,
-    t.orders,
-  ).onApplicationBootstrap();
+  await create(recorder as unknown as EventConsumer).onApplicationBootstrap();
   return Object.fromEntries(recorder.subscriptions.map((sub) => [sub.queue, sub]));
 }
+
+export const terminalSubscriptions = (t: TestApp) =>
+  subscriptionsOf((broker) => new CreditTerminalResultsConsumer(broker, t.db, t.orders));
+
+/** The reservation-results subscription, wired to the app's (fake) User Service. */
+export const reservationSubscription = async (t: TestApp) =>
+  (
+    await subscriptionsOf(
+      (broker) => new ReservationResultsConsumer(broker, t.db, t.orders, t.directory),
+    )
+  )[RESERVATION_RESULTS_QUEUE]!;
 
 export const transferred = (
   overrides: Partial<{
@@ -219,16 +232,9 @@ export async function createPending(t: TestApp): Promise<string> {
 
 /** Delivers Credit's reservation reply for an order created by {@link createPending}. */
 export async function reservationReply(t: TestApp, orderId: string, rejected = false) {
-  const { ReservationResultsConsumer, RESERVATION_RESULTS_QUEUE } =
-    await import('../../src/reservation-results.consumer.js');
-  const recorder = new RecordingConsumer();
-  await new ReservationResultsConsumer(
-    recorder as unknown as EventConsumer,
-    t.db,
-    t.orders,
-    t.directory,
-  ).onApplicationBootstrap();
-  await recorder.subscriptions[0]!.handler(
+  await (
+    await reservationSubscription(t)
+  ).handler(
     createEnvelope({
       eventId: randomUUID(),
       eventType: rejected ? EVENTS.CREDIT_RESERVATION_REJECTED : EVENTS.CREDITS_RESERVED,

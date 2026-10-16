@@ -15,8 +15,9 @@ import {
 } from '@foc/platform';
 import { z } from 'zod';
 import { ORDER_DB } from './db/db.js';
-import { OrdersRepository } from './orders/orders.repository.js';
-import { SUSPENSION_REASONS } from './orders/order-state-machine.js';
+import { OrdersRepository, type TransitionCommand } from './orders/orders.repository.js';
+import { SUSPENSION_EFFECTS } from './orders/order-state-machine.js';
+import type { OrderRow } from './orders/types.js';
 import { UserDirectoryClient } from './orders/user-directory.client.js';
 
 export const RESERVATION_RESULTS_QUEUE = 'foc.order.reservation-results';
@@ -61,62 +62,79 @@ export class ReservationResultsConsumer implements OnApplicationBootstrap {
     }
 
     const { orderId, requesterId, amount } = envelope.payload;
-    const rejection =
-      envelope.eventType === EVENTS.CREDITS_RESERVED
-        ? undefined
-        : (envelope.payload as CreditReservationRejectedPayload);
-    // Only an insufficient-credits refusal reports the balance.
-    const available = rejection && 'available' in rejection ? rejection.available : null;
     // Locked before the User Service is asked: see OrdersRepository.lockActiveErrandsOf.
     const order = await this.orders.lockById(tx, orderId);
     if (!order) throw new UnparseableMessageError('reservation result names an unknown order');
     if (order.requesterId !== requesterId || order.reward !== amount) {
       throw new UnparseableMessageError('reservation result does not match the recorded request');
     }
-    // Asked only when the answer decides the outcome, so a repeated reply needs no User Service.
-    const requesterSuspended =
-      !rejection && order.status === 'PENDING_CREDIT'
-        ? await this.directory.isSuspended(requesterId)
-        : false;
+    const outcome =
+      envelope.eventType === EVENTS.CREDITS_RESERVED
+        ? await this.reserved(order)
+        : rejected(envelope.payload as CreditReservationRejectedPayload);
 
     const result = await this.orders.transition(
       {
+        ...outcome.command,
         orderId,
-        action: rejection ? 'CREDIT_REJECTED' : 'CREDIT_RESERVED',
         actor: { kind: 'CREDIT_SERVICE', id: 'credit-service' },
         correlationId: envelope.correlationId,
         causationId: envelope.eventId,
-        requesterSuspended,
-        reason: requesterSuspended ? SUSPENSION_REASONS.REQUESTER : undefined,
-        patch: rejection && {
-          rejection_reason: rejection.reason,
-          available_at_rejection: available,
-        },
       },
       tx,
     );
-    if (result.kind === 'rejected') {
-      // Only a repeat of the reply already recorded is harmless.
-      const current = result.order!; // found above, under the lock
-      const repeated = rejection
-        ? current.status === 'REJECTED' &&
-          current.rejectionReason === rejection.reason &&
-          current.availableAtRejection === available
-        : current.status === 'OPEN';
-      if (!repeated) {
-        throw new UnparseableMessageError(
-          `reservation result cannot move order from ${current.status}`,
-        );
-      }
+    // Refused: harmless only as a repeat of the reply already recorded.
+    if (result.kind === 'rejected' && !outcome.repeats(order)) {
+      throw new UnparseableMessageError(
+        `reservation result cannot move order from ${order.status}`,
+      );
     }
     const changed = result.kind === 'applied';
     this.logger.log({
       correlationId: envelope.correlationId,
       eventId: envelope.eventId,
       orderId,
-      outcome: rejection ? 'REJECTED' : 'RESERVED',
+      outcome: outcome.kind,
       changed,
       msg: 'reservation result handled',
     });
   }
+
+  /** The requester is asked about only while the answer decides the outcome, not for a repeat. */
+  private async reserved(order: OrderRow): Promise<Outcome> {
+    const requesterSuspended =
+      order.status === 'PENDING_CREDIT' && (await this.directory.isSuspended(order.requesterId));
+    return {
+      kind: 'RESERVED',
+      command: {
+        action: 'CREDIT_RESERVED',
+        requesterSuspended,
+        reason: requesterSuspended ? SUSPENSION_EFFECTS.REQUESTER.reason : undefined,
+      },
+      repeats: (current) => current.status === 'OPEN',
+    };
+  }
+}
+
+/** What one reply asks of the order, and which recorded state it would merely repeat. */
+interface Outcome {
+  kind: 'RESERVED' | 'REJECTED';
+  command: Pick<TransitionCommand, 'action' | 'requesterSuspended' | 'reason' | 'patch'>;
+  repeats: (order: OrderRow) => boolean;
+}
+
+function rejected(payload: CreditReservationRejectedPayload): Outcome {
+  // Only an insufficient-credits refusal reports the balance.
+  const available = 'available' in payload ? payload.available : null;
+  return {
+    kind: 'REJECTED',
+    command: {
+      action: 'CREDIT_REJECTED',
+      patch: { rejection_reason: payload.reason, available_at_rejection: available },
+    },
+    repeats: (current) =>
+      current.status === 'REJECTED' &&
+      current.rejectionReason === payload.reason &&
+      current.availableAtRejection === available,
+  };
 }

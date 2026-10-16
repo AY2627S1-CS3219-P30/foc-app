@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import { EVENTS, createEnvelope, type EventConsumer, type SubscribeOptions } from '@foc/platform';
+import { EVENTS, createEnvelope } from '@foc/platform';
 import {
   USER_SUSPENSIONS_QUEUE,
   UserSuspensionsConsumer,
@@ -21,6 +21,7 @@ import {
   outboxOf,
   released,
   reservationReply,
+  subscriptionsOf,
   sweep,
 } from './support/lifecycle.js';
 
@@ -46,17 +47,13 @@ async function suspend(t: TestApp, userId: string, envelope = suspension(userId)
 }
 
 async function deliverSuspension(t: TestApp, envelope: unknown) {
-  const subscriptions: SubscribeOptions<unknown>[] = [];
-  const recorder = {
-    subscribe: async (options: SubscribeOptions<unknown>) => void subscriptions.push(options),
-  };
-  await new UserSuspensionsConsumer(
-    recorder as unknown as EventConsumer,
-    t.db,
-    t.orders,
-    t.directory,
-  ).onApplicationBootstrap();
-  await subscriptions[0]!.handler(envelope as never, { attempt: 1, queue: USER_SUSPENSIONS_QUEUE });
+  const subscriptions = await subscriptionsOf(
+    (broker) => new UserSuspensionsConsumer(broker, t.db, t.orders, t.directory),
+  );
+  await subscriptions[USER_SUSPENSIONS_QUEUE]!.handler(envelope as never, {
+    attempt: 1,
+    queue: USER_SUSPENSIONS_QUEUE,
+  });
 }
 
 const lastAction = async (t: TestApp, orderId = SEEDED_ORDER) =>

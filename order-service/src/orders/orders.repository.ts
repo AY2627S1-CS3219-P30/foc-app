@@ -6,6 +6,7 @@ import { ORDER_DB, type OrderDatabase } from '../db/db.js';
 import {
   ORDER_TRANSITIONS,
   RESOLVE_ACTIONS,
+  SUSPENSION_EFFECTS,
   decideTransition,
   type OrderAction,
   type OrderActor,
@@ -655,10 +656,9 @@ export class OrdersRepository {
   }
 
   /**
-   * Locks every errand a suspension can change: those the user requested that are not yet
-   * delivered, and those they are courier of that are not yet delivered. Locked in `order_id`
-   * order, so two suspensions handled at once (the requester and the courier of one errand) wait
-   * for each other rather than deadlock.
+   * Locks every errand a suspension can change, as requester or as courier, in the statuses
+   * `SUSPENSION_EFFECTS` lists. Locked in `order_id` order, so two suspensions handled at once (the
+   * requester and the courier of one errand) wait for each other rather than deadlock.
    *
    * A requester's errand still in PENDING_CREDIT is locked too, though no suspension rule moves
    * it: the reservation reply holds the same lock while it asks the User Service, so whichever of
@@ -668,12 +668,15 @@ export class OrdersRepository {
   async lockActiveErrandsOf(tx: Queryable, userId: string): Promise<OrderRow[]> {
     const result = await tx.query<StoredOrder>(
       `SELECT ${ORDER_COLUMNS} FROM orders
-        WHERE (requester_id = $1
-               AND status IN ('PENDING_CREDIT', 'OPEN', 'ACCEPTED', 'PICKED_UP'))
-           OR (courier_id = $1 AND status IN ('ACCEPTED', 'PICKED_UP'))
+        WHERE (requester_id = $1 AND status = ANY($2::text[]))
+           OR (courier_id = $1 AND status = ANY($3::text[]))
         ORDER BY order_id
         FOR UPDATE`,
-      [userId],
+      [
+        userId,
+        ['PENDING_CREDIT', ...Object.keys(SUSPENSION_EFFECTS.REQUESTER.actions)],
+        Object.keys(SUSPENSION_EFFECTS.COURIER.actions),
+      ],
     );
     return result.rows.map(mapOrder);
   }
@@ -1031,15 +1034,12 @@ function timestampPatch(
   order: OrderRow,
 ): Record<string, unknown> {
   // A withdrawing or timed-out courier loses the errand (and with it, private access to it).
-  const courierRemoved =
-    action === 'WITHDRAW' || action === 'PICKUP_TIMEOUT'
-      ? { courier_id: null, accepted_at: null }
-      : {};
+  const noCourier = { courier_id: null, accepted_at: null };
+  const courierRemoved = action === 'WITHDRAW' || action === 'PICKUP_TIMEOUT' ? noCourier : {};
   // So does a suspended one, and the requester gets back the time that courier held the errand.
   if (action === 'COURIER_SUSPENDED' && decision.to === 'OPEN') {
     return {
-      courier_id: null,
-      accepted_at: null,
+      ...noCourier,
       acceptance_deadline_at: later(
         order.acceptanceDeadlineAt!,
         Date.parse(at) - Date.parse(order.acceptedAt!),
