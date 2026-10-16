@@ -587,11 +587,6 @@ export interface components {
             reward: number;
             /** Format: uuid */
             creditTransactionId: string;
-            /**
-             * @description False when an administrator decided the dispute for the courier before any delivery was
-             *     recorded.
-             */
-            deliveryRecorded: boolean;
             timestamps: {
                 /** Format: date-time */
                 createdAt: string;
@@ -601,11 +596,10 @@ export interface components {
                 pickedUpAt: string;
                 /**
                  * Format: date-time
-                 * @description When the courier recorded delivery. If `deliveryRecorded` is false, an administrator
-                 *     completed the errand before any delivery was recorded, and this is the time of that
-                 *     decision.
+                 * @description When the courier recorded delivery. Null when an administrator decided the dispute
+                 *     for the courier before any delivery was recorded.
                  */
-                deliveredAt: string;
+                deliveredAt: string | null;
                 /** Format: date-time */
                 completionRequestedAt: string;
                 /** Format: date-time */

@@ -980,13 +980,11 @@ export class OrdersRepository {
       supplier: row.supplier_snapshot,
       reward: Number(row.reward),
       creditTransactionId: row.credit_transaction_id,
-      deliveryRecorded: row.delivered_at !== null,
       timestamps: {
         createdAt: iso(row.created_at),
         acceptedAt: iso(row.accepted_at),
         pickedUpAt: iso(row.picked_up_at),
-        // The stored row keeps the null; the published receipt always carries a time (v1 contract).
-        deliveredAt: iso(row.delivered_at ?? row.completion_requested_at),
+        deliveredAt: nullableIso(row.delivered_at),
         completionRequestedAt: iso(row.completion_requested_at),
         completedAt: iso(row.completed_at),
       },
