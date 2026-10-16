@@ -375,10 +375,7 @@ describe('administrator decision (ORD-11)', () => {
       .get(`/orders/${SEEDED_ORDER}/receipt`)
       .set('Authorization', asRequester)
       .expect(200);
-    // The stored receipt keeps the missing delivery; the published one says so and shows when
-    // the administrator decided instead.
-    expect(receipt.body.deliveryRecorded).toBe(false);
-    expect(receipt.body.timestamps.deliveredAt).toBe(receipt.body.timestamps.completionRequestedAt);
+    expect(receipt.body.timestamps.deliveredAt).toBeNull();
     const stored = await t.db.query<{ delivered_at: unknown }>(
       `SELECT delivered_at FROM order_receipts WHERE order_id = $1`,
       [SEEDED_ORDER],

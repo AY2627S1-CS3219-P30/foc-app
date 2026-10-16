@@ -70,14 +70,12 @@ export interface OrderReceipt {
   supplier: SupplierSnapshot;
   reward: number;
   creditTransactionId: string;
-  /** False when an administrator completed the errand before any delivery was recorded. */
-  deliveryRecorded: boolean;
   timestamps: {
     createdAt: string;
     acceptedAt: string;
     pickedUpAt: string;
-    /** The recorded delivery, or the administrator's decision when none was recorded. */
-    deliveredAt: string;
+    /** Null when an administrator completed the errand before any delivery was recorded. */
+    deliveredAt: string | null;
     completionRequestedAt: string;
     completedAt: string;
   };

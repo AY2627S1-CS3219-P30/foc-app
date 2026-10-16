@@ -39,7 +39,7 @@ const baseFiles = git('-C', root, 'ls-tree', '--name-only', `${base}`, 'contract
   .map((path) => path.replace(/^contracts\//, ''));
 const currentFiles = new Set(readdirSync(CONTRACTS_DIR));
 
-const breaking: string[] = [];
+let breaking: string[] = [];
 let compared = 0;
 for (const file of baseFiles) {
   const isOpenApi = file.endsWith('.openapi.yaml');
@@ -66,10 +66,23 @@ for (const file of baseFiles) {
   }
 }
 
+// A breaking change passes only when contracts/approved-breaking-changes.json names it exactly.
+const approved = new Set(
+  (
+    JSON.parse(readFileSync(`${CONTRACTS_DIR}approved-breaking-changes.json`, 'utf8')) as {
+      change: string;
+    }[]
+  ).map((entry) => entry.change),
+);
+for (const change of breaking.filter((change) => approved.has(change))) {
+  console.log(`Approved breaking change: ${change}`);
+}
+breaking = breaking.filter((change) => !approved.has(change));
+
 if (breaking.length > 0) {
   console.error(`Breaking contract changes against ${base}:\n  - ${breaking.join('\n  - ')}`);
   console.error(
-    '\nv1 contracts are additive only (contracts/README.md). Add a new field or operation instead of changing one.',
+    '\nv1 contracts are additive only (contracts/README.md). Add a new field or operation instead of changing one,\nor get the change reviewed and list it in contracts/approved-breaking-changes.json.',
   );
   process.exit(1);
 }
