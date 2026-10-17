@@ -4,6 +4,11 @@ import {
   CreditTerminalResultsConsumer,
   TRANSFER_RESULTS_QUEUE,
 } from '../../src/credit-terminal-results.consumer.js';
+import { LifecycleScheduler } from '../../src/orders/lifecycle.scheduler.js';
+import {
+  RESERVATION_RESULTS_QUEUE,
+  ReservationResultsConsumer,
+} from '../../src/reservation-results.consumer.js';
 import { asRequester, asStranger, http, type TestApp } from '../helpers/app.js';
 
 export const SEEDED_ORDER = '00000000-0000-4000-8000-000000000129';
@@ -18,16 +23,25 @@ class RecordingConsumer {
   }
 }
 
-/** Boots the terminal-results consumer against a recording broker and returns its subscriptions. */
-export async function terminalSubscriptions(t: TestApp) {
+/** Boots a consumer against a recording broker and returns its subscriptions, by queue. */
+export async function subscriptionsOf(
+  create: (broker: EventConsumer) => { onApplicationBootstrap(): Promise<void> },
+): Promise<Record<string, SubscribeOptions<unknown>>> {
   const recorder = new RecordingConsumer();
-  await new CreditTerminalResultsConsumer(
-    recorder as unknown as EventConsumer,
-    t.db,
-    t.orders,
-  ).onApplicationBootstrap();
+  await create(recorder as unknown as EventConsumer).onApplicationBootstrap();
   return Object.fromEntries(recorder.subscriptions.map((sub) => [sub.queue, sub]));
 }
+
+export const terminalSubscriptions = (t: TestApp) =>
+  subscriptionsOf((broker) => new CreditTerminalResultsConsumer(broker, t.db, t.orders));
+
+/** The reservation-results subscription, wired to the app's (fake) User Service. */
+export const reservationSubscription = async (t: TestApp) =>
+  (
+    await subscriptionsOf(
+      (broker) => new ReservationResultsConsumer(broker, t.db, t.orders, t.directory),
+    )
+  )[RESERVATION_RESULTS_QUEUE]!;
 
 export const transferred = (
   overrides: Partial<{
@@ -176,7 +190,7 @@ export const released = (
 /** Moves the seeded order's clocks so a timer is due without waiting for it. */
 export async function backdate(
   t: TestApp,
-  column: 'acceptance_deadline_at' | 'accepted_at',
+  column: 'acceptance_deadline_at' | 'accepted_at' | 'non_delivery_report_at' | 'auto_confirm_at',
   msAgo: number,
   orderId = SEEDED_ORDER,
 ): Promise<void> {
@@ -218,15 +232,9 @@ export async function createPending(t: TestApp): Promise<string> {
 
 /** Delivers Credit's reservation reply for an order created by {@link createPending}. */
 export async function reservationReply(t: TestApp, orderId: string, rejected = false) {
-  const { ReservationResultsConsumer, RESERVATION_RESULTS_QUEUE } =
-    await import('../../src/reservation-results.consumer.js');
-  const recorder = new RecordingConsumer();
-  await new ReservationResultsConsumer(
-    recorder as unknown as EventConsumer,
-    t.db,
-    t.orders,
-  ).onApplicationBootstrap();
-  await recorder.subscriptions[0]!.handler(
+  await (
+    await reservationSubscription(t)
+  ).handler(
     createEnvelope({
       eventId: randomUUID(),
       eventType: rejected ? EVENTS.CREDIT_RESERVATION_REJECTED : EVENTS.CREDITS_RESERVED,
@@ -248,10 +256,44 @@ export async function reservationReply(t: TestApp, orderId: string, rejected = f
   );
 }
 
-/** Records the administrator a dispute was referred to. ORD-11 (#171) owns doing this for real. */
+/** Records a referred administrator directly, for states the scheduler never refers. */
 export async function referTo(t: TestApp, adminId: string, orderId = SEEDED_ORDER) {
   await t.db.query(`UPDATE orders SET referred_admin_id = $2 WHERE order_id = $1`, [
     orderId,
     adminId,
   ]);
+}
+
+/** One scheduler run with the default timers, against the app's (fake) User Service. */
+export const sweep = (t: TestApp, batchSize?: number) =>
+  new LifecycleScheduler(t.orders, t.directory, {
+    pickupTimeoutMs: 30 * 60_000,
+    creditWaitTimeoutMs: 5 * 60_000,
+    intervalMs: 10_000,
+    batchSize,
+  }).sweep();
+
+/**
+ * Drives the order to DISPUTED with no administrator yet: from DELIVERED the requester reports
+ * non-receipt; from PICKED_UP the courier is suspended, which has no endpoint, so both go through
+ * the repository.
+ */
+export async function dispute(
+  t: TestApp,
+  from: 'PICKED_UP' | 'DELIVERED',
+  orderId = SEEDED_ORDER,
+): Promise<void> {
+  await advance(t, from, orderId);
+  const result = await t.orders.transition({
+    orderId,
+    correlationId: 'corr-dispute',
+    ...(from === 'DELIVERED'
+      ? {
+          action: 'REPORT_NON_RECEIPT',
+          actor: { kind: 'USER', id: REQUESTER, isAdmin: false },
+          expectedVersion: 5,
+        }
+      : { action: 'COURIER_SUSPENDED', actor: { kind: 'SYSTEM', id: 'user-suspensions' } }),
+  });
+  if (result.kind !== 'applied') throw new Error(`could not dispute from ${from}`);
 }

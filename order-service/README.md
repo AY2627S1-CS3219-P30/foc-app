@@ -21,7 +21,7 @@ The web app's mock data has only five statuses today (`open`, `accepted`, `in_tr
 # Transition Table
 **Guard** is what must also be true, beyond the order being in the From state and the actor being allowed. If a guard fails, the order does not change and the caller is refused. Every student and administrator action also needs an active account: a suspended caller is refused before any guard is checked. A reply from the Credit Service is acted on only if it names the same order and amount the request did.
 
-**Emits** is what the transition sends, written to the outbox in the same transaction (see *Sending and receiving safely*). Every transition sends `order.status-changed`. A transition into a `*_PENDING_CREDIT` state also sends the request that state waits for.
+**Emits** is what the transition sends, written to the outbox in the same transaction (see *Sending and receiving safely*). Every status change sends `order.status-changed`; naming or clearing a dispute's administrator keeps the status and sends nothing. A transition into a `*_PENDING_CREDIT` state also sends the request that state waits for.
 
 | From | Trigger | Actor | Guard | To | Emits |
 | ----- | ----- | ----- | ----- | ----- | ----- |
@@ -37,29 +37,32 @@ The web app's mock data has only five statuses today (`open`, `accepted`, `in_tr
 | ACCEPTED | Requester suspended | System | — | RELEASE\_PENDING\_CREDIT (cancelled) | `order.release-requested`, `order.status-changed` |
 | ACCEPTED | Withdraw or pickup timeout | Assigned courier (withdraw) or System | Acceptance deadline not passed | OPEN | `order.status-changed` |
 | ACCEPTED | Withdraw or pickup timeout | Assigned courier (withdraw) or System | Acceptance deadline passed | RELEASE\_PENDING\_CREDIT (expired) | `order.release-requested`, `order.status-changed` |
-| ACCEPTED | Courier suspended | System | — | OPEN, with the acceptance deadline extended by the time the courier held the order | `order.status-changed` |
+| ACCEPTED | Courier suspended | System | — | OPEN, with the courier removed and the acceptance deadline extended by the time they held the order | `order.status-changed` |
 | PICKED\_UP | Record delivery | Assigned courier | — | DELIVERED | `order.status-changed` |
 | PICKED\_UP | Report non-delivery | Requester | Delivery period since pickup has passed | DISPUTED | `order.status-changed` |
 | PICKED\_UP | Delivery period passes, or requester suspended | System | Requester suspended and delivery period passed | DISPUTED | `order.status-changed` |
 | PICKED\_UP | Courier suspended | System | — | DISPUTED | `order.status-changed` |
 | DELIVERED | Confirm receipt | Requester | — | COMPLETION\_PENDING\_CREDIT | `order.completion-requested`, `order.status-changed` |
 | DELIVERED | Auto-confirmation period passes | System | — | COMPLETION\_PENDING\_CREDIT | `order.completion-requested`, `order.status-changed` |
-| DELIVERED | Report non-receipt | Requester | — | DISPUTED | `order.status-changed` |
-| DISPUTED | Resolve for courier | Administrator | A reason is given | COMPLETION\_PENDING\_CREDIT | `order.completion-requested`, `order.status-changed` |
-| DISPUTED | Resolve for requester | Administrator | A reason is given | RELEASE\_PENDING\_CREDIT (cancelled) | `order.release-requested`, `order.status-changed` |
+| DELIVERED | Report non-receipt | Requester | Auto-confirmation period not passed | DISPUTED | `order.status-changed` |
+| DISPUTED | Referred to an administrator, or referral cleared | System | See *Administrator referral and decision* | DISPUTED (unchanged) | Nothing |
+| DISPUTED | Resolve for courier | Administrator the dispute is referred to | A reason is given; the administrator was never the errand's requester or courier | COMPLETION\_PENDING\_CREDIT | `order.completion-requested`, `order.status-changed` |
+| DISPUTED | Resolve for requester | Administrator the dispute is referred to | A reason is given; the administrator was never the errand's requester or courier | RELEASE\_PENDING\_CREDIT (cancelled) | `order.release-requested`, `order.status-changed` |
 | COMPLETION\_PENDING\_CREDIT | Transfer confirmed | Credit Service | — | COMPLETED | `order.status-changed` |
 | RELEASE\_PENDING\_CREDIT | Release confirmed | Credit Service | Recorded reason is cancelled | CANCELLED | `order.status-changed` |
 | RELEASE\_PENDING\_CREDIT | Release confirmed | Credit Service | Recorded reason is expired | EXPIRED | `order.status-changed` |
 
 # Timers
-The periods come from the D1 backlog and are configurable.
+The periods come from the D1 backlog and are configurable. The delivery and auto-confirmation
+deadlines are saved on the order when their period starts, so a later change to a period does not
+move an existing deadline.
 
 | Timer | Starts when | Length | When it runs out |
 | ----- | ----- | ----- | ----- |
 | Acceptance deadline | The order becomes OPEN | 60 minutes | An OPEN order expires. An ACCEPTED order keeps its courier, but a later withdrawal or pickup timeout expires it instead of reopening it. A courier suspension extends the deadline by the time that courier held the order. |
 | Pickup | A courier accepts | 30 minutes | The courier is removed, handled as a withdrawal. |
 | Delivery | The courier records pickup | 2 hours | The requester may report non-delivery. If the requester is suspended, the order is referred automatically, at the end of the period or at the suspension if the period has already passed. |
-| Auto-confirmation | The courier records delivery | 24 hours | Receipt is confirmed. |
+| Auto-confirmation | The courier records delivery | 24 hours | Receipt is confirmed, unless the requester has already confirmed or reported non-receipt. From then a report of non-receipt is refused. |
 | Credit wait | The order enters PENDING\_CREDIT | 5 minutes | An operator is alerted. The order is not rejected, and still opens if the reservation arrives. |
 
 # Waiting for the Credit Service
@@ -76,16 +79,19 @@ While an order is in any `*_PENDING_CREDIT` state, no participant action, admini
 | ----- | ----- | ----- |
 | Credit Service | Messages, both directions | Reserve, transfer and return each order's reward. Every `*_PENDING_CREDIT` state is waiting for one of its replies. |
 | User Service | HTTP, through `@foc/auth-client` | Who is calling, whether they are an administrator, and that their account is active. Checked on every request; a suspension takes effect within 5 seconds. |
-| User Service | Messages, received | Suspensions, which drive the "requester suspended" and "courier suspended" transitions. |
+| User Service | HTTP, `GET /internal/admins` | Which administrators may act now, so the scheduler can refer each dispute to one. Called once per run, only while a dispute exists, with `INTERNAL_SERVICE_KEY`; if the User Service does not answer, referrals wait for the next run. |
+| User Service | HTTP, `GET /internal/users/:id` | Whether a user is suspended now: on a suspension message, on a reservation reply while the order waits for it, and for a picked-up errand past its delivery period. Asked with `INTERNAL_SERVICE_KEY`. If it does not answer, the message is retried or the scheduler tries again on its next run; the user is never assumed active. |
+| User Service | Messages, received | Suspensions, which drive the "requester suspended" and "courier suspended" transitions (see *Participant suspension*). |
 | Supplier Service | HTTP, `GET /suppliers/:id` | At creation: refuse an inactive supplier and keep a copy of the supplier on the order, so it survives later changes. The call carries the requester's own token, so the Supplier Service needs no service-to-service route. |
 | Web app | HTTP | Every student and administrator command and query. |
 | Any listener | Messages, sent | Each status change, for live updates and chat. It carries no private details. |
 
 ## Messages
 
-Routing keys and executable payload schemas are in `platform/src/events/catalogue.ts`. Reservation,
-completion/transfer and release messages are catalogued; order-status payloads remain proposed until
-the Order lifecycle implementation adds them.
+Routing keys and executable payload schemas are in `platform/src/events/catalogue.ts`. Every
+message below is catalogued. Credit's replies and suspensions arrive on durable queues of this
+service's own (`foc.order.*`), shared by its instances, so each is handled once. Separately, each
+instance has a private queue that drops cached identities on any status or role change (USR-07).
 
 | Message | Direction | Carries | Schema |
 | ----- | ----- | ----- | ----- |
@@ -97,13 +103,13 @@ the Order lifecycle implementation adds them.
 | `order.release-requested` | Sent | order, requester, amount | In catalogue |
 | `credit.released` | Received | request facts, release reference, and requester resulting balance | In catalogue |
 | `order.status-changed` | Sent | order, previous status, new status, when; no private fields | In catalogue |
-| `user.suspended` | Received | user | In catalogue |
+| `user.suspended` | Received, on `foc.order.user-suspensions` | user, status, audit reference; only the user is read, and the User Service is asked whether they are still suspended | In catalogue |
 
 ## Sending and receiving safely
 
 - **Sending.** A transition that sends a message writes it to this service's outbox table in the same database transaction as the status change. Nothing calls the publisher directly. The shared relay from EVT-02 (#135) publishes each row after commit, so a crash between saving and sending delays the message but never loses it. The outbox table arrives with the first order migration (ORD-01, ORD-02).
 - **Receiving.** Each received message's id is recorded in the same transaction as the transition it causes, so a redelivered reply changes nothing (EVT-02).
-- **Dependency.** The User Service already writes catalogue-validated suspension events to its outbox, and the shared relay publishes them when RabbitMQ is configured (as it is in Compose). The remaining work is the Order Service consumer and its suspension transition handling; until those are implemented, suspension events do not change orders.
+- **Suspensions.** The User Service writes each suspension to its outbox and the shared relay publishes it. This service handles it once per message through the inbox, as above. Without a broker (running locally outside Compose), suspensions do not reach errands; a suspended user is still refused on every request.
 
 ## Persistence and projections
 
@@ -112,7 +118,8 @@ The generated migration under `order-service/drizzle/` creates the Order-owned `
 Database constraints enforce the closed
 status set, reward range, non-empty item list, version counter, terminal rejection shape, and the
 courier required by assigned/delivery states. `order_status_history` records the previous and new
-status, action, actor, order version, and timestamp; one history row is permitted per order version.
+status, action, actor, an optional reason, order version, and timestamp; one history row is permitted
+per order version.
 
 `src/orders/order-state-machine.ts` is the executable source for transition, actor, guard, and emitted
 event rules. The generated matrix test evaluates every status × action × actor combination and checks
@@ -134,7 +141,9 @@ entire request, fetches an active Supplier and captures its snapshot, then commi
 and body returns the recorded order without contacting Supplier again; reuse with different facts is
 refused. The shared relay publishes committed rows after the transaction, so Credit downtime delays
 opening but never rejects or loses the errand. Credit's validated reply moves the row to `OPEN` with
-its acceptance deadline or to terminal `REJECTED` with the recorded reason and available balance.
+its acceptance deadline, to terminal `REJECTED` with the recorded reason and available balance, or,
+if the requester was suspended while it waited, to `RELEASE_PENDING_CREDIT` (cancelled; see
+*Participant suspension*).
 The transactional inbox and business-state check make 100 duplicate replies one transition.
 
 `CREDIT_WAIT_TIMEOUT_MS` defines when a `PENDING_CREDIT` row is surfaced to an operator (ORD-09,
@@ -146,8 +155,8 @@ structured item summary omits item notes, exact delivery instructions, participa
 pending or rejected order. `GET /orders/:id` gives that same public projection to an unrelated
 student. A caller can explicitly request `?view=private`; only the requester, assigned courier, or
 the administrator named in `referred_admin_id` receives it, and every other caller receives `403`.
-ORD-11 (#171) owns setting the referral owner and deciding the dispute; this read surface only
-enforces the authorization boundary.
+The scheduler sets and clears `referred_admin_id` for disputes (see *Administrator referral and
+decision*).
 
 `GET /orders/mine` returns `{ items, truncated }`: the caller's errands in any status, as requester
 or current courier, each in its private projection with `myRole` (`REQUESTER` or `COURIER`). It is
@@ -211,8 +220,132 @@ acceptance's conditional update requires `acceptance_deadline_at > now()`, and e
 `credit.released` from `credit-service` closes the order as `CANCELLED` or `EXPIRED` according to the
 recorded reason. It records `released_at` and the Credit transaction ID, with the same matching,
 dead-lettering and duplicate rules as a transfer. A release for a completed order, or a transfer for
-a released one, is refused, so transfer and release are mutually exclusive outcomes. ORD-06 (#149)
-owns the courier-suspension path (reopen with the deadline extended).
+a released one, is refused, so transfer and release are mutually exclusive outcomes. A suspended
+courier's errand reopens with its deadline extended instead (see *Participant suspension*).
+
+### Administrator referral and decision (ORD-11)
+
+Every `DISPUTED` errand is referred to one administrator, who alone reads its private details and
+decides it. The move into `DISPUTED` commits with no administrator; the lifecycle scheduler refers it
+on its next run. It asks the User Service once for the administrators who may act
+(`GET /internal/admins`: active, holding the role, and past the bootstrap password), then:
+
+1. A dispute referred to someone not on that list (suspended, demoted, or unknown) has the referral
+   cleared (`ADMIN_UNASSIGNED`).
+2. A dispute referred to no one is referred (`ADMIN_ASSIGNED`) to the listed administrator with the
+   fewest undecided disputes, leaving out anyone who was ever the errand's requester or courier
+   (including a courier who withdrew or timed out); ties go to the fewest referrals kept overall,
+   then the lower user ID.
+
+Both go through the ordinary transition path under the row lock: the status stays `DISPUTED`, the
+version moves (so a replaced administrator's decision is stale), a history row naming the
+administrator in its `reason` is written, and no message is sent. Each run takes up to its batch
+size of disputes needing one of these, oldest first; disputes already with an administrator who may
+act are not in that batch, so they never hold up a newer one. If the User Service does not answer,
+or answers that there are no administrators at all, nothing is cleared or referred, a warning is
+logged, and the next run tries again; timers are unaffected. An empty list is not trusted to clear
+referrals: there would be no one to refer them to, and a request from anyone who has really lost the
+role is already refused. If administrators are listed but every one took part in the errand, one
+`REFERRAL_UNASSIGNED` operator alert is recorded for the errand, however many runs see it, and every
+such run logs a warning until the errand is referred.
+
+`POST /admin/orders/:id/resolve` takes `{ "outcome": "COURIER" | "REQUESTER", "reason",
+"expectedVersion" }`, with a reason of 1 to 500 characters (trimmed). `COURIER` moves the errand to
+`COMPLETION_PENDING_CREDIT` and requests the transfer; `REQUESTER` moves it to
+`RELEASE_PENDING_CREDIT` (cancelled) and requests the release. The reason is kept on the history row
+with the administrator and time; that row is the record of the decision. An administrator who was
+ever the errand's requester or courier gets `403 CONFLICT_OF_INTEREST`; any other administrator than
+the referred one gets `403 NOT_REFERRED_ADMIN` (checked again under the row lock); a repeated or
+stale decision gets `409` and requests nothing. A dispute raised before delivery and resolved for the
+courier completes with a receipt whose `deliveredAt` is null.
+
+`GET /admin/orders/referred` lists the caller's referrals with their private details and every
+dispute referred to no one yet without them, each with `referredBy` (the action that disputed it) and
+`assignedToMe`. `GET /admin/orders/decisions` shows every administrator the 100 most recent
+decisions: errand, administrator, outcome, reason and time.
+
+### Requester outcomes and auto-confirmation (ORD-10)
+
+`POST /orders/:id/report-non-delivery` and `POST /orders/:id/report-non-receipt` (requester) take
+`{ "expectedVersion" }` and use the same transition path. Both move the errand to `DISPUTED`, where
+the scheduler refers it to an administrator (above).
+
+Recording pickup saves `non_delivery_report_at` (pickup plus `DELIVERY_PERIOD_MS`), and recording
+delivery saves `auto_confirm_at` (delivery plus `AUTO_CONFIRM_MS`), in the same update as the move
+(ADR 0006). Both are set and checked against the database clock, which the scheduler also uses, so
+a report and a timer agree on whether a deadline has passed. The private view returns them as
+`nonDeliveryReportAt` and `autoConfirmAt`, so the requester can see when they may report and when
+silence counts as confirmation.
+
+- A non-delivery report before `non_delivery_report_at` gets `409 INVALID_ORDER_STATE`.
+- A non-receipt report is accepted until `auto_confirm_at`. From then the errand counts as
+  confirmed, and a report gets `409` even before the scheduler has recorded the confirmation.
+- The scheduler confirms each `DELIVERED` errand past `auto_confirm_at` (`AUTO_CONFIRM`), re-checked
+  under the row lock. Like the requester's confirmation, it writes one `order.completion-requested`.
+  Whichever of a confirmation, a report or the timer lands second is refused or skipped, so an
+  errand has one outcome and at most one transfer request.
+- No timer changes a `DISPUTED` errand.
+
+The migration that adds the two columns gives errands already picked up or delivered their
+deadlines from the D1 periods (2 hours and 24 hours), since a migration cannot read the
+environment. On a database holding errands delivered more than 24 hours earlier, the first sweep
+after it confirms them, 100 per run.
+
+### Participant suspension (ORD-06)
+
+An errand refers to users by ID only: its requester, its current courier and the administrator a
+dispute is referred to on the order; who acted on each history row; and the requester and courier
+on its receipt. It keeps no copy of a name, email, status or role, so a change to any of those
+needs nothing from this service except two:
+
+- **A suspension** changes the user's errands, below.
+- **An administrator who loses the role or is suspended** has their referrals cleared and given to
+  another administrator on the scheduler's next run (see *Administrator referral and decision*).
+
+A reactivation changes nothing: an errand already cancelled, reopened or referred stays so. A
+suspended user is refused on every request within 5 seconds, whatever happens to their errands.
+
+The User Service publishes `user.suspended` and this service handles it from the durable queue
+`foc.order.user-suspensions`. The message is only a prompt: the handler first asks the User Service
+(`GET /internal/users/:id`) whether the user is suspended now, and does nothing if they are not, so
+a stale or forged message cannot change an errand. It then locks every errand the user requested or
+is courier of that is not yet delivered, in `order_id` order (so the requester's and the courier's
+suspensions handled at once wait for each other instead of deadlocking), and applies through the
+ordinary transition path:
+
+| User is | Errand in | History action | Result |
+| ----- | ----- | ----- | ----- |
+| Requester | `OPEN`, `ACCEPTED` | `REQUESTER_SUSPENDED` | `RELEASE_PENDING_CREDIT` (cancelled): the reserved credits go back to the requester |
+| Requester | `PICKED_UP`, delivery period passed | `DELIVERY_PERIOD_PASSED` | `DISPUTED`, referred to an administrator |
+| Requester | `PICKED_UP`, within the delivery period | — | Unchanged. The scheduler refers it when the period ends, if the requester is still suspended then |
+| Courier | `ACCEPTED` | `COURIER_SUSPENDED` | `OPEN`. The courier is removed (and with them their private access), and the acceptance deadline moves later by the time they held the errand |
+| Courier | `PICKED_UP` | `COURIER_SUSPENDED` | `DISPUTED`, referred to an administrator; the courier stays on the errand, so a decision for the courier still pays them |
+
+Anything else is left alone. A delivered errand is confirmed or auto-confirmed as usual, so credits
+keep moving for work already done (CS-FR1.2.1), and an errand already in dispute or waiting on the
+Credit Service is not changed. No suspension moves credits except the requester's cancellation.
+
+Every outcome's history row gives its reason, `requester suspended` or `courier suspended`,
+including the two below that happen later: the scheduler's referral and the cancellation when the
+reservation arrives.
+
+- **While the errand waits for its reservation.** A requester suspended while their errand is in
+  `PENDING_CREDIT` is caught when Credit's reservation arrives: the reply handler asks the User
+  Service and, if the requester is suspended, cancels the errand instead of opening it. It locks
+  the errand before asking, and the suspension handler locks the requester's waiting errands too,
+  so whichever runs second sees what the other did: either the reply finds the requester suspended,
+  or the suspension finds the errand already `OPEN` and cancels it.
+- **At the end of the delivery period.** Each scheduler run asks the User Service about the
+  requester of every picked-up errand past its delivery period, newest first, and refers the errand
+  (`DELIVERY_PERIOD_PASSED`) if they are suspended. An errand whose requester is active stays
+  `PICKED_UP` (the requester may report non-delivery) and is asked about again on the next run.
+- **User Service down.** The suspension message and the reservation reply are retried (5 attempts
+  over about 81 seconds) and then set aside as dead letters, changing nothing; a dead letter can be
+  redriven from the operator view. A reservation reply set aside this way is also re-sent by
+  reconciliation, since the errand is still `PENDING_CREDIT` (see *Credit reconciliation*). The
+  scheduler logs a warning and tries again on its next run. A user is never assumed active.
+- **Repeats.** A repeated message changes nothing (the inbox), and a later suspension of the same
+  user finds nothing left to change.
 
 ### Recovery and privacy verification (ORD-09)
 
@@ -232,13 +365,16 @@ owns the courier-suspension path (reopen with the deadline extended).
   order with how long it has waited. The order is never rejected for waiting.
 - **Privacy (OS-NFR5.1).** `GET /orders/:id/history` returns the private status history to the
   requester, the current courier and the referred administrator only. `order-privacy.test.ts` checks
-  every read surface (detail, private view, history, receipt, open list) for anonymous, requester,
-  current courier, former courier (withdrawn or timed out), unrelated student, referred
-  administrator and unreferred administrator at every lifecycle state. It looks for the delivery
+  every read surface (detail, private view, history, receipt, open list, my errands and the
+  administrator dispute views) for anonymous, requester, current courier, former courier (withdrawn
+  or timed out), unrelated student, referred administrator and unreferred administrator at every
+  lifecycle state, including a dispute before referral, after it, and after its administrator is
+  replaced. It looks for the delivery
   instructions, item notes and every participant ID, and asserts status events carry no private
   fields.
-- **Refused mutations (OS-NFR5.1.2).** `order-mutation-matrix.test.ts` tries every command endpoint as
-  every caller (plus a suspended account) in every reachable state. Whatever the transition table
+- **Refused mutations (OS-NFR5.1.2).** `order-mutation-matrix.test.ts` tries every command endpoint,
+  including the dispute decision, as every caller (plus a suspended account) in every reachable
+  state, with a dispute unreferred, referred, and re-referred to another administrator. Whatever the transition table
   refuses returns `403` or `409` and leaves the order, history and outbox unchanged. The one
   exception is deliberate: an order whose existence is private (`PENDING_CREDIT`, `REJECTED`)
   answers anyone but its requester with the non-enumerating `404` used by every read.
@@ -304,7 +440,7 @@ stateDiagram-v2
   PICKED_UP --> DISPUTED : Delivery period passes with requester<br/>suspended, or courier suspended (System)
 
   DELIVERED --> COMPLETION_PENDING_CREDIT : Confirm receipt (Requester) or<br/>auto-confirmation period passes (System)
-  DELIVERED --> DISPUTED : Report non-receipt<br/>(Requester)
+  DELIVERED --> DISPUTED : Report non-receipt before<br/>auto-confirmation period (Requester)
 
   DISPUTED --> COMPLETION_PENDING_CREDIT : Resolve for courier, with reason<br/>(Administrator)
   DISPUTED --> RELEASE_PENDING_CREDIT : Resolve for requester, with reason<br/>(Administrator)<br/>reason = cancelled
@@ -363,6 +499,8 @@ Run these from the repository root.
 | `CREDIT_WAIT_TIMEOUT_MS` | `300000` | Age at which a PENDING_CREDIT order is surfaced to an operator |
 | `ACCEPTANCE_WINDOW_MS` | `3600000` | Deadline started when reservation succeeds |
 | `PICKUP_TIMEOUT_MS` | `1800000` | Courier removed if no pickup this long after acceptance |
+| `DELIVERY_PERIOD_MS` | `7200000` | From this long after pickup, the requester may report non-delivery |
+| `AUTO_CONFIRM_MS` | `86400000` | A delivered errand neither confirmed nor reported this long after delivery is confirmed |
 | `LIFECYCLE_SWEEP_INTERVAL_MS` | `10000` | Timer sweep interval; at most `60000` |
 | `CREDIT_SERVICE_URL` | `http://localhost:3004` | Credit status reads for reconciliation |
 | `RECONCILE_INTERVAL_MS` | `60000` | How often reconciliation runs |
@@ -376,7 +514,8 @@ SERVICE_NAME=order-service PORT=3003 \
   DATABASE_URL=postgres://order_service:order_service_dev@localhost:55432/foc_order \
   SUPPLIER_SERVICE_URL=http://localhost:3002 \
   CREDIT_WAIT_TIMEOUT_MS=300000 ACCEPTANCE_WINDOW_MS=3600000 \
-  PICKUP_TIMEOUT_MS=1800000 LIFECYCLE_SWEEP_INTERVAL_MS=10000 \
+  PICKUP_TIMEOUT_MS=1800000 DELIVERY_PERIOD_MS=7200000 AUTO_CONFIRM_MS=86400000 \
+  LIFECYCLE_SWEEP_INTERVAL_MS=10000 \
   CREDIT_SERVICE_URL=http://localhost:3004 RECONCILE_INTERVAL_MS=60000 RECONCILE_RETRY_MS=300000 \
   npm run dev:order
 curl -i http://localhost:3003/health
@@ -409,4 +548,6 @@ user and declares a `HEALTHCHECK`. `compose.yaml` runs it on port 3003.
 
 ### Next tickets
 
-ORD-06 (#149) suspension handling; ORD-10 delivery disputes and auto-confirmation.
+- ORD-12 (#181) latency targets under load.
+- ORD-08 (#131) supplier snapshot contract.
+- NTH-02 (#162) participant chat.

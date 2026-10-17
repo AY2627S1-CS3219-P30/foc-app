@@ -1,26 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  EVENTS,
-  UnparseableMessageError,
-  createEnvelope,
-  type EventConsumer,
-  type SubscribeOptions,
-} from '@foc/platform';
-import {
-  RESERVATION_RESULTS_QUEUE,
-  ReservationResultsConsumer,
-} from '../src/reservation-results.consumer.js';
+import { EVENTS, UnparseableMessageError, createEnvelope } from '@foc/platform';
+import { RESERVATION_RESULTS_QUEUE } from '../src/reservation-results.consumer.js';
 import { asRequester, createTestApp, http, type TestApp } from './helpers/app.js';
+import { reservationSubscription as subscription } from './support/lifecycle.js';
 
 const supplierId = '00000000-0000-4000-8000-000000000125';
-
-class RecordingConsumer {
-  readonly subscriptions: SubscribeOptions<unknown>[] = [];
-  async subscribe<T>(options: SubscribeOptions<T>): Promise<void> {
-    this.subscriptions.push(options as SubscribeOptions<unknown>);
-  }
-}
 
 async function pendingOrder(t: TestApp): Promise<string> {
   const response = await http(t)
@@ -36,16 +21,6 @@ async function pendingOrder(t: TestApp): Promise<string> {
     })
     .expect(201);
   return response.body.orderId as string;
-}
-
-async function subscription(t: TestApp) {
-  const recorder = new RecordingConsumer();
-  await new ReservationResultsConsumer(
-    recorder as unknown as EventConsumer,
-    t.db,
-    t.orders,
-  ).onApplicationBootstrap();
-  return recorder.subscriptions[0]!;
 }
 
 describe('Credit reservation result handling', () => {

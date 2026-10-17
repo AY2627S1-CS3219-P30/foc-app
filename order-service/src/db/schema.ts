@@ -38,6 +38,10 @@ export const orders = pgTable(
     acceptedAt: timestamp('accepted_at', { withTimezone: true }),
     pickedUpAt: timestamp('picked_up_at', { withTimezone: true }),
     deliveredAt: timestamp('delivered_at', { withTimezone: true }),
+    /** Pickup plus the delivery period: from then the requester may report non-delivery. */
+    nonDeliveryReportAt: timestamp('non_delivery_report_at', { withTimezone: true }),
+    /** Delivery plus the confirmation period: from then the errand confirms itself. */
+    autoConfirmAt: timestamp('auto_confirm_at', { withTimezone: true }),
     completionRequestedAt: timestamp('completion_requested_at', { withTimezone: true }),
     completedAt: timestamp('completed_at', { withTimezone: true }),
     releaseRequestedAt: timestamp('release_requested_at', { withTimezone: true }),
@@ -90,6 +94,9 @@ export const orders = pgTable(
     index('orders_open_deadline_idx')
       .on(t.acceptanceDeadlineAt, t.createdAt)
       .where(sql`${t.status} = 'OPEN'`),
+    index('orders_auto_confirm_idx')
+      .on(t.autoConfirmAt)
+      .where(sql`${t.status} = 'DELIVERED'`),
   ],
 );
 
@@ -105,6 +112,8 @@ export const orderStatusHistory = pgTable(
     action: text('action').notNull(),
     actorType: text('actor_type').notNull(),
     actorId: text('actor_id'),
+    /** Why, in the actor's words: an administrator's decision reason, or which admin a referral names. */
+    reason: text('reason'),
     orderVersion: integer('order_version').notNull(),
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -141,7 +150,8 @@ export const orderReceipts = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
     acceptedAt: timestamp('accepted_at', { withTimezone: true }).notNull(),
     pickedUpAt: timestamp('picked_up_at', { withTimezone: true }).notNull(),
-    deliveredAt: timestamp('delivered_at', { withTimezone: true }).notNull(),
+    /** Null when an administrator completed the errand before any delivery was recorded. */
+    deliveredAt: timestamp('delivered_at', { withTimezone: true }),
     completionRequestedAt: timestamp('completion_requested_at', { withTimezone: true }).notNull(),
     completedAt: timestamp('completed_at', { withTimezone: true }).notNull(),
   },
@@ -166,7 +176,7 @@ export const orderOperatorAlerts = pgTable(
     primaryKey({ columns: [t.orderId, t.kind] }),
     check(
       'order_operator_alerts_kind_enum',
-      sql`${t.kind} IN ('CREDIT_WAIT_EXCEEDED', 'CREDIT_STATE_CONFLICT')`,
+      sql`${t.kind} IN ('CREDIT_WAIT_EXCEEDED', 'CREDIT_STATE_CONFLICT', 'REFERRAL_UNASSIGNED')`,
     ),
     index('order_operator_alerts_raised_idx').on(t.raisedAt),
   ],

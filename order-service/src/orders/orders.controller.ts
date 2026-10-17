@@ -14,18 +14,14 @@ import {
 import { Authenticated, CurrentUser, type AuthContext } from '@foc/auth-client';
 import { ApiException } from '@foc/platform';
 import type { Request, Response } from 'express';
-import { z } from 'zod';
 import { OrdersService } from './orders.service.js';
 import type { OrderAction } from './order-state-machine.js';
-import { parseAcceptOrder, parseCreateOrder, parseIdempotencyKey } from './validation.js';
-
-const orderIdSchema = z.uuid();
-
-const parseOrderId = (id: string): string => {
-  const parsed = orderIdSchema.safeParse(id);
-  if (!parsed.success) throw new ApiException(400, 'INVALID_ORDER_ID', 'Order ID must be a UUID.');
-  return parsed.data;
-};
+import {
+  parseAcceptOrder,
+  parseCreateOrder,
+  parseIdempotencyKey,
+  parseOrderId,
+} from './validation.js';
 
 @Controller('orders')
 export class OrdersController {
@@ -51,13 +47,11 @@ export class OrdersController {
     @Query('view') view: string | undefined,
     @CurrentUser() caller: AuthContext,
   ) {
-    const parsed = orderIdSchema.safeParse(id);
-    if (!parsed.success)
-      throw new ApiException(400, 'INVALID_ORDER_ID', 'Order ID must be a UUID.');
+    const orderId = parseOrderId(id);
     if (view !== undefined && view !== 'private') {
       throw new ApiException(400, 'INVALID_VIEW', 'View must be private when supplied.');
     }
-    return this.orders.getById(parsed.data, caller, view === 'private');
+    return this.orders.getById(orderId, caller, view === 'private');
   }
 
   @Post(':id/accept')
@@ -68,16 +62,9 @@ export class OrdersController {
     @CurrentUser() caller: AuthContext,
     @Req() request: Request & { correlationId?: string },
   ) {
-    const parsed = orderIdSchema.safeParse(id);
-    if (!parsed.success)
-      throw new ApiException(400, 'INVALID_ORDER_ID', 'Order ID must be a UUID.');
+    const orderId = parseOrderId(id);
     const { expectedVersion } = parseAcceptOrder(body);
-    return this.orders.accept(
-      parsed.data,
-      expectedVersion,
-      caller,
-      request.correlationId ?? 'unknown',
-    );
+    return this.orders.accept(orderId, expectedVersion, caller, request.correlationId ?? 'unknown');
   }
 
   @Get(':id/history')
@@ -150,6 +137,30 @@ export class OrdersController {
     @Req() request: Request & { correlationId?: string },
   ) {
     return this.run(id, 'WITHDRAW', body, caller, request);
+  }
+
+  @Post(':id/report-non-delivery')
+  @HttpCode(200)
+  @Authenticated()
+  reportNonDelivery(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() caller: AuthContext,
+    @Req() request: Request & { correlationId?: string },
+  ) {
+    return this.run(id, 'REPORT_NON_DELIVERY', body, caller, request);
+  }
+
+  @Post(':id/report-non-receipt')
+  @HttpCode(200)
+  @Authenticated()
+  reportNonReceipt(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() caller: AuthContext,
+    @Req() request: Request & { correlationId?: string },
+  ) {
+    return this.run(id, 'REPORT_NON_RECEIPT', body, caller, request);
   }
 
   private run(
