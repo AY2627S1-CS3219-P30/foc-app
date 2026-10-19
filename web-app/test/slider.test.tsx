@@ -65,14 +65,15 @@ describe("Slider", () => {
     expect(output.hasAttribute("aria-hidden")).toBe(false);
   });
 
-  it("keeps CreditSlider labelled, controlled and reporting numbers", async () => {
+  it("keeps CreditSlider labelled, controlled, within the 1–5 reward and reporting numbers", async () => {
     const seen: number[] = [];
     const { container, input, output } = await render(
-      <CreditSlider value={5} onChange={(n) => seen.push(n)} />,
+      <CreditSlider value={2} onChange={(n) => seen.push(n)} />,
     );
     expect(container.querySelector("label")!.getAttribute("for")).toBe(input.id);
-    expect(output.textContent).toBe("5");
-    await slide(input, "9");
-    expect(seen).toEqual([9]);
+    expect([input.min, input.max]).toEqual(["1", "5"]);
+    expect(output.textContent).toBe("2");
+    await slide(input, "4");
+    expect(seen).toEqual([4]);
   });
 });

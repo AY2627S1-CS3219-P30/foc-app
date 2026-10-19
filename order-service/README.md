@@ -16,7 +16,7 @@
 | CANCELLED | The reward has been returned to the requester after a cancellation or a dispute resolved for the requester. | Yes | Cancelled |
 | EXPIRED | The reward has been returned to the requester because the acceptance deadline passed without a courier keeping the order. | Yes | Expired |
 
-The web app's mock data has only five statuses today (`open`, `accepted`, `in_transit`, `complete`, `cancelled`); the other seven arrive when it is wired to this service.
+The web app takes these labels, with a plain-language explanation of each state, from `web-app/src/lib/order-status.ts`.
 
 # Transition Table
 **Guard** is what must also be true, beyond the order being in the From state and the actor being allowed. If a guard fails, the order does not change and the caller is refused. Every student and administrator action also needs an active account: a suspended caller is refused before any guard is checked. A reply from the Credit Service is acted on only if it names the same order and amount the request did.

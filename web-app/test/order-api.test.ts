@@ -1,0 +1,43 @@
+import { afterAll, expect, it } from "bun:test";
+import { createOrder, getMyWallet, getOrder } from "../src/lib/order-api";
+
+const originalFetch = globalThis.fetch;
+afterAll(() => {
+  globalThis.fetch = originalFetch;
+});
+
+const requests: Request[] = [];
+globalThis.fetch = (async (request: Request) => {
+  requests.push(request.clone());
+  return new Response(JSON.stringify({ ok: true }), {
+    status: request.method === "POST" ? 201 : 200,
+    headers: { "content-type": "application/json" },
+  });
+}) as typeof fetch;
+
+const body = {
+  supplierId: "00000000-0000-4000-8000-000000000001",
+  items: [{ name: "Kopi O", quantity: 1 }],
+  deliveryZone: "PGP",
+  deliveryInstructions: "Lobby",
+  reward: 2,
+};
+
+it("creates an order with the idempotency key and bearer token", async () => {
+  await createOrder("access-token", body, "key-1");
+  const [request] = requests.splice(0);
+  expect(request!.method).toBe("POST");
+  expect(request!.url).toBe("http://localhost:3003/orders");
+  expect(request!.headers.get("idempotency-key")).toBe("key-1");
+  expect(request!.headers.get("authorization")).toBe("Bearer access-token");
+  expect(await request!.json()).toEqual(body);
+});
+
+it("reads an order from the Order Service and the wallet from the Credit Service", async () => {
+  await getOrder("access-token", "order-1");
+  await getMyWallet("access-token");
+  expect(requests.splice(0).map((r) => r.url)).toEqual([
+    "http://localhost:3003/orders/order-1",
+    "http://localhost:3004/wallets/me",
+  ]);
+});

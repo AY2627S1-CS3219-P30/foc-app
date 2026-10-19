@@ -11,6 +11,7 @@ import { Screen, ScreenContent } from "@/components/Screen";
 import { ScreenHeader } from "@/components/ScreenHeader";
 import { EmptyState } from "@/components/States";
 import { Textarea } from "@/components/Textarea";
+import { REWARD_MIN } from "@/lib/composer";
 import { useStore } from "@/lib/store";
 
 export default function EditRequestPage({ params }: { params: Promise<{ id: string }> }) {
@@ -21,7 +22,7 @@ export default function EditRequestPage({ params }: { params: Promise<{ id: stri
 
   const [title, setTitle] = useState(request?.title ?? "");
   const [description, setDescription] = useState(request?.description ?? "");
-  const [credits, setCredits] = useState(request?.credits ?? 10);
+  const [credits, setCredits] = useState(request?.credits ?? REWARD_MIN);
 
   if (!request) {
     const notFound = <EmptyState title="This request no longer exists." />;

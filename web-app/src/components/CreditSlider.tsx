@@ -1,11 +1,12 @@
+import { REWARD_MAX, REWARD_MIN } from "@/lib/composer";
 import { Field } from "./Field";
 import { Slider } from "./Slider";
 
 export function CreditSlider({
   value,
   onChange,
-  min = 1,
-  max = 30,
+  min = REWARD_MIN,
+  max = REWARD_MAX,
 }: {
   value: number;
   onChange: (value: number) => void;

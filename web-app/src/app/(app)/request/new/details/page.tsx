@@ -1,98 +1,164 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/Button";
 import { CreditSlider } from "@/components/CreditSlider";
-import { DesktopPanel } from "@/components/DesktopPanel";
 import { Field } from "@/components/Field";
 import { Input } from "@/components/Input";
 import { NavRow } from "@/components/NavRow";
-import { Screen, ScreenContent } from "@/components/Screen";
-import { ScreenHeader } from "@/components/ScreenHeader";
+import { ResponsiveShell } from "@/components/ResponsiveShell";
 import { ErrorState, LoadingState } from "@/components/States";
 import { SupplierUnavailable } from "@/components/SupplierPicker";
 import { Textarea } from "@/components/Textarea";
-import { useStore } from "@/lib/store";
+import {
+  pickupLabel,
+  resumeDraft,
+  saveDraft,
+  validateDraft,
+  type Draft,
+  type DraftErrors,
+  type DraftItem,
+} from "@/lib/composer";
+import { STUDENT_NAV } from "@/lib/nav";
 import type { Supplier } from "@/lib/supplier-api";
 import { useSupplier } from "@/lib/use-supplier";
+import styles from "../composer.module.css";
 
-const locationOf = (supplier: Supplier) => `${supplier.building}, floor ${supplier.floor}`;
+const MAX_ITEMS = 50;
 
-function DetailsForm() {
-  const params = useSearchParams();
+/** Mounted once the supplier has loaded, so the stored draft is only read in the browser. */
+function DetailsForm({ supplier }: { supplier: Supplier }) {
   const router = useRouter();
-  const { createRequest } = useStore();
+  const [draft, setDraft] = useState(() => resumeDraft(supplier.supplierId));
+  const [errors, setErrors] = useState<DraftErrors>({});
 
-  const [lookup, retry] = useSupplier(params.get("supplierId"));
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [credits, setCredits] = useState(10);
+  const update = (changes: Partial<Draft>) => setDraft((d) => ({ ...d, ...changes }));
+  const updateItem = (index: number, changes: Partial<DraftItem>) =>
+    update({ items: draft.items.map((item, i) => (i === index ? { ...item, ...changes } : item)) });
 
-  function submit() {
-    if (lookup.status !== "ready" || !title.trim()) return;
-    const { supplier } = lookup;
-    const id = createRequest({
-      title: title.trim(),
-      supplier: supplier.name,
-      dropoff: locationOf(supplier),
-      description,
-      credits,
-    });
-    router.push(`/request/${id}?posted=1`);
+  function review(event: FormEvent) {
+    event.preventDefault();
+    const found = validateDraft(draft);
+    setErrors(found);
+    if (Object.keys(found).length) return;
+    saveDraft(draft);
+    router.push(`/request/new/review?supplierId=${supplier.supplierId}`);
   }
 
-  const body =
-    lookup.status === "loading" ? (
-      <LoadingState label="Loading pickup point…" rows={1} />
-    ) : lookup.status === "unavailable" ? (
-      <SupplierUnavailable onChooseAnother={() => router.push("/request/new")} />
-    ) : lookup.status === "error" ? (
-      <ErrorState title="Could not load the pickup point" onRetry={retry}>
-        {lookup.message}
-      </ErrorState>
-    ) : (
-      <>
-        <NavRow label="Pickup" value={lookup.supplier.name} />
-        <NavRow label="Drop-off" value={locationOf(lookup.supplier)} />
-        <Field label="Title" required>
-          <Input placeholder="Title..." value={title} onChange={(e) => setTitle(e.target.value)} />
-        </Field>
-        <CreditSlider value={credits} onChange={setCredits} />
-        <Field label="Description">
-          <Textarea
-            placeholder="Description..."
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </Field>
-        <Button full onClick={submit} disabled={!title.trim()}>
-          Post request
-        </Button>
-      </>
-    );
-
   return (
-    <>
-      <div className="mobileOnly">
-        <Screen>
-          <ScreenHeader title="Add request" onBack={() => router.push("/request/new")} />
-          <ScreenContent>{body}</ScreenContent>
-        </Screen>
+    <form className={styles.form} onSubmit={review} noValidate>
+      <NavRow label="Pickup" value={pickupLabel(supplier)} />
+      <fieldset className={styles.items}>
+        <legend className="field-label">Items</legend>
+        {draft.items.map((item, i) => (
+          <fieldset key={i} className={styles.item}>
+            <legend>Item {i + 1}</legend>
+            <Field label="Name" required>
+              <Input
+                maxLength={200}
+                value={item.name}
+                onChange={(e) => updateItem(i, { name: e.target.value })}
+              />
+            </Field>
+            <Field label="Quantity" required>
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={100}
+                value={item.quantity || ""}
+                onChange={(e) => updateItem(i, { quantity: Number(e.target.value) })}
+              />
+            </Field>
+            <Field label="Note" hint="Optional, like a size or an order number.">
+              <Input
+                maxLength={500}
+                value={item.note}
+                onChange={(e) => updateItem(i, { note: e.target.value })}
+              />
+            </Field>
+            {draft.items.length > 1 && (
+              <Button
+                type="button"
+                variant="subtle"
+                onClick={() => update({ items: draft.items.filter((_, j) => j !== i) })}
+              >
+                Remove item {i + 1}
+              </Button>
+            )}
+          </fieldset>
+        ))}
+        {errors.items && <p className={styles.error}>{errors.items}</p>}
+        {draft.items.length < MAX_ITEMS && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => update({ items: [...draft.items, { name: "", quantity: 1, note: "" }] })}
+          >
+            Add another item
+          </Button>
+        )}
+      </fieldset>
+      <Field
+        label="Delivery zone"
+        hint="Where it should be brought, like PGP House 7. Couriers see this before accepting."
+        error={errors.deliveryZone}
+        required
+      >
+        <Input
+          maxLength={200}
+          value={draft.deliveryZone}
+          onChange={(e) => update({ deliveryZone: e.target.value })}
+        />
+      </Field>
+      <Field
+        label="Delivery instructions"
+        hint="How to hand it over. Only your courier sees these."
+        error={errors.deliveryInstructions}
+        required
+      >
+        <Textarea
+          maxLength={1000}
+          value={draft.deliveryInstructions}
+          onChange={(e) => update({ deliveryInstructions: e.target.value })}
+        />
+      </Field>
+      <CreditSlider value={draft.reward} onChange={(reward) => update({ reward })} />
+      <div className={styles.actions}>
+        <Button type="button" variant="outline" onClick={() => router.push("/request/new")}>
+          Change pickup point
+        </Button>
+        <Button type="submit">Review request</Button>
       </div>
-      <div className="desktopOnly">
-        <DesktopPanel title="Add request" onBack={() => router.push("/request/new")} width={480}>
-          {body}
-        </DesktopPanel>
-      </div>
-    </>
+    </form>
   );
 }
 
+function Details() {
+  const router = useRouter();
+  const [lookup, retry] = useSupplier(useSearchParams().get("supplierId"));
+
+  return lookup.status === "loading" ? (
+    <LoadingState label="Loading pickup point…" rows={1} />
+  ) : lookup.status === "unavailable" ? (
+    <SupplierUnavailable onChooseAnother={() => router.push("/request/new")} />
+  ) : lookup.status === "error" ? (
+    <ErrorState title="Could not load the pickup point" onRetry={retry}>
+      {lookup.message}
+    </ErrorState>
+  ) : (
+    <DetailsForm supplier={lookup.supplier} />
+  );
+}
+
+/** One tree for every width because it holds a form: see decisions.md W3. */
 export default function NewRequestDetailsPage() {
   return (
-    <Suspense fallback={null}>
-      <DetailsForm />
-    </Suspense>
+    <ResponsiveShell title="New request" navItems={STUDENT_NAV} activeHref="/feed">
+      <Suspense fallback={null}>
+        <Details />
+      </Suspense>
+    </ResponsiveShell>
   );
 }

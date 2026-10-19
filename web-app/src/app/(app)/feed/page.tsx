@@ -20,7 +20,7 @@ export default function FeedPage() {
   const openRequests = useMemo(
     () =>
       state.requests
-        .filter((r) => r.status === "open" && r.requesterId !== CURRENT_USER.id)
+        .filter((r) => r.status === "OPEN" && r.requesterId !== CURRENT_USER.id)
         .sort((a, b) => b.createdAt - a.createdAt),
     [state.requests]
   );

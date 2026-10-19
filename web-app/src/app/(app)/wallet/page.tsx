@@ -24,7 +24,7 @@ export default function WalletPage() {
 
   const openCount = useMemo(
     () =>
-      state.requests.filter((r) => r.requesterId === CURRENT_USER.id && r.status === "open")
+      state.requests.filter((r) => r.requesterId === CURRENT_USER.id && r.status === "OPEN")
         .length,
     [state.requests]
   );

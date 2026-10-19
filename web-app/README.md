@@ -109,7 +109,34 @@ Admin create, edit, and delete use the same service with the signed-in access to
 The new-request composer picks a pickup point with `SupplierPicker` (search over active suppliers
 only) and passes its `supplierId` on; the details step resolves it with `useSupplier` and explains a
 deactivated or missing supplier (`SUPPLIER_UNAVAILABLE`) instead of hiding it (SUP-04).
-Errands and wallet still run on the in-memory mock store (`src/lib/store.tsx`).
+Creating an errand calls the real Order and Credit Services (below). The feed, order history and
+wallet still read the in-memory mock store (`src/lib/store.tsx`) until WEB-02 and WEB-03.
+
+### Request composer (WEB-01)
+
+`/request/new` → `details` → `review`, then `/request/{orderId}`. The calls are in
+`src/lib/order-api.ts`; the draft, checks and error mapping in `src/lib/composer.ts`.
+
+- **Pick** with `SupplierPicker` (SUP-04); the chosen `supplierId` travels in the URL.
+- **Details**: items (name, quantity, optional note), a delivery zone, delivery instructions and a
+  reward of 1–5 credits, checked against the Order Service's rules before anything is sent.
+- **Review** shows the supplier, items, zone, the 60-minute open period (`OPEN_PERIOD_MINUTES`), the
+  reward, the **available** balance from `GET /wallets/me` and `available − reward`, which is what the
+  Credit Service reserves. Zero available credits, or fewer than the reward, blocks posting and says
+  why; with none, it says courier work is how credits are earned.
+- **Submit** sends `POST /orders` with an `Idempotency-Key` made once per draft. The draft and its key
+  live in `sessionStorage`, so a retry, a reload or a reconnect replays the same key and the Order
+  Service returns the original order instead of a second one. The button is disabled while a send is
+  in flight. `422 INVALID_SUPPLIER` shows SUP-04's message and goes back to the picker;
+  `422 VALIDATION_FAILED` (or a `400` with details) marks the fields; a `503` or network failure
+  offers "Try again" with the same key. The draft is cleared once the server returns the order.
+- **Result**: `/request/{orderId}` reads `GET /orders/{orderId}`, polling while it is
+  `PENDING_CREDIT` (1, 2, 4, 8, then every 15 seconds), and says it is taking longer than usual after
+  30 seconds. `OPEN` shows the deadline from `acceptanceDeadlineAt`; `REJECTED` shows what to do for
+  its reason, using `rejection.available` when present.
+
+Every state's label and plain-language explanation is in `src/lib/order-status.ts`, typed from the
+generated contract so all twelve are covered.
 
 ### Sessions
 
@@ -204,16 +231,13 @@ CI runs it in the `Supplier listing integration` job when `supplier-service/`, t
 client (`src/lib/supplier-*`, `SupplierCard`), the test itself, or anything shared or stack-wide changes
 (`scripts-ci-detect.sh`).
 
-When you do wire it up, the services run on ports 3001–3004 — see the root
-[README](../README.md). Every service returns the same error envelope and echoes
-an `x-correlation-id` header, so send one and log it alongside the response to
-trace a failure across services.
+The services run on ports 3001–3004 — see the root [README](../README.md). Every
+service returns the same error envelope and echoes an `x-correlation-id` header,
+so send one and log it alongside the response to trace a failure across services.
 
-> **Note:** `src/lib/types.ts` defines `RequestStatus` with five values. That does
-> not match the order status model in
-> [`order-service/README.md`](../order-service/README.md). Reconciling the two is
-> part of WEB-01 — do not add screens against the current shape without reading
-> that first.
+Order statuses are the twelve in
+[`order-service/README.md`](../order-service/README.md), as generated into
+`Order["status"]`; `src/lib/order-status.ts` labels and explains each one.
 
 ## Structure
 
