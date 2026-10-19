@@ -89,6 +89,10 @@ const fakeAuthenticator = {
 export class FakeUserService {
   readonly admins = new Set(['admin-1', 'admin-2']);
   readonly suspended = new Set<string>();
+  /** Users whose lookup answers 503, while everything else still works. */
+  readonly failing = new Set<string>();
+  /** Every user looked up, in order. */
+  readonly lookups: string[] = [];
   down = false;
   readonly fetch: typeof fetch = async (input) => {
     if (this.down) throw new TypeError('fetch failed');
@@ -99,6 +103,8 @@ export class FakeUserService {
     const user = /^\/internal\/users\/([^/]+)$/.exec(pathname)?.[1];
     if (!user) return new Response(null, { status: 404 });
     const userId = decodeURIComponent(user);
+    this.lookups.push(userId);
+    if (this.failing.has(userId)) return new Response(null, { status: 503 });
     return Response.json({
       userId,
       exists: true,

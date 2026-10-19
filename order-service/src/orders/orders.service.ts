@@ -7,12 +7,26 @@ import {
   OrdersRepository,
   type TransitionCommand,
 } from './orders.repository.js';
-import { RESOLVE_ACTIONS, type OrderAction } from './order-state-machine.js';
+import { RESOLVE_ACTIONS, SUSPENSION_EFFECTS, type OrderAction } from './order-state-machine.js';
 import { SupplierClient } from './supplier.client.js';
 import type { OpenOrderSummary, OrderReceipt, OrderRow, OrderStatus, OrderView } from './types.js';
 import type { CreateOrderInput, ResolveOrderInput } from './validation.js';
 
 const MY_ERRANDS_LIMIT = 100;
+const SUSPENSION_REASONS = new Set(
+  Object.values(SUSPENSION_EFFECTS).map((effect) => effect.reason),
+);
+
+type HistoryEntry = Awaited<ReturnType<OrdersRepository['findHistory']>>[number];
+
+/**
+ * A history entry a suspension caused, as anyone but the referred administrator sees it: a
+ * system outcome, without the action, actor or reason that would say someone was suspended.
+ */
+function withoutSuspension(entry: HistoryEntry): HistoryEntry {
+  if (entry.reason === null || !SUSPENSION_REASONS.has(entry.reason)) return entry;
+  return { ...entry, action: 'SYSTEM_OUTCOME', actorId: null, reason: null };
+}
 const notFound = () => new ApiException(404, 'NOT_FOUND', 'Order not found.');
 
 /** A requester's report refused in this status can only be refused by its deadline, so say so. */
@@ -308,7 +322,9 @@ export class OrdersService {
         'Only an order participant or its referred administrator may read the status history.',
       );
     }
-    return { orderId, entries: await this.orders.findHistory(orderId) };
+    const entries = await this.orders.findHistory(orderId);
+    const isReferredAdmin = caller.isAdmin && caller.userId === order.referredAdminId;
+    return { orderId, entries: isReferredAdmin ? entries : entries.map(withoutSuspension) };
   }
 
   async reconciliationAttempts() {

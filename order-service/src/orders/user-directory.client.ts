@@ -4,6 +4,13 @@ import { env } from '../config.js';
 
 export const USER_DIRECTORY_FETCH = Symbol('USER_DIRECTORY_FETCH');
 
+/**
+ * How many messages each consumer that asks this client while holding a row lock (reservation
+ * replies, suspensions) handles at once. Each holds a pool connection for up to the 5 s timeout
+ * below, so the two together hold at most 6 of the pool's 10 and leave the rest for requests.
+ */
+export const LOCK_THEN_ASK_PREFETCH = 3;
+
 const adminsSchema = z.object({ items: z.array(z.object({ userId: z.string().min(1) })) });
 const lookupSchema = z.object({
   exists: z.boolean(),

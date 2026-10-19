@@ -671,13 +671,19 @@ export interface components {
             entries: {
                 previousStatus: string | null;
                 newStatus: string;
+                /**
+                 * @description The transition's action. To anyone but the referred administrator, a change a
+                 *     participant's suspension caused shows as `SYSTEM_OUTCOME`, with a null `actorId`
+                 *     and `reason`, so it does not reveal the suspension.
+                 */
                 action: string;
                 actorType: string;
                 actorId: string | null;
                 /**
-                 * @description An administrator's reason for a decision, or, on `ADMIN_ASSIGNED` and
-                 *     `ADMIN_UNASSIGNED`, the user ID of the administrator referred or cleared;
-                 *     otherwise null.
+                 * @description An administrator's reason for a decision; on `ADMIN_ASSIGNED` and
+                 *     `ADMIN_UNASSIGNED`, the user ID of the administrator referred or cleared; or, to
+                 *     the referred administrator only, `requester suspended` or `courier suspended` on a
+                 *     change a suspension caused. Otherwise null.
                  */
                 reason: string | null;
                 version: number;

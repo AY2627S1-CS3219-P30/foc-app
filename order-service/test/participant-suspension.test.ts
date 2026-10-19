@@ -6,7 +6,14 @@ import {
   UserSuspensionsConsumer,
 } from '../src/user-suspensions.consumer.js';
 import { UserDirectoryUnavailableError } from '../src/orders/user-directory.client.js';
-import { createTestApp, type TestApp } from './helpers/app.js';
+import {
+  asAdmin,
+  asRequester,
+  asStranger,
+  createTestApp,
+  http,
+  type TestApp,
+} from './helpers/app.js';
 import {
   COURIER,
   RELEASE_RESULTS_QUEUE,
@@ -17,6 +24,7 @@ import {
   backdate,
   createPending,
   deliver,
+  dispute,
   footprint,
   outboxOf,
   released,
@@ -301,19 +309,136 @@ describe('participant suspension (ORD-06)', () => {
     expect(await creditRequests(t)).toEqual({ releases: 0, transfers: 0 });
   });
 
-  it('leaves a picked-up errand past its delivery period to its active requester, or while the User Service is down', async () => {
+  it('never asks about the requester of a picked-up errand unless they were suspended within its delivery period', async () => {
     t = await createTestApp();
     await advance(t, 'PICKED_UP');
     await backdate(t, 'non_delivery_report_at', 1_000);
-    const before = await footprint(t);
-    expect(await sweep(t)).toMatchObject({ undeliveredReferred: 0 });
 
-    t.userService.suspended.add(REQUESTER);
+    for (let run = 0; run < 3; run++) {
+      expect(await sweep(t)).toMatchObject({ undeliveredReferred: 0 });
+    }
+    expect(t.userService.lookups).toEqual([]);
+  });
+
+  it('leaves a picked-up errand to a requester active again when its delivery period ends, asking once', async () => {
+    t = await createTestApp();
+    await advance(t, 'PICKED_UP');
+    await suspend(t, REQUESTER);
+    t.userService.suspended.delete(REQUESTER);
+    await backdate(t, 'non_delivery_report_at', 1_000);
+    const before = await footprint(t);
+    t.userService.lookups.length = 0;
+
+    for (let run = 0; run < 3; run++) {
+      expect(await sweep(t)).toMatchObject({ undeliveredReferred: 0 });
+    }
+    expect(t.userService.lookups).toEqual([REQUESTER]);
+    expect(await footprint(t)).toEqual(before);
+  });
+
+  it('asks again on the next run while the User Service is down', async () => {
+    t = await createTestApp();
+    await advance(t, 'PICKED_UP');
+    await suspend(t, REQUESTER);
+    await backdate(t, 'non_delivery_report_at', 1_000);
+    const before = await footprint(t);
+
     t.userService.down = true;
     expect(await sweep(t)).toMatchObject({ undeliveredReferred: 0 });
     expect(await footprint(t)).toEqual(before);
 
     t.userService.down = false;
     expect(await sweep(t)).toMatchObject({ undeliveredReferred: 1 });
+  });
+
+  it('still refers disputes when the lookup for a suspended requester fails', async () => {
+    t = await createTestApp();
+    const disputed = await createPending(t);
+    await reservationReply(t, disputed);
+    await dispute(t, 'DELIVERED', disputed);
+    await advance(t, 'PICKED_UP');
+    await suspend(t, REQUESTER);
+    await backdate(t, 'non_delivery_report_at', 1_000);
+    t.userService.failing.add(REQUESTER);
+
+    expect(await sweep(t)).toMatchObject({ undeliveredReferred: 0, adminsAssigned: 1 });
+    expect((await t.orders.findById(disputed))!.referredAdminId).not.toBeNull();
+    expect((await t.orders.findById(SEEDED_ORDER))!.status).toBe('PICKED_UP');
+  });
+
+  it('changes nothing when a suspension is replayed after the user was reactivated and took the errand again', async () => {
+    t = await createTestApp();
+    await advance(t, 'ACCEPTED');
+    const message = suspension(COURIER);
+    await suspend(t, COURIER, message);
+    t.userService.suspended.delete(COURIER);
+    await http(t)
+      .post(`/orders/${SEEDED_ORDER}/accept`)
+      .set('Authorization', asStranger)
+      .send({ expectedVersion: 4 })
+      .expect(201);
+    const accepted = await footprint(t);
+
+    // The same message again, and a copy under a new ID, as a redriven dead letter would be.
+    await deliverSuspension(t, message);
+    await deliverSuspension(t, suspension(COURIER));
+
+    expect(await footprint(t)).toEqual(accepted);
+  });
+
+  it('treats a second reservation reply as a repeat once a suspension has cancelled the errand', async () => {
+    t = await createTestApp();
+    const orderId = await createPending(t);
+    await suspend(t, REQUESTER);
+    await reservationReply(t, orderId);
+    const cancelled = await footprint(t, orderId);
+
+    await reservationReply(t, orderId);
+
+    expect(await footprint(t, orderId)).toEqual(cancelled);
+  });
+
+  describe('the history, read by someone other than the referred administrator', () => {
+    const entryAt = async (auth: string, version: number) => {
+      const { body } = await http(t!)
+        .get(`/orders/${SEEDED_ORDER}/history`)
+        .set('Authorization', auth)
+        .expect(200);
+      return (body.entries as Array<{ version: number }>).find((e) => e.version === version);
+    };
+
+    it("shows the courier the requester's suspension only as a system outcome", async () => {
+      t = await createTestApp();
+      await advance(t, 'ACCEPTED');
+      await suspend(t, REQUESTER);
+
+      expect(await entryAt(asStranger, 4)).toMatchObject({
+        previousStatus: 'ACCEPTED',
+        newStatus: 'RELEASE_PENDING_CREDIT',
+        action: 'SYSTEM_OUTCOME',
+        actorType: 'SYSTEM',
+        actorId: null,
+        reason: null,
+      });
+    });
+
+    it("shows the requester the courier's suspension only as a system outcome, and the referred administrator all of it", async () => {
+      t = await createTestApp();
+      await advance(t, 'PICKED_UP');
+      await suspend(t, COURIER);
+      await sweep(t);
+      expect((await t.orders.findById(SEEDED_ORDER))!.referredAdminId).toBe('admin-1');
+
+      expect(await entryAt(asRequester, 5)).toMatchObject({
+        action: 'SYSTEM_OUTCOME',
+        actorId: null,
+        reason: null,
+      });
+      expect(await entryAt(asAdmin, 5)).toMatchObject({
+        action: 'COURIER_SUSPENDED',
+        actorId: 'user-suspensions',
+        reason: 'courier suspended',
+      });
+    });
   });
 });

@@ -13,7 +13,7 @@ import {
 import { ORDER_DB } from './db/db.js';
 import { OrdersRepository } from './orders/orders.repository.js';
 import { SUSPENSION_EFFECTS } from './orders/order-state-machine.js';
-import { UserDirectoryClient } from './orders/user-directory.client.js';
+import { LOCK_THEN_ASK_PREFETCH, UserDirectoryClient } from './orders/user-directory.client.js';
 
 export const USER_SUSPENSIONS_QUEUE = 'foc.order.user-suspensions';
 
@@ -23,7 +23,8 @@ export const USER_SUSPENSIONS_QUEUE = 'foc.order.user-suspensions';
  *
  * - as requester, an errand not yet picked up is cancelled and its credits returned; a picked-up
  *   one is referred to an administrator once its delivery period has passed (until then it
- *   continues, and the lifecycle scheduler refers it when the period ends);
+ *   continues, marked, and the lifecycle scheduler refers it when the period ends if the requester
+ *   is still suspended);
  * - as courier, an errand not yet picked up reopens with its deadline extended by the time they
  *   held it; a picked-up one is referred to an administrator.
  *
@@ -49,6 +50,7 @@ export class UserSuspensionsConsumer implements OnApplicationBootstrap {
       eventType: EVENTS.USER_SUSPENDED,
       expectedProducer: 'user-service',
       payloadSchema: userStatusChangedPayload,
+      prefetch: LOCK_THEN_ASK_PREFETCH,
       handler: withInbox(this.db, USER_SUSPENSIONS_QUEUE, (envelope, tx) =>
         this.handle(envelope, tx),
       ),
@@ -79,6 +81,10 @@ export class UserSuspensionsConsumer implements OnApplicationBootstrap {
           tx,
         );
         if (result.kind === 'applied') changed += 1;
+        // Still within its delivery period: the scheduler asks again once the period ends.
+        else if (asRequester && order.status === 'PICKED_UP') {
+          await this.orders.noteRequesterSuspended(tx, order.orderId);
+        }
       }
     }
     this.logger.log({
