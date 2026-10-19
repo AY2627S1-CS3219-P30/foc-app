@@ -27,7 +27,7 @@ D3 Part 1.1. Ticket: ORD-14 (#232). The lifecycle these tables carry is in
   append-only. A bug in a later code path cannot write an impossible errand.
 - **One clock for every deadline.** The acceptance, pickup, delivery and auto-confirmation timers all
   compare against the database's `now()`, so a student's action and a timer on another instance agree on
-  whether a deadline has passed (ADR 0006).
+  whether a deadline has passed.
 - **The reads are a few fixed, indexed patterns.** Open errands by acceptance deadline, a student's
   errands by requester or courier, disputes by referred administrator, and the timers' scans by status.
   Each has a B-tree index; the timer and open-list indexes are partial (only rows in that status), so
