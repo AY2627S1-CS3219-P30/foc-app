@@ -84,6 +84,16 @@ export const orders = pgTable(
       'orders_rejection_shape',
       sql`(${t.status} = 'REJECTED') = (${t.rejectionReason} IS NOT NULL)`,
     ),
+    // A picked-up or delivered errand without its deadline would never be reportable or confirm
+    // itself, so code that leaves it out (an older release mid-deploy) fails instead.
+    check(
+      'orders_picked_up_shape',
+      sql`${t.status} <> 'PICKED_UP' OR ${t.nonDeliveryReportAt} IS NOT NULL`,
+    ),
+    check(
+      'orders_delivered_shape',
+      sql`${t.status} <> 'DELIVERED' OR ${t.autoConfirmAt} IS NOT NULL`,
+    ),
     index('orders_status_created_idx').on(t.status, t.createdAt),
     index('orders_requester_created_idx').on(t.requesterId, t.createdAt),
     index('orders_courier_created_idx').on(t.courierId, t.createdAt),
