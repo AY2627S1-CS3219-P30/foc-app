@@ -80,7 +80,7 @@ One row per errand, updated in place as it moves; `order_status_history` keeps w
 | `requester_id` | text NOT NULL | The student who posted it. |
 | `courier_id` | text NULL | The current courier. Required in ACCEPTED, PICKED\_UP, DELIVERED, DISPUTED, COMPLETION\_PENDING\_CREDIT and COMPLETED (`orders_courier_shape`); cleared when a courier withdraws, times out or is suspended. Past couriers are in the history. |
 | `referred_admin_id` | text NULL | The one administrator who may read and decide a dispute. Set and cleared by the scheduler. |
-| `supplier_snapshot` | jsonb NOT NULL | The pickup location: `{ supplierId, name, type, building, floor, locationDescription }`, copied from the Supplier Service at creation. Later edits to the supplier, or its deactivation, do not change it. `supplierId` stays as the live reference. |
+| `supplier_snapshot` | jsonb NOT NULL | The pickup location: `{ supplierId, name, type, building, floor, locationDescription }`, copied from the Supplier Service at creation. Later edits to the supplier, or its deactivation, do not change it. `supplierId` stays as the live reference. Coordinates are not copied: nothing shown for an errand uses them. |
 | `items` | jsonb NOT NULL | `[{ name, quantity, note? }]`, 1–50 items; a non-empty array (`orders_items_array`). Notes are private to the participants. |
 | `delivery_zone` | text NOT NULL | Public, 1–200 chars: where couriers are heading. |
 | `delivery_instructions` | text NOT NULL | Private, 1–1000 chars: the exact drop-off. |
