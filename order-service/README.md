@@ -361,6 +361,11 @@ someone was suspended.
   most 3 messages at once (`LOCK_THEN_ASK_PREFETCH`), so together they hold at most 6 of the
   process's 10 pool connections and leave the rest for requests, the scheduler and the outbox
   relay.
+- **An acceptance just before a suspension.** Authentication caches an account's status for up to 5
+  seconds, so a courier's acceptance that passed it just before their suspension can commit after
+  the handler has run. That errand stays `ACCEPTED` until the pickup timeout, then reopens, or
+  expires if its acceptance deadline has passed, returning the credits. The suspended courier is
+  refused once the cache expires, so they cannot record pickup and are never paid.
 
 ### Recovery and privacy verification (ORD-09)
 
