@@ -739,7 +739,10 @@ export class OrdersRepository {
    * Disputes that need a referral, oldest first: those referred to no one, and those referred to
    * someone not among `adminIds` (with that administrator, so it can be cleared). Disputes waiting
    * on an administrator who may act are left out, so however many there are, they never crowd a
-   * newer dispute out of the batch.
+   * newer dispute out of the batch. A dispute that no listed administrator may take (each took part
+   * in the errand) stays referred to no one and keeps its place at the head of every batch, so
+   * `limit` of those at once would hold newer disputes back. Each one has its REFERRAL_UNASSIGNED
+   * alert and a warning on every run.
    */
   async listDisputesToRefer(
     adminIds: string[],
@@ -1002,13 +1005,11 @@ export class OrdersRepository {
       supplier: row.supplier_snapshot,
       reward: Number(row.reward),
       creditTransactionId: row.credit_transaction_id,
-      deliveryRecorded: row.delivered_at !== null,
       timestamps: {
         createdAt: iso(row.created_at),
         acceptedAt: iso(row.accepted_at),
         pickedUpAt: iso(row.picked_up_at),
-        // The stored row keeps the null; the published receipt always carries a time (v1 contract).
-        deliveredAt: iso(row.delivered_at ?? row.completion_requested_at),
+        deliveredAt: nullableIso(row.delivered_at),
         completionRequestedAt: iso(row.completion_requested_at),
         completedAt: iso(row.completed_at),
       },

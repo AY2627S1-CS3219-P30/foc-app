@@ -253,9 +253,7 @@ with the administrator and time; that row is the record of the decision. An admi
 ever the errand's requester or courier gets `403 CONFLICT_OF_INTEREST`; any other administrator than
 the referred one gets `403 NOT_REFERRED_ADMIN` (checked again under the row lock); a repeated or
 stale decision gets `409` and requests nothing. A dispute raised before delivery and resolved for the
-courier completes with a receipt whose stored delivery time is null; the published receipt says
-`deliveryRecorded: false` and, since v1 contracts only grow, gives the decision time as
-`deliveredAt`.
+courier completes with a receipt whose `deliveredAt` is null.
 
 `GET /admin/orders/referred` lists the caller's referrals with their private details and every
 dispute referred to no one yet without them, each with `referredBy` (the action that disputed it) and

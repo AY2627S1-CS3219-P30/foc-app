@@ -783,17 +783,7 @@ components:
         expectedVersion: { type: integer, minimum: 1 }
     OrderReceipt:
       type: object
-      required:
-        [
-          orderId,
-          requesterId,
-          courierId,
-          supplier,
-          reward,
-          creditTransactionId,
-          deliveryRecorded,
-          timestamps,
-        ]
+      required: [orderId, requesterId, courierId, supplier, reward, creditTransactionId, timestamps]
       properties:
         orderId: { type: string, format: uuid }
         requesterId: { type: string }
@@ -801,11 +791,6 @@ components:
         supplier: { $ref: '#/components/schemas/SupplierSnapshot' }
         reward: { type: integer, minimum: 1, maximum: 5 }
         creditTransactionId: { type: string, format: uuid }
-        deliveryRecorded:
-          type: boolean
-          description: |
-            False when an administrator decided the dispute for the courier before any delivery was
-            recorded.
         timestamps:
           type: object
           required:
@@ -815,12 +800,11 @@ components:
             acceptedAt: { type: string, format: date-time }
             pickedUpAt: { type: string, format: date-time }
             deliveredAt:
-              type: string
+              type: [string, 'null']
               format: date-time
               description: |
-                When the courier recorded delivery. If `deliveryRecorded` is false, an administrator
-                completed the errand before any delivery was recorded, and this is the time of that
-                decision.
+                When the courier recorded delivery. Null when an administrator decided the dispute
+                for the courier before any delivery was recorded.
             completionRequestedAt: { type: string, format: date-time }
             completedAt: { type: string, format: date-time }
     OrderHistory:

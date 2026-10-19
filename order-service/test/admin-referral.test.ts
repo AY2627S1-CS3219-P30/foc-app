@@ -11,6 +11,10 @@ import {
   type TestApp,
 } from './helpers/app.js';
 import {
+  UserDirectoryClient,
+  UserDirectoryUnavailableError,
+} from '../src/orders/user-directory.client.js';
+import {
   RELEASE_RESULTS_QUEUE,
   SECRET,
   SEEDED_ORDER,
@@ -375,10 +379,7 @@ describe('administrator decision (ORD-11)', () => {
       .get(`/orders/${SEEDED_ORDER}/receipt`)
       .set('Authorization', asRequester)
       .expect(200);
-    // The stored receipt keeps the missing delivery; the published one says so and shows when
-    // the administrator decided instead.
-    expect(receipt.body.deliveryRecorded).toBe(false);
-    expect(receipt.body.timestamps.deliveredAt).toBe(receipt.body.timestamps.completionRequestedAt);
+    expect(receipt.body.timestamps.deliveredAt).toBeNull();
     const stored = await t.db.query<{ delivered_at: unknown }>(
       `SELECT delivered_at FROM order_receipts WHERE order_id = $1`,
       [SEEDED_ORDER],
@@ -417,5 +418,47 @@ describe('administrator decision (ORD-11)', () => {
     expect(theirs.body.items.map((item: { orderId: string }) => item.orderId)).toEqual([other]);
 
     await http(t).get('/admin/orders/referred').set('Authorization', asStranger).expect(403);
+  });
+});
+
+describe('User directory client', () => {
+  const respond = (status: number, body: string) => {
+    const calls: Array<[URL, RequestInit | undefined]> = [];
+    const fetchFn = (async (url: URL, init?: RequestInit) => {
+      calls.push([url, init]);
+      return new Response(body, { status });
+    }) as unknown as typeof fetch;
+    return { client: new UserDirectoryClient(fetchFn), calls };
+  };
+
+  it('lists the active administrators with this service credential', async () => {
+    const { client, calls } = respond(
+      200,
+      JSON.stringify({ items: [{ userId: 'admin-1' }, { userId: 'admin-2', extra: 1 }] }),
+    );
+    expect(await client.listAdmins()).toEqual(['admin-1', 'admin-2']);
+    expect(String(calls[0]![0])).toBe('http://user-service.test/internal/admins');
+    expect((calls[0]![1]!.headers as Record<string, string>)['X-Service-Key']).toBe(
+      'test-internal-key-0123456789',
+    );
+  });
+
+  it.each([
+    [401, JSON.stringify({ error: {} })],
+    [500, JSON.stringify({ error: {} })],
+    [200, '<html>not json</html>'],
+    [200, JSON.stringify({ admins: ['admin-1'] })],
+    [200, JSON.stringify({ items: [{ userId: '' }] })],
+  ])('treats %s %s as unavailable', async (status, body) => {
+    await expect(respond(status, body).client.listAdmins()).rejects.toBeInstanceOf(
+      UserDirectoryUnavailableError,
+    );
+  });
+
+  it('treats a network failure as unavailable', async () => {
+    const client = new UserDirectoryClient((async () => {
+      throw new TypeError('fetch failed');
+    }) as unknown as typeof fetch);
+    await expect(client.listAdmins()).rejects.toBeInstanceOf(UserDirectoryUnavailableError);
   });
 });
