@@ -90,7 +90,8 @@ One row per errand, updated in place as it moves; `order_status_history` keeps w
 | `release_reason` | text NULL | `CANCELLED` or `EXPIRED`, set on the move to RELEASE\_PENDING\_CREDIT; decides which terminal state the release confirmation leads to. |
 | `rejection_reason`, `available_at_rejection` | text / integer NULL | Why Credit refused the reservation, and the balance it reported. Present exactly when REJECTED (`orders_rejection_shape`). |
 | `acceptance_deadline_at` | timestamptz NULL | Set when the errand opens; extended if a courier is suspended. |
-| `non_delivery_report_at`, `auto_confirm_at` | timestamptz NULL | Deadlines saved when the delivery and confirmation periods start, so a later configuration change does not move them (ADR 0006). |
+| `non_delivery_report_at`, `auto_confirm_at` | timestamptz NULL | Deadlines saved when the delivery and confirmation periods start, so a later configuration change does not move them (ADR 0006). Required in PICKED\_UP and DELIVERED respectively (`orders_picked_up_shape`, `orders_delivered_shape`). |
+| `requester_suspended_at` | timestamptz NULL | Set when the requester's suspension arrives while a picked-up errand is within its delivery period. When the period ends, the scheduler asks the User Service once whether they are still suspended, then refers the errand or clears this. |
 | `accepted_at`, `picked_up_at`, `delivered_at`, `completion_requested_at`, `completed_at`, `release_requested_at`, `released_at` | timestamptz NULL | When each step happened. |
 | `credit_transaction_id` | uuid NULL | The Credit Service's transfer or release reference. Required once COMPLETED, CANCELLED or EXPIRED (`orders_completed_shape`, `orders_released_shape`). |
 | `created_at`, `updated_at` | timestamptz NOT NULL | |
@@ -104,7 +105,9 @@ One row per errand, updated in place as it moves; `order_status_history` keeps w
 One row per change, written in the same transaction as the change: `previous_status`, `new_status`,
 `action`, `actor_type` (`REQUESTER`, `COURIER`, `STUDENT`, `ADMIN`, `CREDIT_SERVICE` or `SYSTEM`),
 `actor_id`, `reason`, `order_version` and `occurred_at`. `reason` holds an administrator's decision
-reason, or which administrator a referral names. The unique `(order_id, order_version)` index means two
+reason, which administrator a referral names, or `requester suspended` / `courier suspended` on a
+change a suspension caused. The API shows that last kind as written only to the referred
+administrator. The unique `(order_id, order_version)` index means two
 writers can never both record version *n*. A trigger refuses every `UPDATE` and `DELETE`.
 
 ### `order_receipts` (append-only)
