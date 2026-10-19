@@ -106,6 +106,9 @@ The supplier listing calls the real Supplier Service through `src/lib/supplier-a
 Search, type and building filters, sort order, and paging are sent to `GET /suppliers`;
 the page then retrieves each visible supplier by ID for the location and hours on its card.
 Admin create, edit, and delete use the same service with the signed-in access token.
+The new-request composer picks a pickup point with `SupplierPicker` (search over active suppliers
+only) and passes its `supplierId` on; the details step resolves it with `useSupplier` and explains a
+deactivated or missing supplier (`SUPPLIER_UNAVAILABLE`) instead of hiding it (SUP-04).
 Errands and wallet still run on the in-memory mock store (`src/lib/store.tsx`).
 
 ### Sessions

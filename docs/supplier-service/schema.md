@@ -2,7 +2,9 @@
 
 D2 §1–§2. Backlog refs: SS-FR4.1.1, and the SUP-01 acceptance criteria.
 Ticket: SUP-01 (#125); the catalogue listing is SUP-02 (#126). Out of scope
-here: the listing UI (SUP-03) and the deletion-hold against live errands (SUP-04).
+here: the listing UI (SUP-03). The deletion hold (SUP-04) needs no schema change:
+deactivation keeps the row and errands snapshot the supplier (ORD-08); see the
+[service README](../../supplier-service/README.md#deletion-hold-sup-04).
 
 ## 1. Database: PostgreSQL
 
