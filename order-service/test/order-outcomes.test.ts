@@ -45,30 +45,71 @@ describe('requester outcome actions and auto-confirmation (ORD-10)', () => {
   let t: TestApp | undefined;
   afterEach(async () => t?.close());
 
-  it('saves each deadline when its period starts and shows both to the participants', async () => {
+  it('saves each deadline when its period starts and shows it to the participants in that status', async () => {
     t = await createTestApp();
-    await advance(t, 'DELIVERED');
-    const { body: history } = await http(t)
-      .get(`/orders/${SEEDED_ORDER}/history`)
-      .set('Authorization', asRequester)
-      .expect(200);
-    const at = (action: string) =>
-      Date.parse(history.entries.find((e: { action: string }) => e.action === action).occurredAt);
-
-    for (const auth of [asRequester, asStranger]) {
-      const { body } = await http(t)
-        .get(`/orders/${SEEDED_ORDER}?view=private`)
-        .set('Authorization', auth)
+    const app = t;
+    const occurredAt = async (action: string) => {
+      const { body } = await http(app)
+        .get(`/orders/${SEEDED_ORDER}/history`)
+        .set('Authorization', asRequester)
         .expect(200);
-      expect(Date.parse(body.nonDeliveryReportAt) - at('RECORD_PICKUP')).toBe(2 * HOUR);
-      expect(Date.parse(body.autoConfirmAt) - at('RECORD_DELIVERY')).toBe(24 * HOUR);
+      return Date.parse(
+        body.entries.find((e: { action: string }) => e.action === action).occurredAt,
+      );
+    };
+    const views = () =>
+      Promise.all(
+        [asRequester, asStranger].map(
+          async (auth) =>
+            (
+              await http(app)
+                .get(`/orders/${SEEDED_ORDER}?view=private`)
+                .set('Authorization', auth)
+                .expect(200)
+            ).body,
+        ),
+      );
+
+    await advance(t, 'PICKED_UP');
+    for (const body of await views()) {
+      expect(Date.parse(body.nonDeliveryReportAt) - (await occurredAt('RECORD_PICKUP'))).toBe(
+        2 * HOUR,
+      );
+      expect(body).not.toHaveProperty('autoConfirmAt');
+    }
+
+    await post(t, 'deliver', asStranger, 4).expect(200);
+    for (const body of await views()) {
+      expect(Date.parse(body.autoConfirmAt) - (await occurredAt('RECORD_DELIVERY'))).toBe(
+        24 * HOUR,
+      );
+      expect(body).not.toHaveProperty('nonDeliveryReportAt');
     }
     const { body: summary } = await http(t)
       .get(`/orders/${SEEDED_ORDER}`)
       .set('Authorization', asBystander)
       .expect(200);
-    expect(summary).not.toHaveProperty('nonDeliveryReportAt');
     expect(summary).not.toHaveProperty('autoConfirmAt');
+
+    await post(t, 'confirm-receipt', asRequester, 5).expect(200);
+    for (const body of await views()) {
+      expect(body).not.toHaveProperty('nonDeliveryReportAt');
+      expect(body).not.toHaveProperty('autoConfirmAt');
+    }
+  });
+
+  it('refuses to store a picked-up or delivered errand without its deadline', async () => {
+    t = await createTestApp();
+    await advance(t, 'PICKED_UP');
+    await expect(
+      t.db.query(`UPDATE orders SET non_delivery_report_at = NULL WHERE order_id = $1`, [
+        SEEDED_ORDER,
+      ]),
+    ).rejects.toThrow(/orders_picked_up_shape/);
+    await post(t, 'deliver', asStranger, 4).expect(200);
+    await expect(
+      t.db.query(`UPDATE orders SET auto_confirm_at = NULL WHERE order_id = $1`, [SEEDED_ORDER]),
+    ).rejects.toThrow(/orders_delivered_shape/);
   });
 
   it('refuses a non-delivery report before the delivery period has passed', async () => {
@@ -78,7 +119,7 @@ describe('requester outcome actions and auto-confirmation (ORD-10)', () => {
 
     const refused = await post(t, 'report-non-delivery', asRequester, 4).expect(409);
     expect(refused.body.error).toMatchObject({
-      code: 'INVALID_ORDER_STATE',
+      code: 'DELIVERY_PERIOD_NOT_PASSED',
       details: { status: 'PICKED_UP', version: 4 },
     });
     expect(await footprint(t)).toEqual(before);
@@ -116,10 +157,45 @@ describe('requester outcome actions and auto-confirmation (ORD-10)', () => {
 
     const refused = await post(t, 'report-non-receipt', asRequester, 5).expect(409);
     expect(refused.body.error).toMatchObject({
-      code: 'INVALID_ORDER_STATE',
+      code: 'AUTO_CONFIRMATION_PASSED',
       details: { status: 'DELIVERED', version: 5 },
     });
     expect(await footprint(t)).toEqual(before);
+  });
+
+  const asRequesterActor = { kind: 'USER', id: REQUESTER, isAdmin: false } as const;
+
+  it('accepts a non-delivery report at exactly its deadline', async () => {
+    t = await createTestApp();
+    await advance(t, 'PICKED_UP');
+    const order = (await t.orders.findById(SEEDED_ORDER))!;
+
+    const reported = await t.orders.transition({
+      orderId: SEEDED_ORDER,
+      action: 'REPORT_NON_DELIVERY',
+      actor: asRequesterActor,
+      expectedVersion: 4,
+      correlationId: 'corr-boundary',
+      now: new Date(order.nonDeliveryReportAt!),
+    });
+    expect(reported.kind).toBe('applied');
+  });
+
+  it('refuses a non-receipt report, and finds the errand due, at exactly its auto-confirmation time', async () => {
+    t = await createTestApp();
+    await advance(t, 'DELIVERED');
+    const at = new Date((await t.orders.findById(SEEDED_ORDER))!.autoConfirmAt!);
+
+    const refused = await t.orders.transition({
+      orderId: SEEDED_ORDER,
+      action: 'REPORT_NON_RECEIPT',
+      actor: asRequesterActor,
+      expectedVersion: 5,
+      correlationId: 'corr-boundary',
+      now: at,
+    });
+    expect(refused).toMatchObject({ kind: 'rejected', reason: 'INVALID_STATE' });
+    expect(await t.orders.findAutoConfirmDue(at)).toEqual([SEEDED_ORDER]);
   });
 
   it('auto-confirms a delivered errand once its period has passed, requesting the transfer once', async () => {

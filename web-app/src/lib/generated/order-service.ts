@@ -229,8 +229,8 @@ export interface paths {
         /**
          * Requester reports an errand not delivered (PICKED_UP → DISPUTED).
          * @description Only the requester may report, and only from `nonDeliveryReportAt` (pickup plus the delivery
-         *     period, 2 hours by default) on; earlier it is refused with 409 `INVALID_ORDER_STATE`. The
-         *     errand is referred to an administrator, and no timer changes it afterwards.
+         *     period, 2 hours by default) on; earlier it is refused with 409 `DELIVERY_PERIOD_NOT_PASSED`.
+         *     The errand is referred to an administrator, and no timer changes it afterwards.
          */
         post: operations["reportNonDelivery"];
         delete?: never;
@@ -253,8 +253,8 @@ export interface paths {
          * @description Instead of confirming, the requester may report the errand not received until
          *     `autoConfirmAt` (delivery plus the auto-confirmation period, 24 hours by default). From then
          *     the errand is confirmed automatically and a report is refused with 409
-         *     `INVALID_ORDER_STATE`. A reported errand is referred to an administrator, and no timer
-         *     changes it afterwards.
+         *     `AUTO_CONFIRMATION_PASSED`, even before the confirmation is recorded. A reported errand is
+         *     referred to an administrator, and no timer changes it afterwards.
          */
         post: operations["reportNonReceipt"];
         delete?: never;
@@ -580,13 +580,15 @@ export interface components {
             deliveryInstructions?: string;
             /**
              * Format: date-time
-             * @description Private. Set once pickup is recorded: from then the requester may report non-delivery.
+             * @description Private, and only while `PICKED_UP`: pickup plus the delivery period. From then the
+             *     requester may report non-delivery.
              */
             nonDeliveryReportAt?: string;
             /**
              * Format: date-time
-             * @description Private. Set once delivery is recorded: from then the errand is confirmed automatically
-             *     unless the requester has confirmed or reported it.
+             * @description Private, and only while `DELIVERED`: delivery plus the auto-confirmation period. From
+             *     then the errand is confirmed automatically unless the requester has confirmed or
+             *     reported it.
              */
             autoConfirmAt?: string;
             rejection?: {
@@ -954,9 +956,10 @@ export interface components {
             };
         };
         /**
-         * @description `INVALID_ORDER_STATE` (the order is not in a state that allows this action) or
-         *     `ORDER_CHANGED` (stale expectedVersion). `details` carries the current status and version.
-         *     Nothing changes.
+         * @description `INVALID_ORDER_STATE` (the order is not in a state that allows this action),
+         *     `ORDER_CHANGED` (stale expectedVersion), or for the requester's reports
+         *     `DELIVERY_PERIOD_NOT_PASSED` or `AUTO_CONFIRMATION_PASSED`. `details` carries the current
+         *     status and version. Nothing changes.
          */
         LifecycleConflict: {
             headers: {

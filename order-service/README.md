@@ -273,13 +273,16 @@ the scheduler refers it to an administrator (above).
 Recording pickup saves `non_delivery_report_at` (pickup plus `DELIVERY_PERIOD_MS`), and recording
 delivery saves `auto_confirm_at` (delivery plus `AUTO_CONFIRM_MS`), in the same update as the move
 (ADR 0006). Both are set and checked against the database clock, which the scheduler also uses, so
-a report and a timer agree on whether a deadline has passed. The private view returns them as
-`nonDeliveryReportAt` and `autoConfirmAt`, so the requester can see when they may report and when
-silence counts as confirmation.
+a report and a timer agree on whether a deadline has passed. The private view returns each one,
+as `nonDeliveryReportAt` while `PICKED_UP` and `autoConfirmAt` while `DELIVERED`, so the requester
+can see when they may report and when silence counts as confirmation. A check constraint refuses a
+picked-up or delivered errand without its deadline, so code that leaves one out fails loudly instead
+of leaving an errand no one can report and no timer confirms.
 
-- A non-delivery report before `non_delivery_report_at` gets `409 INVALID_ORDER_STATE`.
+- A non-delivery report before `non_delivery_report_at` gets `409 DELIVERY_PERIOD_NOT_PASSED`.
 - A non-receipt report is accepted until `auto_confirm_at`. From then the errand counts as
-  confirmed, and a report gets `409` even before the scheduler has recorded the confirmation.
+  confirmed, and a report gets `409 AUTO_CONFIRMATION_PASSED` even before the scheduler has
+  recorded the confirmation.
 - The scheduler confirms each `DELIVERED` errand past `auto_confirm_at` (`AUTO_CONFIRM`), re-checked
   under the row lock. Like the requester's confirmation, it writes one `order.completion-requested`.
   Whichever of a confirmation, a report or the timer lands second is refused or skipped, so an

@@ -9,11 +9,27 @@ import {
 } from './orders.repository.js';
 import { RESOLVE_ACTIONS, type OrderAction } from './order-state-machine.js';
 import { SupplierClient } from './supplier.client.js';
-import type { OpenOrderSummary, OrderReceipt, OrderRow, OrderView } from './types.js';
+import type { OpenOrderSummary, OrderReceipt, OrderRow, OrderStatus, OrderView } from './types.js';
 import type { CreateOrderInput, ResolveOrderInput } from './validation.js';
 
 const MY_ERRANDS_LIMIT = 100;
 const notFound = () => new ApiException(404, 'NOT_FOUND', 'Order not found.');
+
+/** A requester's report refused in this status can only be refused by its deadline, so say so. */
+const DEADLINE_REFUSALS: Partial<
+  Record<OrderAction, { status: OrderStatus; code: string; message: string }>
+> = {
+  REPORT_NON_DELIVERY: {
+    status: 'PICKED_UP',
+    code: 'DELIVERY_PERIOD_NOT_PASSED',
+    message: 'The delivery period has not passed yet.',
+  },
+  REPORT_NON_RECEIPT: {
+    status: 'DELIVERED',
+    code: 'AUTO_CONFIRMATION_PASSED',
+    message: 'The errand has already been confirmed automatically.',
+  },
+};
 
 export function projectOrder(
   order: OrderRow,
@@ -51,8 +67,13 @@ export function projectOrder(
           requesterId: order.requesterId,
           ...(order.courierId ? { courierId: order.courierId } : {}),
           deliveryInstructions: order.deliveryInstructions,
-          ...(order.nonDeliveryReportAt ? { nonDeliveryReportAt: order.nonDeliveryReportAt } : {}),
-          ...(order.autoConfirmAt ? { autoConfirmAt: order.autoConfirmAt } : {}),
+          // Each deadline only means something in the status it was set for.
+          ...(order.status === 'PICKED_UP' && order.nonDeliveryReportAt
+            ? { nonDeliveryReportAt: order.nonDeliveryReportAt }
+            : {}),
+          ...(order.status === 'DELIVERED' && order.autoConfirmAt
+            ? { autoConfirmAt: order.autoConfirmAt }
+            : {}),
         }
       : {}),
     ...(order.status === 'REJECTED' && canReadPrivate && order.rejectionReason
@@ -207,6 +228,10 @@ export class OrdersService {
         'The order changed since you last read it.',
         details,
       );
+    }
+    const deadline = DEADLINE_REFUSALS[action];
+    if (deadline?.status === result.order.status) {
+      throw new ApiException(409, deadline.code, deadline.message, details);
     }
     throw new ApiException(
       409,

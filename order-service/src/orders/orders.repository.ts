@@ -691,7 +691,10 @@ export class OrdersRepository {
    * Disputes that need a referral, oldest first: those referred to no one, and those referred to
    * someone not among `adminIds` (with that administrator, so it can be cleared). Disputes waiting
    * on an administrator who may act are left out, so however many there are, they never crowd a
-   * newer dispute out of the batch.
+   * newer dispute out of the batch. A dispute that no listed administrator may take (each took part
+   * in the errand) stays referred to no one and keeps its place at the head of every batch, so
+   * `limit` of those at once would hold newer disputes back. Each one has its REFERRAL_UNASSIGNED
+   * alert and a warning on every run.
    */
   async listDisputesToRefer(
     adminIds: string[],
