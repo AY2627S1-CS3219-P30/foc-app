@@ -379,6 +379,34 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/PrivateForbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /admin/orders:
+    get:
+      operationId: listAccountOrders
+      summary: An administrator's view of one account's errands (ORD-15).
+      description: |
+        The errands one account requested (`requesterId`), currently holds as courier
+        (`courierId`), or both when both are given, in any status, newest first. Public fields only:
+        no participant IDs, delivery instructions or item notes, even for an errand referred to the
+        caller, whose private details are read through `GET /orders/{orderId}`. A courier who
+        withdrew or timed out no longer holds the errand. Administrators only.
+      parameters:
+        - { name: requesterId, in: query, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: courierId, in: query, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - {
+            name: pageSize,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 20 },
+          }
+      responses:
+        '200':
+          description: One page of the account's errands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountOrderPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/AdminOnly' }
+        '422': { $ref: '#/components/responses/AccountQueryInvalid' }
   /admin/orders/reconciliation-attempts:
     get:
       operationId: listReconciliationAttempts
@@ -1107,6 +1135,17 @@ components:
             body:
               { description: The message as received, parsed when it is JSON, its text otherwise. }
             headers: { type: object, additionalProperties: true }
+    AccountOrderPage:
+      type: object
+      required: [page, pageSize, total, items]
+      properties:
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total: { type: integer, minimum: 0 }
+        items:
+          type: array
+          description: The public projection; the private properties of Order are never present.
+          items: { $ref: '#/components/schemas/Order' }
     DeadLetterPage:
       type: object
       required: [page, pageSize, total, items]
@@ -1166,6 +1205,11 @@ components:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     InvalidOrder:
       description: Invalid fields, inactive/unknown supplier, or conflicting idempotency reuse.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    AccountQueryInvalid:
+      description: Neither requesterId nor courierId given, an unknown parameter, or a page out of range.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }

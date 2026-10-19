@@ -95,3 +95,33 @@ export function parseIdempotencyKey(value: string | undefined): string {
   }
   return value;
 }
+
+const accountErrandsSchema = z
+  .object({
+    requesterId: z.string().trim().min(1).max(200).optional(),
+    courierId: z.string().trim().min(1).max(200).optional(),
+    page: z.coerce.number().int().min(1).default(1),
+    pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  })
+  .strict()
+  .refine((query) => query.requesterId !== undefined || query.courierId !== undefined, {
+    message: 'Give requesterId, courierId or both.',
+    path: ['requesterId'],
+  });
+
+export type AccountErrandsQuery = z.infer<typeof accountErrandsSchema>;
+
+export function parseAccountErrandsQuery(value: unknown): AccountErrandsQuery {
+  const result = accountErrandsSchema.safeParse(value);
+  if (result.success) return result.data;
+  throw new ApiException(
+    422,
+    'VALIDATION_FAILED',
+    'The account query is invalid.',
+    result.error.issues.map((issue) => ({
+      field: issue.path.join('.') || 'query',
+      code: issue.code,
+      message: issue.message,
+    })),
+  );
+}
