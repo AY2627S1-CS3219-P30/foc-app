@@ -230,9 +230,8 @@ export class OrdersRepository {
   }
 
   /**
-   * PICKED_UP orders past their delivery period, newest deadline first: they stay PICKED_UP while
-   * the requester is active, so oldest first would let a long tail of them crowd a newly due one
-   * out of the batch.
+   * PICKED_UP orders past their delivery period whose requester's suspension arrived within it
+   * (OS-FR8.2.2). Each is asked about once: it is then referred, or its mark is cleared.
    */
   async findDeliveryOverdue(
     now: Date,
@@ -240,12 +239,29 @@ export class OrdersRepository {
   ): Promise<Array<{ orderId: string; requesterId: string }>> {
     const result = await this.db.query<{ order_id: string; requester_id: string } & Row>(
       `SELECT order_id, requester_id FROM orders
-        WHERE status = 'PICKED_UP' AND non_delivery_report_at <= $1
-        ORDER BY non_delivery_report_at DESC, order_id
+        WHERE status = 'PICKED_UP' AND requester_suspended_at IS NOT NULL
+          AND non_delivery_report_at <= $1
+        ORDER BY non_delivery_report_at, order_id
         LIMIT $2`,
       [now.toISOString(), limit],
     );
     return result.rows.map((row) => ({ orderId: row.order_id, requesterId: row.requester_id }));
+  }
+
+  /** Marks a picked-up errand whose requester was suspended within its delivery period. */
+  async noteRequesterSuspended(tx: Queryable, orderId: string): Promise<void> {
+    await tx.query(`UPDATE orders SET requester_suspended_at = now() WHERE order_id = $1`, [
+      orderId,
+    ]);
+  }
+
+  /** Clears the mark once the requester is active again: the errand is theirs to settle. */
+  async clearRequesterSuspended(orderId: string): Promise<void> {
+    await this.db.query(
+      `UPDATE orders SET requester_suspended_at = NULL
+        WHERE order_id = $1 AND status = 'PICKED_UP'`,
+      [orderId],
+    );
   }
 
   /** DELIVERED orders neither confirmed nor reported by their auto-confirmation time (OS-FR4.1.4). */

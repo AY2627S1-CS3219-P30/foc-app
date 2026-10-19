@@ -97,7 +97,7 @@ Each case has a test. The `*.postgres.test.ts` ones run against a real PostgreSQ
 | Credit Service | Messages, both directions | Reserve, transfer and return each order's reward. Every `*_PENDING_CREDIT` state is waiting for one of its replies. |
 | User Service | HTTP, through `@foc/auth-client` | Who is calling, whether they are an administrator, and that their account is active. Checked on every request; a suspension takes effect within 5 seconds. |
 | User Service | HTTP, `GET /internal/admins` | Which administrators may act now, so the scheduler can refer each dispute to one. Called once per run, only while a dispute exists, with `INTERNAL_SERVICE_KEY`; if the User Service does not answer, referrals wait for the next run. |
-| User Service | HTTP, `GET /internal/users/:id` | Whether a user is suspended now: on a suspension message, on a reservation reply while the order waits for it, and for a picked-up errand past its delivery period. Asked with `INTERNAL_SERVICE_KEY`. If it does not answer, the message is retried or the scheduler tries again on its next run; the user is never assumed active. |
+| User Service | HTTP, `GET /internal/users/:id` | Whether a user is suspended now: on a suspension message, on a reservation reply while the order waits for it, and once for each picked-up errand whose requester was suspended within its delivery period, when that period ends. Asked with `INTERNAL_SERVICE_KEY`. If it does not answer, the message is retried or the scheduler tries again on its next run; the user is never assumed active. |
 | User Service | Messages, received | Suspensions, which drive the "requester suspended" and "courier suspended" transitions (see *Participant suspension*). |
 | Supplier Service | HTTP, `GET /suppliers/:id` | At creation: refuse an inactive supplier and keep a copy of the supplier on the order, so it survives later changes. The call carries the requester's own token, so the Supplier Service needs no service-to-service route. |
 | Web app | HTTP | Every student and administrator command and query. |
@@ -292,13 +292,16 @@ the scheduler refers it to an administrator (above).
 Recording pickup saves `non_delivery_report_at` (pickup plus `DELIVERY_PERIOD_MS`), and recording
 delivery saves `auto_confirm_at` (delivery plus `AUTO_CONFIRM_MS`), in the same update as the move
 (ADR 0006). Both are set and checked against the database clock, which the scheduler also uses, so
-a report and a timer agree on whether a deadline has passed. The private view returns them as
-`nonDeliveryReportAt` and `autoConfirmAt`, so the requester can see when they may report and when
-silence counts as confirmation.
+a report and a timer agree on whether a deadline has passed. The private view returns each one,
+as `nonDeliveryReportAt` while `PICKED_UP` and `autoConfirmAt` while `DELIVERED`, so the requester
+can see when they may report and when silence counts as confirmation. A check constraint refuses a
+picked-up or delivered errand without its deadline, so code that leaves one out fails loudly instead
+of leaving an errand no one can report and no timer confirms.
 
-- A non-delivery report before `non_delivery_report_at` gets `409 INVALID_ORDER_STATE`.
+- A non-delivery report before `non_delivery_report_at` gets `409 DELIVERY_PERIOD_NOT_PASSED`.
 - A non-receipt report is accepted until `auto_confirm_at`. From then the errand counts as
-  confirmed, and a report gets `409` even before the scheduler has recorded the confirmation.
+  confirmed, and a report gets `409 AUTO_CONFIRMATION_PASSED` even before the scheduler has
+  recorded the confirmation.
 - The scheduler confirms each `DELIVERED` errand past `auto_confirm_at` (`AUTO_CONFIRM`), re-checked
   under the row lock. Like the requester's confirmation, it writes one `order.completion-requested`.
   Whichever of a confirmation, a report or the timer lands second is refused or skipped, so an
@@ -336,7 +339,7 @@ ordinary transition path:
 | ----- | ----- | ----- | ----- |
 | Requester | `OPEN`, `ACCEPTED` | `REQUESTER_SUSPENDED` | `RELEASE_PENDING_CREDIT` (cancelled): the reserved credits go back to the requester |
 | Requester | `PICKED_UP`, delivery period passed | `DELIVERY_PERIOD_PASSED` | `DISPUTED`, referred to an administrator |
-| Requester | `PICKED_UP`, within the delivery period | — | Unchanged. The scheduler refers it when the period ends, if the requester is still suspended then |
+| Requester | `PICKED_UP`, within the delivery period | — | Unchanged but marked. The scheduler refers it when the period ends, if the requester is still suspended then |
 | Courier | `ACCEPTED` | `COURIER_SUSPENDED` | `OPEN`. The courier is removed (and with them their private access), and the acceptance deadline moves later by the time they held the errand |
 | Courier | `PICKED_UP` | `COURIER_SUSPENDED` | `DISPUTED`, referred to an administrator; the courier stays on the errand, so a decision for the courier still pays them |
 
@@ -346,7 +349,9 @@ Credit Service is not changed. No suspension moves credits except the requester'
 
 Every outcome's history row gives its reason, `requester suspended` or `courier suspended`,
 including the two below that happen later: the scheduler's referral and the cancellation when the
-reservation arrives.
+reservation arrives. Only the referred administrator reads that row as written. To the other
+participant it shows as `SYSTEM_OUTCOME`, with no actor or reason, so the history does not say that
+someone was suspended.
 
 - **While the errand waits for its reservation.** A requester suspended while their errand is in
   `PENDING_CREDIT` is caught when Credit's reservation arrives: the reply handler asks the User
@@ -354,17 +359,32 @@ reservation arrives.
   the errand before asking, and the suspension handler locks the requester's waiting errands too,
   so whichever runs second sees what the other did: either the reply finds the requester suspended,
   or the suspension finds the errand already `OPEN` and cancels it.
-- **At the end of the delivery period.** Each scheduler run asks the User Service about the
-  requester of every picked-up errand past its delivery period, newest first, and refers the errand
-  (`DELIVERY_PERIOD_PASSED`) if they are suspended. An errand whose requester is active stays
-  `PICKED_UP` (the requester may report non-delivery) and is asked about again on the next run.
+- **At the end of the delivery period.** A suspension within the period marks the errand
+  (`requester_suspended_at`). Once the period has passed, the scheduler asks the User Service about
+  the requester of each marked errand, oldest deadline first, and refers it
+  (`DELIVERY_PERIOD_PASSED`) if they are still suspended. If they are active again, it clears the
+  mark and the errand stays `PICKED_UP` (the requester may report non-delivery). So each errand is
+  asked about once, and only errands whose requester was suspended are asked about at all. This
+  runs apart from dispute referral, so a failed lookup cannot hold that back.
 - **User Service down.** The suspension message and the reservation reply are retried (5 attempts
   over about 81 seconds) and then set aside as dead letters, changing nothing; a dead letter can be
   redriven from the operator view. A reservation reply set aside this way is also re-sent by
   reconciliation, since the errand is still `PENDING_CREDIT` (see *Credit reconciliation*). The
   scheduler logs a warning and tries again on its next run. A user is never assumed active.
 - **Repeats.** A repeated message changes nothing (the inbox), and a later suspension of the same
-  user finds nothing left to change.
+  user finds nothing left to change. A second reservation reply under a new event ID (for example
+  re-sent by reconciliation, then the original redriven) is a repeat too, once the errand has been
+  opened or cancelled, whatever has happened to it since.
+- **Connections.** The reservation reply and the suspension handler hold the errand's row lock, and
+  so a pool connection, while they ask the User Service (up to its 5 s timeout). Each handles at
+  most 3 messages at once (`LOCK_THEN_ASK_PREFETCH`), so together they hold at most 6 of the
+  process's 10 pool connections and leave the rest for requests, the scheduler and the outbox
+  relay.
+- **An acceptance just before a suspension.** Authentication caches an account's status for up to 5
+  seconds, so a courier's acceptance that passed it just before their suspension can commit after
+  the handler has run. That errand stays `ACCEPTED` until the pickup timeout, then reopens, or
+  expires if its acceptance deadline has passed, returning the credits. The suspended courier is
+  refused once the cache expires, so they cannot record pickup and are never paid.
 
 ### Recovery and privacy verification (ORD-09)
 

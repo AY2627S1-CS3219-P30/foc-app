@@ -7,13 +7,43 @@ import {
   OrdersRepository,
   type TransitionCommand,
 } from './orders.repository.js';
-import { RESOLVE_ACTIONS, type OrderAction } from './order-state-machine.js';
+import { RESOLVE_ACTIONS, SUSPENSION_EFFECTS, type OrderAction } from './order-state-machine.js';
 import { SupplierClient } from './supplier.client.js';
-import type { OpenOrderSummary, OrderReceipt, OrderRow, OrderView } from './types.js';
+import type { OpenOrderSummary, OrderReceipt, OrderRow, OrderStatus, OrderView } from './types.js';
 import type { CreateOrderInput, ResolveOrderInput } from './validation.js';
 
 const MY_ERRANDS_LIMIT = 100;
+const SUSPENSION_REASONS = new Set(
+  Object.values(SUSPENSION_EFFECTS).map((effect) => effect.reason),
+);
+
+type HistoryEntry = Awaited<ReturnType<OrdersRepository['findHistory']>>[number];
+
+/**
+ * A history entry a suspension caused, as anyone but the referred administrator sees it: a
+ * system outcome, without the action, actor or reason that would say someone was suspended.
+ */
+function withoutSuspension(entry: HistoryEntry): HistoryEntry {
+  if (entry.reason === null || !SUSPENSION_REASONS.has(entry.reason)) return entry;
+  return { ...entry, action: 'SYSTEM_OUTCOME', actorId: null, reason: null };
+}
 const notFound = () => new ApiException(404, 'NOT_FOUND', 'Order not found.');
+
+/** A requester's report refused in this status can only be refused by its deadline, so say so. */
+const DEADLINE_REFUSALS: Partial<
+  Record<OrderAction, { status: OrderStatus; code: string; message: string }>
+> = {
+  REPORT_NON_DELIVERY: {
+    status: 'PICKED_UP',
+    code: 'DELIVERY_PERIOD_NOT_PASSED',
+    message: 'The delivery period has not passed yet.',
+  },
+  REPORT_NON_RECEIPT: {
+    status: 'DELIVERED',
+    code: 'AUTO_CONFIRMATION_PASSED',
+    message: 'The errand has already been confirmed automatically.',
+  },
+};
 
 export function projectOrder(
   order: OrderRow,
@@ -51,8 +81,13 @@ export function projectOrder(
           requesterId: order.requesterId,
           ...(order.courierId ? { courierId: order.courierId } : {}),
           deliveryInstructions: order.deliveryInstructions,
-          ...(order.nonDeliveryReportAt ? { nonDeliveryReportAt: order.nonDeliveryReportAt } : {}),
-          ...(order.autoConfirmAt ? { autoConfirmAt: order.autoConfirmAt } : {}),
+          // Each deadline only means something in the status it was set for.
+          ...(order.status === 'PICKED_UP' && order.nonDeliveryReportAt
+            ? { nonDeliveryReportAt: order.nonDeliveryReportAt }
+            : {}),
+          ...(order.status === 'DELIVERED' && order.autoConfirmAt
+            ? { autoConfirmAt: order.autoConfirmAt }
+            : {}),
         }
       : {}),
     ...(order.status === 'REJECTED' && canReadPrivate && order.rejectionReason
@@ -208,6 +243,10 @@ export class OrdersService {
         details,
       );
     }
+    const deadline = DEADLINE_REFUSALS[action];
+    if (deadline?.status === result.order.status) {
+      throw new ApiException(409, deadline.code, deadline.message, details);
+    }
     throw new ApiException(
       409,
       'INVALID_ORDER_STATE',
@@ -283,7 +322,9 @@ export class OrdersService {
         'Only an order participant or its referred administrator may read the status history.',
       );
     }
-    return { orderId, entries: await this.orders.findHistory(orderId) };
+    const entries = await this.orders.findHistory(orderId);
+    const isReferredAdmin = caller.isAdmin && caller.userId === order.referredAdminId;
+    return { orderId, entries: isReferredAdmin ? entries : entries.map(withoutSuspension) };
   }
 
   async reconciliationAttempts() {

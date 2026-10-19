@@ -18,7 +18,7 @@ import { ORDER_DB } from './db/db.js';
 import { OrdersRepository, type TransitionCommand } from './orders/orders.repository.js';
 import { SUSPENSION_EFFECTS } from './orders/order-state-machine.js';
 import type { OrderRow } from './orders/types.js';
-import { UserDirectoryClient } from './orders/user-directory.client.js';
+import { LOCK_THEN_ASK_PREFETCH, UserDirectoryClient } from './orders/user-directory.client.js';
 
 export const RESERVATION_RESULTS_QUEUE = 'foc.order.reservation-results';
 // Order matters: a union returns the first schema that accepts the payload, and a rejection also
@@ -50,6 +50,7 @@ export class ReservationResultsConsumer implements OnApplicationBootstrap {
       eventType: [EVENTS.CREDITS_RESERVED, EVENTS.CREDIT_RESERVATION_REJECTED],
       expectedProducer: 'credit-service',
       payloadSchema: resultPayload,
+      prefetch: LOCK_THEN_ASK_PREFETCH,
       handler: withInbox(this.db, RESERVATION_RESULTS_QUEUE, (envelope, tx) =>
         this.handle(envelope, tx),
       ),
@@ -111,7 +112,9 @@ export class ReservationResultsConsumer implements OnApplicationBootstrap {
         requesterSuspended,
         reason: requesterSuspended ? SUSPENSION_EFFECTS.REQUESTER.reason : undefined,
       },
-      repeats: (current) => current.status === 'OPEN',
+      // Every way out of PENDING_CREDIT but a rejection began with this reply: opened, or
+      // cancelled for a suspended requester, and maybe moved on since.
+      repeats: (current) => current.status !== 'REJECTED',
     };
   }
 }

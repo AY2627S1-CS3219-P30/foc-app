@@ -42,6 +42,11 @@ export const orders = pgTable(
     nonDeliveryReportAt: timestamp('non_delivery_report_at', { withTimezone: true }),
     /** Delivery plus the confirmation period: from then the errand confirms itself. */
     autoConfirmAt: timestamp('auto_confirm_at', { withTimezone: true }),
+    /**
+     * When a suspension of the requester arrived while the errand was within its delivery period.
+     * The scheduler asks about the requester again once the period ends, and only then.
+     */
+    requesterSuspendedAt: timestamp('requester_suspended_at', { withTimezone: true }),
     completionRequestedAt: timestamp('completion_requested_at', { withTimezone: true }),
     completedAt: timestamp('completed_at', { withTimezone: true }),
     releaseRequestedAt: timestamp('release_requested_at', { withTimezone: true }),
@@ -83,6 +88,16 @@ export const orders = pgTable(
     check(
       'orders_rejection_shape',
       sql`(${t.status} = 'REJECTED') = (${t.rejectionReason} IS NOT NULL)`,
+    ),
+    // A picked-up or delivered errand without its deadline would never be reportable or confirm
+    // itself, so code that leaves it out (an older release mid-deploy) fails instead.
+    check(
+      'orders_picked_up_shape',
+      sql`${t.status} <> 'PICKED_UP' OR ${t.nonDeliveryReportAt} IS NOT NULL`,
+    ),
+    check(
+      'orders_delivered_shape',
+      sql`${t.status} <> 'DELIVERED' OR ${t.autoConfirmAt} IS NOT NULL`,
     ),
     index('orders_status_created_idx').on(t.status, t.createdAt),
     index('orders_requester_created_idx').on(t.requesterId, t.createdAt),

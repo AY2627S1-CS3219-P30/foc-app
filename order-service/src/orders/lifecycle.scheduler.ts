@@ -39,8 +39,9 @@ class NotDue extends Error {}
 /**
  * Owns every time-based Order rule (ORD-05, ORD-10, ORD-06): an OPEN order past its acceptance
  * deadline expires, an ACCEPTED order with no pickup within the pickup timeout loses its courier, a
- * PICKED_UP order past its delivery period is referred if the User Service says its requester is
- * suspended, and a DELIVERED order past its auto-confirmation time is confirmed. It runs once
+ * PICKED_UP order whose requester was suspended within its delivery period is referred when the
+ * period ends if the User Service says they still are, and a DELIVERED order past its
+ * auto-confirmation time is confirmed. It runs once
  * as soon as the service is ready — so timers that fell due during downtime fire within one
  * interval of restart — and then every interval (at most 60 s, OS-NFR3.1.1).
  *
@@ -154,28 +155,34 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
       });
     }
 
-    try {
-      await this.referUndelivered(now, limit, result);
-      await this.referDisputes(now, limit, result);
-    } catch (error) {
-      if (!(error instanceof UserDirectoryUnavailableError)) throw error;
-      this.logger.warn({
-        err: error,
-        msg: 'User Service unavailable; referrals wait for next run',
-      });
+    // Each on its own, so a failed lookup for one cannot hold back the other.
+    for (const refer of [this.referUndelivered, this.referDisputes]) {
+      try {
+        await refer.call(this, now, limit, result);
+      } catch (error) {
+        if (!(error instanceof UserDirectoryUnavailableError)) throw error;
+        this.logger.warn({
+          err: error,
+          msg: 'User Service unavailable; referrals wait for next run',
+        });
+      }
     }
     return result;
   }
 
   /**
    * A picked-up errand whose delivery period ended with its requester suspended is referred to an
-   * administrator (OS-FR8.2.2). A suspension after the period refers it at once (ORD-06); this
-   * catches a requester suspended within it. An errand whose requester is active stays PICKED_UP
-   * and is asked about again on every run.
+   * administrator (OS-FR8.2.2). A suspension after the period refers it at once (ORD-06); one
+   * within it marks the errand, and this asks the User Service about each marked errand once its
+   * period has ended. A requester active again keeps the errand, unmarked, so no errand is asked
+   * about twice.
    */
   private async referUndelivered(now: Date, limit: number, result: SweepResult): Promise<void> {
     for (const { orderId, requesterId } of await this.orders.findDeliveryOverdue(now, limit)) {
-      if (!(await this.directory.isSuspended(requesterId))) continue;
+      if (!(await this.directory.isSuspended(requesterId))) {
+        await this.orders.clearRequesterSuspended(orderId);
+        continue;
+      }
       const applied = await this.fire(orderId, 'DELIVERY_PERIOD_PASSED', now, {
         requesterSuspended: true,
         reason: SUSPENSION_EFFECTS.REQUESTER.reason,
