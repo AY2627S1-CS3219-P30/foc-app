@@ -172,6 +172,12 @@ export class UsersService {
     };
   }
 
+  /** The administrators who may act now, so another service can route work to one. */
+  async listActiveAdmins(): Promise<{ items: Array<{ userId: string }> }> {
+    const ids = await repo.listActiveAdminIds(this.db);
+    return { items: ids.map((userId) => ({ userId })) };
+  }
+
   /** US-FR4.1.3 — a suspended or pending admin has no effective permissions. */
   async permissions(userId: string): Promise<PermissionsLookup> {
     const row = await repo.findIdentity(this.db, userId);

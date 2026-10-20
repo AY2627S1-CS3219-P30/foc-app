@@ -187,7 +187,7 @@ export function createAdminApi({
     reconciliation: (token: string) =>
       unwrap(orders.GET("/admin/orders/reconciliation-attempts", { headers: bearer(token) })),
 
-    /** PLT-05: `CREDIT_WAIT_EXCEEDED` and `CREDIT_STATE_CONFLICT`, newest first. */
+    /** PLT-05: `CREDIT_WAIT_EXCEEDED`, `CREDIT_STATE_CONFLICT` and `REFERRAL_UNASSIGNED`, newest first. */
     operatorAlerts: (token: string) =>
       unwrap(orders.GET("/admin/orders/alerts", { headers: bearer(token) })),
     /** Everything the Order Service recorded about one errand. */
