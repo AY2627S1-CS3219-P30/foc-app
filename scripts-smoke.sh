@@ -154,16 +154,16 @@ fi
 for ex in foc.events foc.events.dlx foc.credit-service.delay.1 foc.user-service.delay.1 \
   foc.credit-service.requeue foc.order-service.requeue; do
   # `docker compose exec` leaves carriage returns behind, which defeat grep -x.
-  if docker compose exec -T rabbitmq rabbitmqctl -q list_exchanges name 2>/dev/null |
-    tr -d '\r' | grep -qx "$ex"; then
+  exchanges=$(docker compose exec -T rabbitmq rabbitmqctl -q list_exchanges name 2>/dev/null | tr -d '\r' || true)
+  if grep -qx "$ex" <<<"$exchanges"; then
     pass "exchange $ex declared"
   else
     fail "exchange $ex missing"
   fi
 done
 for queue in foc.credit.wallet-provisioning foc.credit.reservations foc.credit.completions foc.credit.releases; do
-  if docker compose exec -T rabbitmq rabbitmqctl -q list_queues name 2>/dev/null |
-    tr -d '\r' | grep -qx "${queue}.dlq"; then
+  queues=$(docker compose exec -T rabbitmq rabbitmqctl -q list_queues name 2>/dev/null | tr -d '\r' || true)
+  if grep -qx "${queue}.dlq" <<<"$queues"; then
     pass "$queue has a dead-letter queue"
   else
     fail "$queue dead-letter queue missing"
@@ -242,8 +242,11 @@ for pair in "user-service:$USER_PORT" "supplier-service:$SUPPLIER_PORT" \
   "order-service:$ORDER_PORT" "credit-service:$CREDIT_PORT"; do
   name="${pair%%:*}"
   port="${pair##*:}"
-  if curl -fsS "http://localhost:${port}/metrics" -H "$METRICS_AUTH" 2>/dev/null |
-    grep -q '^# TYPE http_request_duration_seconds histogram'; then
+  # Read whole before it is searched: `grep -q` stops at the first match, and once a service's
+  # metrics outgrow the pipe (a stack that has been used for a while) curl is cut off mid-write,
+  # which under pipefail turned a healthy endpoint into a failure.
+  metrics=$(curl -fsS "http://localhost:${port}/metrics" -H "$METRICS_AUTH" 2>/dev/null || true)
+  if grep -q '^# TYPE http_request_duration_seconds histogram' <<<"$metrics"; then
     pass "$name serves /metrics"
   else
     fail "$name /metrics missing or not Prometheus format"
