@@ -95,7 +95,7 @@ or economic event input appears without updating and reviewing the explicit surf
 All queues use bounded retry and a dead-letter queue. Every handler uses the transactional inbox.
 The outbox relay publishes committed replies with at-least-once delivery.
 
-What a consumer does with a message that is not the ordinary case (EVT-03):
+What a consumer does with a message that is not the ordinary case (EVT-03, PLT-06):
 
 | Message                                                                         | Outcome                                                                                                      |
 | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
@@ -103,6 +103,7 @@ What a consumer does with a message that is not the ordinary case (EVT-03):
 | A request sent again under a new event id                                       | Answered from the recorded result; no additional credits move                                                |
 | A completion or release before its reservation; a reservation before the wallet | Retried with the usual delays (`foc_events_deferred_total`); a dead letter if the earlier step never arrives |
 | A major `schemaVersion` this service does not list                              | Dead-lettered whole, before its payload is read (`unsupported_version`)                                      |
+| Published by a broker account other than the trusted producer's                 | Dead-lettered (`untrusted_sender`); see [ADR 0004](../docs/adr/0004-authentication-and-trust.md)             |
 
 `test/delivery.test.ts` drives the real consumers through a broker for the out-of-order and
 unsupported-version cases, and for a crash before and after the transfer commits.
@@ -130,7 +131,7 @@ to read `/internal/orders/{orderId}/credit-status`);
 documented in [`.env.example`](../.env.example). A missing required value stops startup.
 
 ```bash
-cp .env.example .env
+./scripts-init-env.sh   # creates .env; every secret is generated on your machine
 docker compose up -d --build
 curl http://localhost:3004/health
 ```
@@ -148,6 +149,6 @@ shared test harness creates, migrates and drops a uniquely named database per ru
 automatically, see [docs/testing.md](../docs/testing.md)):
 
 ```bash
-TEST_POSTGRES_URL=postgres://postgres:postgres_dev@localhost:55432/postgres \
-  npm test -w @foc/credit-service
+set -a; . ./.env; set +a   # the stack's addresses and logins, from your .env
+TEST_POSTGRES_URL=$HOST_POSTGRES_URL npm test -w @foc/credit-service
 ```

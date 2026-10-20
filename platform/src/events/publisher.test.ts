@@ -18,6 +18,7 @@ function fakeBroker(unbound: string[] = []) {
     routingKey: string;
     envelope: Envelope;
     mandatory: boolean;
+    userId?: string;
   }> = [];
   let channelsTaken = 0;
   let confirmError: Error | null = null;
@@ -30,7 +31,7 @@ function fakeBroker(unbound: string[] = []) {
       exchange: string,
       routingKey: string,
       body: Buffer,
-      options: { mandatory?: boolean; messageId?: string },
+      options: { mandatory?: boolean; messageId?: string; userId?: string },
       done: (err: Error | null) => void,
     ) {
       const mandatory = options.mandatory === true;
@@ -39,6 +40,7 @@ function fakeBroker(unbound: string[] = []) {
         routingKey,
         envelope: JSON.parse(body.toString('utf8')) as Envelope,
         mandatory,
+        userId: options.userId,
       });
       if (mandatory && unbound.includes(routingKey)) {
         for (const listener of returnListeners) {
@@ -87,6 +89,15 @@ describe('validating on send (EVT-03)', () => {
     expect(sent[0]).toMatchObject({ exchange: EXCHANGE, routingKey: EVENTS.USER_ACTIVATED });
     expect(sent[0]!.envelope).toEqual(envelope);
     expect(envelope).toMatchObject({ producer: 'user-service', payload: activation.payload });
+  });
+
+  it('says which broker account is publishing, for the broker to check and a consumer to rely on', async () => {
+    const { broker, sent } = fakeBroker();
+    Object.assign(broker, { account: 'user-service' });
+
+    await new EventPublisher(broker, 'user-service').publish(activation);
+
+    expect(sent[0]!.userId).toBe('user-service');
   });
 
   it('refuses a payload that fails its schema and publishes nothing', async () => {

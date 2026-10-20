@@ -455,8 +455,9 @@ A missing required variable stops the service at boot and names the variable.
 Nothing falls back to an insecure default.
 
 ```bash
+set -a; . ./.env; set +a   # the stack's addresses and logins, from your .env
 SERVICE_NAME=order-service PORT=3003 \
-  DATABASE_URL=postgres://order_service:order_service_dev@localhost:55432/foc_order \
+  DATABASE_URL=$HOST_ORDER_DATABASE_URL \
   SUPPLIER_SERVICE_URL=http://localhost:3002 \
   CREDIT_WAIT_TIMEOUT_MS=300000 ACCEPTANCE_WINDOW_MS=3600000 \
   PICKUP_TIMEOUT_MS=1800000 DELIVERY_PERIOD_MS=7200000 AUTO_CONFIRM_MS=86400000 \
@@ -469,8 +470,7 @@ curl -i http://localhost:3003/health
 Apply the same generated migrations used by Compose with:
 
 ```bash
-DATABASE_URL=postgres://order_service:order_service_dev@localhost:55432/foc_order \
-  npm run db:migrate -w @foc/order-service
+DATABASE_URL=$HOST_ORDER_DATABASE_URL npm run db:migrate -w @foc/order-service
 ```
 
 ### What you get from `@foc/platform`

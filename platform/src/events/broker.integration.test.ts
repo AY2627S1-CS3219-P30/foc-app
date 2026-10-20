@@ -12,7 +12,7 @@ import { EXCHANGE, HEADER_FAILURE, deadLetterQueueName } from './topology.js';
  * on a laptop without the stack up still passes:
  *
  *   docker compose up -d rabbitmq
- *   RABBITMQ_URL=amqp://foc:foc_dev@localhost:55672 npm test -w @foc/platform
+ *   set -a; . ./.env; set +a; RABBITMQ_URL=$HOST_RABBITMQ_URL npm test -w @foc/platform
  */
 const URL = process.env.RABBITMQ_URL;
 const suite = URL ? describe : describe.skip;

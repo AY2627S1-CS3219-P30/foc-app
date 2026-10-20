@@ -60,12 +60,24 @@ npm install
 ### 3. Create your `.env`
 
 ```bash
-cp .env.example .env
+./scripts-init-env.sh
 ```
+
+No password, key or token is in this repository. `.env.example` lists every
+variable and marks each secret `<generated>`; the script writes `.env` with a
+random value for each, made on your machine. `.env` is git-ignored and readable
+by you alone. Run the script again after pulling: it adds whatever is new and
+never changes a value you already have.
+
+**If you already had a `.env`** (a copy of the old example), it holds the old
+shared key and default passwords. The script names them and stops. Delete
+`.env`, run the script again, and start the stack afresh once, because its
+volumes hold the old passwords too:
+`docker compose down -v && docker compose up -d --build`. That deletes local data.
 
 The services read `.env` automatically. Real environment variables always win,
 so Docker and CI are unaffected. A missing required variable stops a service at
-boot and tells you which one — nothing falls back to an insecure default.
+boot and tells you which one — nothing falls back to a default.
 
 ### 4. Run a service
 
@@ -80,10 +92,21 @@ npm run dev:credit     # http://localhost:3004
 ```
 
 Supplier, Order and Credit verify callers through the User Service, so they also
-need `USER_SERVICE_URL` and `INTERNAL_SERVICE_KEY`. User, Supplier and Credit own
-persistence and require their service-specific `DATABASE_URL` too. Put them in
-your `.env` or shell; see `.env.example`. A missing value stops the service at
-boot and names it.
+need `USER_SERVICE_URL` and `INTERNAL_SERVICE_KEY`. Every service owns
+persistence and requires its own `DATABASE_URL` too. Your `.env` has both ready
+for the Compose stack's Postgres, under other names so that Compose ignores them:
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml up -d   # the others, internal ports on 127.0.0.1
+set -a; . ./.env; set +a
+DATABASE_URL=$HOST_ORDER_DATABASE_URL INTERNAL_SERVICE_KEY=$ORDER_INTERNAL_KEY \
+  USER_SERVICE_URL=http://localhost:4001 npm run dev:order
+```
+
+The override matters: a service checks its callers through the User Service's
+`/internal/introspect`, which the stack serves on an internal port and not on 3001. [`compose.dev.yaml`](compose.dev.yaml) publishes those ports on
+`127.0.0.1`; plain `docker compose up` does not publish them at all. A missing
+value stops the service at boot and names it.
 
 Check it is alive:
 
@@ -108,7 +131,7 @@ bun dev        # http://localhost:3000
 One command brings up the web app, all four services, PostgreSQL and RabbitMQ:
 
 ```bash
-cp .env.example .env     # if you have not already
+./scripts-init-env.sh    # if you have not already; Compose stops without a .env
 docker compose up -d --build
 docker compose ps        # every row should read healthy
 ```
@@ -126,29 +149,35 @@ Then open <http://localhost:3000>.
 | `./scripts-smoke.sh`                  | Verify the running stack                      |
 | `./scripts-smoke.sh --up`             | Verify a separate copy, then delete it        |
 | `./scripts-demo-failures.sh`          | Force messaging failures on the running stack |
+| `./scripts-restart-check.sh`          | Restart, recreate and take Postgres away      |
+| `./scripts-demo-journey.sh`           | A student, an errand and its credits, by API  |
 
 `docker compose down` keeps your data. Use `-v` only when you want a clean
-database — it is also the only way to re-run `postgres-init.sql`, which runs
-once when the data volume is empty.
+database — it is also the only way to re-run `postgres-init.sh`, which runs
+once when the data volume is empty. What each of these keeps is spelled out
+under [Stopped, restarted, recreated](#stopped-restarted-recreated).
 
 **Data isolation.** One PostgreSQL server hosts four databases with four roles,
 one per service. Each role can connect only to its own database — a service
 cannot read another service's tables even by accident. A single server rather
 than four keeps a laptop usable during the demo; production can split the
 instances with no application change, because each service already connects with
-its own credentials. See [`postgres-init.sql`](postgres-init.sql).
+its own credentials. See [`postgres-init.sh`](postgres-init.sh).
 
 **Ports.** PostgreSQL is published on **55432** and RabbitMQ on **55672**, not
 their defaults, because a locally installed copy usually holds 5432 and 5672 and
-`up` would fail to bind. Override any port in `.env`. RabbitMQ's management UI is
-at <http://localhost:15672> (`foc` / `foc_dev`). The operator dashboard is
+`up` would fail to bind. Both listen on `127.0.0.1` only. Override any port in
+`.env`. RabbitMQ's management UI is
+at <http://localhost:15672>; sign in as `RABBITMQ_USER` with `RABBITMQ_PASSWORD`
+from your `.env`. The operator dashboard is
 Grafana at <http://localhost:3005>, open to view without signing in, with
 Prometheus behind it at <http://localhost:9090>; see [Observability](#observability).
 
-**Connections.** Compose gives each service its own `DATABASE_URL` and the shared
-`RABBITMQ_URL`. User, Supplier and Credit apply their own migrations through
-one-shot containers before starting. Services talk to the browser directly with
-CORS; a thin gateway is a later ticket.
+**Connections.** Compose gives each service its own `DATABASE_URL` and its own
+`RABBITMQ_URL`: a database role and a broker account per service. Each applies
+its own migrations through a one-shot container before starting. Services talk
+to the browser directly with CORS, and to each other on a second port that is
+not published; see [Containers](#containers-secrets-networks-and-restarts).
 
 ### 7. Check your setup
 
@@ -167,6 +196,18 @@ All four should pass on a fresh clone. For the containerized stack:
 ```
 
 If that prints `All smoke checks passed`, you are set up correctly.
+
+To see the system do its job rather than only start, run the journey the D3 demo
+uses: a student registers and gets a wallet, an errand is created, accepted,
+delivered and paid, one is cancelled, and six actions are refused. Each API call
+is printed as it is made.
+
+```bash
+./scripts-demo-journey.sh
+```
+
+The demo itself, part by part with who presents what, is
+[docs/demo/d3-runbook.md](docs/demo/d3-runbook.md).
 
 ---
 
@@ -188,7 +229,11 @@ If that prints `All smoke checks passed`, you are set up correctly.
 
 Each service imports `PlatformModule` from `platform/` and gets:
 
-- **`GET /health`** returning the service's own identifier
+- **`GET /health`** returning the service's own identifier and the state of what
+  it depends on: `503` while its database is unreachable, `200` again as soon as
+  it is back (PLT-06)
+- **`/internal/**` on a port of its own** when `INTERNAL_PORT` is set, as Compose
+  sets it: the public port then answers those routes with `404`
 - **Structured JSON logging** — one line per request, every line carrying a
   correlation ID read from `x-correlation-id` (the web app sends one with every
   request) and echoed back on the response. A service passes it on when it calls
@@ -198,7 +243,9 @@ Each service imports `PlatformModule` from `platform/` and gets:
   retried and dead-lettered, and the outbox backlog (PLT-04). It wants
   `Authorization: Bearer $METRICS_TOKEN`, since it lists every route with its
   error rate; without a token it is open in development and refused in production
-- **A shared error envelope**, so the web app handles failures uniformly
+- **A shared error envelope**, so the web app handles failures uniformly. A
+  request that fails because the database has gone away is a `503` with
+  `Retry-After`, not a `500`
 - **Boot-time environment validation** that fails loudly and names the variable
 - **Graceful shutdown** on `SIGTERM`
 
@@ -208,6 +255,195 @@ there lands once instead of four times.
 See [docs/adr/0001-runtime-and-service-framework.md](docs/adr/0001-runtime-and-service-framework.md)
 for why the stack is what it is, including two constraints worth knowing before
 you add a dependency.
+
+## Containers: secrets, networks and restarts
+
+What PLT-06 set up, and what the D3 instructions ask us to explain (Part 4).
+`./scripts-smoke.sh` and `./scripts-restart-check.sh` check every claim below
+against a running stack, and CI runs both.
+
+### One service, one of everything
+
+Each service is developed, built and deployed on its own:
+
+| Per service            | Where                                                                      |
+| ---------------------- | -------------------------------------------------------------------------- |
+| Source, tests, README  | its own folder, e.g. [`order-service/`](order-service)                     |
+| Image                  | its own `Dockerfile`, multi-stage, running as the unprivileged `node` user |
+| Schema                 | its own migrations, applied by its own one-shot `*-migrate` container      |
+| Database and role      | `foc_order` and `order_service`, with a password no other service has      |
+| Broker account         | `order-service`, which may publish only `order.*`                          |
+| Key for calling others | `ORDER_INTERNAL_KEY`, which no other service presents                      |
+| Ports                  | `3003` published; `4003` for other services only                           |
+
+`docker compose up -d --build order-service` builds and starts that one service
+and what it depends on. CI builds and tests only the services a change touches
+([Continuous integration](#continuous-integration)). What the services share is
+[`platform/`](platform) and the contracts in [`contracts/`](contracts), which CI
+checks for breaking changes.
+
+The chat nice-to-have (N1.2) would arrive the same way, as one more row of this
+table: a `chat-service` folder with its own Dockerfile and migrate container, a
+`foc_chat` database and role in `postgres-init.sh`, a broker account in
+`rabbitmq-init.sh`, a key of its own, and membership of the `db`, `broker` and
+`services` networks. Nothing about the other four changes.
+
+### Secrets
+
+No password, key or token is committed (PL-NFR2.1.1). `compose.yaml` reads each
+from `.env` and has no fallback: without one, Compose stops and names it.
+
+| Secret                   | Who holds it                                                  |
+| ------------------------ | ------------------------------------------------------------- |
+| `*_DB_PASSWORD`          | one per service, for its own database role                    |
+| `*_BROKER_PASSWORD`      | one per service, for its own broker account                   |
+| `*_INTERNAL_KEY`         | one per calling service; the callee lists the keys it accepts |
+| `JWT_PRIVATE_KEY`        | the User Service: signs access tokens                         |
+| `ADMIN_SEED_PASSWORD`    | the User Service: the bootstrap admin's first password        |
+| `METRICS_TOKEN`          | the services and Prometheus                                   |
+| `POSTGRES_PASSWORD`      | the Postgres superuser, used only to create the roles         |
+| `RABBITMQ_PASSWORD`      | the broker operator: the management UI and the scripts        |
+| `GRAFANA_ADMIN_PASSWORD` | Grafana's admin; viewing needs no sign-in                     |
+
+`JWT_PRIVATE_KEY` is required in production and by Compose. A User Service run
+by hand outside production without one makes a throwaway key at boot, which
+signs everyone out at each restart.
+
+To change a secret, edit `.env` and run `docker compose up -d`. A broker
+password takes effect then (the accounts are set at every start). A database
+role keeps the password its volume was created with: `ALTER ROLE`, or
+`docker compose down -v` for a fresh one.
+
+Two things keep it this way. A test in the Node job
+([`compose-config.test.ts`](test-harness/test/compose-config.test.ts)) fails if
+a credential, or a fallback for one, is written into a deployment file. And
+`./scripts-scan-secrets.sh`, which CI runs, scans the repository and every
+image the stack builds.
+
+### Networks and ports
+
+A container joins only the networks of what it depends on (PL-NFR2.1.2):
+
+| Network         | On it                                               | For                                    |
+| --------------- | --------------------------------------------------- | -------------------------------------- |
+| `db`            | Postgres, the four services, the migrate containers | each service's own database            |
+| `broker`        | RabbitMQ, the four services, Prometheus             | events; queue depths for the dashboard |
+| `services`      | the four services, Prometheus                       | service-to-service calls; scraping     |
+| `public`        | the four services                                   | publishing ports 3001-3004             |
+| `web`           | the web app                                         | publishing port 3000                   |
+| `local`         | Postgres, RabbitMQ                                  | publishing their ports on `127.0.0.1`  |
+| `observability` | Prometheus, Grafana                                 | the dashboard's queries; their ports   |
+
+The first three are `internal`: containers talk on them, they have no route
+out, and no port can be published through them. Publishing a port needs an
+ordinary network, and each container has exactly one, because with two Docker
+can publish the port on one and send the replies out of the other. So the web
+app's container cannot open a connection to Postgres, and Grafana cannot reach
+a service.
+
+| From this machine                                             | Reachable on     |
+| ------------------------------------------------------------- | ---------------- |
+| The web app (3000) and each service's public port (3001-3004) | every interface  |
+| Postgres, RabbitMQ and its management UI, Grafana, Prometheus | `127.0.0.1` only |
+| Each service's internal port (4001-4004)                      | not published    |
+
+**External and internal communication.** A browser reaches a service on its
+public port. `/internal/**` (token introspection, Credit's reconciliation
+read) is for other services: each service listens on a second port that is not
+published, so only a container that shares a network with it can connect, and
+on the public port an internal route answers `404`, exactly as a route that
+does not exist. It still wants the caller's service key.
+
+**One broker account per service.** RabbitMQ refuses, with a 403, a service
+that publishes another service's event (`user.activated` from the Order
+Service), writes to another service's queue, or reads one. Until PLT-06 every
+service shared one login and Credit believed the producer name written inside
+a message.
+
+That rule alone can be walked around: RabbitMQ checks routing keys only on the
+exchange a client publishes to, and a service may bind an exchange of its own
+into the shared one. So there is a second rule, which no route gets past. The
+broker stamps every message with the account that published it and refuses a
+false stamp, and a consumer sets aside any message whose stamp is not the
+producer it names (`untrusted_sender`). `./scripts-demo-failures.sh` has the
+Order Service try both. [`rabbitmq-init.sh`](rabbitmq-init.sh) has the
+permissions, [`sender.ts`](platform/src/events/sender.ts) the check, and
+[ADR 0004](docs/adr/0004-authentication-and-trust.md) the reasoning.
+
+**Privileges.** Every container's main process is unprivileged. The services,
+their migrate containers and the web app also drop every Linux capability and
+cannot gain one (`no-new-privileges`). The four pre-built images (Postgres,
+RabbitMQ, Prometheus, Grafana) keep their publishers' defaults: they are not
+given `cap_drop` or `no-new-privileges`, because their entrypoints were not
+tested under them here. RabbitMQ is started as its own user; Postgres starts as
+root and drops to `postgres` before it serves.
+
+### Stopped, restarted, recreated
+
+| Command                          | Containers | Volumes | Users, errands, wallets, ledger, inbox, outbox | Messages waiting in a queue |
+| -------------------------------- | ---------- | ------- | ---------------------------------------------- | --------------------------- |
+| `docker compose stop` / `start`  | kept       | kept    | kept                                           | kept, handled once          |
+| `docker compose restart`         | kept       | kept    | kept                                           | kept, handled once          |
+| `docker compose down`, then `up` | recreated  | kept    | kept                                           | kept, handled once          |
+| `docker compose down -v`         | removed    | removed | **deleted**                                    | **deleted**                 |
+
+State lives in three named volumes (Postgres, RabbitMQ, Prometheus) and nowhere
+else, so a container can be thrown away. Queues are durable and messages
+persistent; RabbitMQ's host name is fixed so that a recreated container finds
+them. "Handled once" is the inbox: a message redelivered after a restart is
+recognised by its event id and has no second effect (PL-NFR3.1.1). Sign-ins
+survive too, because the signing key is in `.env` rather than made at boot.
+
+```bash
+./scripts-restart-check.sh --up
+```
+
+does the first three rows to a stack of its own with a request to Credit
+waiting in its queue, and checks after each that no table lost a row and the
+request was honoured exactly once. Without `--up` it does them to the stack
+you have running, and leaves two students and three errands of its own there.
+
+### When a dependency goes away
+
+| Missing                | `GET /health`                      | A request                                         | When it returns             |
+| ---------------------- | ---------------------------------- | ------------------------------------------------- | --------------------------- |
+| The service's database | `503`, `status: unavailable`       | `503` with `Retry-After`: never accepted and lost | healthy again, no restart   |
+| RabbitMQ               | `200`, `dependencies.broker: down` | accepted; its events wait in the outbox           | the outbox drains by itself |
+| A consuming service    | unaffected                         | accepted; requests wait in that service's queue   | it works through its queue  |
+
+A service cannot record anything without its database, so it says so
+(PL-NFR3.1.2). An event that arrives meanwhile is retried for about 81 seconds;
+if the database is away longer than that, the event waits as a dead letter and
+an operator redrives it afterwards ([Dead letters](#dead-letters-and-alerts-plt-05)). It can work without the broker for a while, which is the point of
+the outbox, so that is reported but does not fail the check; `OutboxEventStuck`
+fires if it lasts two minutes.
+
+Started in the wrong order, the same rules apply. Compose starts a service only
+once Postgres and RabbitMQ are healthy and its migrations have run. A service
+that loses the broker reconnects on its own. An event published before its
+consumer has ever started stays in the outbox until the consumer's queue exists.
+
+### Pre-built images
+
+Six images are pulled as published; everything else is built from this
+repository. Each is pinned to an exact version and digest, in `compose.yaml` and
+the Dockerfiles, so two builds of one commit use the same bytes.
+
+| Image                              | Used for                           | Published by                                              | Licence of the software |
+| ---------------------------------- | ---------------------------------- | --------------------------------------------------------- | ----------------------- |
+| `node:22.23.3-alpine3.24`          | base of the four services, web app | Docker Official Image, by the Node.js Docker team         | MIT                     |
+| `oven/bun:1.4.2-alpine`            | building the web app               | Oven, the makers of Bun                                   | MIT                     |
+| `postgres:17.11-alpine3.24`        | the database server                | Docker Official Image, by the PostgreSQL Docker community | PostgreSQL Licence      |
+| `rabbitmq:4.3.6-management-alpine` | the message broker                 | Docker Official Image, by the Docker community            | MPL 2.0                 |
+| `prom/prometheus:v3.13.4`          | metrics and alert rules            | The Prometheus project                                    | Apache 2.0              |
+| `grafana/grafana-oss:12.4.3`       | the dashboard                      | Grafana Labs                                              | AGPL 3.0                |
+
+One more is run as a tool, not as part of the stack: `ghcr.io/gitleaks/gitleaks:v8.30.0`
+(the Gitleaks project, MIT), by `./scripts-scan-secrets.sh`.
+
+The Alpine Linux base of the first four carries its own packages under their
+own licences. To update an image, change its version and its digest together;
+a test fails if either is missing.
 
 ---
 
@@ -220,20 +456,20 @@ nothing to set up and no sign-in needed to view it. Both are published on
 `METRICS_TOKEN` to each service (Compose mounts it as a file); to read one
 yourself, `curl -H "Authorization: Bearer $METRICS_TOKEN" localhost:3001/metrics`.
 
-| Panel                             | Shows                                                                                                                          | From                                                                                |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| HTTP p95 latency, by service      | time to answer, 95th percentile                                                                                                | `http_request_duration_seconds`                                                     |
-| Requests by status code           | request rate per HTTP status                                                                                                   | `http_request_duration_seconds_count`                                               |
-| Errands by status                 | errands in each state right now                                                                                                | `foc_orders` (Order Service)                                                        |
-| Consumer backlog per queue        | messages waiting for a consumer                                                                                                | RabbitMQ's exporter                                                                 |
-| Event lag p95, by queue           | time from an event occurring to its consumer handling it                                                                       | `foc_event_lag_seconds`                                                             |
-| Retries per minute, by queue      | retries scheduled after a handler failed                                                                                       | `foc_event_retries_total`                                                           |
-| Dead letters waiting, by queue    | parked for an operator (PLT-05); "not yet parked" only while the owning service is down                                        | `foc_dead_letters_waiting`, RabbitMQ's exporter                                     |
-| Dead-lettered events by reason    | `unparseable` or `unsupported_version` (set aside at once), or `exhausted` (retries spent); a per-instance queue drops instead | `foc_events_dead_lettered_total`, `foc_events_dropped_total`                        |
-| Outbox backlog                    | events committed but not yet confirmed by the broker                                                                           | `foc_outbox_backlog`, `..._oldest_unpublished_age_seconds`                          |
-| Oldest errand waiting for Credit  | how long the oldest `PENDING_CREDIT` errand has waited for its reservation                                                     | `foc_orders_pending_credit_oldest_age_seconds`                                      |
-| Firing alerts                     | the rules in `observability/alerts.yml` that are firing now                                                                    | Prometheus `ALERTS`                                                                 |
-| Repeated, stale and waiting steps | deliveries already applied, steps older than a change already applied, and steps retried while an earlier one is missing       | `foc_events_duplicate_total`, `foc_events_stale_total`, `foc_events_deferred_total` |
+| Panel                             | Shows                                                                                                                                              | From                                                                                |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| HTTP p95 latency, by service      | time to answer, 95th percentile                                                                                                                    | `http_request_duration_seconds`                                                     |
+| Requests by status code           | request rate per HTTP status                                                                                                                       | `http_request_duration_seconds_count`                                               |
+| Errands by status                 | errands in each state right now                                                                                                                    | `foc_orders` (Order Service)                                                        |
+| Consumer backlog per queue        | messages waiting for a consumer                                                                                                                    | RabbitMQ's exporter                                                                 |
+| Event lag p95, by queue           | time from an event occurring to its consumer handling it                                                                                           | `foc_event_lag_seconds`                                                             |
+| Retries per minute, by queue      | retries scheduled after a handler failed                                                                                                           | `foc_event_retries_total`                                                           |
+| Dead letters waiting, by queue    | parked for an operator (PLT-05); "not yet parked" only while the owning service is down                                                            | `foc_dead_letters_waiting`, RabbitMQ's exporter                                     |
+| Dead-lettered events by reason    | `unparseable`, `unsupported_version` or `untrusted_sender` (set aside at once), or `exhausted` (retries spent); a per-instance queue drops instead | `foc_events_dead_lettered_total`, `foc_events_dropped_total`                        |
+| Outbox backlog                    | events committed but not yet confirmed by the broker                                                                                               | `foc_outbox_backlog`, `..._oldest_unpublished_age_seconds`                          |
+| Oldest errand waiting for Credit  | how long the oldest `PENDING_CREDIT` errand has waited for its reservation                                                                         | `foc_orders_pending_credit_oldest_age_seconds`                                      |
+| Firing alerts                     | the rules in `observability/alerts.yml` that are firing now                                                                                        | Prometheus `ALERTS`                                                                 |
+| Repeated, stale and waiting steps | deliveries already applied, steps older than a change already applied, and steps retried while an earlier one is missing                           | `foc_events_duplicate_total`, `foc_events_stale_total`, `foc_events_deferred_total` |
 
 - **Follow one request.** Its correlation ID is in the `x-correlation-id`
   response header. `docker compose logs | grep <id>` then shows every service it
@@ -313,8 +549,19 @@ docker run --rm -v "$PWD/observability:/rules:ro" --entrypoint promtool prom/pro
 ## Troubleshooting
 
 **`Invalid environment configuration. The service cannot start.`**
-Working as intended — it names the missing variable. Copy `.env.example` to
-`.env`, or use a `npm run dev:*` script, which supplies its own values.
+Working as intended — it names the missing variable. Create `.env` with
+`./scripts-init-env.sh`, or use a `npm run dev:*` script, which supplies its own
+values.
+
+**`required variable ... is missing a value: run ./scripts-init-env.sh`**
+Compose has no fallback for a secret. Run the script; it creates `.env`, or adds
+what a newer `.env.example` introduced.
+
+**`password authentication failed`, or `PRECONDITION_FAILED` on a `foc.*.delay.*` queue**
+Your volumes are older than your `.env`: Postgres keeps the role passwords it
+was first started with, and RabbitMQ the queues it first declared. After pulling
+PLT-06, or after deleting `.env`, start both afresh once:
+`docker compose down -v && docker compose up -d --build`. This deletes local data.
 
 **`EADDRINUSE` / port already taken**
 Another service or an old process holds the port. Find it with
@@ -413,9 +660,12 @@ Two details that are easy to get wrong, and are commented in the code:
 - A retry goes back to **the queue that failed**, not to the event's routing
   key: several services can bind one event type, and each must not handle
   another's retries. Each delay level is a **fanout** exchange whose queue
-  dead-letters onto the default exchange; the failed message travels with its
+  dead-letters onto the service's own **requeue** exchange
+  (`foc.<service>.requeue`, direct); the failed message travels with its
   queue's name as routing key, which fanout ignores on the way in and the
-  default exchange delivers by on the way out.
+  requeue exchange delivers by on the way out. A redrive uses the same
+  exchange. Not the default exchange: writing to that is writing to any queue
+  on the broker, so no service's account may.
 - Delay queues are **namespaced per service** (`foc.<service>.delay.N`). A
   queue's TTL is fixed at declaration, so globally named retry queues would
   force every service onto one backoff forever and require deleting queues to
@@ -434,24 +684,26 @@ dropped, so its handler must be idempotent and have a fallback.
 
 ### Seeing it fail on purpose
 
-`./scripts-demo-failures.sh` forces four failures on the running stack and checks
-what the system did about each (EVT-03). It signs up its own students each run,
+`./scripts-demo-failures.sh` forces five failures on the running stack and checks
+what the system did about each (EVT-03, PLT-06). It signs up its own students each run,
 so it can be repeated.
 
-| Step                                                           | What it shows                                                                      |
-| -------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| The Credit Service is killed, then an errand is created        | The errand waits as `PENDING_CREDIT`, then opens with 3 credits reserved once      |
-| An activation published again, twice, with the same event id   | One wallet, one issue of 10 credits; `foc_events_duplicate_total` rises by 2       |
-| `credit.reserved` delivered again after a courier has accepted | Ignored and counted (`foc_events_stale_total`); no dead letter                     |
-| An activation in schema version 2                              | Set aside whole as a dead letter, reason "unsupported schema version 2"; no wallet |
-| The closing check                                              | Wallets hold exactly the credits that were issued                                  |
+| Step                                                           | What it shows                                                                                                           |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| The Credit Service is killed, then an errand is created        | The errand waits as `PENDING_CREDIT`, then opens with 3 credits reserved once                                           |
+| An activation published again, twice, with the same event id   | One wallet, one issue of 10 credits; `foc_events_duplicate_total` rises by 2                                            |
+| `credit.reserved` delivered again after a courier has accepted | Ignored and counted (`foc_events_stale_total`); no dead letter                                                          |
+| An activation in schema version 2                              | Set aside whole as a dead letter, reason "unsupported schema version 2"; no wallet                                      |
+| The Order Service forges an activation as the User Service's   | Refused by the broker outright; routed in through its own exchange, set aside by Credit with the real sender; no wallet |
+| The closing check                                              | Wallets hold exactly the credits that were issued                                                                       |
 
-The last step but one leaves a dead letter waiting, so the `DeadLetterWaiting`
-alert fires and the Operations tab has something to show.
+The version 2 and forged activations each leave a dead letter waiting, so the
+`DeadLetterWaiting` alert fires and the Operations tab has something to show.
 
 ### Inspecting it
 
-RabbitMQ's management UI is at <http://localhost:15672> (`foc` / `foc_dev`).
+RabbitMQ's management UI is at <http://localhost:15672>. Sign in as the operator:
+`RABBITMQ_USER` and `RABBITMQ_PASSWORD` from your `.env`.
 
 ```bash
 docker compose exec rabbitmq rabbitmqctl list_exchanges name type
@@ -470,7 +722,8 @@ The unit tests need no broker and skip the integration suite. To run it:
 
 ```bash
 docker compose up -d rabbitmq
-RABBITMQ_URL=amqp://foc:foc_dev@localhost:55672 npm test -w @foc/platform
+set -a; . ./.env; set +a   # the stack's addresses and logins, from your .env
+RABBITMQ_URL=$HOST_RABBITMQ_URL npm test -w @foc/platform
 ```
 
 ### Publishing with a database write: the outbox and inbox
@@ -556,7 +809,8 @@ transaction at a time:
 
 ```bash
 docker compose up -d postgres
-TEST_POSTGRES_URL=postgres://postgres:postgres_dev@localhost:55432/postgres npm test -w @foc/platform
+set -a; . ./.env; set +a   # the stack's addresses and logins, from your .env
+TEST_POSTGRES_URL=$HOST_POSTGRES_URL npm test -w @foc/platform
 ```
 
 Not done yet: published outbox rows and old inbox rows are never pruned.
@@ -614,8 +868,12 @@ npm run format:check
 npm run typecheck
 npm test
 npm run test:contract        # contract compatibility + provider checks
+./scripts-init-env.sh        # once: the stack scripts read .env
+./scripts-scan-secrets.sh    # no secret in the repository or the images
 ./scripts-smoke.sh --up      # the Compose smoke job
 ./scripts-demo-failures.sh --up   # the failure demo it runs afterwards
+./scripts-restart-check.sh --up   # restart, recreate, lose Postgres
+./scripts-demo-journey.sh --up --redrive   # the D3 journey, and a dead letter redriven
 ```
 
 Every test suite, its naming convention and the variables that switch on the real-PostgreSQL and
