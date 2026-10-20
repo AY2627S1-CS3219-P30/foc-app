@@ -95,6 +95,7 @@ created `.env` first.
 | `./scripts-scan-secrets.sh`       | No secret in any tracked file (gitleaks) or in an image the repository builds                                                                       |
 | `./scripts-smoke.sh --up`         | Health, database isolation, broker topology, metrics and alerts, non-root containers, loopback data stores, hidden internal routes, broker accounts |
 | `./scripts-demo-failures.sh --up` | A killed consumer, a duplicate, a stale reply, an unsupported version, a forged event; credits conserved                                            |
+| `./scripts-demo-credits.sh --up`  | Reserve, transfer and release through the API, both wallets before and after each; conservation, balanced transactions and backed reservations   |
 | `./scripts-restart-check.sh --up` | Stop and start, remove and recreate, Postgres stopped under running services                                                                        |
 
 ## Adding tests
