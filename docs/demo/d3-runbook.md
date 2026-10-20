@@ -10,12 +10,12 @@ latest green run on GitHub is always a fallback: open it and read the log aloud.
 
 | Script                                       | Shows (D3 part)                                               | Takes on a warm stack |
 | -------------------------------------------- | ------------------------------------------------------------- | --------------------- |
-| `./scripts-smoke.sh`                         | Start-up, isolation, hardening, broker accounts (4)           | 8 s                   |
+| `./scripts-smoke.sh`                         | Start-up, isolation, hardening, broker accounts (4)           | 12 s                  |
 | `./scripts-demo-journey.sh --pause`          | Registration to allocation, an errand, refusals (1, 2)        | 7 s, plus narration   |
-| `./scripts-demo-journey.sh --stage`          | Prepares one dead letter to redrive live (3.4)                | 95 s, before the slot |
+| `./scripts-demo-journey.sh --stage`          | Prepares one dead letter to redrive live (3.4)                | 93 s, before the slot |
 | `./scripts-demo-journey.sh --redrive-staged` | Redrives it through the API, if the console fails             | 1 s                   |
-| `./scripts-demo-failures.sh`                 | Killed consumer, duplicate, stale, bad version, forgery (3.4) | 11 s                  |
-| `./scripts-restart-check.sh`                 | Restart, recreate, lose Postgres (4.2, 4.3)                   | 75 s                  |
+| `./scripts-demo-failures.sh`                 | Killed consumer, duplicate, stale, bad version, forgery (3.4) | 12 s                  |
+| `./scripts-restart-check.sh`                 | Restart, recreate, lose Postgres (4.2, 4.3)                   | 77 s                  |
 
 ## Before the slot
 
@@ -36,6 +36,10 @@ docker compose restart user-service   # last: clears the registration limit, see
 `--stage` ends by printing the dead letter's id and where the administrator's password is
 (`DEMO_ADMIN_PASSWORD` in the git-ignored `.env.demo.local`).
 
+If this laptop ran the stack before PLT-06 (#240) merged on 20 Oct, its volumes hold passwords the
+new `.env` does not know, and the services fail with `password authentication failed`. Run
+`docker compose down -v` once, before `up`. On a clean clone there is nothing to do.
+
 The User Service allows 20 registrations an hour from one address, counted in memory, and every
 script here registers its own students from this laptop: the journey three, the failure demo
 three. Restarting the User Service clears the count, which is why it is the last step. Rehearse as
@@ -46,6 +50,7 @@ Then open, and leave open:
 | Tab                  | Address                                  | Signed in as                                     |
 | -------------------- | ---------------------------------------- | ------------------------------------------------ |
 | Admin console        | <http://localhost:3000/admin/operations> | `admin@u.nus.edu`, `DEMO_ADMIN_PASSWORD`         |
+| Admin console, users | <http://localhost:3000/admin/users>      | the same session                                 |
 | Dashboard            | <http://localhost:3005>                  | nobody: viewing needs no sign-in                 |
 | RabbitMQ             | <http://localhost:15672>                 | `RABBITMQ_USER`, `RABBITMQ_PASSWORD` from `.env` |
 | Terminal, large font | the repository root                      |                                                  |
@@ -81,7 +86,9 @@ Show `docker compose ps`. Say: nine containers. The web app and four services, e
 its own image, its own migrate job, its own database role and its own broker account; and
 Postgres, RabbitMQ, Prometheus and Grafana from pinned public images.
 
-Show the end of `./scripts-smoke.sh` (run it; it takes 8 seconds). Point at four lines:
+Switch to the browser for a second: <http://localhost:3000> is the web app, one of the nine.
+
+Show the end of `./scripts-smoke.sh` (run it; it takes about 12 seconds). Point at four lines:
 
 - `every container runs as non-root`
 - `postgres:5432 is published on 127.0.0.1 only`
@@ -126,6 +133,10 @@ Point at the history line: seven states, two of them waiting on Credit
 
 Enter for part C: the cancellation. `4/3` becomes `7/0`, released exactly once.
 
+The same balances in the browser, if wanted: the admin console's **Wallets** tab, the requester's
+email. It shows available, reserved and the ledger (starting credits, reserved, transferred,
+released), every line read from the Credit Service. Looking is recorded with the admin's name.
+
 **If a call returns something else:** the script prints the status and error code it got. Run
 `./scripts-demo-journey.sh` again without `--pause`: it signs up new students, so a second run is
 independent of the first.
@@ -142,18 +153,26 @@ error code, to a real request:
 - the courier confirming their own delivery: `403 ACTION_FORBIDDEN`
 - a second completion: `409 INVALID_ORDER_STATE`, one transfer, the courier's balance unchanged
 
+"An admin viewing a requester's orders" (Part 1.3), in the browser: **Users**, open a "Demo
+requester" (the journey makes one per run). Their errands are listed under "Errands they requested",
+read from `GET /admin/orders?requesterId=` (ORD-15); a student's token gets `403` from the same
+call. Each errand links to its trace on the Operations tab.
+
 ### 5. Messages that go wrong (Part 3.4) — 3:00
 
-Run `./scripts-demo-failures.sh` (11 seconds). Jonus reads the five headings: Credit killed
-mid-workflow, the same event three times, a late duplicate of a reply, a version nobody supports,
-and the Order Service forging an activation.
+Run `./scripts-demo-failures.sh` (12 seconds). Jonus reads the five failure headings: Credit
+killed mid-workflow, the same event three times, a late duplicate of a reply, a version nobody
+supports, and the Order Service forging an activation. A sixth heading checks that the closed
+economy still balances after all of them.
 
-Switch to the dashboard. Point at: duplicates and stale steps counted, dead letters waiting by
-queue, `DeadLetterWaiting` firing. Say it plainly if asked: no Alertmanager runs in this stack, so
-an alert is shown on the dashboard and at <http://localhost:9090/alerts> and nobody is paged.
+Switch to the dashboard. Point at three panels: **Dead letters waiting** (3), **Firing alerts**
+(`DeadLetterWaiting`), and lower down **Repeated, stale and waiting steps (last hour)**, which
+counts the repeat and the stale reply. Say it plainly if asked: no Alertmanager runs in this stack,
+so an alert is shown on the dashboard and at <http://localhost:9090/alerts> and nobody is paged.
 
-Switch to the admin console's Operations tab; Patrick drives it. Three dead letters are waiting
-on `foc.credit.wallet-provisioning`, each with its reason:
+Switch to the admin console's Operations tab; Patrick drives it. The dead letters list opens on
+the Order Service: choose **Credit Service** above it. Three dead letters are waiting on
+`foc.credit.wallet-provisioning`, each with its reason:
 
 | Reason                                                     | From                       | A redrive would                  |
 | ---------------------------------------------------------- | -------------------------- | -------------------------------- |
@@ -161,9 +180,11 @@ on `foc.credit.wallet-provisioning`, each with its reason:
 | `unsupported schema version 2 for user.activated; ...`     | the failure demo, just now | fail again, as a new dead letter |
 | `sender order-service may not publish user.activated: ...` | the failure demo, just now | fail again, as a new dead letter |
 
-Open the first: before the slot, Credit could not reach its database for longer than its retries
-last while a student activated. Redrive it, with a reason. Then show that the student now has a
-wallet, issued once:
+**Inspect** the first. "Message, as it arrived" is the whole event: `eventId`, `eventType`,
+`schemaVersion`, `producer`, `correlationId`, `causationId` and the `payload`. That is Part 3.2's
+sample payload, and how a repeat is recognised (its `eventId`). Before the slot, Credit could not
+reach its database for longer than its retries last while this student activated. Close it,
+**Redrive** it with a reason, then show that the student now has a wallet, issued once:
 
 ```bash
 . ./.env.demo.local
@@ -185,8 +206,9 @@ docker compose down && docker compose up -d     # every container removed and cr
 docker compose exec -T postgres psql -U postgres -d foc_order -c "$COUNT"   # the same rows
 ```
 
-Then reload the Operations tab and set its filter to Redriven: the dead letter from part 5 is
-still there, with who redrove it and why.
+Then reload the Operations tab (the admin is still signed in), choose Credit Service and set the
+status to Redriven: the dead letter from part 5 is still there; Inspect shows who redrove it and
+why. Open a demo student under **Users**: their errands are still listed.
 
 ```bash
 docker compose stop postgres
@@ -195,19 +217,30 @@ docker compose start postgres
 curl -i localhost:3003/health                   # 200 again within two seconds; no service restarted
 ```
 
+The same from the browser, with one service gone: the account page from above, then
+
+```bash
+docker compose stop order-service
+```
+
+Reload the page. Only the two errand lists say "Couldn't load errands"; the account, its actions
+and its audit trail still load, because each section asks its own service. Then
+`docker compose start order-service` (healthy in a second or two) and press **Try again** on a list.
+
 If there is time, the broker, which is the other case the instructions name:
 
 ```bash
 docker compose stop rabbitmq
 curl -s localhost:3003/health                   # still 200: {"status":"ok",...,"dependencies":{"database":"up","broker":"down"}}
-./scripts-demo-journey.sh                       # part B stops at "the errand did not open": it is saved as PENDING_CREDIT
-docker compose start rabbitmq                   # the errand opens by itself about 15 s later
+docker compose start rabbitmq
 ```
 
-A service keeps taking writes without the broker, because the event is saved with the errand and
-sent when the broker is back. That is the difference from losing the database. Skip this if the
-slot is running late; `./scripts-restart-check.sh` covers Postgres only, so this step has no
-script behind it.
+Say: a service keeps taking writes without the broker, because the event is saved with the change
+and sent when the broker is back. That is the difference from losing the database, and part 5's
+first step (Credit killed, the errand waits, then opens) already showed it. Do not run the journey
+while the broker is down: new students get no wallet, so it prints failures and waits about a
+minute at each step. In the dry run, errands saved meanwhile opened about 40 seconds after
+`start`. `./scripts-restart-check.sh` covers Postgres only, so this step has no script behind it.
 
 Say: `down -v` is the one command that deletes data. The full version of this part, with a request
 waiting in a queue across each restart, is `./scripts-restart-check.sh`, which CI runs.
@@ -274,28 +307,31 @@ For a change to shared code in `platform/`, every service image is rebuilt:
 
 ## If something fails
 
-| Symptom                                                         | Do                                                                                              |
-| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `required variable ... is missing a value`                      | `./scripts-init-env.sh`                                                                         |
-| `password authentication failed` at start                       | The volumes are older than `.env`: `docker compose down -v && docker compose up -d --build`     |
-| A port is taken                                                 | `docker compose ps -a` in other projects; stop them. Ports are in `.env`                        |
-| A container is unhealthy                                        | `docker compose logs --tail=30 <service>`; `docker compose up -d` again                         |
-| The dashboard is empty                                          | Wait 30 seconds (two scrapes); check <http://localhost:9090/targets>                            |
-| The admin password is not accepted                              | It is `DEMO_ADMIN_PASSWORD` in `.env.demo.local`; if that file is gone, `docker compose down -v` and start again |
-| `Registration is rate-limited`                                  | `docker compose restart user-service` (20 registrations an hour from one address, counted in memory) |
+| Symptom                                                           | Do                                                                                                                                                                        |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `required variable ... is missing a value`                        | `./scripts-init-env.sh`                                                                                                                                                   |
+| `password authentication failed` at start                         | The volumes are older than `.env`: `docker compose down -v && docker compose up -d --build`                                                                               |
+| A port is taken                                                   | `docker compose ps -a` in other projects; stop them. Ports are in `.env`                                                                                                  |
+| A container is unhealthy                                          | `docker compose logs --tail=30 <service>`; `docker compose up -d` again                                                                                                   |
+| The dashboard is empty                                            | Wait 30 seconds (two scrapes); check <http://localhost:9090/targets>                                                                                                      |
+| The Operations tab shows no dead letters                          | It opens on the Order Service: choose **Credit Service** above the list                                                                                                   |
+| `DeadLetterNotParked` shows as pending                            | Normal just after the failure demo; it fires only after two minutes, which means Credit is down                                                                           |
+| The admin password is not accepted                                | It is `DEMO_ADMIN_PASSWORD` in `.env.demo.local`; if that file is gone, `docker compose down -v` and start again                                                          |
+| `Registration is rate-limited`                                    | `docker compose restart user-service` (20 registrations an hour from one address, counted in memory)                                                                      |
 | Credit is unhealthy after an interrupted `--stage` or `--redrive` | Its database login was left disabled: `docker compose exec -T postgres psql -U postgres -c "ALTER ROLE credit_service LOGIN"`. Running the journey again also restores it |
-| A script fails half way                                         | Run it again: each run makes its own students and errands                                       |
-| Nothing works                                                   | `docker compose stop`, then `./scripts-demo-journey.sh --up` runs the journey on a separate stack; or open the latest green CI run |
+| A script fails half way                                           | Run it again: each run makes its own students and errands                                                                                                                 |
+| Nothing works                                                     | `docker compose stop`, then `./scripts-demo-journey.sh --up` runs the journey on a separate stack; or open the latest green CI run                                        |
 
 ## Rehearsals
 
 The acceptance criterion is two runs from a clean clone with the same result, and one rehearsal by
 the whole team.
 
-| Date        | Who          | From a clean clone | Result                                                              |
-| ----------- | ------------ | ------------------ | ------------------------------------------------------------------- |
-| 13 Oct 2026 | Jonus (solo) | yes, twice         | Both runs: smoke 58, failures 17, stage 6, journey 22, journey with redrive 32, restart check 30; no failures |
-|             | Whole team   |                    | Not yet done                                                        |
+| Date        | Who                        | From a clean clone | Result                                                                                                                                               |
+| ----------- | -------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 13 Oct 2026 | Jonus (solo)               | yes, twice         | Both runs: smoke 58, failures 17, stage 6, journey 22, journey with redrive 32, restart check 30; no failures                                        |
+| 20 Oct 2026 | Dry run, `main` at 849a1ac | yes, once          | Smoke 59, stage 7, journey 22, failures 17, restart check 30; no failures. Console and browser steps checked; the broker step was rewritten (part 6) |
+|             | Whole team                 |                    | Not yet done                                                                                                                                         |
 
 ## Afterwards
 
