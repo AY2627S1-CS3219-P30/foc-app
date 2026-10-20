@@ -10,7 +10,7 @@ import { OUTBOX_TABLE_SQL, OutboxRelay, insertOutboxEvent } from './outbox.js';
  * time, so outbox.test.ts cannot show this. Skipped unless a database is given:
  *
  *   docker compose up -d postgres
- *   TEST_POSTGRES_URL=postgres://postgres:postgres_dev@localhost:55432/postgres npm test -w @foc/platform
+ *   set -a; . ./.env; set +a; TEST_POSTGRES_URL=$HOST_POSTGRES_URL npm test -w @foc/platform
  *
  * Everything happens in a throwaway schema, dropped afterwards.
  */

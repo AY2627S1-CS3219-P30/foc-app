@@ -10,9 +10,12 @@ import {
 } from '@foc/test-harness';
 import { LifecycleScheduler } from '../src/orders/lifecycle.scheduler.js';
 import { OrdersRepository } from '../src/orders/orders.repository.js';
+import { UserDirectoryClient } from '../src/orders/user-directory.client.js';
 
 const suite = TEST_POSTGRES_URL ? describe : describe.skip;
 const SEEDED_ORDER = '00000000-0000-4000-8000-000000000129';
+// No dispute arises here, so the scheduler never asks the User Service.
+const noUserService = new UserDirectoryClient(() => Promise.reject(new Error('not in this test')));
 
 suite('accept versus expire on real PostgreSQL (OS-NFR3.1.2)', () => {
   let database: EphemeralPostgres;
@@ -44,7 +47,7 @@ suite('accept versus expire on real PostgreSQL (OS-NFR3.1.2)', () => {
   };
 
   const sweeper = () =>
-    new LifecycleScheduler(orders, {
+    new LifecycleScheduler(orders, noUserService, {
       pickupTimeoutMs: 1_800_000,
       creditWaitTimeoutMs: 300_000,
       intervalMs: 10_000,

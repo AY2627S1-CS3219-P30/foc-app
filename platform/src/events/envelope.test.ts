@@ -5,6 +5,7 @@ import {
   envelopeSchema,
   parseEnvelope,
   UnparseableMessageError,
+  UnsupportedVersionError,
 } from './envelope.js';
 
 const payloadSchema = z.object({ userId: z.string().min(1) });
@@ -68,6 +69,22 @@ describe('parseEnvelope', () => {
   it('names the offending field, so an operator can act on a dead letter', () => {
     const wrong = createEnvelope({ ...base, payload: {} });
     expect(() => parseEnvelope(encode(wrong), payloadSchema)).toThrow(/userId/);
+  });
+
+  it('refuses a major version it was not told it supports, before reading the payload', () => {
+    // The payload satisfies the version 1 schema, so only the version check can stop it.
+    const raw = Buffer.from(JSON.stringify(createEnvelope({ ...base, schemaVersion: 2 })));
+    expect(() => parseEnvelope(raw, payloadSchema)).toThrow(UnsupportedVersionError);
+    expect(() => parseEnvelope(raw, payloadSchema)).toThrow(
+      'unsupported schema version 2 for user.activated; supported: 1',
+    );
+    // Still a message that cannot be understood: it is set aside, never retried.
+    expect(() => parseEnvelope(raw, payloadSchema)).toThrow(UnparseableMessageError);
+  });
+
+  it('accepts each major version a consumer says it supports', () => {
+    const raw = Buffer.from(JSON.stringify(createEnvelope({ ...base, schemaVersion: 2 })));
+    expect(parseEnvelope(raw, payloadSchema, [1, 2]).schemaVersion).toBe(2);
   });
 
   it('rejects an over-long correlation id rather than letting it bloat every log line', () => {

@@ -10,12 +10,13 @@
  * queue with the reason attached (EI-FR2.1.2).
  *
  * Each delay level has its own **fanout** exchange, and its queue dead-letters
- * onto the **default** exchange. A failed message is published into the retry
- * exchange with the name of the queue it failed on as its routing key: fanout
- * ignores the key on the way in and preserves it on the way out, and the
- * default exchange routes by queue name. So a retry goes back to that one queue
- * only — never to every other queue bound to the same event type, which would
- * make another service handle the event twice.
+ * onto the service's **requeue** exchange (see {@link requeueExchangeName}). A
+ * failed message is published into the retry exchange with the name of the
+ * queue it failed on as its routing key: fanout ignores the key on the way in
+ * and preserves it on the way out, and the requeue exchange routes by queue
+ * name. So a retry goes back to that one queue only — never to every other
+ * queue bound to the same event type, which would make another service handle
+ * the event twice.
  */
 
 export const EXCHANGE = 'foc.events';
@@ -85,6 +86,18 @@ export const retryExchangeName = (namespace: string, attempt: number): string =>
 export const retryQueueName = (namespace: string, attempt: number): string =>
   `foc.${namespace}.delay.${attempt}`;
 export const deadLetterQueueName = (queue: string): string => `${queue}.dlq`;
+
+/**
+ * The direct exchange that puts a message back on one of a service's own queues by name (PLT-06):
+ * a retry when its delay has passed, and a dead letter an operator redrives. It is bound to each
+ * of the service's durable queues under the queue's own name.
+ *
+ * The default exchange would do the same, but permission to write to it is permission to write to
+ * every queue on the broker, another service's included: exactly how one service could forge a
+ * message for another. So no service account has it, and each service has this exchange under its
+ * own prefix, which reaches its own queues and nothing else.
+ */
+export const requeueExchangeName = (namespace: string): string => `foc.${namespace}.requeue`;
 
 /**
  * Delays are a parameter rather than a constant so a deployment can tune the

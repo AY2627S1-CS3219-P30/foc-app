@@ -4,7 +4,16 @@ import type { z } from 'zod';
 import { errorMessage } from '../logging.js';
 import type { Metrics } from '../metrics.js';
 import type { BrokerConnection } from './connection.js';
-import { UnparseableMessageError, parseEnvelope, type Envelope } from './envelope.js';
+import {
+  PredecessorMissingError,
+  StaleEventError,
+  UnparseableMessageError,
+  UnsupportedVersionError,
+  UntrustedSenderError,
+  parseEnvelope,
+  type Envelope,
+} from './envelope.js';
+import { resendProperties, senderOf } from './sender.js';
 import {
   DLX,
   HEADER_ATTEMPT,
@@ -17,6 +26,11 @@ import {
 export interface HandlerContext {
   attempt: number;
   queue: string;
+  /**
+   * Called by a handler that found it had already applied this event and did nothing more. The
+   * inbox wrappers call it; the consumer counts it (EI-NFR2.1.1).
+   */
+  onDuplicate?: () => void;
 }
 
 export type EventHandler<T> = (
@@ -28,12 +42,18 @@ export interface SubscribeOptions<T> {
   queue: string;
   eventType: string | readonly string[];
   /**
-   * Envelope producer(s) this handler trusts. This is an authorization check on
-   * the broker identity claim; deployments must pair it with per-service broker
-   * credentials/ACLs so another publisher cannot forge the claim.
+   * Envelope producer(s) this handler trusts. Where each service signs in to the
+   * broker with its own account (PLT-06), the message must also have been
+   * published by that producer's account, which the broker vouches for: a
+   * message that only claims the producer is set aside (see sender.ts).
    */
   expectedProducer?: string | readonly string[];
   payloadSchema: z.ZodType<T>;
+  /**
+   * The major schema versions this handler was written for (default: 1). A message in any other is
+   * dead-lettered whole, without reaching the handler (EI-NFR3.1.2).
+   */
+  supportedVersions?: readonly number[];
   handler: EventHandler<T>;
   /** How many messages to hold unacknowledged at once. */
   prefetch?: number;
@@ -108,12 +128,18 @@ export class EventConsumer {
     const types = typeof options.eventType === 'string' ? [options.eventType] : options.eventType;
     for (const event_type of types) {
       this.metrics.eventsHandled.inc({ queue, event_type }, 0);
-      if (!transient) this.metrics.eventRetries.inc({ queue, event_type }, 0);
+      if (transient) continue;
+      this.metrics.eventRetries.inc({ queue, event_type }, 0);
+      this.metrics.eventsDuplicate.inc({ queue, event_type }, 0);
+      this.metrics.eventsStale.inc({ queue, event_type }, 0);
+      this.metrics.eventsDeferred.inc({ queue, event_type }, 0);
     }
     for (const reason of transient ? ['unparseable', 'handler_failed'] : []) {
       this.metrics.eventsDropped.inc({ queue, reason }, 0);
     }
-    for (const reason of transient ? [] : ['unparseable', 'exhausted']) {
+    for (const reason of transient
+      ? []
+      : ['unparseable', 'unsupported_version', 'untrusted_sender', 'exhausted']) {
       this.metrics.eventsDeadLettered.inc({ queue, reason }, 0);
     }
   }
@@ -167,7 +193,7 @@ export class EventConsumer {
 
     let envelope: Envelope<T>;
     try {
-      envelope = parseEnvelope(message.content, options.payloadSchema);
+      envelope = parseEnvelope(message.content, options.payloadSchema, options.supportedVersions);
       const eventTypes =
         typeof options.eventType === 'string' ? [options.eventType] : options.eventType;
       if (!eventTypes.includes(envelope.eventType)) {
@@ -184,6 +210,13 @@ export class EventConsumer {
           `producer ${envelope.producer} is not trusted for ${options.eventType}`,
         );
       }
+      // The envelope names a producer; the broker says which account published the message.
+      if (expected && this.broker.verifiesSenders) {
+        const sender = senderOf(message.properties, this.broker.account);
+        if (sender === undefined || !expected.includes(sender)) {
+          throw new UntrustedSenderError(sender, envelope.eventType, expected);
+        }
+      }
     } catch (err) {
       const reason = errorMessage(err);
       this.logger.error({ queue: options.queue, reason, msg: 'message is unparseable' });
@@ -192,7 +225,15 @@ export class EventConsumer {
         channel.nack(message, false, false); // nowhere to set it aside
         return;
       }
-      this.metrics?.eventsDeadLettered.inc({ queue: queueLabel, reason: 'unparseable' });
+      this.metrics?.eventsDeadLettered.inc({
+        queue: queueLabel,
+        reason:
+          err instanceof UnsupportedVersionError
+            ? 'unsupported_version'
+            : err instanceof UntrustedSenderError
+              ? 'untrusted_sender'
+              : 'unparseable',
+      });
       // Permanent: straight to the dead-letter queue, never retried — retrying
       // a malformed message only burns the budget. Published rather than
       // nacked so the reason travels with it; a bare nack would leave an
@@ -210,7 +251,11 @@ export class EventConsumer {
     const labels = { queue: queueLabel, event_type: envelope.eventType };
     const startedAt = process.hrtime.bigint();
     try {
-      await options.handler(envelope, { attempt, queue: options.queue });
+      await options.handler(envelope, {
+        attempt,
+        queue: options.queue,
+        onDuplicate: () => this.metrics?.eventsDuplicate.inc(labels),
+      });
       channel.ack(message);
       if (this.metrics) {
         this.metrics.eventsHandled.inc(labels);
@@ -231,6 +276,21 @@ export class EventConsumer {
       });
     } catch (err) {
       const reason = errorMessage(err);
+      if (err instanceof StaleEventError) {
+        // Older than a change already applied: recorded for operators, and nothing else. Retrying
+        // or dead-lettering it would only ask someone to look at a step that needs no action.
+        this.logger.warn({
+          correlationId: envelope.correlationId,
+          eventId: envelope.eventId,
+          eventType: envelope.eventType,
+          aggregateId: envelope.aggregateId,
+          reason,
+          msg: 'stale event ignored',
+        });
+        this.metrics?.eventsStale.inc(labels);
+        channel.ack(message);
+        return;
+      }
       if (err instanceof UnparseableMessageError) {
         this.logger.error({ queue: options.queue, reason, msg: 'message is unparseable' });
         if (transient) {
@@ -259,6 +319,9 @@ export class EventConsumer {
         channel.nack(message, false, false);
         return;
       }
+      // Waiting on an earlier step: counted, then retried like any failure, and set aside for
+      // review once its attempts are spent. Its outcome is never guessed (EI-NFR2.1.2).
+      if (err instanceof PredecessorMissingError) this.metrics?.eventsDeferred.inc(labels);
       await this.retryOrDeadLetter(options, channel, message, envelope, attempt, reason);
     }
   }
@@ -314,8 +377,8 @@ export class EventConsumer {
     });
 
     // Keyed by this queue's name, not the event type: the retry queue
-    // dead-letters onto the default exchange, which delivers by queue name, so
-    // the message comes back here and not to every queue bound to its type.
+    // dead-letters onto the service's requeue exchange, which delivers by queue
+    // name, so the message comes back here and not to every queue bound to its type.
     await this.publishTo(
       channel,
       retryExchangeName(this.broker.retryNamespace, attempt),
@@ -342,7 +405,11 @@ export class EventConsumer {
         exchange,
         routingKey,
         message.content,
-        { ...message.properties, persistent: true, headers },
+        // Under this service's own account: the broker would refuse the original publisher's.
+        {
+          ...resendProperties({ ...message.properties, headers }, this.broker.account),
+          persistent: true,
+        },
         (err) => (err ? reject(err) : resolve()),
       );
     });

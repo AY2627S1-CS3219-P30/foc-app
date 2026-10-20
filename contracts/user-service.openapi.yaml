@@ -68,7 +68,30 @@ paths:
                 properties:
                   service: { type: string, const: user-service }
                   status: { type: string, enum: [ok] }
+                  dependencies:
+                    description: >-
+                      Each dependency the service asks on every call. `database` is mandatory;
+                      `broker` is not (the outbox holds events until it is back).
+                    type: object
+                    additionalProperties: { type: string, enum: [up, down] }
               example: { service: user-service, status: ok }
+        '503':
+          description: >-
+            The database is unavailable. The service answers 200 again as soon as it is back, with
+            no restart (PL-NFR3.1.2).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [service, status]
+                properties:
+                  service: { type: string, const: user-service }
+                  status: { type: string, const: unavailable }
+                  dependencies:
+                    type: object
+                    additionalProperties: { type: string, enum: [up, down] }
+              example:
+                { service: user-service, status: unavailable, dependencies: { database: down } }
 
   /auth/register:
     post:
@@ -808,6 +831,38 @@ paths:
                   value: { userId: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30, exists: false }
         '401': { $ref: '#/components/responses/ServiceUnauthenticated' }
         '503': { $ref: '#/components/responses/DependencyUnavailable' }
+
+  /internal/admins:
+    get:
+      tags: [Internal]
+      operationId: listActiveAdmins
+      summary: The administrators who may act now
+      description: |
+        Every `ACTIVE` account holding `ADMIN` that can sign in, by user ID alone, so another service
+        can route work (such as a disputed errand) to one of them. A seeded administrator that has
+        not yet replaced its bootstrap password is left out. Reveals no more than
+        `/internal/users/{userId}`.
+      security: [{ serviceKey: [] }]
+      responses:
+        '200':
+          description: The active administrators.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                additionalProperties: false
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [userId]
+                      additionalProperties: false
+                      properties:
+                        userId: { type: string, format: uuid }
+              example: { items: [{ userId: 0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30 }] }
+        '401': { $ref: '#/components/responses/ServiceUnauthenticated' }
 
   /internal/introspect:
     get:

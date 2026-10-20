@@ -4,7 +4,7 @@
  */
 
 import type { DeadLetter, OperatorAlert, OrderCreditTrace, OrderTimeline } from "./admin-api";
-import { RECONCILIATION_ACTIONS, type Tone } from "./admin-labels";
+import { ORDER_STATUSES, RECONCILIATION_ACTIONS, type Tone } from "./admin-labels";
 
 export type TraceSource = "Order" | "Credit";
 
@@ -20,6 +20,7 @@ export type TraceEntry = {
 export const OPERATOR_ALERT_KINDS: Record<OperatorAlert["kind"], string> = {
   CREDIT_WAIT_EXCEEDED: "Waited too long for credits",
   CREDIT_STATE_CONFLICT: "Order and Credit disagree",
+  REFERRAL_UNASSIGNED: "No eligible administrator for a dispute",
 };
 
 /** Credit's audit codes; one it adds later still shows, as its code. */
@@ -59,6 +60,10 @@ function deadLetterEntries(source: TraceSource, letters: DeadLetter[]): TraceEnt
   });
 }
 
+/** The console's name for a status; one this build does not know is shown as its code. */
+const statusName = (status: string) =>
+  ORDER_STATUSES[status as keyof typeof ORDER_STATUSES] ?? status;
+
 /** Every recorded step of one errand, oldest first. Either half may be missing. */
 export function errandTrace(order?: OrderTimeline, credit?: OrderCreditTrace): TraceEntry[] {
   const entries: TraceEntry[] = [];
@@ -68,8 +73,8 @@ export function errandTrace(order?: OrderTimeline, credit?: OrderCreditTrace): T
         at: h.occurredAt,
         source: "Order",
         title: h.previousStatus
-          ? `${h.previousStatus} → ${h.newStatus}`
-          : `Created, ${h.newStatus}`,
+          ? `${statusName(h.previousStatus)} → ${statusName(h.newStatus)}`
+          : `Created, ${statusName(h.newStatus)}`,
         detail: `${h.action} by ${h.actorType.toLowerCase()}${h.actorId ? ` ${h.actorId}` : ""}`,
         tone: "neutral",
       });

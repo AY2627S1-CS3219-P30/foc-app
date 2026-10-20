@@ -189,3 +189,29 @@ describe("the operations calls (PLT-05)", () => {
     ]);
   });
 });
+
+describe("one account's errands (ORD-15)", () => {
+  const page = { page: 1, pageSize: 10, total: 0, items: [] };
+
+  it("asks the Order Service for the errands one account requested, with the admin's token", async () => {
+    const { client, seen } = api(() => json(200, page));
+    expect(await client.accountErrands("t1", { requesterId: account.id, pageSize: 10 })).toEqual(
+      page as never,
+    );
+    const url = new URL(seen[0].url);
+    expect(`${url.origin}${url.pathname}`).toBe("http://order.test/admin/orders");
+    expect(url.searchParams.get("requesterId")).toBe(account.id);
+    expect(url.searchParams.get("courierId")).toBeNull();
+    expect(url.searchParams.get("pageSize")).toBe("10");
+    expect(seen[0].headers.get("authorization")).toBe("Bearer t1");
+  });
+
+  it("passes on the Order Service's refusal of anyone who is not an administrator", async () => {
+    const { client } = api(() =>
+      json(403, { error: { code: "FORBIDDEN", message: "Administrators only." } }),
+    );
+    const err = await client.accountErrands("t1", { courierId: account.id }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(403);
+  });
+});

@@ -1,15 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import {
-  EVENTS,
-  UnparseableMessageError,
-  insertOutboxEvent,
-  type Queryable,
-  type Row,
-} from '@foc/platform';
+import { EVENTS, insertOutboxEvent, type Queryable, type Row } from '@foc/platform';
+import { env } from '../config.js';
 import { ORDER_DB, type OrderDatabase } from '../db/db.js';
 import {
   ORDER_TRANSITIONS,
+  RESOLVE_ACTIONS,
+  SUSPENSION_EFFECTS,
   decideTransition,
   type OrderAction,
   type OrderActor,
@@ -44,6 +41,8 @@ type StoredOrder = Row & {
   accepted_at: Date | string | null;
   picked_up_at: Date | string | null;
   delivered_at: Date | string | null;
+  non_delivery_report_at: Date | string | null;
+  auto_confirm_at: Date | string | null;
   completion_requested_at: Date | string | null;
   completed_at: Date | string | null;
   release_requested_at: Date | string | null;
@@ -56,8 +55,8 @@ type StoredOrder = Row & {
 export const ORDER_COLUMNS = `order_id, requester_id, courier_id, referred_admin_id, supplier_snapshot,
   items, delivery_zone, delivery_instructions, reward, status, release_reason, rejection_reason,
   available_at_rejection, version, acceptance_deadline_at, accepted_at, picked_up_at, delivered_at,
-  completion_requested_at, completed_at, release_requested_at, released_at, credit_transaction_id,
-  created_at, updated_at`;
+  non_delivery_report_at, auto_confirm_at, completion_requested_at, completed_at,
+  release_requested_at, released_at, credit_transaction_id, created_at, updated_at`;
 
 const iso = (value: Date | string): string =>
   value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -84,6 +83,8 @@ const mapOrder = (row: StoredOrder): OrderRow => ({
   acceptedAt: nullableIso(row.accepted_at),
   pickedUpAt: nullableIso(row.picked_up_at),
   deliveredAt: nullableIso(row.delivered_at),
+  nonDeliveryReportAt: nullableIso(row.non_delivery_report_at),
+  autoConfirmAt: nullableIso(row.auto_confirm_at),
   completionRequestedAt: nullableIso(row.completion_requested_at),
   completedAt: nullableIso(row.completed_at),
   releaseRequestedAt: nullableIso(row.release_requested_at),
@@ -108,22 +109,6 @@ export interface CreatePendingInput extends CreateOrderInput {
   correlationId: string;
 }
 
-export interface ReservationResultInput {
-  orderId: string;
-  requesterId: string;
-  amount: number;
-  correlationId: string;
-  causationId: string;
-  acceptanceWindowMs: number;
-  outcome:
-    | { kind: 'RESERVED' }
-    | {
-        kind: 'REJECTED';
-        reason: 'INSUFFICIENT_CREDITS' | 'AMOUNT_OUT_OF_RANGE' | 'CONFLICTING_REQUEST';
-        available?: number;
-      };
-}
-
 export class IdempotencyKeyReusedError extends Error {
   constructor() {
     super('Idempotency-Key was reused with a different order request.');
@@ -137,6 +122,25 @@ export class OrdersRepository {
 
   async findById(orderId: string): Promise<OrderRow | undefined> {
     return this.findByIdUsing(this.db, orderId);
+  }
+
+  /** Reads the order under its row lock, held until `tx` ends. */
+  /** The errand version Credit's reservation produced, if one was ever applied (EVT-03). */
+  async reservationAppliedAt(tx: Queryable, orderId: string): Promise<number | undefined> {
+    const { rows } = await tx.query<{ order_version: number } & Row>(
+      `SELECT order_version FROM order_status_history
+        WHERE order_id = $1 AND action = 'CREDIT_RESERVED'`,
+      [orderId],
+    );
+    return rows[0] ? Number(rows[0].order_version) : undefined;
+  }
+
+  async lockById(tx: Queryable, orderId: string): Promise<OrderRow | undefined> {
+    const result = await tx.query<StoredOrder>(
+      `SELECT ${ORDER_COLUMNS} FROM orders WHERE order_id = $1 FOR UPDATE`,
+      [orderId],
+    );
+    return result.rows[0] ? mapOrder(result.rows[0]) : undefined;
   }
 
   private async findByIdUsing(db: Queryable, orderId: string): Promise<OrderRow | undefined> {
@@ -191,6 +195,29 @@ export class OrdersRepository {
     return result.rows.map(mapOrder);
   }
 
+  /** One account's errands, as requester, current courier or both filters at once, newest first. */
+  async listByAccount(
+    filter: { requesterId?: string; courierId?: string },
+    page: number,
+    pageSize: number,
+  ): Promise<{ rows: OrderRow[]; total: number }> {
+    const where = `($1::text IS NULL OR requester_id = $1) AND ($2::text IS NULL OR courier_id = $2)`;
+    const params = [filter.requesterId ?? null, filter.courierId ?? null];
+    const [count, rows] = await Promise.all([
+      this.db.query<{ total: number } & Row>(
+        `SELECT count(*)::int AS total FROM orders WHERE ${where}`,
+        params,
+      ),
+      this.db.query<StoredOrder>(
+        `SELECT ${ORDER_COLUMNS} FROM orders WHERE ${where}
+          ORDER BY created_at DESC, order_id DESC
+          LIMIT $3 OFFSET $4`,
+        [...params, pageSize, (page - 1) * pageSize],
+      ),
+    ]);
+    return { rows: rows.rows.map(mapOrder), total: count.rows[0]!.total };
+  }
+
   async findIdempotent(
     requesterId: string,
     idempotencyKey: string,
@@ -208,8 +235,7 @@ export class OrdersRepository {
 
   /** The database clock, so timers and the acceptance check compare against the same time. */
   async databaseNow(): Promise<Date> {
-    const result = await this.db.query<{ now: Date | string } & Row>(`SELECT now() AS now`);
-    return new Date(result.rows[0]!.now);
+    return clockOf(this.db);
   }
 
   /** OPEN orders whose acceptance deadline has passed (OS-FR6.1.2). */
@@ -232,6 +258,53 @@ export class OrdersRepository {
         ORDER BY accepted_at, order_id
         LIMIT $2`,
       [cutoff.toISOString(), limit],
+    );
+    return result.rows.map((row) => row.order_id);
+  }
+
+  /**
+   * PICKED_UP orders past their delivery period whose requester's suspension arrived within it
+   * (OS-FR8.2.2). Each is asked about once: it is then referred, or its mark is cleared.
+   */
+  async findDeliveryOverdue(
+    now: Date,
+    limit = 100,
+  ): Promise<Array<{ orderId: string; requesterId: string }>> {
+    const result = await this.db.query<{ order_id: string; requester_id: string } & Row>(
+      `SELECT order_id, requester_id FROM orders
+        WHERE status = 'PICKED_UP' AND requester_suspended_at IS NOT NULL
+          AND non_delivery_report_at <= $1
+        ORDER BY non_delivery_report_at, order_id
+        LIMIT $2`,
+      [now.toISOString(), limit],
+    );
+    return result.rows.map((row) => ({ orderId: row.order_id, requesterId: row.requester_id }));
+  }
+
+  /** Marks a picked-up errand whose requester was suspended within its delivery period. */
+  async noteRequesterSuspended(tx: Queryable, orderId: string): Promise<void> {
+    await tx.query(`UPDATE orders SET requester_suspended_at = now() WHERE order_id = $1`, [
+      orderId,
+    ]);
+  }
+
+  /** Clears the mark once the requester is active again: the errand is theirs to settle. */
+  async clearRequesterSuspended(orderId: string): Promise<void> {
+    await this.db.query(
+      `UPDATE orders SET requester_suspended_at = NULL
+        WHERE order_id = $1 AND status = 'PICKED_UP'`,
+      [orderId],
+    );
+  }
+
+  /** DELIVERED orders neither confirmed nor reported by their auto-confirmation time (OS-FR4.1.4). */
+  async findAutoConfirmDue(now: Date, limit = 100): Promise<string[]> {
+    const result = await this.db.query<{ order_id: string } & Row>(
+      `SELECT order_id FROM orders
+        WHERE status = 'DELIVERED' AND auto_confirm_at <= $1
+        ORDER BY auto_confirm_at, order_id
+        LIMIT $2`,
+      [now.toISOString(), limit],
     );
     return result.rows.map((row) => row.order_id);
   }
@@ -307,11 +380,13 @@ export class OrdersRepository {
         action: string;
         actor_type: string;
         actor_id: string | null;
+        reason: string | null;
         order_version: number;
         occurred_at: Date | string;
       } & Row
     >(
-      `SELECT previous_status, new_status, action, actor_type, actor_id, order_version, occurred_at
+      `SELECT previous_status, new_status, action, actor_type, actor_id, reason, order_version,
+              occurred_at
          FROM order_status_history
         WHERE order_id = $1
         ORDER BY order_version`,
@@ -323,6 +398,7 @@ export class OrdersRepository {
       action: row.action,
       actorType: row.actor_type,
       actorId: row.actor_id,
+      reason: row.reason,
       version: Number(row.order_version),
       occurredAt: iso(row.occurred_at),
     }));
@@ -415,20 +491,12 @@ export class OrdersRepository {
           correlationId: input.correlationId,
         } as Parameters<typeof insertOutboxEvent>[1]);
       } else if (input.action === 'ALERT') {
-        const raised = await tx.query(
-          `INSERT INTO order_operator_alerts (order_id, kind, detail)
-           VALUES ($1, 'CREDIT_STATE_CONFLICT', $2::jsonb)
-           ON CONFLICT (order_id, kind) DO NOTHING
-           RETURNING order_id`,
-          [
-            order.orderId,
-            JSON.stringify({
-              orderStatus: order.status,
-              creditStatus: input.credit?.status ?? null,
-            }),
-          ],
+        alertRaised = await this.raiseAlert(
+          order.orderId,
+          'CREDIT_STATE_CONFLICT',
+          { orderStatus: order.status, creditStatus: input.credit?.status ?? null },
+          tx,
         );
-        alertRaised = raised.rows.length > 0;
       }
       const action =
         input.action === 'REISSUE'
@@ -572,6 +640,7 @@ export class OrdersRepository {
           previousStatus: null,
           newStatus: 'PENDING_CREDIT',
           occurredAt,
+          orderVersion: 1,
         },
       });
       await fault?.('status-outbox-written');
@@ -587,87 +656,6 @@ export class OrdersRepository {
       if (!order) throw new Error('Newly inserted order could not be read.');
       return { order, replayed: false };
     });
-  }
-
-  async applyReservationResult(tx: Queryable, input: ReservationResultInput): Promise<boolean> {
-    const result = await tx.query<StoredOrder>(
-      `SELECT ${ORDER_COLUMNS}
-         FROM orders
-        WHERE order_id = $1
-        FOR UPDATE`,
-      [input.orderId],
-    );
-    const stored = result.rows[0];
-    if (!stored) throw new UnparseableMessageError('reservation result names an unknown order');
-    const order = mapOrder(stored);
-    if (order.requesterId !== input.requesterId || order.reward !== input.amount) {
-      throw new UnparseableMessageError('reservation result does not match the recorded request');
-    }
-
-    const target = input.outcome.kind === 'RESERVED' ? 'OPEN' : 'REJECTED';
-    if (order.status === target) {
-      if (
-        input.outcome.kind === 'REJECTED' &&
-        (order.rejectionReason !== input.outcome.reason ||
-          order.availableAtRejection !== (input.outcome.available ?? null))
-      ) {
-        throw new UnparseableMessageError(
-          'reservation rejection conflicts with the recorded outcome',
-        );
-      }
-      return false;
-    }
-    if (order.status !== 'PENDING_CREDIT') {
-      throw new UnparseableMessageError(
-        `reservation result cannot move order from ${order.status} to ${target}`,
-      );
-    }
-
-    const nextVersion = order.version + 1;
-    const occurredAt = new Date().toISOString();
-    const deadline =
-      input.outcome.kind === 'RESERVED'
-        ? new Date(Date.now() + input.acceptanceWindowMs).toISOString()
-        : null;
-    const rejectionReason = input.outcome.kind === 'REJECTED' ? input.outcome.reason : null;
-    const available =
-      input.outcome.kind === 'REJECTED' && 'available' in input.outcome
-        ? (input.outcome.available ?? null)
-        : null;
-    await tx.query(
-      `UPDATE orders
-          SET status = $2, rejection_reason = $3, available_at_rejection = $4,
-              acceptance_deadline_at = $5, version = $6, updated_at = $7
-        WHERE order_id = $1`,
-      [input.orderId, target, rejectionReason, available, deadline, nextVersion, occurredAt],
-    );
-    await tx.query(
-      `INSERT INTO order_status_history
-         (history_id, order_id, previous_status, new_status, action, actor_type, actor_id,
-          order_version, occurred_at)
-       VALUES ($1, $2, 'PENDING_CREDIT', $3, $4, 'CREDIT_SERVICE', 'credit-service', $5, $6)`,
-      [
-        randomUUID(),
-        input.orderId,
-        target,
-        input.outcome.kind === 'RESERVED' ? 'CREDIT_RESERVED' : 'CREDIT_REJECTED',
-        nextVersion,
-        occurredAt,
-      ],
-    );
-    await insertOutboxEvent(tx, {
-      eventType: EVENTS.ORDER_STATUS_CHANGED,
-      aggregateId: input.orderId,
-      correlationId: input.correlationId,
-      causationId: input.causationId,
-      payload: {
-        orderId: input.orderId,
-        previousStatus: 'PENDING_CREDIT',
-        newStatus: target,
-        occurredAt,
-      },
-    });
-    return true;
   }
 
   async accept(
@@ -711,10 +699,162 @@ export class OrdersRepository {
           previousStatus: 'OPEN',
           newStatus: 'ACCEPTED',
           occurredAt,
+          orderVersion: order.version,
         },
       });
       return { accepted: true, order };
     });
+  }
+
+  /**
+   * Locks every errand a suspension can change, as requester or as courier, in the statuses
+   * `SUSPENSION_EFFECTS` lists. Locked in `order_id` order, so two suspensions handled at once (the
+   * requester and the courier of one errand) wait for each other rather than deadlock.
+   *
+   * A requester's errand still in PENDING_CREDIT is locked too, though no suspension rule moves
+   * it: the reservation reply holds the same lock while it asks the User Service, so whichever of
+   * the two runs second sees what the first did, and a suspension cannot slip between the reply's
+   * question and its answer.
+   */
+  async lockActiveErrandsOf(tx: Queryable, userId: string): Promise<OrderRow[]> {
+    const result = await tx.query<StoredOrder>(
+      `SELECT ${ORDER_COLUMNS} FROM orders
+        WHERE (requester_id = $1 AND status = ANY($2::text[]))
+           OR (courier_id = $1 AND status = ANY($3::text[]))
+        ORDER BY order_id
+        FOR UPDATE`,
+      [
+        userId,
+        ['PENDING_CREDIT', ...Object.keys(SUSPENSION_EFFECTS.REQUESTER.actions)],
+        Object.keys(SUSPENSION_EFFECTS.COURIER.actions),
+      ],
+    );
+    return result.rows.map(mapOrder);
+  }
+
+  /** Whether any errand is in dispute, so a run with none never asks the User Service. */
+  async anyDisputed(): Promise<boolean> {
+    const result = await this.db.query(`SELECT 1 FROM orders WHERE status = 'DISPUTED' LIMIT 1`);
+    return result.rows.length > 0;
+  }
+
+  /**
+   * Disputes that need a referral, oldest first: those referred to no one, and those referred to
+   * someone not among `adminIds` (with that administrator, so it can be cleared). Disputes waiting
+   * on an administrator who may act are left out, so however many there are, they never crowd a
+   * newer dispute out of the batch. A dispute that no listed administrator may take (each took part
+   * in the errand) stays referred to no one and keeps its place at the head of every batch, so
+   * `limit` of those at once would hold newer disputes back. Each one has its REFERRAL_UNASSIGNED
+   * alert and a warning on every run.
+   */
+  async listDisputesToRefer(
+    adminIds: string[],
+    limit = 100,
+  ): Promise<Array<{ orderId: string; adminId: string | null }>> {
+    const result = await this.db.query<
+      { order_id: string; referred_admin_id: string | null } & Row
+    >(
+      `SELECT order_id, referred_admin_id FROM orders
+        WHERE status = 'DISPUTED'
+          AND (referred_admin_id IS NULL OR referred_admin_id <> ALL($1::text[]))
+        ORDER BY updated_at, order_id
+        LIMIT $2`,
+      [adminIds, limit],
+    );
+    return result.rows.map((row) => ({ orderId: row.order_id, adminId: row.referred_admin_id }));
+  }
+
+  /** Everyone who was ever the errand's requester or courier, including couriers who left it. */
+  async participants(orderId: string): Promise<string[]> {
+    const result = await this.db.query<{ user_id: string } & Row>(
+      `SELECT requester_id AS user_id FROM orders WHERE order_id = $1
+       UNION SELECT courier_id FROM orders WHERE order_id = $1 AND courier_id IS NOT NULL
+       UNION SELECT actor_id FROM order_status_history
+              WHERE order_id = $1 AND action = 'ACCEPT' AND actor_id IS NOT NULL`,
+      [orderId],
+    );
+    return result.rows.map((row) => row.user_id);
+  }
+
+  /**
+   * Of the given administrators, the one with the fewest undecided disputes; ties go to the fewest
+   * referrals ever kept, then the lowest user ID. A referral cleared because its admin lost the role
+   * is not kept, so it stops counting; that only matters once the admin is reinstated.
+   */
+  async leastReferred(adminIds: string[]): Promise<string> {
+    const result = await this.db.query<{ admin_id: string } & Row>(
+      `SELECT a.admin_id
+         FROM unnest($1::text[]) AS a(admin_id)
+         LEFT JOIN orders o ON o.referred_admin_id = a.admin_id
+        GROUP BY a.admin_id
+        ORDER BY count(o.order_id) FILTER (WHERE o.status = 'DISPUTED'), count(o.order_id),
+                 a.admin_id
+        LIMIT 1`,
+      [adminIds],
+    );
+    return result.rows[0]!.admin_id;
+  }
+
+  /** Raises an operator alert for the order; true only the first time (one per order and kind). */
+  async raiseAlert(
+    orderId: string,
+    kind: 'CREDIT_STATE_CONFLICT' | 'REFERRAL_UNASSIGNED',
+    detail: Record<string, unknown>,
+    db: Queryable = this.db,
+  ): Promise<boolean> {
+    const raised = await db.query(
+      `INSERT INTO order_operator_alerts (order_id, kind, detail)
+       VALUES ($1, $2, $3::jsonb)
+       ON CONFLICT (order_id, kind) DO NOTHING
+       RETURNING order_id`,
+      [orderId, kind, JSON.stringify(detail)],
+    );
+    return raised.rows.length > 0;
+  }
+
+  /**
+   * Disputes referred to the administrator or to no one yet, each with the action that disputed it.
+   */
+  async listReferred(adminId: string, limit = 100) {
+    const result = await this.db.query<StoredOrder & { referred_by: string }>(
+      `SELECT ${ORDER_COLUMNS},
+              (SELECT h.action FROM order_status_history h
+                WHERE h.order_id = orders.order_id AND h.new_status = 'DISPUTED'
+                  AND h.previous_status IS DISTINCT FROM 'DISPUTED'
+                ORDER BY h.order_version DESC LIMIT 1) AS referred_by
+         FROM orders
+        WHERE status = 'DISPUTED' AND (referred_admin_id = $1 OR referred_admin_id IS NULL)
+        ORDER BY updated_at, order_id
+        LIMIT $2`,
+      [adminId, limit],
+    );
+    return result.rows.map((row) => ({ order: mapOrder(row), referredBy: row.referred_by }));
+  }
+
+  /** The most recent administrator decisions, newest first. */
+  async listDecisions(limit = 100) {
+    const result = await this.db.query<
+      {
+        order_id: string;
+        action: string;
+        actor_id: string;
+        reason: string;
+        occurred_at: Date | string;
+      } & Row
+    >(
+      `SELECT order_id, action, actor_id, reason, occurred_at FROM order_status_history
+        WHERE action = ANY($1::text[])
+        ORDER BY occurred_at DESC, history_id
+        LIMIT $2`,
+      [Object.values(RESOLVE_ACTIONS), limit],
+    );
+    return result.rows.map((row) => ({
+      orderId: row.order_id,
+      adminId: row.actor_id,
+      outcome: row.action === RESOLVE_ACTIONS.COURIER ? 'COURIER' : 'REQUESTER',
+      reason: row.reason,
+      decidedAt: iso(row.occurred_at),
+    }));
   }
 
   /**
@@ -739,11 +879,19 @@ export class OrdersRepository {
     if (!locked.rows[0]) return { kind: 'rejected', reason: 'NOT_FOUND' };
     const order = mapOrder(locked.rows[0]);
     const actor = resolveActor(order, command.actor);
-    const now = command.now ?? new Date();
+    // The database clock, which the scheduler and acceptance also use, so a participant and a timer
+    // agree on whether a deadline has passed.
+    const now = command.now ?? (await clockOf(tx));
     const context = {
       acceptanceDeadlinePassed:
         order.acceptanceDeadlineAt !== null && new Date(order.acceptanceDeadlineAt) <= now,
+      deliveryPeriodPassed:
+        order.nonDeliveryReportAt !== null && new Date(order.nonDeliveryReportAt) <= now,
+      autoConfirmationPeriodPassed:
+        order.autoConfirmAt !== null && new Date(order.autoConfirmAt) <= now,
       releaseReason: order.releaseReason ?? undefined,
+      reasonProvided: (command.reason?.trim() ?? '') !== '',
+      requesterSuspended: command.requesterSuspended,
     };
 
     const decision = decideTransition(order.status, command.action, actor, context);
@@ -768,7 +916,7 @@ export class OrdersRepository {
       version: order.version + 1,
       updated_at: occurredAt,
       ...(decision.releaseReason ? { release_reason: decision.releaseReason } : {}),
-      ...timestampPatch(command.action, decision, occurredAt),
+      ...timestampPatch(command.action, decision, occurredAt, order),
       ...(command.patch ?? {}),
     };
     const columns = Object.keys(patch);
@@ -785,8 +933,8 @@ export class OrdersRepository {
     await tx.query(
       `INSERT INTO order_status_history
          (history_id, order_id, previous_status, new_status, action, actor_type, actor_id,
-          order_version, occurred_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          reason, order_version, occurred_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         randomUUID(),
         order.orderId,
@@ -795,6 +943,7 @@ export class OrdersRepository {
         command.action,
         HISTORY_ACTOR[actor],
         command.actor.id,
+        command.reason?.trim() ?? null,
         next.version,
         occurredAt,
       ],
@@ -846,7 +995,7 @@ export class OrdersRepository {
         created_at: Date | string;
         accepted_at: Date | string;
         picked_up_at: Date | string;
-        delivered_at: Date | string;
+        delivered_at: Date | string | null;
         completion_requested_at: Date | string;
         completed_at: Date | string;
       }
@@ -864,7 +1013,7 @@ export class OrdersRepository {
         createdAt: iso(row.created_at),
         acceptedAt: iso(row.accepted_at),
         pickedUpAt: iso(row.picked_up_at),
-        deliveredAt: iso(row.delivered_at),
+        deliveredAt: nullableIso(row.delivered_at),
         completionRequestedAt: iso(row.completion_requested_at),
         completedAt: iso(row.completed_at),
       },
@@ -891,6 +1040,10 @@ export interface TransitionCommand {
   verify?: (order: OrderRow) => void;
   /** Extra column values written with the transition. */
   patch?: Record<string, unknown>;
+  /** Why, recorded on the history row; an administrator's decision requires one. */
+  reason?: string;
+  /** What the User Service said about the requester, for the rules that depend on it. */
+  requesterSuspended?: boolean;
   /** Extra writes in the same transaction, after the history row. */
   afterApply?: (tx: Queryable, order: OrderRow) => Promise<void>;
 }
@@ -921,18 +1074,42 @@ function resolveActor(order: OrderRow, actor: CommandActor): OrderActor {
   return actor.isAdmin ? 'ADMIN' : 'OTHER_STUDENT';
 }
 
+async function clockOf(db: Queryable): Promise<Date> {
+  const result = await db.query<{ now: Date | string } & Row>(`SELECT now() AS now`);
+  return new Date(result.rows[0]!.now);
+}
+
+const later = (at: string, ms: number) => new Date(Date.parse(at) + ms).toISOString();
+
 function timestampPatch(
   action: OrderAction,
   decision: TransitionDecision,
   at: string,
+  order: OrderRow,
 ): Record<string, unknown> {
   // A withdrawing or timed-out courier loses the errand (and with it, private access to it).
-  const courierRemoved =
-    action === 'WITHDRAW' || action === 'PICKUP_TIMEOUT'
-      ? { courier_id: null, accepted_at: null }
-      : {};
-  if (action === 'RECORD_PICKUP') return { picked_up_at: at };
-  if (action === 'RECORD_DELIVERY') return { delivered_at: at };
+  const noCourier = { courier_id: null, accepted_at: null };
+  const courierRemoved = action === 'WITHDRAW' || action === 'PICKUP_TIMEOUT' ? noCourier : {};
+  // So does a suspended one, and the requester gets back the time that courier held the errand.
+  if (action === 'COURIER_SUSPENDED' && decision.to === 'OPEN') {
+    return {
+      ...noCourier,
+      acceptance_deadline_at: later(
+        order.acceptanceDeadlineAt!,
+        Date.parse(at) - Date.parse(order.acceptedAt!),
+      ),
+    };
+  }
+  // Each deadline is saved when its period starts, so a later change to the period cannot move it.
+  if (action === 'RECORD_PICKUP') {
+    return { picked_up_at: at, non_delivery_report_at: later(at, env.DELIVERY_PERIOD_MS) };
+  }
+  if (action === 'CREDIT_RESERVED' && decision.to === 'OPEN') {
+    return { acceptance_deadline_at: later(at, env.ACCEPTANCE_WINDOW_MS) };
+  }
+  if (action === 'RECORD_DELIVERY') {
+    return { delivered_at: at, auto_confirm_at: later(at, env.AUTO_CONFIRM_MS) };
+  }
   if (decision.to === 'COMPLETION_PENDING_CREDIT') return { completion_requested_at: at };
   if (decision.to === 'COMPLETED') return { completed_at: at };
   if (decision.to === 'RELEASE_PENDING_CREDIT') {
@@ -951,6 +1128,7 @@ function emittedEvent(eventType: string, before: OrderRow, after: OrderRow, occu
         previousStatus: before.status,
         newStatus: after.status,
         occurredAt,
+        orderVersion: after.version,
       },
     };
   }

@@ -99,14 +99,14 @@ describe("an errand's trace", () => {
   it("lays both services' records out in the order they happened", () => {
     const entries = errandTrace(timeline, credit);
     expect(entries.map((e) => [e.at, e.source, e.title])).toEqual([
-      [at(0), "Order", "Created, PENDING_CREDIT"],
+      [at(0), "Order", "Created, Waiting on credits"],
       [at(0), "Order", "Sent credit.reservation-requested"],
       [at(1), "Credit", "RESERVE succeeded"],
       [at(1), "Credit", "RESERVE transaction"],
       [at(4), "Order", "Dead letter: credit.reserved on foc.order.reservation-results"],
       [at(5), "Order", "Alert: Waited too long for credits"],
       [at(6), "Order", "Redriven to foc.order.reservation-results"],
-      [at(7), "Order", "PENDING_CREDIT → OPEN"],
+      [at(7), "Order", "Waiting on credits → Open"],
     ]);
     expect(entries[4]).toMatchObject({
       detail: "order version moved on (after 5 attempts)",
@@ -123,7 +123,7 @@ describe("an errand's trace", () => {
       events: [{ ...timeline.events[0], occurredAt: "2026-10-08T07:59:59.999Z", publishedAt: at(1) }],
     });
     expect(entries.map((e) => e.title).slice(0, 2)).toEqual([
-      "Created, PENDING_CREDIT",
+      "Created, Waiting on credits",
       "Sent credit.reservation-requested",
     ]);
     expect(entries[1].at).toBe(at(1));

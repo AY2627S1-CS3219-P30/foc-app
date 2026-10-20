@@ -1,14 +1,16 @@
-import { Controller, Get, Inject, Param } from '@nestjs/common';
-import { AdminOnly } from '@foc/auth-client';
+import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query, Req } from '@nestjs/common';
+import { AdminOnly, CurrentUser, type AuthContext } from '@foc/auth-client';
 import { ApiException, DEAD_LETTERS, type DeadLetters } from '@foc/platform';
+import type { Request } from 'express';
 import { z } from 'zod';
 import { env } from '../config.js';
 import { OperationsRepository } from './operations.repository.js';
 import { OrdersService } from './orders.service.js';
+import { parseAccountErrandsQuery, parseOrderId, parseResolveOrder } from './validation.js';
 
 const orderIdSchema = z.uuid();
 
-/** Operator views. Administrator-only; they read but never change an order. */
+/** Administrator-only: operator views, and decisions on disputes referred to the caller. */
 @Controller('admin/orders')
 export class AdminOrdersController {
   constructor(
@@ -16,6 +18,17 @@ export class AdminOrdersController {
     @Inject(OperationsRepository) private readonly operations: OperationsRepository,
     @Inject(DEAD_LETTERS) private readonly deadLetters: DeadLetters,
   ) {}
+
+  /**
+   * ORD-15 — one account's errands, as requester (`requesterId`), as current courier
+   * (`courierId`), or both, newest first and paged. Public fields only: an administrator reads an
+   * errand's private details only when it is referred to them, through `GET /orders/{orderId}`.
+   */
+  @Get()
+  @AdminOnly()
+  accountErrands(@Query() query: unknown) {
+    return this.orders.listByAccount(parseAccountErrandsQuery(query));
+  }
 
   /** The most recent reconciliation decisions (CRD-07), newest first. */
   @Get('reconciliation-attempts')
@@ -34,7 +47,38 @@ export class AdminOrdersController {
     return this.orders.creditWaitExceeded(env.CREDIT_WAIT_TIMEOUT_MS);
   }
 
-  /** Operator alerts (CREDIT_WAIT_EXCEEDED, CREDIT_STATE_CONFLICT) across every errand, newest first. */
+  /** Disputes referred to the caller, and those not yet referred to anyone. */
+  @Get('referred')
+  @AdminOnly()
+  referred(@CurrentUser() caller: AuthContext) {
+    return this.orders.referred(caller);
+  }
+
+  /** The most recent dispute decisions, newest first. */
+  @Get('decisions')
+  @AdminOnly()
+  decisions() {
+    return this.orders.decisions();
+  }
+
+  @Post(':id/resolve')
+  @HttpCode(200)
+  @AdminOnly()
+  resolve(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() caller: AuthContext,
+    @Req() request: Request & { correlationId?: string },
+  ) {
+    return this.orders.resolve(
+      parseOrderId(id),
+      parseResolveOrder(body),
+      caller,
+      request.correlationId ?? 'unknown',
+    );
+  }
+
+  /** Operator alerts (credit waits and conflicts, unreferred disputes) across every errand, newest first. */
   @Get('alerts')
   @AdminOnly()
   alerts() {

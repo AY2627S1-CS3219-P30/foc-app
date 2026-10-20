@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { LifecycleScheduler } from '../../order-service/src/orders/lifecycle.scheduler.js';
 import type { OrderAction } from '../../order-service/src/orders/order-state-machine.js';
+import { UserDirectoryClient } from '../../order-service/src/orders/user-directory.client.js';
 import { agreementViolations, economyViolations } from './invariants.js';
 import { createOrder } from './scenario.js';
 import type { Stack } from './stack.js';
@@ -67,7 +68,9 @@ export async function simulate(
   const random = prng(options.seed);
   const users = Array.from({ length: options.users }, (_, i) => `sim-user-${options.seed}-${i}`);
   for (const user of users) await stack.issueWallet(user);
-  const scheduler = new LifecycleScheduler(stack.orders, {
+  // No operation disputes an errand, so the scheduler never asks the User Service.
+  const noUserService = new UserDirectoryClient(() => Promise.reject(new Error('no User Service')));
+  const scheduler = new LifecycleScheduler(stack.orders, noUserService, {
     pickupTimeoutMs: 30 * 60_000,
     creditWaitTimeoutMs: 5 * 60_000,
     intervalMs: 60_000,

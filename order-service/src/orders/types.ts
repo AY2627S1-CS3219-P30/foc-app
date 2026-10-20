@@ -51,6 +51,8 @@ export interface OrderRow {
   acceptedAt: string | null;
   pickedUpAt: string | null;
   deliveredAt: string | null;
+  nonDeliveryReportAt: string | null;
+  autoConfirmAt: string | null;
   completionRequestedAt: string | null;
   completedAt: string | null;
   releaseRequestedAt: string | null;
@@ -72,7 +74,8 @@ export interface OrderReceipt {
     createdAt: string;
     acceptedAt: string;
     pickedUpAt: string;
-    deliveredAt: string;
+    /** Null when an administrator completed the errand before any delivery was recorded. */
+    deliveredAt: string | null;
     completionRequestedAt: string;
     completedAt: string;
   };
@@ -92,6 +95,10 @@ export interface OrderView {
   requesterId?: string;
   courierId?: string;
   deliveryInstructions?: string;
+  /** From then the requester may report non-delivery; set once the courier records pickup. */
+  nonDeliveryReportAt?: string;
+  /** From then a delivered errand confirms itself; set once the courier records delivery. */
+  autoConfirmAt?: string;
   rejection?: { reason: string; available?: number };
 }
 

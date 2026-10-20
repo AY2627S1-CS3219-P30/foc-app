@@ -3,6 +3,7 @@ import {
   ORDER_ACTIONS,
   ORDER_ACTORS,
   ORDER_TRANSITIONS,
+  SUSPENSION_EFFECTS,
   decideTransition,
   type TransitionContext,
 } from '../src/orders/order-state-machine.js';
@@ -13,6 +14,7 @@ const contexts: readonly TransitionContext[] = [
   { acceptanceDeadlinePassed: true },
   { deliveryPeriodPassed: true },
   { requesterSuspended: true },
+  { requesterSuspended: true, deliveryPeriodPassed: true },
   { reasonProvided: true },
   { releaseReason: 'CANCELLED' },
   { releaseReason: 'EXPIRED' },
@@ -69,6 +71,26 @@ describe('generated transition authorization matrix', () => {
     for (const status of ORDER_STATUSES) {
       const hasExit = ORDER_TRANSITIONS.some((rule) => rule.from === status);
       expect(hasExit, status).toBe(!TERMINAL_ORDER_STATUSES.includes(status as never));
+    }
+  });
+
+  it('declares a System rule for every action a suspension takes, and none it leaves out', () => {
+    const suspensionActions = ['REQUESTER_SUSPENDED', 'COURIER_SUSPENDED'];
+    for (const { actions } of Object.values(SUSPENSION_EFFECTS)) {
+      for (const [status, action] of Object.entries(actions)) {
+        const declared = ORDER_TRANSITIONS.some(
+          (rule) =>
+            rule.from === status && rule.action === action && rule.actors.includes('SYSTEM'),
+        );
+        expect(declared, `${status} / ${action}`).toBe(true);
+      }
+    }
+    // Every rule a suspension names is reachable from the effects table.
+    for (const rule of ORDER_TRANSITIONS.filter((r) => suspensionActions.includes(r.action))) {
+      const listed = Object.values(SUSPENSION_EFFECTS).some(
+        ({ actions }) => actions[rule.from] === rule.action,
+      );
+      expect(listed, `${rule.from} / ${rule.action}`).toBe(true);
     }
   });
 });

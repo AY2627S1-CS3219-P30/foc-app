@@ -19,16 +19,18 @@ import {
   backdate,
   createPending,
   deliver,
+  dispute,
   referTo,
   released,
   reservationReply,
+  sweep,
   transferred,
 } from './support/lifecycle.js';
 
 /**
  * OS-NFR5.1 privacy suite. At every lifecycle state, every viewer context is checked on every read
- * surface: the default projection, the explicit private view, the status history, the receipt and
- * the open list. Only the requester, the current courier and the administrator the errand was
+ * surface: the default projection, the explicit private view, the status history, the receipt,
+ * the open list, the caller's own list and the administrator views. Only the requester, the current courier and the administrator the errand was
  * referred to may see delivery instructions, item notes, participant identities or history.
  */
 const STRANGER = 'unrelated-student';
@@ -86,6 +88,8 @@ async function checkPrivacy(
       receipt: await get(`/orders/${orderId}/receipt`),
       list: await get(`/orders`),
       mine: await get(`/orders/mine`),
+      referred: await get(`/admin/orders/referred`),
+      decisions: await get(`/admin/orders/decisions`),
     };
 
     if (!viewer.auth) {
@@ -123,10 +127,13 @@ async function checkPrivacy(
     [orderId, EVENTS.ORDER_STATUS_CHANGED],
   );
   for (const { payload } of events.rows) {
+    // The lifecycle fact and the errand's version after it (a counter, so a reader can tell an older
+    // change), and nothing about who took part or where it is delivered.
     expect(Object.keys(payload).sort()).toEqual([
       'newStatus',
       'occurredAt',
       'orderId',
+      'orderVersion',
       'previousStatus',
     ]);
   }
@@ -187,7 +194,7 @@ describe('privacy across the lifecycle (OS-NFR5.1, OS-FR2.1.2)', () => {
     await reservationReply(t, orderId);
     await command(t, orderId, 'accept', asStranger, 2);
     await backdate(t, 'accepted_at', 31 * 60_000, orderId);
-    await new LifecycleScheduler(t.orders, {
+    await new LifecycleScheduler(t.orders, t.directory, {
       pickupTimeoutMs: 30 * 60_000,
       creditWaitTimeoutMs: 5 * 60_000,
       intervalMs: 10_000,
@@ -199,6 +206,39 @@ describe('privacy across the lifecycle (OS-NFR5.1, OS-FR2.1.2)', () => {
     await checkPrivacy(t, orderId, context); // RELEASE_PENDING_CREDIT
     await deliver(t, RELEASE_RESULTS_QUEUE, released({ orderId }));
     await checkPrivacy(t, orderId, context); // CANCELLED
+  });
+
+  it('opens a dispute to its assigned administrator only, and moves that access on replacement', async () => {
+    t = await createTestApp();
+    const orderId = await createPending(t);
+    await reservationReply(t, orderId);
+    await dispute(t, 'DELIVERED', orderId);
+    const context = {
+      courier: STRANGER as string | null,
+      formerCouriers: [] as string[],
+      referredAdmin: null as string | null,
+    };
+    await checkPrivacy(t, orderId, context); // DISPUTED, referred to no one yet
+
+    await sweep(t);
+    context.referredAdmin = 'admin-1';
+    await checkPrivacy(t, orderId, context); // assigned
+
+    t.userService.admins.delete('admin-1');
+    await sweep(t);
+    context.referredAdmin = 'admin-2';
+    await checkPrivacy(t, orderId, context); // replaced: admin-1 has lost access
+
+    await http(t)
+      .post(`/admin/orders/${orderId}/resolve`)
+      .set('Authorization', asOtherAdmin)
+      .send({
+        outcome: 'REQUESTER',
+        reason: 'No proof of delivery.',
+        expectedVersion: (await t.orders.findById(orderId))!.version,
+      })
+      .expect(200);
+    await checkPrivacy(t, orderId, context); // RELEASE_PENDING_CREDIT, decision on record
   });
 
   it('keeps a rejected request private to its requester, denying an unreferred administrator', async () => {

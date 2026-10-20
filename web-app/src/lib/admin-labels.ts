@@ -3,6 +3,7 @@ import type {
   AdminAlert,
   AdminAlertKind,
   AuditAction,
+  OrderStatus,
   ReconciliationAttempt,
   RoleRequestStatus,
 } from "./admin-api";
@@ -40,6 +41,22 @@ export const REQUEST_STATUSES: Record<RoleRequestStatus, string> = {
   EXPIRED: "Expired",
 };
 
+/** How the console names an errand's status (ORD-01's lifecycle). */
+export const ORDER_STATUSES: Record<OrderStatus, string> = {
+  PENDING_CREDIT: "Waiting on credits",
+  OPEN: "Open",
+  ACCEPTED: "Accepted",
+  PICKED_UP: "Picked up",
+  DELIVERED: "Delivered",
+  DISPUTED: "Disputed",
+  COMPLETION_PENDING_CREDIT: "Paying the courier",
+  RELEASE_PENDING_CREDIT: "Returning credits",
+  REJECTED: "Rejected",
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
+  EXPIRED: "Expired",
+};
+
 export const RECONCILIATION_ACTIONS: Record<ReconciliationAttempt["action"], string> = {
   REISSUED: "Request sent again",
   ALERTED: "Contradiction raised",
@@ -63,6 +80,21 @@ export const STATUS_TONES: Record<AccountStatus, Tone> = {
   PENDING_ACTIVATION: "neutral",
   ACTIVE: "success",
   SUSPENDED: "danger",
+};
+
+export const ORDER_TONES: Record<OrderStatus, Tone> = {
+  PENDING_CREDIT: "neutral",
+  OPEN: "info",
+  ACCEPTED: "info",
+  PICKED_UP: "info",
+  DELIVERED: "info",
+  DISPUTED: "danger",
+  COMPLETION_PENDING_CREDIT: "warning",
+  RELEASE_PENDING_CREDIT: "warning",
+  REJECTED: "neutral",
+  COMPLETED: "success",
+  CANCELLED: "neutral",
+  EXPIRED: "neutral",
 };
 
 export const REQUEST_TONES: Record<RoleRequestStatus, Tone> = {

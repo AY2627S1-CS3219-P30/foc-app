@@ -8,6 +8,10 @@ import { OrdersModule } from '../../src/orders/orders.module.js';
 import { OrdersRepository } from '../../src/orders/orders.repository.js';
 import { OrdersService } from '../../src/orders/orders.service.js';
 import { SUPPLIER_FETCH } from '../../src/orders/supplier.client.js';
+import {
+  USER_DIRECTORY_FETCH,
+  UserDirectoryClient,
+} from '../../src/orders/user-directory.client.js';
 import { applyMigrations } from './migrate.js';
 import { PgliteDb } from './pglite-db.js';
 
@@ -77,11 +81,47 @@ const fakeAuthenticator = {
   },
 };
 
+/**
+ * A stand-in User Service behind the directory client's fetch: the active administrators (the two
+ * admin identities above), who is suspended, and whether it answers at all. Tests change these to
+ * suspend a user or take the service down.
+ */
+export class FakeUserService {
+  readonly admins = new Set(['admin-1', 'admin-2']);
+  readonly suspended = new Set<string>();
+  /** Users whose lookup answers 503, while everything else still works. */
+  readonly failing = new Set<string>();
+  /** Every user looked up, in order. */
+  readonly lookups: string[] = [];
+  down = false;
+  readonly fetch: typeof fetch = async (input) => {
+    if (this.down) throw new TypeError('fetch failed');
+    const { pathname } = new URL(String(input));
+    if (pathname === '/internal/admins') {
+      return Response.json({ items: [...this.admins].map((userId) => ({ userId })) });
+    }
+    const user = /^\/internal\/users\/([^/]+)$/.exec(pathname)?.[1];
+    if (!user) return new Response(null, { status: 404 });
+    const userId = decodeURIComponent(user);
+    this.lookups.push(userId);
+    if (this.failing.has(userId)) return new Response(null, { status: 503 });
+    return Response.json({
+      userId,
+      exists: true,
+      status: this.suspended.has(userId) ? 'SUSPENDED' : 'ACTIVE',
+      roles: ['STUDENT'],
+      displayName: 'Student',
+    });
+  };
+}
+
 export interface TestApp {
   app: INestApplication;
   db: PgliteDb;
   orders: OrdersRepository;
   orderService: OrdersService;
+  directory: UserDirectoryClient;
+  userService: FakeUserService;
   close(): Promise<void>;
 }
 
@@ -100,6 +140,7 @@ export async function createTestApp(
 ): Promise<TestApp> {
   const db = await PgliteDb.create();
   await applyMigrations(db);
+  const userService = new FakeUserService();
   const builder = Test.createTestingModule({
     imports: [
       PlatformModule.forRoot({
@@ -119,16 +160,22 @@ export async function createTestApp(
     .overrideProvider(AUTHENTICATOR)
     .useValue(fakeAuthenticator)
     .overrideProvider(SUPPLIER_FETCH)
-    .useValue(supplierFetch);
+    .useValue(supplierFetch)
+    .overrideProvider(USER_DIRECTORY_FETCH)
+    .useValue(userService.fetch);
   const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication();
   app.useGlobalFilters(new ErrorEnvelopeFilter());
-  await app.init();
+  // Bound to 127.0.0.1, where supertest connects: left unbound, supertest listens on [::] and can
+  // land on a port another local process holds on 127.0.0.1 (macOS allows both) and reach it.
+  await app.listen(0, '127.0.0.1');
   return {
     app,
     db,
     orders: moduleRef.get(OrdersRepository),
     orderService: moduleRef.get(OrdersService),
+    directory: moduleRef.get(UserDirectoryClient),
+    userService,
     close: async () => {
       await app.close();
       await db.close();
