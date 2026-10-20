@@ -7,7 +7,7 @@
 #
 # The repository: gitleaks over every file git tracks or would track, as it is on
 # disk now. Your git-ignored `.env` is not one of them and is never read by the
-# scanner. Rules and the three allowed kinds of value are in `.gitleaks.toml`.
+# scanner. Rules and the four allowed kinds of value are in `.gitleaks.toml`.
 #
 # The images: each image this repository builds must hold no `.env` file, no
 # secret-named variable in its configuration, and none of the values in your

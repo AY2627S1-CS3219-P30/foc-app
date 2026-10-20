@@ -195,6 +195,29 @@ export class OrdersRepository {
     return result.rows.map(mapOrder);
   }
 
+  /** One account's errands, as requester, current courier or both filters at once, newest first. */
+  async listByAccount(
+    filter: { requesterId?: string; courierId?: string },
+    page: number,
+    pageSize: number,
+  ): Promise<{ rows: OrderRow[]; total: number }> {
+    const where = `($1::text IS NULL OR requester_id = $1) AND ($2::text IS NULL OR courier_id = $2)`;
+    const params = [filter.requesterId ?? null, filter.courierId ?? null];
+    const [count, rows] = await Promise.all([
+      this.db.query<{ total: number } & Row>(
+        `SELECT count(*)::int AS total FROM orders WHERE ${where}`,
+        params,
+      ),
+      this.db.query<StoredOrder>(
+        `SELECT ${ORDER_COLUMNS} FROM orders WHERE ${where}
+          ORDER BY created_at DESC, order_id DESC
+          LIMIT $3 OFFSET $4`,
+        [...params, pageSize, (page - 1) * pageSize],
+      ),
+    ]);
+    return { rows: rows.rows.map(mapOrder), total: count.rows[0]!.total };
+  }
+
   async findIdempotent(
     requesterId: string,
     idempotencyKey: string,
