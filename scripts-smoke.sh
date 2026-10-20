@@ -180,9 +180,10 @@ done
 # sign-in is reported as that, not as a wallet that never arrived.
 SMOKE_EMAIL="smoke-$(date +%s)-$RANDOM@u.nus.edu"
 SMOKE_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')
-# What a new student is issued: INITIAL_CREDIT_ALLOCATION in credit-service/src/credits/types.ts.
-# Set SMOKE_INITIAL_CREDITS when checking a build that changes it.
-INITIAL_CREDITS="${SMOKE_INITIAL_CREDITS:-10}"
+# What a new student is issued: INITIAL_CREDIT_ALLOCATION in .env when it is set, otherwise the
+# default in credit-service/src/credits/types.ts. Set SMOKE_INITIAL_CREDITS when checking a build
+# that changes the default.
+INITIAL_CREDITS="${SMOKE_INITIAL_CREDITS:-${INITIAL_CREDIT_ALLOCATION:-10}}"
 json_field() { python3 -c "import sys,json; print(json.load(sys.stdin).get('$1', ''))" 2>/dev/null || true; }
 # POSTs JSON to the User Service and prints the HTTP status; the body goes to the file named in $3.
 post_json() { # path json body-file [extra curl arguments...]
