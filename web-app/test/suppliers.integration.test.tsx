@@ -11,8 +11,8 @@ import { Window } from 'happy-dom';
 const SUPPLIER_URL = process.env.SUPPLIER_SERVICE_URL;
 const USER_URL = process.env.USER_SERVICE_URL ?? 'http://localhost:3001';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? 'admin@u.nus.edu';
-/** The bootstrap password the stack seeds the admin with (compose.yaml's ADMIN_SEED_PASSWORD). */
-const ADMIN_SEED_PASSWORD = process.env.ADMIN_SEED_PASSWORD ?? 'dev-only-admin-password-change-me';
+/** The bootstrap password the stack seeds the admin with: ADMIN_SEED_PASSWORD from the stack's `.env`. */
+const ADMIN_SEED_PASSWORD = process.env.ADMIN_SEED_PASSWORD ?? '';
 /** What the first run replaces the bootstrap password with, as an operator must before signing in. */
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'supplier-integration-admin';
 

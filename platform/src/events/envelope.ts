@@ -117,6 +117,20 @@ export class UnparseableMessageError extends Error {
 }
 
 /**
+ * A message that names a producer but was published by another service's broker account
+ * (PLT-06). Permanent, like any message that cannot be believed: set aside at once, with who
+ * really sent it, and never handled.
+ */
+export class UntrustedSenderError extends UnparseableMessageError {
+  constructor(sender: string | undefined, eventType: string, trusted: readonly string[]) {
+    super(
+      `sender ${sender ?? 'unknown'} may not publish ${eventType}: only ${trusted.join(' or ')} may`,
+    );
+    this.name = 'UntrustedSenderError';
+  }
+}
+
+/**
  * EI-NFR3.1.2 — a message in a major version this consumer was not written for. It is set aside
  * whole, stating that the form is unsupported; no part of it is acted on.
  */

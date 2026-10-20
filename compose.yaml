@@ -1,9 +1,13 @@
 # Friend on Campus — full local stack.
 #
+#   ./scripts-init-env.sh            once: create .env, where every secret lives
 #   docker compose up -d --build     bring everything up
 #   docker compose ps                see health
 #   docker compose down              stop, keep data
 #   docker compose down -v           stop and delete data
+#
+# No password, key or token is written here (PL-NFR2.1.1). Each is read from
+# `.env` and has no fallback: without one, Compose stops and names it.
 #
 # See the root README for the walkthrough.
 
@@ -15,13 +19,17 @@ x-service-base: &service-base
     NODE_ENV: ${NODE_ENV:-development}
     LOG_LEVEL: ${LOG_LEVEL:-info}
     CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
-    RABBITMQ_URL: amqp://${RABBITMQ_USER:-foc}:${RABBITMQ_PASSWORD:-foc_dev}@rabbitmq:5672
     # Prometheus sends it to /metrics (PLT-04); the prometheus service reads the same value.
-    METRICS_TOKEN: ${METRICS_TOKEN:-dev-only-metrics-token-change-me}
+    METRICS_TOKEN: ${METRICS_TOKEN:?run ./scripts-init-env.sh}
   depends_on: &service-deps
     postgres:
       condition: service_healthy
-  networks: [foc]
+  # Its database, the broker, and the other services; `public` is only how its port is
+  # published. Not the web app, not the dashboards.
+  networks: [public, db, broker, services]
+  # Runs as `node` (see the Dockerfile), with no Linux capability and no way to gain one.
+  cap_drop: [ALL]
+  security_opt: ['no-new-privileges:true']
 
 # For a service that uses the broker (consumes events, or relays its outbox):
 # it connects at boot and declares its queues there, so it waits for the broker
@@ -34,18 +42,24 @@ x-consumer-deps: &consumer-deps
 services:
   # ---- infrastructure -------------------------------------------------------
   postgres:
-    image: postgres:17-alpine
+    image: postgres:17.11-alpine3.24@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run ./scripts-init-env.sh}
       POSTGRES_DB: postgres
-    # One server, four databases, four roles — see postgres-init.sql for why.
+      # The four service roles' passwords, read by postgres-init.sh on first boot.
+      USER_DB_PASSWORD: ${USER_DB_PASSWORD:?run ./scripts-init-env.sh}
+      SUPPLIER_DB_PASSWORD: ${SUPPLIER_DB_PASSWORD:?run ./scripts-init-env.sh}
+      ORDER_DB_PASSWORD: ${ORDER_DB_PASSWORD:?run ./scripts-init-env.sh}
+      CREDIT_DB_PASSWORD: ${CREDIT_DB_PASSWORD:?run ./scripts-init-env.sh}
+    # One server, four databases, four roles — see postgres-init.sh for why.
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./postgres-init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
-    # Published on a non-default host port: a locally installed Postgres
-    # usually holds 5432 and would make `up` fail. Override with POSTGRES_PORT.
-    ports: ['${POSTGRES_PORT:-55432}:5432']
+      - ./postgres-init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
+    # Published for this machine only (127.0.0.1), for psql and the test suites;
+    # the services reach it over the `db` network. On a non-default host port: a
+    # locally installed Postgres usually holds 5432 and would make `up` fail.
+    ports: ['127.0.0.1:${POSTGRES_PORT:-55432}:5432']
     healthcheck:
       # `-d postgres` so readiness means "accepting queries", not just listening.
       test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d postgres']
@@ -53,25 +67,43 @@ services:
       timeout: 3s
       retries: 20
       start_period: 5s
-    networks: [foc]
+    networks: [db, local]
 
   rabbitmq:
-    image: rabbitmq:4-management-alpine
+    image: rabbitmq:4.3.6-management-alpine@sha256:3ef7f7e89fed709a78f79b8b5f4e30e1312a1d4089da752e23595566d9d61a95
+    # RabbitMQ files its data under its host name. Fixed, so a recreated container
+    # (`down`, then `up`) finds the queues and messages the last one left.
+    hostname: rabbitmq
+    # Unprivileged from the first instruction, not only after the image's entrypoint drops root.
+    user: rabbitmq
+    # One account per service, made at every start: see rabbitmq-init.sh.
+    entrypoint: ['/bin/sh', '/usr/local/bin/foc-rabbitmq-init.sh']
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-foc}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-foc_dev}
+      # The operator: the management UI and the smoke and demo scripts. No service uses it.
+      RABBITMQ_OPERATOR_USER: ${RABBITMQ_USER:-foc}
+      RABBITMQ_OPERATOR_PASSWORD: ${RABBITMQ_PASSWORD:?run ./scripts-init-env.sh}
+      USER_BROKER_PASSWORD: ${USER_BROKER_PASSWORD:?run ./scripts-init-env.sh}
+      SUPPLIER_BROKER_PASSWORD: ${SUPPLIER_BROKER_PASSWORD:?run ./scripts-init-env.sh}
+      ORDER_BROKER_PASSWORD: ${ORDER_BROKER_PASSWORD:?run ./scripts-init-env.sh}
+      CREDIT_BROKER_PASSWORD: ${CREDIT_BROKER_PASSWORD:?run ./scripts-init-env.sh}
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
+      - ./rabbitmq-init.sh:/usr/local/bin/foc-rabbitmq-init.sh:ro
+    # For this machine only (127.0.0.1): the test suites, and the operator's
+    # management UI. The services reach it over the `broker` network.
     ports:
-      - '${RABBITMQ_PORT:-55672}:5672'
-      - '${RABBITMQ_MANAGEMENT_PORT:-15672}:15672' # http://localhost:15672
+      - '127.0.0.1:${RABBITMQ_PORT:-55672}:5672'
+      - '127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672' # http://localhost:15672
     healthcheck:
-      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'check_running']
+      # Running, and every service's account exists: nothing connects before it can sign in.
+      test:
+        - CMD-SHELL
+        - rabbitmq-diagnostics -q check_running && test -f /tmp/foc-broker-accounts-ready
       interval: 5s
       timeout: 10s
       retries: 20
       start_period: 15s
-    networks: [foc]
+    networks: [broker, local]
 
   # ---- services -------------------------------------------------------------
   # Supplier, Order and Credit consume events (Credit: wallet provisioning; all
@@ -86,11 +118,13 @@ services:
     command: ['node', 'user-service/dist/db/migrate.js']
     restart: 'no'
     environment:
-      DATABASE_URL: postgres://user_service:user_service_dev@postgres:5432/foc_user
+      DATABASE_URL: postgres://user_service:${USER_DB_PASSWORD:?run ./scripts-init-env.sh}@postgres:5432/foc_user
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [foc]
+    networks: [db]
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
 
   user-service:
     <<: *service-base
@@ -98,12 +132,18 @@ services:
     environment:
       <<: *service-env
       SERVICE_NAME: user-service
+      # Its own broker account: it may publish only `user.*` and read only its own queues.
+      RABBITMQ_URL: amqp://user-service:${USER_BROKER_PASSWORD:?run ./scripts-init-env.sh}@rabbitmq:5672
       PORT: 3001
-      DATABASE_URL: postgres://user_service:user_service_dev@postgres:5432/foc_user
+      # Serves /internal/** to the other services; not published, and hidden on PORT.
+      INTERNAL_PORT: 4001
+      DATABASE_URL: postgres://user_service:${USER_DB_PASSWORD:?run ./scripts-init-env.sh}@postgres:5432/foc_user
       ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:-u.nus.edu,nus.edu.sg}
-      INTERNAL_SERVICE_KEYS: ${INTERNAL_SERVICE_KEYS:-dev-only-internal-service-key-change-me}
+      INTERNAL_SERVICE_KEYS: ${INTERNAL_SERVICE_KEYS:?run ./scripts-init-env.sh}
       ADMIN_SEED_EMAILS: ${ADMIN_SEED_EMAILS:-admin@u.nus.edu}
-      ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD:-dev-only-admin-password-change-me}
+      # Without a fixed key every restart would sign everyone out (PL-NFR3.1.1).
+      JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:?run ./scripts-init-env.sh}
+      ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD:?run ./scripts-init-env.sh}
     ports: ['${USER_SERVICE_PORT:-3001}:3001']
     depends_on:
       <<: *consumer-deps
@@ -115,11 +155,13 @@ services:
     command: ['node', 'supplier-service/dist/db/migrate.js']
     restart: 'no'
     environment:
-      DATABASE_URL: postgres://supplier_service:supplier_service_dev@postgres:5432/foc_supplier
+      DATABASE_URL: postgres://supplier_service:${SUPPLIER_DB_PASSWORD:?run ./scripts-init-env.sh}@postgres:5432/foc_supplier
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [foc]
+    networks: [db]
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
 
   supplier-service:
     <<: *service-base
@@ -127,13 +169,17 @@ services:
     environment:
       <<: *service-env
       SERVICE_NAME: supplier-service
+      # Its own broker account: it publishes nothing and reads only its own queues.
+      RABBITMQ_URL: amqp://supplier-service:${SUPPLIER_BROKER_PASSWORD:?run ./scripts-init-env.sh}@rabbitmq:5672
       PORT: 3002
-      DATABASE_URL: postgres://supplier_service:supplier_service_dev@postgres:5432/foc_supplier
+      # Serves /internal/** to the other services; not published, and hidden on PORT.
+      INTERNAL_PORT: 4002
+      DATABASE_URL: postgres://supplier_service:${SUPPLIER_DB_PASSWORD:?run ./scripts-init-env.sh}@postgres:5432/foc_supplier
       # How this service verifies callers: it asks the User Service who is behind
-      # a token (@foc/auth-client). The key must be one of the User Service's
-      # INTERNAL_SERVICE_KEYS above.
-      USER_SERVICE_URL: http://user-service:3001
-      INTERNAL_SERVICE_KEY: ${SUPPLIER_INTERNAL_KEY:-dev-only-internal-service-key-change-me}
+      # a token (@foc/auth-client), presenting a key of its own. `.env` builds the
+      # User Service's INTERNAL_SERVICE_KEYS from the three callers' keys.
+      USER_SERVICE_URL: http://user-service:4001
+      INTERNAL_SERVICE_KEY: ${SUPPLIER_INTERNAL_KEY:?run ./scripts-init-env.sh}
     ports: ['${SUPPLIER_SERVICE_PORT:-3002}:3002']
     depends_on:
       <<: *consumer-deps
@@ -145,11 +191,13 @@ services:
     command: ['node', 'order-service/dist/db/migrate.js']
     restart: 'no'
     environment:
-      DATABASE_URL: postgres://order_service:order_service_dev@postgres:5432/foc_order
+      DATABASE_URL: postgres://order_service:${ORDER_DB_PASSWORD:?run ./scripts-init-env.sh}@postgres:5432/foc_order
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [foc]
+    networks: [db]
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
 
   order-service:
     <<: *service-base
@@ -157,20 +205,23 @@ services:
     environment:
       <<: *service-env
       SERVICE_NAME: order-service
+      # Its own broker account: it may publish only `order.*` and read only its own queues.
+      RABBITMQ_URL: amqp://order-service:${ORDER_BROKER_PASSWORD:?run ./scripts-init-env.sh}@rabbitmq:5672
       PORT: 3003
-      DATABASE_URL: postgres://order_service:order_service_dev@postgres:5432/foc_order
-      # Verifies callers through the User Service (@foc/auth-client, USR-07). The key
-      # must be one of the User Service's INTERNAL_SERVICE_KEYS.
-      USER_SERVICE_URL: http://user-service:3001
+      # Serves /internal/** to the other services; not published, and hidden on PORT.
+      INTERNAL_PORT: 4003
+      DATABASE_URL: postgres://order_service:${ORDER_DB_PASSWORD:?run ./scripts-init-env.sh}@postgres:5432/foc_order
+      # Verifies callers through the User Service (@foc/auth-client, USR-07), with its own key.
+      USER_SERVICE_URL: http://user-service:4001
       SUPPLIER_SERVICE_URL: http://supplier-service:3002
-      INTERNAL_SERVICE_KEY: ${ORDER_INTERNAL_KEY:-dev-only-internal-service-key-change-me}
+      INTERNAL_SERVICE_KEY: ${ORDER_INTERNAL_KEY:?run ./scripts-init-env.sh}
       CREDIT_WAIT_TIMEOUT_MS: ${ORDER_CREDIT_WAIT_TIMEOUT_MS:-300000}
       ACCEPTANCE_WINDOW_MS: ${ORDER_ACCEPTANCE_WINDOW_MS:-3600000}
       PICKUP_TIMEOUT_MS: ${ORDER_PICKUP_TIMEOUT_MS:-1800000}
       LIFECYCLE_SWEEP_INTERVAL_MS: ${ORDER_LIFECYCLE_SWEEP_INTERVAL_MS:-10000}
       # Reconciliation reads Credit's status with this service's INTERNAL_SERVICE_KEY, which must
       # be one of Credit's INTERNAL_SERVICE_KEYS (CREDIT_INBOUND_SERVICE_KEYS).
-      CREDIT_SERVICE_URL: http://credit-service:3004
+      CREDIT_SERVICE_URL: http://credit-service:4004
       RECONCILE_INTERVAL_MS: ${ORDER_RECONCILE_INTERVAL_MS:-60000}
       RECONCILE_RETRY_MS: ${ORDER_RECONCILE_RETRY_MS:-300000}
     ports: ['${ORDER_SERVICE_PORT:-3003}:3003']
@@ -184,11 +235,13 @@ services:
     command: ['node', 'credit-service/dist/db/migrate.js']
     restart: 'no'
     environment:
-      DATABASE_URL: postgres://credit_service:credit_service_dev@postgres:5432/foc_credit
+      DATABASE_URL: postgres://credit_service:${CREDIT_DB_PASSWORD:?run ./scripts-init-env.sh}@postgres:5432/foc_credit
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [foc]
+    networks: [db]
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
 
   credit-service:
     <<: *service-base
@@ -196,14 +249,17 @@ services:
     environment:
       <<: *service-env
       SERVICE_NAME: credit-service
+      # Its own broker account: it may publish only `credit.*` and read only its own queues.
+      RABBITMQ_URL: amqp://credit-service:${CREDIT_BROKER_PASSWORD:?run ./scripts-init-env.sh}@rabbitmq:5672
       PORT: 3004
-      DATABASE_URL: postgres://credit_service:credit_service_dev@postgres:5432/foc_credit
-      # Verifies callers through the User Service (@foc/auth-client, USR-07). The key
-      # must be one of the User Service's INTERNAL_SERVICE_KEYS.
-      USER_SERVICE_URL: http://user-service:3001
-      INTERNAL_SERVICE_KEY: ${CREDIT_INTERNAL_KEY:-dev-only-internal-service-key-change-me}
-      # Inbound read-only /internal/** callers. Order presents its existing service key.
-      INTERNAL_SERVICE_KEYS: ${CREDIT_INBOUND_SERVICE_KEYS:-dev-only-internal-service-key-change-me}
+      # Serves /internal/** to the other services; not published, and hidden on PORT.
+      INTERNAL_PORT: 4004
+      DATABASE_URL: postgres://credit_service:${CREDIT_DB_PASSWORD:?run ./scripts-init-env.sh}@postgres:5432/foc_credit
+      # Verifies callers through the User Service (@foc/auth-client, USR-07), with its own key.
+      USER_SERVICE_URL: http://user-service:4001
+      INTERNAL_SERVICE_KEY: ${CREDIT_INTERNAL_KEY:?run ./scripts-init-env.sh}
+      # Inbound read-only /internal/** callers: the Order Service's key and no other.
+      INTERNAL_SERVICE_KEYS: ${CREDIT_INBOUND_SERVICE_KEYS:?run ./scripts-init-env.sh}
     ports: ['${CREDIT_SERVICE_PORT:-3004}:3004']
     depends_on:
       <<: *consumer-deps
@@ -237,7 +293,10 @@ services:
       user-service: { condition: service_healthy }
       supplier-service: { condition: service_healthy }
     ports: ['${WEB_APP_PORT:-3000}:3000']
-    networks: [foc]
+    # A network of its own: the browser calls the services, this container calls nothing.
+    networks: [web]
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
 
   # ---- observability (PLT-04) -------------------------------------------------
   # Prometheus scrapes every service's /metrics and RabbitMQ's queue depths, and
@@ -245,7 +304,7 @@ services:
   # to view without signing in. Nothing to set up by hand. Both are published on
   # 127.0.0.1 only: anonymous viewing is for this machine, not the network.
   prometheus:
-    image: prom/prometheus:v3.13.4
+    image: prom/prometheus:v3.13.4@sha256:87861b8cf91579109319ebc300f3f1060e6da9c05d6ae8ad15a20c879e84e32e
     restart: unless-stopped
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -263,16 +322,17 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    networks: [foc]
+    # Scrapes the services and the broker's exporter; Grafana reads it.
+    networks: [services, broker, observability]
 
   grafana:
-    image: grafana/grafana-oss:12.4.3
+    image: grafana/grafana-oss:12.4.3@sha256:2e986801428cd689c2358605289c90ab37d2b39e24808874971f54c99bcdc412
     restart: unless-stopped
     environment:
       # Anyone who can reach the port may view; changing anything needs the admin.
       GF_AUTH_ANONYMOUS_ENABLED: 'true'
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-grafana_dev}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?run ./scripts-init-env.sh}
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/foc-platform.json
       # A local stack has no reason to phone home.
       GF_ANALYTICS_REPORTING_ENABLED: 'false'
@@ -290,7 +350,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    networks: [foc]
+    networks: [observability]
 
 volumes:
   postgres-data:
@@ -300,8 +360,39 @@ volumes:
 configs:
   # The scrape token, as a file Prometheus reads (prometheus.yml cannot read the environment).
   metrics-token:
-    content: ${METRICS_TOKEN:-dev-only-metrics-token-change-me}
+    content: ${METRICS_TOKEN:?run ./scripts-init-env.sh}
 
+# Who can reach whom (PL-NFR2.1.2). A container joins only the networks of the
+# things it depends on, so, for one, the web app's container cannot open a
+# connection to Postgres, and Grafana cannot reach a service.
+#
+# The three networks containers talk to each other on are `internal`: they have
+# no route out, and no port can be published through them.
+#
+#   db             postgres       <- the four services and their migrate jobs
+#   broker         rabbitmq       <- the four services; Prometheus, for queue depths
+#   services       service <-> service on the internal ports; Prometheus scrapes here
+#
+# Publishing a port needs an ordinary network, and a container must have exactly
+# one: with two, Docker may publish the port on one and route the replies out of
+# the other, and the port then never answers from the host.
+#
+#   public         the four services: how ports 3001-3004 reach this machine
+#   web            the web app alone: the browser calls the services, it does not
+#   local          postgres and rabbitmq: how their ports reach 127.0.0.1
+#   observability  grafana -> prometheus, and how both reach 127.0.0.1
+#
+# What the host can reach is decided by `ports:` above: the web app and each
+# service's public port on every interface, the data stores and the dashboards on
+# 127.0.0.1, and no internal port at all.
 networks:
-  foc:
-    driver: bridge
+  db:
+    internal: true
+  broker:
+    internal: true
+  services:
+    internal: true
+  public:
+  web:
+  local:
+  observability:

@@ -9,6 +9,7 @@ export {
   UnparseableMessageError,
   UnroutableEventError,
   UnsupportedVersionError,
+  UntrustedSenderError,
   type Envelope,
   type NewEventInput,
 } from './envelope.js';
@@ -48,6 +49,7 @@ export {
   RETRY_DELAYS_MS,
   deadLetterQueueName,
   isTransient,
+  requeueExchangeName,
   retryExchangeName,
   retryLevels,
   retryQueueName,
@@ -108,3 +110,4 @@ export {
   type InboxHandler,
   type ReplayableInboxHandler,
 } from './inbox.js';
+export { HEADER_SENDER, resendProperties, senderOf } from './sender.js';

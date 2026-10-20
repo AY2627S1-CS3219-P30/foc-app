@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import type { EventEmitter } from 'node:events';
+import { EventEmitter as EventEmitterForTest, type EventEmitter } from 'node:events';
 import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -99,5 +99,45 @@ describe('PgDb shutdown', () => {
     const db = new PgDb(UNUSED_URL);
     await db.close();
     await expect(db.close()).resolves.toBeUndefined();
+  });
+});
+
+describe('PgDb as a dependency of /health (PL-NFR3.1.2)', () => {
+  it('is the mandatory dependency named database', async () => {
+    const db = new PgDb(UNUSED_URL);
+    expect(db).toMatchObject({ healthName: 'database', mandatory: true });
+    await db.close();
+  });
+
+  it('answers its health check with one round trip to the server', async () => {
+    const db = new PgDb(UNUSED_URL);
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+    poolOf(db).query = query;
+
+    await expect(db.checkHealth()).resolves.toBeUndefined();
+    expect(query).toHaveBeenCalledWith('SELECT 1');
+    await db.close();
+  });
+
+  it('fails its health check when nothing answers at the address', async () => {
+    const db = new PgDb(UNUSED_URL);
+    await expect(db.checkHealth()).rejects.toThrow(/ECONNREFUSED/);
+    await db.close();
+  });
+});
+
+describe('PgDb when the server goes away mid-transaction (PL-NFR3.1.2)', () => {
+  it('does not let a checked-out client’s lost connection end the process', async () => {
+    const db = new PgDb(UNUSED_URL);
+    // node-postgres emits 'error' on a client whose connection the server ended, whether or not
+    // a query is running. In a transaction nobody else is listening, and an 'error' event with
+    // no listener is an uncaught exception.
+    const client = new EventEmitterForTest();
+    poolOf(db).emit('connect', client);
+
+    expect(() =>
+      client.emit('error', new Error('terminating connection due to administrator command')),
+    ).not.toThrow();
+    await db.close();
   });
 });

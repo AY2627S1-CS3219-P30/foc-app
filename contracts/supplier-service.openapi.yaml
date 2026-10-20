@@ -52,6 +52,13 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Health' }
               example: { status: ok, service: supplier-service, version: 0.1.0, uptimeSeconds: 42 }
+        '503':
+          description: >-
+            A dependency the service cannot work without (its database) is unavailable. It answers
+            200 again as soon as the dependency is back, with no restart (PL-NFR3.1.2).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthUnavailable' }
 
   /suppliers:
     get:
@@ -276,6 +283,23 @@ components:
         service: { type: string, const: supplier-service }
         version: { type: string }
         uptimeSeconds: { type: integer, minimum: 0 }
+        dependencies:
+          description: >-
+            Each dependency the service asks on every call. `database` is mandatory: while it is
+            down the answer is 503. `broker` is not: the outbox holds events until it is back.
+          type: object
+          additionalProperties: { type: string, enum: [up, down] }
+    HealthUnavailable:
+      type: object
+      required: [status, service, version, uptimeSeconds]
+      properties:
+        status: { type: string, const: unavailable }
+        service: { type: string, const: supplier-service }
+        version: { type: string }
+        uptimeSeconds: { type: integer, minimum: 0 }
+        dependencies:
+          type: object
+          additionalProperties: { type: string, enum: [up, down] }
 
     SupplierType:
       type: string

@@ -14,7 +14,8 @@ TST-01 #145). Each service fills the suites with its own cases.
 | Concurrency (real DB)   | `*.postgres.test.ts`                          | `TEST_POSTGRES_URL`      | `TEST_POSTGRES_URL=… npm run test:concurrency`          |
 | Broker integration      | `*.integration.test.ts`                       | `RABBITMQ_URL`           | `RABBITMQ_URL=… npm test -w @foc/platform`              |
 | System (cross-service)  | `system-tests/test/*.test.ts`                 | `TEST_POSTGRES_URL`      | `TEST_POSTGRES_URL=… npm test -w @foc/system-tests`     |
-| End-to-end              | Owned by TST-02 (#160)                        | the Compose stack        | `./scripts-smoke.sh --up` today; journeys arrive in #160 |
+| Stack checks            | `scripts-*.sh` (see below)                    | Docker (Compose), `.env` | each script, with `--up` for a stack of its own          |
+| End-to-end (browser)    | Owned by TST-02 (#160)                        | the Compose stack        | Playwright journeys, in #160                             |
 | Load and report         | `system-tests/scripts/conservation-report.ts` | Docker (Compose)         | `npm run report:conservation` (not run in CI)           |
 
 Suites that need a real server skip themselves when their variable is unset, so `npm test` passes on
@@ -43,8 +44,9 @@ Against the Compose stack:
 
 ```bash
 docker compose up -d postgres rabbitmq
-export TEST_POSTGRES_URL=postgres://postgres:postgres_dev@localhost:55432/postgres
-export RABBITMQ_URL=amqp://foc:foc_dev@localhost:55672
+set -a; . ./.env; set +a   # the stack's addresses and logins, from your .env
+export TEST_POSTGRES_URL=$HOST_POSTGRES_URL
+export RABBITMQ_URL=$HOST_RABBITMQ_URL
 npm test
 ```
 
@@ -81,7 +83,25 @@ Contracts are the OpenAPI files in [`contracts/`](../contracts) plus
    `npm run contracts:events` and commit `contracts/events.schema.json`. A harness test fails if the
    file falls behind the catalogue.
 
+## Stack checks
+
+Shell scripts that start the whole Compose stack and check it from outside, as a user or an
+operator would. Each fails with a non-zero exit code and says which check failed. CI runs all of
+them, in this order, whenever a change can affect the stack. `./scripts-init-env.sh` must have
+created `.env` first.
+
+| Script                            | Checks                                                                                                                                              |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `./scripts-scan-secrets.sh`       | No secret in any tracked file (gitleaks) or in an image the repository builds                                                                       |
+| `./scripts-smoke.sh --up`         | Health, database isolation, broker topology, metrics and alerts, non-root containers, loopback data stores, hidden internal routes, broker accounts |
+| `./scripts-demo-failures.sh --up` | A killed consumer, a duplicate, a stale reply, an unsupported version, a forged event; credits conserved                                            |
+| `./scripts-restart-check.sh --up` | Stop and start, remove and recreate, Postgres stopped under running services                                                                        |
+
 ## Adding tests
+
+- A new claim about the running stack (who a container runs as, what the broker refuses, what
+  survives a restart): add a check to the script above that covers that area, using its `pass` and
+  `fail` helpers, and end any probe in `|| true` so a failed command is recorded, not fatal.
 
 - A new real-database case: name it `*.postgres.test.ts` and use `createEphemeralPostgres`.
 - A new endpoint: document it in the contract and add a `contract.assert(...)` call for each status

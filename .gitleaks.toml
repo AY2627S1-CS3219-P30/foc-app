@@ -1,0 +1,27 @@
+# Secret scanning rules for ./scripts-scan-secrets.sh (PLT-06; PL-NFR2.1.1).
+#
+# The default gitleaks rules, less three kinds of value that are not secrets.
+# Each is allowed by what the value is, not by where it sits, so a real
+# credential pasted into a test file is still found.
+title = "foc-app"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Keys a test run gives the services it starts in-process; nothing outside the run accepts them."
+regexTarget = "secret"
+regexes = [
+  '''^test-[a-z-]+-0123456789$''',
+  '''^kept-exactly-as-it-was-0123456789$''',
+]
+
+[[allowlists]]
+description = "The token-response example in the User Service contract, and the types generated from it: a truncated sample, not a token."
+condition = "AND"
+paths = [
+  '''(^|/)contracts/user-service\.openapi\.yaml$''',
+  '''(^|/)web-app/src/lib/generated/user-service\.ts$''',
+]
+regexTarget = "line"
+regexes = ['''eyJhbGciOiJFZERTQSJ9\.eyJzdWIiOiIwMTk4YTFjMi\.\.\.''']

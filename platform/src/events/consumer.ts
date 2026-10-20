@@ -9,9 +9,11 @@ import {
   StaleEventError,
   UnparseableMessageError,
   UnsupportedVersionError,
+  UntrustedSenderError,
   parseEnvelope,
   type Envelope,
 } from './envelope.js';
+import { resendProperties, senderOf } from './sender.js';
 import {
   DLX,
   HEADER_ATTEMPT,
@@ -40,9 +42,10 @@ export interface SubscribeOptions<T> {
   queue: string;
   eventType: string | readonly string[];
   /**
-   * Envelope producer(s) this handler trusts. This is an authorization check on
-   * the broker identity claim; deployments must pair it with per-service broker
-   * credentials/ACLs so another publisher cannot forge the claim.
+   * Envelope producer(s) this handler trusts. Where each service signs in to the
+   * broker with its own account (PLT-06), the message must also have been
+   * published by that producer's account, which the broker vouches for: a
+   * message that only claims the producer is set aside (see sender.ts).
    */
   expectedProducer?: string | readonly string[];
   payloadSchema: z.ZodType<T>;
@@ -134,7 +137,9 @@ export class EventConsumer {
     for (const reason of transient ? ['unparseable', 'handler_failed'] : []) {
       this.metrics.eventsDropped.inc({ queue, reason }, 0);
     }
-    for (const reason of transient ? [] : ['unparseable', 'unsupported_version', 'exhausted']) {
+    for (const reason of transient
+      ? []
+      : ['unparseable', 'unsupported_version', 'untrusted_sender', 'exhausted']) {
       this.metrics.eventsDeadLettered.inc({ queue, reason }, 0);
     }
   }
@@ -205,6 +210,13 @@ export class EventConsumer {
           `producer ${envelope.producer} is not trusted for ${options.eventType}`,
         );
       }
+      // The envelope names a producer; the broker says which account published the message.
+      if (expected && this.broker.verifiesSenders) {
+        const sender = senderOf(message.properties, this.broker.account);
+        if (sender === undefined || !expected.includes(sender)) {
+          throw new UntrustedSenderError(sender, envelope.eventType, expected);
+        }
+      }
     } catch (err) {
       const reason = errorMessage(err);
       this.logger.error({ queue: options.queue, reason, msg: 'message is unparseable' });
@@ -215,7 +227,12 @@ export class EventConsumer {
       }
       this.metrics?.eventsDeadLettered.inc({
         queue: queueLabel,
-        reason: err instanceof UnsupportedVersionError ? 'unsupported_version' : 'unparseable',
+        reason:
+          err instanceof UnsupportedVersionError
+            ? 'unsupported_version'
+            : err instanceof UntrustedSenderError
+              ? 'untrusted_sender'
+              : 'unparseable',
       });
       // Permanent: straight to the dead-letter queue, never retried — retrying
       // a malformed message only burns the budget. Published rather than
@@ -360,8 +377,8 @@ export class EventConsumer {
     });
 
     // Keyed by this queue's name, not the event type: the retry queue
-    // dead-letters onto the default exchange, which delivers by queue name, so
-    // the message comes back here and not to every queue bound to its type.
+    // dead-letters onto the service's requeue exchange, which delivers by queue
+    // name, so the message comes back here and not to every queue bound to its type.
     await this.publishTo(
       channel,
       retryExchangeName(this.broker.retryNamespace, attempt),
@@ -388,7 +405,11 @@ export class EventConsumer {
         exchange,
         routingKey,
         message.content,
-        { ...message.properties, persistent: true, headers },
+        // Under this service's own account: the broker would refuse the original publisher's.
+        {
+          ...resendProperties({ ...message.properties, headers }, this.broker.account),
+          persistent: true,
+        },
         (err) => (err ? reject(err) : resolve()),
       );
     });

@@ -3,6 +3,7 @@ import {
   MAX_ATTEMPTS,
   RETRY_DELAYS_MS,
   deadLetterQueueName,
+  requeueExchangeName,
   retryExchangeName,
   retryLevels,
   retryQueueName,
@@ -44,5 +45,13 @@ describe('retry topology', () => {
 
   it('derives a dead-letter queue name from the queue it serves', () => {
     expect(deadLetterQueueName('foc.credit.wallet')).toBe('foc.credit.wallet.dlq');
+  });
+});
+
+describe('requeue topology (PLT-06)', () => {
+  it('gives each service a requeue exchange of its own', () => {
+    // Under the service's own prefix, so its broker account may publish there and no other may.
+    expect(requeueExchangeName('credit-service')).toBe('foc.credit-service.requeue');
+    expect(requeueExchangeName('order-service')).not.toBe(requeueExchangeName('credit-service'));
   });
 });

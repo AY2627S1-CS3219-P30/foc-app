@@ -38,6 +38,24 @@ async function peek(broker: BrokerConnection, queue: string): Promise<ConsumeMes
   return new Promise((resolve) => void channel.consume(queue, (m) => m && resolve(m)));
 }
 
+describe('the requeue exchange (PLT-06)', () => {
+  it('delivers by queue name to one durable queue, and takes nothing for a queue it does not serve', async () => {
+    const { memory, broker } = await connect();
+    try {
+      expect(broker.requeueExchange).toBe('foc.test.requeue');
+
+      memory.publish(broker.requeueExchange, QUEUE, { again: true });
+      expect(memory.depth(QUEUE)).toBe(1);
+
+      // No binding for another service's queue: nothing can be aimed at it from here.
+      memory.publish(broker.requeueExchange, 'foc.other.queue', { again: true });
+      expect(memory.depth(QUEUE)).toBe(1);
+    } finally {
+      await broker.close();
+    }
+  });
+});
+
 describe('in-memory broker (for suites without RabbitMQ)', () => {
   let close: (() => Promise<void>) | undefined;
   afterEach(async () => close?.());
