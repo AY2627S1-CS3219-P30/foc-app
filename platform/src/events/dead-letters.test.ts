@@ -207,6 +207,8 @@ describe('finding and reading (PLT-05)', () => {
     const letters = new DeadLetters(db);
     const channel = new FakeChannel() as unknown as ConfirmChannel;
     await letters.park(channel, QUEUE, deadLettered());
+    // Parked at a later instant, so "newest first" does not fall back to the rows' random ids.
+    await new Promise((r) => setTimeout(r, 5));
     const order = createEnvelope({
       eventType: 'order.reservation-requested',
       schemaVersion: 1,

@@ -12,6 +12,7 @@ import type { Db, Queryable } from '../db.js';
 import { errorMessage } from '../logging.js';
 import { METRICS, type Metrics } from '../metrics.js';
 import { PAYLOAD_SCHEMAS } from './catalogue.js';
+import { UnroutableEventError } from './envelope.js';
 import { EVENT_PUBLISHER } from './events.module.js';
 import type { EventPublisher } from './publisher.js';
 
@@ -226,9 +227,11 @@ export interface OutboxRelayStats {
  * the broker's confirmation, mark it published, commit. A failed publish stops
  * the claim — the broker is usually the problem, not the row — and records the
  * attempt, the error and a backoff on that row, which stays unpublished for a
- * later tick. Nothing is ever dropped: a row the relay cannot publish stays in
- * the backlog, holding back later events for its aggregate, and the stats line
- * shows its age.
+ * later tick. The exception is an event the broker handed back because nobody
+ * is listening for it yet (`UnroutableEventError`, EVT-03): the broker is fine,
+ * so the relay records the failure and goes on to the rows behind it. Nothing
+ * is ever dropped: a row the relay cannot publish stays in the backlog, holding
+ * back later events for its aggregate, and the stats line shows its age.
  *
  * Polls every `intervalMs` from {@link start} (Nest calls it on bootstrap)
  * until {@link stop}, and drains everything claimable on each poll. Metrics
@@ -319,22 +322,21 @@ export class OutboxRelay implements OnApplicationBootstrap, BeforeApplicationShu
 
   /**
    * Publishes everything claimable now, one claim after another, and returns
-   * how many rows went out. Stops at the first failure, which the next tick
-   * retries once the row's backoff has passed.
+   * how many rows went out. Stops at the first failure other than an event
+   * nobody is listening for; a later tick retries each failed row once its
+   * backoff has passed.
    */
   async tick(): Promise<number> {
     let total = 0;
     while (!this.stopping) {
-      const { published, failed } = await this.claimAndPublish();
+      const { published, failed, halted } = await this.claimAndPublish();
       total += published;
       this.counters.published += published;
       this.metrics?.outboxPublished.inc(published);
-      if (failed) {
-        this.counters.failed += 1;
-        this.metrics?.outboxFailures.inc();
-      }
+      this.counters.failed += failed;
+      this.metrics?.outboxFailures.inc(failed);
       if (Date.now() - this.lastStatsAt >= this.statsIntervalMs) await this.logStats();
-      if (failed || published === 0) break;
+      if (halted || published === 0) break;
     }
     return total;
   }
@@ -384,16 +386,21 @@ export class OutboxRelay implements OnApplicationBootstrap, BeforeApplicationShu
     this.timer.unref();
   }
 
-  private claimAndPublish(): Promise<{ published: number; failed: boolean }> {
+  private claimAndPublish(): Promise<{ published: number; failed: number; halted: boolean }> {
     return this.db.transaction(async (tx) => {
       const { rows } = await tx.query<OutboxRow>(CLAIM_SQL, [this.batchSize]);
       let published = 0;
+      let failed = 0;
       for (const row of rows) {
         try {
           await this.publish(row);
         } catch (err) {
           await this.recordFailure(tx, row, err);
-          return { published, failed: true };
+          failed += 1;
+          // The broker answered: it is this event that nobody is listening for. A claim holds
+          // one row per aggregate, so going on cannot let a later event overtake this one.
+          if (err instanceof UnroutableEventError) continue;
+          return { published, failed, halted: true };
         }
         await tx.query(
           `UPDATE outbox_events
@@ -403,7 +410,7 @@ export class OutboxRelay implements OnApplicationBootstrap, BeforeApplicationShu
         );
         published += 1;
       }
-      return { published, failed: false };
+      return { published, failed, halted: false };
     });
   }
 

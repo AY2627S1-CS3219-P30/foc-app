@@ -95,3 +95,31 @@ tests:
             exp_annotations:
               summary: 'credit-service:3004 is not answering scrapes'
               description: Prometheus has not reached its /metrics for a minute.
+
+  # A committed event that has not been published for two minutes: the broker is unreachable, or
+  # nobody is listening for it yet. A drained outbox reports 0 and never fires.
+  - interval: 1m
+    input_series:
+      - series: 'foc_outbox_oldest_unpublished_age_seconds{service="user-service"}'
+        values: '0 60 180 0'
+      - series: 'foc_outbox_oldest_unpublished_age_seconds{service="order-service"}'
+        values: '0 0 0 0'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: OutboxEventStuck
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: OutboxEventStuck
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              service: user-service
+            exp_annotations:
+              summary: 'An event has waited 3m 0s in the outbox of user-service'
+              description: >-
+                Read last_error on that service's unpublished outbox_events rows. "unroutable"
+                means the service that consumes the event has never declared its queue: start it.
+                Anything else points at RabbitMQ.
+      - eval_time: 3m
+        alertname: OutboxEventStuck
+        exp_alerts: []

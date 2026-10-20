@@ -286,6 +286,10 @@ jobs:
         run: |
           cp .env.example .env
           ./scripts-smoke.sh --up
+      # EVT-03: a duplicate, a killed consumer, a stale reply and an unsupported version, on a
+      # stack of its own (the smoke run has removed its copy), ending with credits conserved.
+      - name: Force messaging failures and check the outcome
+        run: ./scripts-demo-failures.sh --up
 
   # ---------------------------------------------------------------------------
   # The supplier page against the real Supplier Service, verifying tokens with

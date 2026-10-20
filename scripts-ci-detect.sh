@@ -16,7 +16,7 @@ SHARED_RE='^(platform/|test-harness/|system-tests/|package\.json|package-lock\.j
 SERVICE_RE='^(user|supplier|order|credit)-service/'
 # Wiring between containers, as opposed to code inside one. `.env.example`
 # belongs here because the smoke job copies it to `.env`.
-STACK_RE='^(compose\.yaml|postgres-init\.sql|scripts-smoke\.sh|scripts-ci-detect\.sh|platform/|observability/|\.env\.example)|Dockerfile|\.dockerignore'
+STACK_RE='^(compose\.yaml|postgres-init\.sql|scripts-smoke\.sh|scripts-demo-failures\.sh|scripts-ci-detect\.sh|platform/|observability/|\.env\.example)|Dockerfile|\.dockerignore'
 # The supplier page and the service it lists from: their integration test
 # (web-app/test/suppliers.integration.test.tsx) runs against the real Supplier
 # Service whenever either side, or anything shared or stack-wide, changes.
@@ -126,6 +126,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "env example -> stack runs"             ".env.example" 'stack=true'
   check "env example -> no services"            ".env.example" 'services=[]'
   check "observability -> stack runs"           "observability/prometheus.yml" 'stack=true'
+  check "failure demo -> stack runs"            "scripts-demo-failures.sh" 'stack=true'
+  check "failure demo -> no services"           "scripts-demo-failures.sh" 'services=[]'
   check "observability -> no services"          "observability/grafana/dashboards/foc-platform.json" 'services=[]'
   check "new package -> all four services"      "auth-client/src/token-verifier.ts" 'services=["user-service","supplier-service","order-service","credit-service"]'
   check "new package -> node runs"              "auth-client/src/token-verifier.ts" 'node=true'
