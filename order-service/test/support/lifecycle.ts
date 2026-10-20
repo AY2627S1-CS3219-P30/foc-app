@@ -214,10 +214,10 @@ export const SECRET = {
 };
 
 /** Creates a PENDING_CREDIT order through the API, carrying the private markers above. */
-export async function createPending(t: TestApp): Promise<string> {
+export async function createPending(t: TestApp, auth = asRequester): Promise<string> {
   const response = await http(t)
     .post('/orders')
-    .set('Authorization', asRequester)
+    .set('Authorization', auth)
     .set('Idempotency-Key', randomUUID())
     .send({
       supplierId: '00000000-0000-4000-8000-000000000125',
@@ -231,7 +231,12 @@ export async function createPending(t: TestApp): Promise<string> {
 }
 
 /** Delivers Credit's reservation reply for an order created by {@link createPending}. */
-export async function reservationReply(t: TestApp, orderId: string, rejected = false) {
+export async function reservationReply(
+  t: TestApp,
+  orderId: string,
+  rejected = false,
+  requesterId = REQUESTER,
+) {
   await (
     await reservationSubscription(t)
   ).handler(
@@ -245,12 +250,12 @@ export async function reservationReply(t: TestApp, orderId: string, rejected = f
       payload: rejected
         ? {
             orderId,
-            requesterId: REQUESTER,
+            requesterId,
             amount: SEEDED_REWARD,
             reason: 'INSUFFICIENT_CREDITS',
             available: 0,
           }
-        : { orderId, requesterId: REQUESTER, amount: SEEDED_REWARD },
+        : { orderId, requesterId, amount: SEEDED_REWARD },
     }),
     { attempt: 1, queue: RESERVATION_RESULTS_QUEUE },
   );
