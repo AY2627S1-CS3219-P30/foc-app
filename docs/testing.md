@@ -69,7 +69,9 @@ Contracts are the OpenAPI files in [`contracts/`](../contracts) plus
    required response field that was removed or made optional, a request field that became
    required, a request enum that lost a value, or any field whose type was redefined. Event payloads
    are checked in both directions. CI runs it against the pull request's merge base, so **an
-   incompatible schema change fails CI before merge**. Additive changes pass.
+   incompatible schema change fails CI before merge**. Additive changes pass, and so does a
+   reviewed breaking change listed in `contracts/approved-breaking-changes.json`
+   ([contracts/README.md](../contracts/README.md)).
 2. **Provider checks.** Each service's `test/provider.contract.test.ts` sends real requests to the
    running module and validates every response against its OpenAPI document with
    `ContractValidator.for('<service>').assert(method, pathTemplate, response)`. An undocumented

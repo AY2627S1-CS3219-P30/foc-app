@@ -1,0 +1,8 @@
+[
+  {
+    "change": "order-service GET /orders/{orderId}/receipt 200.timestamps.deliveredAt: type changed from string to null|string",
+    "pullRequest": 229,
+    "reason": "An administrator can complete an errand that was never delivered, so a receipt can have no delivery time. Nothing reads the receipt yet.",
+    "reviewedBy": ["Jonus", "Isaac", "Patrick"]
+  }
+]

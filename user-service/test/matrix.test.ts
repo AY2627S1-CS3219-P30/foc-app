@@ -117,6 +117,7 @@ const INTERNAL = [
   (id: string) => `/internal/users/${id}`,
   (id: string) => `/internal/users/${id}/permissions`,
   (id: string) => `/internal/introspect?sid=${id}&sub=${id}`,
+  () => '/internal/admins',
 ];
 
 /** Routes that are intentionally public, or that authenticate by their own credential (cookie, service key). */
