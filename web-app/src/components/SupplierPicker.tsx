@@ -48,7 +48,7 @@ export function SupplierPicker({ onSelect }: { onSelect: (supplier: SupplierSumm
         const result = await authed((token) =>
           unwrap(
             supplierApi.GET('/suppliers', {
-              params: { query: { q: search || undefined } },
+              params: { query: { q: search || undefined, pageSize: 100 } },
               headers: bearer(token),
               signal,
             }),
@@ -77,41 +77,45 @@ export function SupplierPicker({ onSelect }: { onSelect: (supplier: SupplierSumm
           onChange={(event) => setQuery(event.target.value)}
         />
       </Field>
-      {loading ? (
-        <LoadingState label="Loading pickup points…" />
-      ) : problem ? (
+      {problem ? (
         <ErrorState
           title="Could not load pickup points"
           onRetry={() => setRevision((current) => current + 1)}
         >
           {problem}
         </ErrorState>
-      ) : page?.items.length ? (
-        <>
-          {page.total > page.items.length && (
-            <p className={styles.count}>
-              Showing {page.items.length} of {page.total}. Search to narrow them down.
-            </p>
-          )}
-          <ul className={styles.results}>
-            {page.items.map((supplier) => (
-              <li key={supplier.supplierId}>
-                <button
-                  type="button"
-                  className={`card ${styles.option}`}
-                  onClick={() => onSelect(supplier)}
-                >
-                  <span className={styles.name}>{supplier.name}</span>
-                  <span className={styles.meta}>
-                    {TYPE_LABELS[supplier.type]} · {supplier.building}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
+      ) : !page ? (
+        <LoadingState label="Loading pickup points…" />
       ) : (
-        <EmptyState title="No pickup points found">Try another name or building.</EmptyState>
+        <div className={styles.body} aria-busy={loading || undefined}>
+          {page.items.length ? (
+            <>
+              {page.total > page.items.length && (
+                <p className={styles.count}>
+                  Showing {page.items.length} of {page.total}. Search to narrow them down.
+                </p>
+              )}
+              <ul className={styles.results}>
+                {page.items.map((supplier) => (
+                  <li key={supplier.supplierId}>
+                    <button
+                      type="button"
+                      className={`card ${styles.option}`}
+                      onClick={() => onSelect(supplier)}
+                    >
+                      <span className={styles.name}>{supplier.name}</span>
+                      <span className={styles.meta}>
+                        {TYPE_LABELS[supplier.type]} · {supplier.building}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <EmptyState title="No pickup points found">Try another name or building.</EmptyState>
+          )}
+        </div>
       )}
     </div>
   );
