@@ -81,8 +81,9 @@ export type AuditQuery = Paging & {
   to?: string;
 };
 export type ReadsQuery = Paging & { actorId?: string; targetUserId?: string };
-/** One account's errands: those it requested, those it holds as courier, or both. */
-export type AccountErrandQuery = Paging & { requesterId?: string; courierId?: string };
+/** One account's errands: those it requested, those it holds as courier, or both. One is required. */
+export type AccountErrandQuery = Paging &
+  ({ requesterId: string; courierId?: string } | { courierId: string; requesterId?: string });
 
 /** The ledger page size the console asks for. */
 export const LEDGER_PAGE = 20;

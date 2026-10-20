@@ -19,3 +19,11 @@ export async function checkSupplierContract() {
   // @ts-expect-error Unknown sort fields must be rejected at compile time.
   api.GET("/suppliers", { params: { query: { sort: "unknown" } } });
 }
+
+// ADM-05: one account's errands must name the account, as requester or as courier.
+export function checkAccountErrandQuery(api: import("../src/lib/admin-api").AdminApi) {
+  api.accountErrands("t", { requesterId: "u", page: 1 });
+  api.accountErrands("t", { courierId: "u" });
+  // @ts-expect-error The Order Service refuses a query that names no account (422).
+  api.accountErrands("t", { page: 1 });
+}

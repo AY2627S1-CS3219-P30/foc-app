@@ -105,16 +105,19 @@ export function Pager({
   pageSize,
   total,
   onPage,
+  label = "Pages",
 }: {
   page: number;
   pageSize: number;
   total: number;
   onPage: (page: number) => void;
+  /** Names the landmark; give one per pager when a page has more than one. */
+  label?: string;
 }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
   if (pages <= 1) return null;
   return (
-    <nav className={styles.pager} aria-label="Pages">
+    <nav className={styles.pager} aria-label={label}>
       <Button variant="outline" disabled={page <= 1} onClick={() => onPage(page - 1)}>
         Previous
       </Button>

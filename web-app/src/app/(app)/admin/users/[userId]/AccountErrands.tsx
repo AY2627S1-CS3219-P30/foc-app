@@ -12,13 +12,15 @@ const PAGE_SIZE = 10;
 /**
  * ADM-05: the account's errands, read from the Order Service (ORD-15). Each list loads on its own,
  * so when the Order Service does not answer, only these sections say so and the rest of the account
- * page still works. The service refuses anyone who is not an administrator.
+ * page still works. The service refuses anyone who is not an administrator. Changing `refreshKey`
+ * loads both lists again.
  */
-export function AccountErrands({ userId }: { userId: string }) {
+export function AccountErrands({ userId, refreshKey = 0 }: { userId: string; refreshKey?: number }) {
   return (
     <>
       <ErrandList
         userId={userId}
+        refreshKey={refreshKey}
         role="requester"
         title="Errands they requested"
         emptyTitle="No errands requested"
@@ -26,6 +28,7 @@ export function AccountErrands({ userId }: { userId: string }) {
       />
       <ErrandList
         userId={userId}
+        refreshKey={refreshKey}
         role="courier"
         title="Errands they hold as courier"
         emptyTitle="No errands as courier"
@@ -37,39 +40,51 @@ export function AccountErrands({ userId }: { userId: string }) {
 
 function ErrandList({
   userId,
+  refreshKey,
   role,
   title,
   emptyTitle,
   emptyText,
 }: {
   userId: string;
+  refreshKey: number;
   role: "requester" | "courier";
   title: string;
   emptyTitle: string;
   emptyText: string;
 }) {
   const [page, setPage] = useState(1);
-  const query: AccountErrandQuery =
-    role === "requester"
-      ? { requesterId: userId, page, pageSize: PAGE_SIZE }
-      : { courierId: userId, page, pageSize: PAGE_SIZE };
-  const errands = useAdminData(`account:${userId}:errands:${role}:${page}`, (t) =>
+  const account = role === "requester" ? { requesterId: userId } : { courierId: userId };
+  const query: AccountErrandQuery = { ...account, page, pageSize: PAGE_SIZE };
+  const errands = useAdminData(`account:${userId}:errands:${role}:${page}:${refreshKey}`, (t) =>
     adminApi.accountErrands(t, query),
   );
+
+  // Errands can drop out of a list between pages (a courier withdraws, an errand times out), so a
+  // later page can come back empty. Step back to the last page that has any, rather than show the
+  // list as empty with no way back.
+  const lastPage = errands.data ? Math.max(1, Math.ceil(errands.data.total / PAGE_SIZE)) : page;
+  if (!errands.loading && errands.data?.items.length === 0 && page > lastPage) setPage(lastPage);
 
   return (
     <Section title={title} description="Status and times from the Order Service. Open an errand to see its full trace.">
       <Loaded
         state={errands}
         label="errands"
-        isEmpty={(d) => d.items.length === 0}
+        isEmpty={(d) => d.total === 0}
         emptyTitle={emptyTitle}
         emptyText={emptyText}
       >
         {(d) => (
           <>
             <ErrandTable page={d} caption={`${title}, newest first`} />
-            <Pager page={d.page} pageSize={d.pageSize} total={d.total} onPage={setPage} />
+            <Pager
+              page={d.page}
+              pageSize={d.pageSize}
+              total={d.total}
+              onPage={setPage}
+              label={`${title}: pages`}
+            />
           </>
         )}
       </Loaded>

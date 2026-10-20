@@ -109,3 +109,53 @@ describe("an account's errands on its page (ADM-05)", () => {
     expect(section("Errands they requested")?.querySelector("button")?.textContent).toContain("Try again");
   });
 });
+
+describe("the lists as the account and its errands change (ADM-05 review)", () => {
+  const page = (n: number, total: number, items: unknown[]) => json(200, { page: n, pageSize: 10, total, items });
+  const asked = () => seen.map((r) => new URL(r.url).searchParams);
+
+  it("loads both lists again when the page bumps its refresh key, as after suspending the account", async () => {
+    serve(() => page(1, 0, []));
+    await render();
+    const before = seen.length;
+
+    await act(async () => root.render(<AccountErrands userId={ACCOUNT} refreshKey={1} />));
+    for (let i = 0; i < 5; i++) await act(async () => new Promise((r) => setTimeout(r, 0)));
+
+    expect(seen.length - before).toBe(2);
+  });
+
+  it("steps back to the last page that has errands when a later page comes back empty", async () => {
+    const eleven = Array.from({ length: 10 }, (_, i) => ({ ...errand, orderId: `${ERRAND.slice(0, -2)}${String(i).padStart(2, "0")}` }));
+    let shrunk = false;
+    serve((url) => {
+      if (!url.searchParams.has("requesterId")) return page(1, 0, []);
+      const n = Number(url.searchParams.get("page"));
+      // An errand dropped out between showing page 1 and asking for page 2.
+      if (n === 2) {
+        shrunk = true;
+        return page(2, 10, []);
+      }
+      return page(1, shrunk ? 10 : 11, eleven);
+    });
+    await render();
+
+    const next = [...section("Errands they requested")!.querySelectorAll("button")].find((b) => b.textContent === "Next");
+    await act(async () => next!.click());
+    for (let i = 0; i < 8; i++) await act(async () => new Promise((r) => setTimeout(r, 0)));
+
+    const requested = section("Errands they requested")!;
+    expect(requested.textContent).not.toContain("No errands requested");
+    expect(requested.textContent).toContain("Cafe+ Robot Cafe");
+    expect(asked().filter((q) => q.has("requesterId")).map((q) => q.get("page"))).toEqual(["1", "2", "1"]);
+  });
+
+  it("names each list's pages, so a screen reader does not hear two identical landmarks", async () => {
+    const twenty = Array.from({ length: 10 }, () => errand);
+    serve(() => page(1, 20, twenty));
+    await render();
+
+    const labels = [...container.querySelectorAll("nav")].map((n) => n.getAttribute("aria-label"));
+    expect(labels).toEqual(["Errands they requested: pages", "Errands they hold as courier: pages"]);
+  });
+});
