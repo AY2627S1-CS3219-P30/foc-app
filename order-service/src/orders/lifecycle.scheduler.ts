@@ -24,6 +24,7 @@ export interface LifecycleSchedulerOptions {
 export interface SweepResult {
   expired: number;
   pickupTimedOut: number;
+  autoConfirmed: number;
   skipped: number;
   creditWaitAlerts: number;
   adminsAssigned: number;
@@ -35,8 +36,9 @@ export interface SweepResult {
 class NotDue extends Error {}
 
 /**
- * Owns every time-based Order rule (ORD-05): an OPEN order past its acceptance deadline expires,
- * and an ACCEPTED order with no pickup within the pickup timeout loses its courier. It runs once
+ * Owns every time-based Order rule (ORD-05, ORD-10): an OPEN order past its acceptance deadline
+ * expires, an ACCEPTED order with no pickup within the pickup timeout loses its courier, and a
+ * DELIVERED order past its auto-confirmation time is confirmed. It runs once
  * as soon as the service is ready — so timers that fell due during downtime fire within one
  * interval of restart — and then every interval (at most 60 s, OS-NFR3.1.1).
  *
@@ -97,6 +99,7 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
     const result: SweepResult = {
       expired: 0,
       pickupTimedOut: 0,
+      autoConfirmed: 0,
       skipped: 0,
       creditWaitAlerts: 0,
       adminsAssigned: 0,
@@ -120,6 +123,13 @@ export class LifecycleScheduler implements OnApplicationBootstrap, OnApplication
         if (!order.acceptedAt || new Date(order.acceptedAt) > cutoff) throw new NotDue();
       });
       result[applied ? 'pickupTimedOut' : 'skipped'] += 1;
+    }
+
+    for (const orderId of await this.orders.findAutoConfirmDue(now, limit)) {
+      const applied = await this.fire(orderId, 'AUTO_CONFIRM', now, (order) => {
+        if (!order.autoConfirmAt || new Date(order.autoConfirmAt) > now) throw new NotDue();
+      });
+      result[applied ? 'autoConfirmed' : 'skipped'] += 1;
     }
 
     // Surfaced, never rejected: the reservation may still arrive and open the order.

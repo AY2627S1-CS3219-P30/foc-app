@@ -217,6 +217,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/orders/{orderId}/report-non-delivery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Requester reports an errand not delivered (PICKED_UP → DISPUTED).
+         * @description Only the requester may report, and only from `nonDeliveryReportAt` (pickup plus the delivery
+         *     period, 2 hours by default) on; earlier it is refused with 409 `DELIVERY_PERIOD_NOT_PASSED`.
+         *     The errand is referred to an administrator, and no timer changes it afterwards.
+         */
+        post: operations["reportNonDelivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orders/{orderId}/report-non-receipt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Requester reports a delivered errand not received (DELIVERED → DISPUTED).
+         * @description Instead of confirming, the requester may report the errand not received until
+         *     `autoConfirmAt` (delivery plus the auto-confirmation period, 24 hours by default). From then
+         *     the errand is confirmed automatically and a report is refused with 409
+         *     `AUTO_CONFIRMATION_PASSED`, even before the confirmation is recorded. A reported errand is
+         *     referred to an administrator, and no timer changes it afterwards.
+         */
+        post: operations["reportNonReceipt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/orders/{orderId}/history": {
         parameters: {
             query?: never;
@@ -547,6 +593,19 @@ export interface components {
             requesterId?: string;
             courierId?: string;
             deliveryInstructions?: string;
+            /**
+             * Format: date-time
+             * @description Private, and only while `PICKED_UP`: pickup plus the delivery period. From then the
+             *     requester may report non-delivery.
+             */
+            nonDeliveryReportAt?: string;
+            /**
+             * Format: date-time
+             * @description Private, and only while `DELIVERED`: delivery plus the auto-confirmation period. From
+             *     then the errand is confirmed automatically unless the requester has confirmed or
+             *     reported it.
+             */
+            autoConfirmAt?: string;
             rejection?: {
                 reason: string;
                 available?: number;
@@ -912,9 +971,10 @@ export interface components {
             };
         };
         /**
-         * @description `INVALID_ORDER_STATE` (the order is not in a state that allows this action) or
-         *     `ORDER_CHANGED` (stale expectedVersion). `details` carries the current status and version.
-         *     Nothing changes.
+         * @description `INVALID_ORDER_STATE` (the order is not in a state that allows this action),
+         *     `ORDER_CHANGED` (stale expectedVersion), or for the requester's reports
+         *     `DELIVERY_PERIOD_NOT_PASSED` or `AUTO_CONFIRMATION_PASSED`. `details` carries the current
+         *     status and version. Nothing changes.
          */
         LifecycleConflict: {
             headers: {
@@ -1277,6 +1337,70 @@ export interface operations {
         };
     };
     withdrawFromOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LifecycleCommand"];
+            };
+        };
+        responses: {
+            /** @description The order after the transition, projected for the caller. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Order"];
+                };
+            };
+            400: components["responses"]["InvalidOrderId"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["ActionForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["LifecycleConflict"];
+            422: components["responses"]["InvalidOrder"];
+        };
+    };
+    reportNonDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LifecycleCommand"];
+            };
+        };
+        responses: {
+            /** @description The order after the transition, projected for the caller. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Order"];
+                };
+            };
+            400: components["responses"]["InvalidOrderId"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["ActionForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["LifecycleConflict"];
+            422: components["responses"]["InvalidOrder"];
+        };
+    };
+    reportNonReceipt: {
         parameters: {
             query?: never;
             header?: never;

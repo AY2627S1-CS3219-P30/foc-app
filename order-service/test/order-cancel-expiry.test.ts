@@ -207,6 +207,7 @@ describe('lifecycle scheduler (OS-FR6.1.2, OS-FR6.1.3, OS-NFR3.1)', () => {
     expect(await scheduler(t).sweep()).toEqual({
       expired: 0,
       pickupTimedOut: 0,
+      autoConfirmed: 0,
       skipped: 0,
       creditWaitAlerts: 0,
       adminsAssigned: 0,

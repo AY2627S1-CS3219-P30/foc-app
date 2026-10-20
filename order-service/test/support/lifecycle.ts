@@ -177,7 +177,7 @@ export const released = (
 /** Moves the seeded order's clocks so a timer is due without waiting for it. */
 export async function backdate(
   t: TestApp,
-  column: 'acceptance_deadline_at' | 'accepted_at',
+  column: 'acceptance_deadline_at' | 'accepted_at' | 'non_delivery_report_at' | 'auto_confirm_at',
   msAgo: number,
   orderId = SEEDED_ORDER,
 ): Promise<void> {
@@ -268,7 +268,8 @@ export const sweep = (t: TestApp, batchSize?: number) =>
 
 /**
  * Drives the order to DISPUTED with no administrator yet: from DELIVERED the requester reports
- * non-receipt; from PICKED_UP the courier is suspended. Neither has an endpoint of its own yet.
+ * non-receipt; from PICKED_UP the courier is suspended, which has no endpoint, so both go through
+ * the repository.
  */
 export async function dispute(
   t: TestApp,

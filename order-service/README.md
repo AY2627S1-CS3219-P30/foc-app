@@ -44,7 +44,7 @@ The web app's mock data has only five statuses today (`open`, `accepted`, `in_tr
 | PICKED\_UP | Courier suspended | System | — | DISPUTED | `order.status-changed` |
 | DELIVERED | Confirm receipt | Requester | — | COMPLETION\_PENDING\_CREDIT | `order.completion-requested`, `order.status-changed` |
 | DELIVERED | Auto-confirmation period passes | System | — | COMPLETION\_PENDING\_CREDIT | `order.completion-requested`, `order.status-changed` |
-| DELIVERED | Report non-receipt | Requester | — | DISPUTED | `order.status-changed` |
+| DELIVERED | Report non-receipt | Requester | Auto-confirmation period not passed | DISPUTED | `order.status-changed` |
 | DISPUTED | Referred to an administrator, or referral cleared | System | See *Administrator referral and decision* | DISPUTED (unchanged) | Nothing |
 | DISPUTED | Resolve for courier | Administrator the dispute is referred to | A reason is given; the administrator was never the errand's requester or courier | COMPLETION\_PENDING\_CREDIT | `order.completion-requested`, `order.status-changed` |
 | DISPUTED | Resolve for requester | Administrator the dispute is referred to | A reason is given; the administrator was never the errand's requester or courier | RELEASE\_PENDING\_CREDIT (cancelled) | `order.release-requested`, `order.status-changed` |
@@ -53,14 +53,16 @@ The web app's mock data has only five statuses today (`open`, `accepted`, `in_tr
 | RELEASE\_PENDING\_CREDIT | Release confirmed | Credit Service | Recorded reason is expired | EXPIRED | `order.status-changed` |
 
 # Timers
-The periods come from the D1 backlog and are configurable.
+The periods come from the D1 backlog and are configurable. The delivery and auto-confirmation
+deadlines are saved on the order when their period starts, so a later change to a period does not
+move an existing deadline.
 
 | Timer | Starts when | Length | When it runs out |
 | ----- | ----- | ----- | ----- |
 | Acceptance deadline | The order becomes OPEN | 60 minutes | An OPEN order expires. An ACCEPTED order keeps its courier, but a later withdrawal or pickup timeout expires it instead of reopening it. A courier suspension extends the deadline by the time that courier held the order. |
 | Pickup | A courier accepts | 30 minutes | The courier is removed, handled as a withdrawal. |
 | Delivery | The courier records pickup | 2 hours | The requester may report non-delivery. If the requester is suspended, the order is referred automatically, at the end of the period or at the suspension if the period has already passed. |
-| Auto-confirmation | The courier records delivery | 24 hours | Receipt is confirmed. |
+| Auto-confirmation | The courier records delivery | 24 hours | Receipt is confirmed, unless the requester has already confirmed or reported non-receipt. From then a report of non-receipt is refused. |
 | Credit wait | The order enters PENDING\_CREDIT | 5 minutes | An operator is alerted. The order is not rejected, and still opens if the reservation arrives. |
 
 # Waiting for the Credit Service
@@ -260,6 +262,36 @@ dispute referred to no one yet without them, each with `referredBy` (the action 
 `assignedToMe`. `GET /admin/orders/decisions` shows every administrator the 100 most recent
 decisions: errand, administrator, outcome, reason and time.
 
+### Requester outcomes and auto-confirmation (ORD-10)
+
+`POST /orders/:id/report-non-delivery` and `POST /orders/:id/report-non-receipt` (requester) take
+`{ "expectedVersion" }` and use the same transition path. Both move the errand to `DISPUTED`, where
+the scheduler refers it to an administrator (above).
+
+Recording pickup saves `non_delivery_report_at` (pickup plus `DELIVERY_PERIOD_MS`), and recording
+delivery saves `auto_confirm_at` (delivery plus `AUTO_CONFIRM_MS`), in the same update as the move
+(ADR 0006). Both are set and checked against the database clock, which the scheduler also uses, so
+a report and a timer agree on whether a deadline has passed. The private view returns each one,
+as `nonDeliveryReportAt` while `PICKED_UP` and `autoConfirmAt` while `DELIVERED`, so the requester
+can see when they may report and when silence counts as confirmation. A check constraint refuses a
+picked-up or delivered errand without its deadline, so code that leaves one out fails loudly instead
+of leaving an errand no one can report and no timer confirms.
+
+- A non-delivery report before `non_delivery_report_at` gets `409 DELIVERY_PERIOD_NOT_PASSED`.
+- A non-receipt report is accepted until `auto_confirm_at`. From then the errand counts as
+  confirmed, and a report gets `409 AUTO_CONFIRMATION_PASSED` even before the scheduler has
+  recorded the confirmation.
+- The scheduler confirms each `DELIVERED` errand past `auto_confirm_at` (`AUTO_CONFIRM`), re-checked
+  under the row lock. Like the requester's confirmation, it writes one `order.completion-requested`.
+  Whichever of a confirmation, a report or the timer lands second is refused or skipped, so an
+  errand has one outcome and at most one transfer request.
+- No timer changes a `DISPUTED` errand.
+
+The migration that adds the two columns gives errands already picked up or delivered their
+deadlines from the D1 periods (2 hours and 24 hours), since a migration cannot read the
+environment. On a database holding errands delivered more than 24 hours earlier, the first sweep
+after it confirms them, 100 per run.
+
 ### Recovery and privacy verification (ORD-09)
 
 - **Kill after commit (OS-NFR4.1.1).** Every transition writes its events to the outbox in its own
@@ -353,7 +385,7 @@ stateDiagram-v2
   PICKED_UP --> DISPUTED : Delivery period passes with requester<br/>suspended, or courier suspended (System)
 
   DELIVERED --> COMPLETION_PENDING_CREDIT : Confirm receipt (Requester) or<br/>auto-confirmation period passes (System)
-  DELIVERED --> DISPUTED : Report non-receipt<br/>(Requester)
+  DELIVERED --> DISPUTED : Report non-receipt before<br/>auto-confirmation period (Requester)
 
   DISPUTED --> COMPLETION_PENDING_CREDIT : Resolve for courier, with reason<br/>(Administrator)
   DISPUTED --> RELEASE_PENDING_CREDIT : Resolve for requester, with reason<br/>(Administrator)<br/>reason = cancelled
@@ -412,6 +444,8 @@ Run these from the repository root.
 | `CREDIT_WAIT_TIMEOUT_MS` | `300000` | Age at which a PENDING_CREDIT order is surfaced to an operator |
 | `ACCEPTANCE_WINDOW_MS` | `3600000` | Deadline started when reservation succeeds |
 | `PICKUP_TIMEOUT_MS` | `1800000` | Courier removed if no pickup this long after acceptance |
+| `DELIVERY_PERIOD_MS` | `7200000` | From this long after pickup, the requester may report non-delivery |
+| `AUTO_CONFIRM_MS` | `86400000` | A delivered errand neither confirmed nor reported this long after delivery is confirmed |
 | `LIFECYCLE_SWEEP_INTERVAL_MS` | `10000` | Timer sweep interval; at most `60000` |
 | `CREDIT_SERVICE_URL` | `http://localhost:3004` | Credit status reads for reconciliation |
 | `RECONCILE_INTERVAL_MS` | `60000` | How often reconciliation runs |
@@ -426,7 +460,8 @@ SERVICE_NAME=order-service PORT=3003 \
   DATABASE_URL=$HOST_ORDER_DATABASE_URL \
   SUPPLIER_SERVICE_URL=http://localhost:3002 \
   CREDIT_WAIT_TIMEOUT_MS=300000 ACCEPTANCE_WINDOW_MS=3600000 \
-  PICKUP_TIMEOUT_MS=1800000 LIFECYCLE_SWEEP_INTERVAL_MS=10000 \
+  PICKUP_TIMEOUT_MS=1800000 DELIVERY_PERIOD_MS=7200000 AUTO_CONFIRM_MS=86400000 \
+  LIFECYCLE_SWEEP_INTERVAL_MS=10000 \
   CREDIT_SERVICE_URL=http://localhost:3004 RECONCILE_INTERVAL_MS=60000 RECONCILE_RETRY_MS=300000 \
   npm run dev:order
 curl -i http://localhost:3003/health
@@ -458,4 +493,4 @@ user and declares a `HEALTHCHECK`. `compose.yaml` runs it on port 3003.
 
 ### Next tickets
 
-ORD-06 (#149) suspension handling; ORD-10 delivery disputes and auto-confirmation.
+ORD-06 (#149) suspension handling.

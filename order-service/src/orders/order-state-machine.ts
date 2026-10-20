@@ -47,6 +47,7 @@ export type OrderActor = (typeof ORDER_ACTORS)[number];
 export interface TransitionContext {
   acceptanceDeadlinePassed?: boolean;
   deliveryPeriodPassed?: boolean;
+  autoConfirmationPeriodPassed?: boolean;
   requesterSuspended?: boolean;
   reasonProvided?: boolean;
   releaseReason?: 'CANCELLED' | 'EXPIRED';
@@ -215,6 +216,8 @@ export const ORDER_TRANSITIONS: readonly TransitionRule[] = [
     from: 'DELIVERED',
     action: 'REPORT_NON_RECEIPT',
     actors: ['REQUESTER'],
+    // Once the period has passed the errand is confirmed, even before the scheduler records it.
+    guard: (c) => !c.autoConfirmationPeriodPassed,
     decide: () => ({ to: 'DISPUTED', emitted: statusChanged }),
   },
   {

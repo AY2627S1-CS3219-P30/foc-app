@@ -1,0 +1,2 @@
+ALTER TABLE "orders" ADD CONSTRAINT "orders_picked_up_shape" CHECK ("orders"."status" <> 'PICKED_UP' OR "orders"."non_delivery_report_at" IS NOT NULL);--> statement-breakpoint
+ALTER TABLE "orders" ADD CONSTRAINT "orders_delivered_shape" CHECK ("orders"."status" <> 'DELIVERED' OR "orders"."auto_confirm_at" IS NOT NULL);
