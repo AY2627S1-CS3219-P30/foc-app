@@ -10,7 +10,7 @@ import {
 import { RESOLVE_ACTIONS, SUSPENSION_EFFECTS, type OrderAction } from './order-state-machine.js';
 import { SupplierClient } from './supplier.client.js';
 import type { OpenOrderSummary, OrderReceipt, OrderRow, OrderStatus, OrderView } from './types.js';
-import type { CreateOrderInput, ResolveOrderInput } from './validation.js';
+import type { AccountErrandsQuery, CreateOrderInput, ResolveOrderInput } from './validation.js';
 
 const MY_ERRANDS_LIMIT = 100;
 const SUSPENSION_REASONS = new Set(
@@ -103,6 +103,25 @@ export function projectOrder(
   };
 }
 
+/**
+ * The fields any student may see on an open errand, whatever the status: no participant IDs,
+ * delivery instructions or item notes. What an administrator's view of an account lists.
+ */
+export function publicOrderView(order: OrderRow): OrderView {
+  return {
+    orderId: order.orderId,
+    supplier: order.supplierSnapshot,
+    items: order.items.map(({ name, quantity }) => ({ name, quantity })),
+    deliveryZone: order.deliveryZone,
+    reward: order.reward,
+    status: order.status,
+    version: order.version,
+    acceptanceDeadlineAt: order.acceptanceDeadlineAt,
+    createdAt: order.createdAt,
+    updatedAt: order.updatedAt,
+  };
+}
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -129,6 +148,17 @@ export class OrdersService {
       }),
       truncated: orders.length > MY_ERRANDS_LIMIT,
     };
+  }
+
+  /** An administrator's view of one account's errands (ORD-15): public fields only, paged. */
+  async listByAccount(query: AccountErrandsQuery) {
+    const { requesterId, courierId, page, pageSize } = query;
+    const { rows, total } = await this.orders.listByAccount(
+      { requesterId, courierId },
+      page,
+      pageSize,
+    );
+    return { items: rows.map(publicOrderView), page, pageSize, total };
   }
 
   async getById(orderId: string, caller: AuthContext, privateView = false): Promise<OrderView> {

@@ -349,6 +349,19 @@ describe('order-service honours its published contract', () => {
     contract.assert('get', alerts, await get(alerts, asStranger));
   });
 
+  it("an administrator's view of one account's errands (200, 401, 403, 422)", async () => {
+    const accounts = '/admin/orders';
+    const get = (query: string, auth?: string) =>
+      auth
+        ? http(app).get(`${accounts}?${query}`).set('Authorization', auth)
+        : http(app).get(`${accounts}?${query}`);
+    contract.assert('get', accounts, await get('requesterId=seed-requester', asAdmin));
+    contract.assert('get', accounts, await get('courierId=unrelated-student&page=2', asAdmin));
+    contract.assert('get', accounts, await get('requesterId=seed-requester'));
+    contract.assert('get', accounts, await get('requesterId=seed-requester', asStranger));
+    contract.assert('get', accounts, await get('pageSize=5', asAdmin));
+  });
+
   it('dead letters: find, inspect, redrive (200, 401, 403, 404, 422, 503)', async () => {
     const channel = { ack: () => undefined, nack: () => undefined } as unknown as ConfirmChannel;
     const reply = createEnvelope({

@@ -1,6 +1,6 @@
 # Secret scanning rules for ./scripts-scan-secrets.sh (PLT-06; PL-NFR2.1.1).
 #
-# The default gitleaks rules, less three kinds of value that are not secrets.
+# The default gitleaks rules, less four kinds of value that are not secrets.
 # Each is allowed by what the value is, not by where it sits, so a real
 # credential pasted into a test file is still found.
 title = "foc-app"
@@ -20,3 +20,8 @@ regexes = [
 description = "The token-response example in the User Service contract, and the types generated from it: a truncated sample, not a token."
 regexTarget = "secret"
 regexes = ['''^eyJhbGciOiJFZERTQSJ9\.eyJzdWIiOiIwMTk4YTFjMi''']
+
+[[allowlists]]
+description = "The password the Order Service's REST client file (requests.http, ORD-14) gives the students it registers on a local stack: they exist only on that stack."
+regexTarget = "secret"
+regexes = ['''^Student-Passw0rd-01$''']

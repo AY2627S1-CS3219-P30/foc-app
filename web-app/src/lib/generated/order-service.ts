@@ -286,6 +286,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * An administrator's view of one account's errands (ORD-15).
+         * @description The errands one account requested (`requesterId`), currently holds as courier
+         *     (`courierId`), or both when both are given, in any status, newest first. Public fields only:
+         *     no participant IDs, delivery instructions or item notes, even for an errand referred to the
+         *     caller, whose private details are read through `GET /orders/{orderId}`. A courier who
+         *     withdrew or timed out no longer holds the errand. Administrators only.
+         */
+        get: operations["listAccountOrders"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/orders/reconciliation-attempts": {
         parameters: {
             query?: never;
@@ -856,6 +880,13 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        AccountOrderPage: {
+            page: number;
+            pageSize: number;
+            total: number;
+            /** @description The public projection; the private properties of Order are never present. */
+            items: components["schemas"]["Order"][];
+        };
         DeadLetterPage: {
             page: number;
             pageSize: number;
@@ -936,6 +967,15 @@ export interface components {
         };
         /** @description Invalid fields, inactive/unknown supplier, or conflicting idempotency reuse. */
         InvalidOrder: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description Neither requesterId nor courierId given, an unknown parameter, or a page out of range. */
+        AccountQueryInvalid: {
             headers: {
                 [name: string]: unknown;
             };
@@ -1462,6 +1502,34 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["PrivateForbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listAccountOrders: {
+        parameters: {
+            query?: {
+                requesterId?: string;
+                courierId?: string;
+                page?: number;
+                pageSize?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the account's errands. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountOrderPage"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["AdminOnly"];
+            422: components["responses"]["AccountQueryInvalid"];
         };
     };
     listReconciliationAttempts: {
