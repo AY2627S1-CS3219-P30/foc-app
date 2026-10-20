@@ -15,6 +15,7 @@ import {
   RESERVATION_RESULTS_QUEUE,
   ReservationResultsConsumer,
 } from './reservation-results.consumer.js';
+import { USER_SUSPENSIONS_QUEUE, UserSuspensionsConsumer } from './user-suspensions.consumer.js';
 
 /**
  * Every mutating endpoint must use `@Authenticated()` (or `@AdminOnly()`) from `@foc/auth-client`,
@@ -40,6 +41,8 @@ const eventModules = env.RABBITMQ_URL
           },
           { queue: TRANSFER_RESULTS_QUEUE, routingKeys: [EVENTS.CREDITS_TRANSFERRED] },
           { queue: RELEASE_RESULTS_QUEUE, routingKeys: [EVENTS.CREDITS_RELEASED] },
+          // Durable and shared, unlike the identity-cache queue: each suspension is applied once.
+          { queue: USER_SUSPENSIONS_QUEUE, routingKeys: [EVENTS.USER_SUSPENDED] },
           status.subscription,
         ],
       }),
@@ -82,6 +85,7 @@ const eventModules = env.RABBITMQ_URL
       ? [
           ReservationResultsConsumer,
           CreditTerminalResultsConsumer,
+          UserSuspensionsConsumer,
           provideOutboxRelay({ db: ORDER_DB }),
           ...status.providers,
         ]

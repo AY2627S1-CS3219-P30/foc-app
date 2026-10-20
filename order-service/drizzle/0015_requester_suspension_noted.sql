@@ -1,0 +1,1 @@
+ALTER TABLE "orders" ADD COLUMN "requester_suspended_at" timestamp with time zone;

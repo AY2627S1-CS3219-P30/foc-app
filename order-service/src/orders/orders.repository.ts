@@ -1,18 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import {
-  EVENTS,
-  StaleEventError,
-  UnparseableMessageError,
-  insertOutboxEvent,
-  type Queryable,
-  type Row,
-} from '@foc/platform';
+import { EVENTS, insertOutboxEvent, type Queryable, type Row } from '@foc/platform';
 import { env } from '../config.js';
 import { ORDER_DB, type OrderDatabase } from '../db/db.js';
 import {
   ORDER_TRANSITIONS,
   RESOLVE_ACTIONS,
+  SUSPENSION_EFFECTS,
   decideTransition,
   type OrderAction,
   type OrderActor,
@@ -115,22 +109,6 @@ export interface CreatePendingInput extends CreateOrderInput {
   correlationId: string;
 }
 
-export interface ReservationResultInput {
-  orderId: string;
-  requesterId: string;
-  amount: number;
-  correlationId: string;
-  causationId: string;
-  acceptanceWindowMs: number;
-  outcome:
-    | { kind: 'RESERVED' }
-    | {
-        kind: 'REJECTED';
-        reason: 'INSUFFICIENT_CREDITS' | 'AMOUNT_OUT_OF_RANGE' | 'CONFLICTING_REQUEST';
-        available?: number;
-      };
-}
-
 export class IdempotencyKeyReusedError extends Error {
   constructor() {
     super('Idempotency-Key was reused with a different order request.');
@@ -144,6 +122,25 @@ export class OrdersRepository {
 
   async findById(orderId: string): Promise<OrderRow | undefined> {
     return this.findByIdUsing(this.db, orderId);
+  }
+
+  /** Reads the order under its row lock, held until `tx` ends. */
+  /** The errand version Credit's reservation produced, if one was ever applied (EVT-03). */
+  async reservationAppliedAt(tx: Queryable, orderId: string): Promise<number | undefined> {
+    const { rows } = await tx.query<{ order_version: number } & Row>(
+      `SELECT order_version FROM order_status_history
+        WHERE order_id = $1 AND action = 'CREDIT_RESERVED'`,
+      [orderId],
+    );
+    return rows[0] ? Number(rows[0].order_version) : undefined;
+  }
+
+  async lockById(tx: Queryable, orderId: string): Promise<OrderRow | undefined> {
+    const result = await tx.query<StoredOrder>(
+      `SELECT ${ORDER_COLUMNS} FROM orders WHERE order_id = $1 FOR UPDATE`,
+      [orderId],
+    );
+    return result.rows[0] ? mapOrder(result.rows[0]) : undefined;
   }
 
   private async findByIdUsing(db: Queryable, orderId: string): Promise<OrderRow | undefined> {
@@ -240,6 +237,41 @@ export class OrdersRepository {
       [cutoff.toISOString(), limit],
     );
     return result.rows.map((row) => row.order_id);
+  }
+
+  /**
+   * PICKED_UP orders past their delivery period whose requester's suspension arrived within it
+   * (OS-FR8.2.2). Each is asked about once: it is then referred, or its mark is cleared.
+   */
+  async findDeliveryOverdue(
+    now: Date,
+    limit = 100,
+  ): Promise<Array<{ orderId: string; requesterId: string }>> {
+    const result = await this.db.query<{ order_id: string; requester_id: string } & Row>(
+      `SELECT order_id, requester_id FROM orders
+        WHERE status = 'PICKED_UP' AND requester_suspended_at IS NOT NULL
+          AND non_delivery_report_at <= $1
+        ORDER BY non_delivery_report_at, order_id
+        LIMIT $2`,
+      [now.toISOString(), limit],
+    );
+    return result.rows.map((row) => ({ orderId: row.order_id, requesterId: row.requester_id }));
+  }
+
+  /** Marks a picked-up errand whose requester was suspended within its delivery period. */
+  async noteRequesterSuspended(tx: Queryable, orderId: string): Promise<void> {
+    await tx.query(`UPDATE orders SET requester_suspended_at = now() WHERE order_id = $1`, [
+      orderId,
+    ]);
+  }
+
+  /** Clears the mark once the requester is active again: the errand is theirs to settle. */
+  async clearRequesterSuspended(orderId: string): Promise<void> {
+    await this.db.query(
+      `UPDATE orders SET requester_suspended_at = NULL
+        WHERE order_id = $1 AND status = 'PICKED_UP'`,
+      [orderId],
+    );
   }
 
   /** DELIVERED orders neither confirmed nor reported by their auto-confirmation time (OS-FR4.1.4). */
@@ -603,98 +635,6 @@ export class OrdersRepository {
     });
   }
 
-  async applyReservationResult(tx: Queryable, input: ReservationResultInput): Promise<boolean> {
-    const result = await tx.query<StoredOrder>(
-      `SELECT ${ORDER_COLUMNS}
-         FROM orders
-        WHERE order_id = $1
-        FOR UPDATE`,
-      [input.orderId],
-    );
-    const stored = result.rows[0];
-    if (!stored) throw new UnparseableMessageError('reservation result names an unknown order');
-    const order = mapOrder(stored);
-    if (order.requesterId !== input.requesterId || order.reward !== input.amount) {
-      throw new UnparseableMessageError('reservation result does not match the recorded request');
-    }
-
-    const target = input.outcome.kind === 'RESERVED' ? 'OPEN' : 'REJECTED';
-    if (order.status === target) {
-      if (
-        input.outcome.kind === 'REJECTED' &&
-        (order.rejectionReason !== input.outcome.reason ||
-          order.availableAtRejection !== (input.outcome.available ?? null))
-      ) {
-        throw new UnparseableMessageError(
-          'reservation rejection conflicts with the recorded outcome',
-        );
-      }
-      return false;
-    }
-    if (order.status !== 'PENDING_CREDIT') {
-      // A second copy of a confirmation already applied, arriving after the errand moved on. Credit
-      // sends one by design when a request is sent again, so it is ignored and recorded rather than
-      // set aside for an operator (EI-NFR2.1.1). Anything else contradicts the record.
-      const appliedAt =
-        input.outcome.kind === 'RESERVED' ? await reservedAtVersion(tx, input.orderId) : undefined;
-      if (appliedAt !== undefined) {
-        throw new StaleEventError(
-          `reservation confirmation was applied at version ${appliedAt}; the errand is now ${order.status} at version ${order.version}`,
-        );
-      }
-      throw new UnparseableMessageError(
-        `reservation result cannot move order from ${order.status} to ${target}`,
-      );
-    }
-
-    const nextVersion = order.version + 1;
-    const occurredAt = new Date().toISOString();
-    const deadline =
-      input.outcome.kind === 'RESERVED'
-        ? new Date(Date.now() + input.acceptanceWindowMs).toISOString()
-        : null;
-    const rejectionReason = input.outcome.kind === 'REJECTED' ? input.outcome.reason : null;
-    const available =
-      input.outcome.kind === 'REJECTED' && 'available' in input.outcome
-        ? (input.outcome.available ?? null)
-        : null;
-    await tx.query(
-      `UPDATE orders
-          SET status = $2, rejection_reason = $3, available_at_rejection = $4,
-              acceptance_deadline_at = $5, version = $6, updated_at = $7
-        WHERE order_id = $1`,
-      [input.orderId, target, rejectionReason, available, deadline, nextVersion, occurredAt],
-    );
-    await tx.query(
-      `INSERT INTO order_status_history
-         (history_id, order_id, previous_status, new_status, action, actor_type, actor_id,
-          order_version, occurred_at)
-       VALUES ($1, $2, 'PENDING_CREDIT', $3, $4, 'CREDIT_SERVICE', 'credit-service', $5, $6)`,
-      [
-        randomUUID(),
-        input.orderId,
-        target,
-        input.outcome.kind === 'RESERVED' ? 'CREDIT_RESERVED' : 'CREDIT_REJECTED',
-        nextVersion,
-        occurredAt,
-      ],
-    );
-    await insertOutboxEvent(tx, {
-      eventType: EVENTS.ORDER_STATUS_CHANGED,
-      aggregateId: input.orderId,
-      correlationId: input.correlationId,
-      causationId: input.causationId,
-      payload: {
-        orderId: input.orderId,
-        previousStatus: 'PENDING_CREDIT',
-        newStatus: target,
-        occurredAt,
-        orderVersion: nextVersion,
-      },
-    });
-    return true;
-  }
-
   async accept(
     orderId: string,
     courierId: string,
@@ -741,6 +681,32 @@ export class OrdersRepository {
       });
       return { accepted: true, order };
     });
+  }
+
+  /**
+   * Locks every errand a suspension can change, as requester or as courier, in the statuses
+   * `SUSPENSION_EFFECTS` lists. Locked in `order_id` order, so two suspensions handled at once (the
+   * requester and the courier of one errand) wait for each other rather than deadlock.
+   *
+   * A requester's errand still in PENDING_CREDIT is locked too, though no suspension rule moves
+   * it: the reservation reply holds the same lock while it asks the User Service, so whichever of
+   * the two runs second sees what the first did, and a suspension cannot slip between the reply's
+   * question and its answer.
+   */
+  async lockActiveErrandsOf(tx: Queryable, userId: string): Promise<OrderRow[]> {
+    const result = await tx.query<StoredOrder>(
+      `SELECT ${ORDER_COLUMNS} FROM orders
+        WHERE (requester_id = $1 AND status = ANY($2::text[]))
+           OR (courier_id = $1 AND status = ANY($3::text[]))
+        ORDER BY order_id
+        FOR UPDATE`,
+      [
+        userId,
+        ['PENDING_CREDIT', ...Object.keys(SUSPENSION_EFFECTS.REQUESTER.actions)],
+        Object.keys(SUSPENSION_EFFECTS.COURIER.actions),
+      ],
+    );
+    return result.rows.map(mapOrder);
   }
 
   /** Whether any errand is in dispute, so a run with none never asks the User Service. */
@@ -902,6 +868,7 @@ export class OrdersRepository {
         order.autoConfirmAt !== null && new Date(order.autoConfirmAt) <= now,
       releaseReason: order.releaseReason ?? undefined,
       reasonProvided: (command.reason?.trim() ?? '') !== '',
+      requesterSuspended: command.requesterSuspended,
     };
 
     const decision = decideTransition(order.status, command.action, actor, context);
@@ -926,7 +893,7 @@ export class OrdersRepository {
       version: order.version + 1,
       updated_at: occurredAt,
       ...(decision.releaseReason ? { release_reason: decision.releaseReason } : {}),
-      ...timestampPatch(command.action, decision, occurredAt),
+      ...timestampPatch(command.action, decision, occurredAt, order),
       ...(command.patch ?? {}),
     };
     const columns = Object.keys(patch);
@@ -1052,6 +1019,8 @@ export interface TransitionCommand {
   patch?: Record<string, unknown>;
   /** Why, recorded on the history row; an administrator's decision requires one. */
   reason?: string;
+  /** What the User Service said about the requester, for the rules that depend on it. */
+  requesterSuspended?: boolean;
   /** Extra writes in the same transaction, after the history row. */
   afterApply?: (tx: Queryable, order: OrderRow) => Promise<void>;
 }
@@ -1093,15 +1062,27 @@ function timestampPatch(
   action: OrderAction,
   decision: TransitionDecision,
   at: string,
+  order: OrderRow,
 ): Record<string, unknown> {
   // A withdrawing or timed-out courier loses the errand (and with it, private access to it).
-  const courierRemoved =
-    action === 'WITHDRAW' || action === 'PICKUP_TIMEOUT'
-      ? { courier_id: null, accepted_at: null }
-      : {};
+  const noCourier = { courier_id: null, accepted_at: null };
+  const courierRemoved = action === 'WITHDRAW' || action === 'PICKUP_TIMEOUT' ? noCourier : {};
+  // So does a suspended one, and the requester gets back the time that courier held the errand.
+  if (action === 'COURIER_SUSPENDED' && decision.to === 'OPEN') {
+    return {
+      ...noCourier,
+      acceptance_deadline_at: later(
+        order.acceptanceDeadlineAt!,
+        Date.parse(at) - Date.parse(order.acceptedAt!),
+      ),
+    };
+  }
   // Each deadline is saved when its period starts, so a later change to the period cannot move it.
   if (action === 'RECORD_PICKUP') {
     return { picked_up_at: at, non_delivery_report_at: later(at, env.DELIVERY_PERIOD_MS) };
+  }
+  if (action === 'CREDIT_RESERVED' && decision.to === 'OPEN') {
+    return { acceptance_deadline_at: later(at, env.ACCEPTANCE_WINDOW_MS) };
   }
   if (action === 'RECORD_DELIVERY') {
     return { delivered_at: at, auto_confirm_at: later(at, env.AUTO_CONFIRM_MS) };
@@ -1167,14 +1148,4 @@ function creditRequest(order: OrderRow) {
     return emittedEvent(EVENTS.CREDIT_RELEASE_REQUESTED, order, order, order.updatedAt);
   }
   throw new Error(`order in ${order.status} is not waiting on a Credit request`);
-}
-
-/** The errand version at which Credit's reservation was applied, if it ever was. */
-async function reservedAtVersion(tx: Queryable, orderId: string): Promise<number | undefined> {
-  const { rows } = await tx.query<{ order_version: number }>(
-    `SELECT order_version FROM order_status_history
-      WHERE order_id = $1 AND action = 'CREDIT_RESERVED'`,
-    [orderId],
-  );
-  return rows[0] ? Number(rows[0].order_version) : undefined;
 }

@@ -42,6 +42,11 @@ export const orders = pgTable(
     nonDeliveryReportAt: timestamp('non_delivery_report_at', { withTimezone: true }),
     /** Delivery plus the confirmation period: from then the errand confirms itself. */
     autoConfirmAt: timestamp('auto_confirm_at', { withTimezone: true }),
+    /**
+     * When a suspension of the requester arrived while the errand was within its delivery period.
+     * The scheduler asks about the requester again once the period ends, and only then.
+     */
+    requesterSuspendedAt: timestamp('requester_suspended_at', { withTimezone: true }),
     completionRequestedAt: timestamp('completion_requested_at', { withTimezone: true }),
     completedAt: timestamp('completed_at', { withTimezone: true }),
     releaseRequestedAt: timestamp('release_requested_at', { withTimezone: true }),

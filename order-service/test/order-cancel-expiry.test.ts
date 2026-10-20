@@ -208,6 +208,7 @@ describe('lifecycle scheduler (OS-FR6.1.2, OS-FR6.1.3, OS-NFR3.1)', () => {
       expired: 0,
       pickupTimedOut: 0,
       autoConfirmed: 0,
+      undeliveredReferred: 0,
       skipped: 0,
       creditWaitAlerts: 0,
       adminsAssigned: 0,
