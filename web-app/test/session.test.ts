@@ -139,6 +139,28 @@ describe("an expired access token", () => {
   });
 });
 
+describe("a user action (PLT-04)", () => {
+  it("sends its correlation ID with the refresh it needed, and with the retried call", async () => {
+    const seen: string[] = [];
+    const { api } = fakeService({
+      "POST /auth/refresh": ({ correlationId }) => {
+        seen.push(`refresh ${correlationId}`);
+        return issued("t1");
+      },
+      "GET /users/me": ({ token, correlationId }) => {
+        seen.push(`me ${correlationId}`);
+        return token === "t1" ? me() : unauthenticated();
+      },
+    });
+    const { session } = tab(api);
+    session.signedIn("t0", "u1");
+
+    await session.authed((t) => api.me(t, "action-1"), "action-1");
+
+    expect(seen).toEqual(["me action-1", "refresh action-1", "me action-1"]);
+  });
+});
+
 describe("a 401 that is not about the token", () => {
   it.each(["STEP_UP_REQUIRED", "INVALID_CREDENTIALS"])(
     "(%s) reaches the caller without a refresh or a replay",
@@ -160,28 +182,6 @@ describe("a 401 that is not about the token", () => {
       expect(ended).toEqual([]);
     },
   );
-});
-
-describe("a user action (PLT-04)", () => {
-  it("sends its correlation ID with the refresh it needed, and with the retried call", async () => {
-    const seen: string[] = [];
-    const { api } = fakeService({
-      "POST /auth/refresh": ({ correlationId }) => {
-        seen.push(`refresh ${correlationId}`);
-        return issued("t1");
-      },
-      "GET /users/me": ({ token, correlationId }) => {
-        seen.push(`me ${correlationId}`);
-        return token === "t1" ? me() : unauthenticated();
-      },
-    });
-    const { session } = tab(api);
-    session.signedIn("t0", "u1");
-
-    await session.authed((t) => api.me(t, "action-1"), "action-1");
-
-    expect(seen).toEqual(["me action-1", "refresh action-1", "me action-1"]);
-  });
 });
 
 describe("a refresh the service refuses", () => {

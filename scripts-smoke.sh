@@ -21,6 +21,10 @@ PROMETHEUS="http://localhost:${PROMETHEUS_PORT:-9090}"
 GRAFANA="http://localhost:${GRAFANA_PORT:-3005}"
 DEADLINE="${SMOKE_DEADLINE_SECONDS:-90}"
 
+# A probe whose request fails records a FAIL and the run carries on: under `set -e`
+# a failed command substitution would otherwise exit silently, so each probe
+# below ends in `|| true` or `|| echo …`. The one deliberate exit is above: a
+# stack that never became healthy has nothing to probe.
 pass() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; FAILURES=$((FAILURES + 1)); }
 FAILURES=0
@@ -111,7 +115,7 @@ for pair in "user-service:$USER_PORT" "supplier-service:$SUPPLIER_PORT" \
   port="${pair##*:}"
   allow=$(curl -fsS -o /dev/null -D - "http://localhost:${port}/health" \
     -H "Origin: http://localhost:${WEB_PORT}" 2>/dev/null |
-    tr -d '\r' | awk 'tolower($1)=="access-control-allow-origin:"{print $2}')
+    tr -d '\r' | awk 'tolower($1)=="access-control-allow-origin:"{print $2}') || true
   if [[ "$allow" == "http://localhost:${WEB_PORT}" ]]; then
     pass "$name allows the web app origin"
   else
@@ -122,7 +126,7 @@ done
 # ---- correlation id is echoed so one request can be traced ------------------
 echoed=$(curl -fsS -o /dev/null -D - "http://localhost:${USER_PORT}/health" \
   -H 'x-correlation-id: smoke-probe' 2>/dev/null |
-  tr -d '\r' | awk 'tolower($1)=="x-correlation-id:"{print $2}')
+  tr -d '\r' | awk 'tolower($1)=="x-correlation-id:"{print $2}') || true
 [[ "$echoed" == "smoke-probe" ]] &&
   pass "correlation id echoed" ||
   fail "correlation id was '${echoed:-missing}'"
@@ -165,6 +169,68 @@ for queue in foc.credit.wallet-provisioning foc.credit.reservations foc.credit.c
     fail "$queue dead-letter queue missing"
   fi
 done
+
+# ---- an activation reaches the Credit Service --------------------------------
+# The queues above can exist with nothing flowing through them. This signs up a
+# throwaway student, activates them through the dev mailbox, and waits for the
+# wallet the Credit Service issues on `user.activated`: User Service, outbox
+# relay, broker and Credit Service, end to end.
+#
+# Each step is checked where it happens, so a broken registration, mailbox or
+# sign-in is reported as that, not as a wallet that never arrived.
+SMOKE_EMAIL="smoke-$(date +%s)-$RANDOM@u.nus.edu"
+SMOKE_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')
+# What a new student is issued: INITIAL_CREDIT_ALLOCATION in credit-service/src/credits/types.ts.
+# Set SMOKE_INITIAL_CREDITS when checking a build that changes it.
+INITIAL_CREDITS="${SMOKE_INITIAL_CREDITS:-10}"
+json_field() { python3 -c "import sys,json; print(json.load(sys.stdin).get('$1', ''))" 2>/dev/null || true; }
+# POSTs JSON to the User Service and prints the HTTP status; the body goes to the file named in $3.
+post_json() { # path json body-file [extra curl arguments...]
+  local path=$1 json=$2 out=$3
+  shift 3
+  curl -s -o "$out" -w '%{http_code}' -X POST "http://localhost:${USER_PORT}${path}" \
+    -H 'content-type: application/json' "$@" -d "$json" 2>/dev/null || true
+}
+wallet_step=""
+response=$(mktemp)
+
+registered=$(post_json /auth/register "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"$SMOKE_PASSWORD\",\"displayName\":\"Smoke test\"}" "$response")
+[[ "$registered" == 2* ]] || wallet_step="registering returned ${registered:-no answer}"
+
+activation_token=""
+if [[ -z "$wallet_step" ]]; then
+  activation_token=$(curl -fsS "http://localhost:${USER_PORT}/dev/mailbox?to=$SMOKE_EMAIL" 2>/dev/null | json_field token) || true
+  # The dev mailbox exists only outside production. A stack this script can check is not in
+  # production, so no token means the mailbox or the registration is broken: a failure, not a skip.
+  [[ -n "$activation_token" ]] || wallet_step="the dev mailbox gave no activation token (is NODE_ENV production?)"
+fi
+if [[ -z "$wallet_step" ]]; then
+  activated=$(post_json /auth/activate "{\"token\":\"$activation_token\"}" "$response" -H 'x-correlation-id: smoke-wallet')
+  [[ "$activated" == 2* ]] || wallet_step="activating returned ${activated:-no answer}"
+fi
+access_token=""
+if [[ -z "$wallet_step" ]]; then
+  signed_in=$(post_json /auth/login "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"$SMOKE_PASSWORD\"}" "$response" -H "Origin: http://localhost:${WEB_PORT}")
+  access_token=$(json_field accessToken <"$response")
+  [[ "$signed_in" == 2* && -n "$access_token" ]] || wallet_step="signing in returned ${signed_in:-no answer}"
+fi
+rm -f "$response"
+
+if [[ -n "$wallet_step" ]]; then
+  fail "activation → wallet: $wallet_step"
+else
+  # The wallet arrives by event, so it is waited for: as long as the stack was given to start.
+  available=""
+  for _ in $(seq 1 "$((DEADLINE * 2))"); do
+    available=$(curl -fsS "http://localhost:${CREDIT_PORT}/wallets/me" -H "Authorization: Bearer $access_token" \
+      2>/dev/null | json_field available) || true
+    [[ "$available" == "$INITIAL_CREDITS" ]] && break
+    sleep 0.5
+  done
+  [[ "$available" == "$INITIAL_CREDITS" ]] &&
+    pass "an activation issues a ${INITIAL_CREDITS}-credit wallet" ||
+    fail "no ${INITIAL_CREDITS}-credit wallet ${DEADLINE}s after activation (last available: '${available:-none}')"
+fi
 
 # ---- the web app serves ------------------------------------------------------
 code=$(curl -fsS -o /dev/null -w '%{http_code}' "http://localhost:${WEB_PORT}/" 2>/dev/null || echo 000)
