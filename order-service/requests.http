@@ -1,0 +1,293 @@
+# Order Service — end-to-end request script (ORD-14, D3 Part 1.3)
+#
+# One errand from creation to the courier's payment, a second one cancelled, and the refusals in
+# between: accepting your own errand, an unrelated student acting, a stale version, and confirming
+# twice. Works with the VS Code "REST Client" and the IntelliJ HTTP Client (both read `# @name` and
+# `{{name.response.body.field}}`).
+#
+# Prerequisites: bring the stack up first, from the repo root:
+#     docker compose up --build
+#   user-service → :3001, supplier-service → :3002, order-service → :3003, credit-service → :3004.
+#
+# Run the requests in order: each block reuses tokens and IDs from the ones before. Three students are
+# registered and activated here through the dev mailbox: a requester, a courier, and a bystander
+# with no part in the errand. Re-running against the same database gets 409 on register; reset the
+# database (`docker compose down -v`) or change the three emails.
+#
+# Two steps wait on the Credit Service, which answers by message: a new student's wallet (10 credits)
+# and an errand's reservation. If a step says "status OPEN" and you see PENDING_CREDIT, send it
+# again after a moment.
+
+@userBase = http://localhost:3001
+@orderBase = http://localhost:3003
+@creditBase = http://localhost:3004
+
+@password = Student-Passw0rd-01
+@requesterEmail = ord14.requester@u.nus.edu
+@courierEmail = ord14.courier@u.nus.edu
+@bystanderEmail = ord14.bystander@u.nus.edu
+
+# "Cafe+ Robot Cafe", Central Library: a seeded supplier. Seeded IDs are stable across fresh stacks.
+@supplierId = 2c6eb5e4-037e-525a-bebe-063fe1fcabe4
+
+# ─────────────────────────────────────────────────────────────
+# 1 · Three students
+# ─────────────────────────────────────────────────────────────
+
+### 1a · Register the requester — expect 201
+POST {{userBase}}/auth/register
+Content-Type: application/json
+
+{ "email": "{{requesterEmail}}", "password": "{{password}}", "displayName": "ORD-14 Requester" }
+
+### 1b · Read the requester's activation token from the dev mailbox
+# @name requesterMail
+GET {{userBase}}/dev/mailbox?to={{requesterEmail}}
+
+### 1c · Activate the requester — expect 200
+POST {{userBase}}/auth/activate
+Content-Type: application/json
+
+{ "token": "{{requesterMail.response.body.token}}" }
+
+### 1d · Requester login — expect 200
+# @name requesterLogin
+POST {{userBase}}/auth/login
+Content-Type: application/json
+
+{ "email": "{{requesterEmail}}", "password": "{{password}}" }
+
+###
+@requester = {{requesterLogin.response.body.accessToken}}
+
+### 1e · Register the courier — expect 201
+POST {{userBase}}/auth/register
+Content-Type: application/json
+
+{ "email": "{{courierEmail}}", "password": "{{password}}", "displayName": "ORD-14 Courier" }
+
+### 1f · Read the courier's activation token
+# @name courierMail
+GET {{userBase}}/dev/mailbox?to={{courierEmail}}
+
+### 1g · Activate the courier — expect 200
+POST {{userBase}}/auth/activate
+Content-Type: application/json
+
+{ "token": "{{courierMail.response.body.token}}" }
+
+### 1h · Courier login — expect 200
+# @name courierLogin
+POST {{userBase}}/auth/login
+Content-Type: application/json
+
+{ "email": "{{courierEmail}}", "password": "{{password}}" }
+
+###
+@courier = {{courierLogin.response.body.accessToken}}
+
+### 1i · Register the bystander — expect 201
+POST {{userBase}}/auth/register
+Content-Type: application/json
+
+{ "email": "{{bystanderEmail}}", "password": "{{password}}", "displayName": "ORD-14 Bystander" }
+
+### 1j · Read the bystander's activation token
+# @name bystanderMail
+GET {{userBase}}/dev/mailbox?to={{bystanderEmail}}
+
+### 1k · Activate the bystander — expect 200
+POST {{userBase}}/auth/activate
+Content-Type: application/json
+
+{ "token": "{{bystanderMail.response.body.token}}" }
+
+### 1l · Bystander login — expect 200
+# @name bystanderLogin
+POST {{userBase}}/auth/login
+Content-Type: application/json
+
+{ "email": "{{bystanderEmail}}", "password": "{{password}}" }
+
+###
+@bystander = {{bystanderLogin.response.body.accessToken}}
+
+### 1m · The requester's wallet: 10 credits on activation — expect 200, available 10
+GET {{creditBase}}/wallets/me
+Authorization: Bearer {{requester}}
+
+### 1n · The courier's wallet — expect 200, available 10
+GET {{creditBase}}/wallets/me
+Authorization: Bearer {{courier}}
+
+# ─────────────────────────────────────────────────────────────
+# 2 · Create an errand and find it
+# ─────────────────────────────────────────────────────────────
+
+### 2a · The requester posts an errand with a 2-credit reward — expect 201, status PENDING_CREDIT
+# @name createErrand
+POST {{orderBase}}/orders
+Authorization: Bearer {{requester}}
+Content-Type: application/json
+Idempotency-Key: ord14-errand-1
+
+{
+  "supplierId": "{{supplierId}}",
+  "items": [{ "name": "Iced latte", "quantity": 1, "note": "Oat milk, less ice" }],
+  "deliveryZone": "COM2 Level 1",
+  "deliveryInstructions": "Leave it on the bench outside SR1 and message me",
+  "reward": 2
+}
+
+###
+@errand = {{createErrand.response.body.orderId}}
+
+### 2b · The requester's private view, once Credit has reserved the reward — expect 200, status OPEN
+# Version 2. The requester's wallet now shows 8 available and 2 reserved.
+GET {{orderBase}}/orders/{{errand}}?view=private
+Authorization: Bearer {{requester}}
+
+### 2c · Couriers list open errands: public fields only, no instructions or item notes — expect 200
+GET {{orderBase}}/orders
+Authorization: Bearer {{courier}}
+
+### 2d · The same errand to a courier who has not accepted it: the public view — expect 200
+GET {{orderBase}}/orders/{{errand}}
+Authorization: Bearer {{courier}}
+
+### 2e · Refused: the requester accepts their own errand — expect 403, code SELF_ACCEPTANCE_FORBIDDEN
+POST {{orderBase}}/orders/{{errand}}/accept
+Authorization: Bearer {{requester}}
+Content-Type: application/json
+
+{ "expectedVersion": 2 }
+
+# ─────────────────────────────────────────────────────────────
+# 3 · Deliver it
+# ─────────────────────────────────────────────────────────────
+
+### 3a · The courier accepts, sending the version they saw — expect 201, status ACCEPTED
+POST {{orderBase}}/orders/{{errand}}/accept
+Authorization: Bearer {{courier}}
+Content-Type: application/json
+
+{ "expectedVersion": 2 }
+
+### 3b · Refused: the bystander accepts too late — expect 409, code ORDER_NOT_OPEN
+POST {{orderBase}}/orders/{{errand}}/accept
+Authorization: Bearer {{bystander}}
+Content-Type: application/json
+
+{ "expectedVersion": 2 }
+
+### 3c · Refused: the bystander, who has no part in it, records pickup — expect 403, code ACTION_FORBIDDEN
+POST {{orderBase}}/orders/{{errand}}/pickup
+Authorization: Bearer {{bystander}}
+Content-Type: application/json
+
+{ "expectedVersion": 3 }
+
+### 3d · The courier records pickup — expect 200, status PICKED_UP
+POST {{orderBase}}/orders/{{errand}}/pickup
+Authorization: Bearer {{courier}}
+Content-Type: application/json
+
+{ "expectedVersion": 3 }
+
+### 3e · Refused: the courier records delivery with a stale version — expect 409, code ORDER_CHANGED
+# The error carries the current status and version (PICKED_UP, 4) to retry with.
+POST {{orderBase}}/orders/{{errand}}/deliver
+Authorization: Bearer {{courier}}
+Content-Type: application/json
+
+{ "expectedVersion": 3 }
+
+### 3f · The courier records delivery — expect 200, status DELIVERED
+POST {{orderBase}}/orders/{{errand}}/deliver
+Authorization: Bearer {{courier}}
+Content-Type: application/json
+
+{ "expectedVersion": 4 }
+
+### 3g · The requester confirms receipt — expect 200, status COMPLETION_PENDING_CREDIT
+POST {{orderBase}}/orders/{{errand}}/confirm-receipt
+Authorization: Bearer {{requester}}
+Content-Type: application/json
+
+{ "expectedVersion": 5 }
+
+### 3h · Refused: the requester confirms again — expect 409, code INVALID_ORDER_STATE
+# Nothing is requested a second time, so the courier is paid once.
+POST {{orderBase}}/orders/{{errand}}/confirm-receipt
+Authorization: Bearer {{requester}}
+Content-Type: application/json
+
+{ "expectedVersion": 6 }
+
+### 3i · Once Credit has transferred the reward — expect 200, status COMPLETED
+GET {{orderBase}}/orders/{{errand}}?view=private
+Authorization: Bearer {{requester}}
+
+### 3j · The receipt — expect 200
+GET {{orderBase}}/orders/{{errand}}/receipt
+Authorization: Bearer {{requester}}
+
+### 3k · Every change, in order, with who made it — expect 200
+GET {{orderBase}}/orders/{{errand}}/history
+Authorization: Bearer {{requester}}
+
+### 3l · The courier was paid: 10 + 2 — expect 200, available 12
+GET {{creditBase}}/wallets/me
+Authorization: Bearer {{courier}}
+
+# ─────────────────────────────────────────────────────────────
+# 4 · Cancel a second errand
+# ─────────────────────────────────────────────────────────────
+
+### 4a · The requester posts another errand — expect 201, status PENDING_CREDIT
+# @name secondErrand
+POST {{orderBase}}/orders
+Authorization: Bearer {{requester}}
+Content-Type: application/json
+Idempotency-Key: ord14-errand-2
+
+{
+  "supplierId": "{{supplierId}}",
+  "items": [{ "name": "Croissant", "quantity": 2 }],
+  "deliveryZone": "COM2 Level 1",
+  "deliveryInstructions": "Same bench as before",
+  "reward": 3
+}
+
+###
+@second = {{secondErrand.response.body.orderId}}
+
+### 4b · Once the reward is reserved — expect 200, status OPEN
+GET {{orderBase}}/orders/{{second}}?view=private
+Authorization: Bearer {{requester}}
+
+### 4c · Refused: the courier cancels someone else's errand — expect 403, code ACTION_FORBIDDEN
+POST {{orderBase}}/orders/{{second}}/cancel
+Authorization: Bearer {{courier}}
+Content-Type: application/json
+
+{ "expectedVersion": 2 }
+
+### 4d · The requester cancels — expect 200, status RELEASE_PENDING_CREDIT
+POST {{orderBase}}/orders/{{second}}/cancel
+Authorization: Bearer {{requester}}
+Content-Type: application/json
+
+{ "expectedVersion": 2 }
+
+### 4e · Once Credit has returned the reward — expect 200, status CANCELLED
+GET {{orderBase}}/orders/{{second}}?view=private
+Authorization: Bearer {{requester}}
+
+### 4f · The requester paid 2 for the first errand and got the second's 3 back — expect 200, available 8
+GET {{creditBase}}/wallets/me
+Authorization: Bearer {{requester}}
+
+### 4g · Both errands, with the requester's role on each — expect 200
+GET {{orderBase}}/orders/mine
+Authorization: Bearer {{requester}}

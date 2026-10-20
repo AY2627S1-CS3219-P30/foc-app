@@ -21,36 +21,41 @@ The web app's mock data has only five statuses today (`open`, `accepted`, `in_tr
 # Transition Table
 **Guard** is what must also be true, beyond the order being in the From state and the actor being allowed. If a guard fails, the order does not change and the caller is refused. Every student and administrator action also needs an active account: a suspended caller is refused before any guard is checked. A reply from the Credit Service is acted on only if it names the same order and amount the request did.
 
+**Credit** is what happens to the reward. The Order Service only asks; the Credit Service moves the credits and replies, and until it does the reward stays reserved from the requester's available credits (see *Waiting for the Credit Service*).
+
 **Emits** is what the transition sends, written to the outbox in the same transaction (see *Sending and receiving safely*). Every status change sends `order.status-changed`; naming or clearing a dispute's administrator keeps the status and sends nothing. A transition into a `*_PENDING_CREDIT` state also sends the request that state waits for.
 
-| From | Trigger | Actor | Guard | To | Emits |
-| ----- | ----- | ----- | ----- | ----- | ----- |
-| PENDING\_CREDIT | Reward reserved | Credit Service | Requester not suspended | OPEN | `order.status-changed` |
-| PENDING\_CREDIT | Reward reserved | Credit Service | Requester suspended while waiting | RELEASE\_PENDING\_CREDIT (cancelled) | `order.release-requested`, `order.status-changed` |
-| PENDING\_CREDIT | Reservation rejected | Credit Service | — | REJECTED | `order.status-changed` |
-| OPEN | Accept | Student | Actor is not the requester; acceptance deadline not passed | ACCEPTED | `order.status-changed` |
-| OPEN | Cancel | Requester | — | RELEASE\_PENDING\_CREDIT (cancelled) | `order.release-requested`, `order.status-changed` |
-| OPEN | Requester suspended | System | — | RELEASE\_PENDING\_CREDIT (cancelled) | `order.release-requested`, `order.status-changed` |
-| OPEN | Acceptance deadline passes | System | — | RELEASE\_PENDING\_CREDIT (expired) | `order.release-requested`, `order.status-changed` |
-| ACCEPTED | Record pickup | Assigned courier | — | PICKED\_UP | `order.status-changed` |
-| ACCEPTED | Cancel | Requester | — | RELEASE\_PENDING\_CREDIT (cancelled) | `order.release-requested`, `order.status-changed` |
-| ACCEPTED | Requester suspended | System | — | RELEASE\_PENDING\_CREDIT (cancelled) | `order.release-requested`, `order.status-changed` |
-| ACCEPTED | Withdraw or pickup timeout | Assigned courier (withdraw) or System | Acceptance deadline not passed | OPEN | `order.status-changed` |
-| ACCEPTED | Withdraw or pickup timeout | Assigned courier (withdraw) or System | Acceptance deadline passed | RELEASE\_PENDING\_CREDIT (expired) | `order.release-requested`, `order.status-changed` |
-| ACCEPTED | Courier suspended | System | — | OPEN, with the courier removed and the acceptance deadline extended by the time they held the order | `order.status-changed` |
-| PICKED\_UP | Record delivery | Assigned courier | — | DELIVERED | `order.status-changed` |
-| PICKED\_UP | Report non-delivery | Requester | Delivery period since pickup has passed | DISPUTED | `order.status-changed` |
-| PICKED\_UP | Delivery period passes, or requester suspended | System | Requester suspended and delivery period passed | DISPUTED | `order.status-changed` |
-| PICKED\_UP | Courier suspended | System | — | DISPUTED | `order.status-changed` |
-| DELIVERED | Confirm receipt | Requester | — | COMPLETION\_PENDING\_CREDIT | `order.completion-requested`, `order.status-changed` |
-| DELIVERED | Auto-confirmation period passes | System | — | COMPLETION\_PENDING\_CREDIT | `order.completion-requested`, `order.status-changed` |
-| DELIVERED | Report non-receipt | Requester | Auto-confirmation period not passed | DISPUTED | `order.status-changed` |
-| DISPUTED | Referred to an administrator, or referral cleared | System | See *Administrator referral and decision* | DISPUTED (unchanged) | Nothing |
-| DISPUTED | Resolve for courier | Administrator the dispute is referred to | A reason is given; the administrator was never the errand's requester or courier | COMPLETION\_PENDING\_CREDIT | `order.completion-requested`, `order.status-changed` |
-| DISPUTED | Resolve for requester | Administrator the dispute is referred to | A reason is given; the administrator was never the errand's requester or courier | RELEASE\_PENDING\_CREDIT (cancelled) | `order.release-requested`, `order.status-changed` |
-| COMPLETION\_PENDING\_CREDIT | Transfer confirmed | Credit Service | — | COMPLETED | `order.status-changed` |
-| RELEASE\_PENDING\_CREDIT | Release confirmed | Credit Service | Recorded reason is cancelled | CANCELLED | `order.status-changed` |
-| RELEASE\_PENDING\_CREDIT | Release confirmed | Credit Service | Recorded reason is expired | EXPIRED | `order.status-changed` |
+**Refused with** is the error when that row's guard fails. Any command is also refused, with nothing changed, when it does not fit the errand: `404 NOT_FOUND` if the caller may not see it, `403 ACTION_FORBIDDEN` if the caller may never take that action on it, `409 INVALID_ORDER_STATE` if it is in another state, and `409 ORDER_CHANGED` if the `expectedVersion` sent is not the current one. Each 403 and 409 carries the current status and version. Credit Service replies and timers are never refused: a reply that does not match its request is set aside for an operator, and a timer that finds the errand already moved on does nothing.
+
+| From | Trigger | Actor | Guard | To | Credit | Emits | Refused with |
+| ----- | ----- | ----- | ----- | ----- | ----- | ----- | ----- |
+| — | Create | Student | Supplier exists and is active; the request is valid | PENDING\_CREDIT | Reservation requested | `order.reservation-requested`, `order.status-changed` | 422 `VALIDATION_FAILED`; 422 `INVALID_SUPPLIER`; 400 `IDEMPOTENCY_KEY_REQUIRED`; 422 `IDEMPOTENCY_KEY_REUSED`; 503 `SUPPLIER_SERVICE_UNAVAILABLE` |
+| PENDING\_CREDIT | Reward reserved | Credit Service | Requester not suspended | OPEN | Reserved | `order.status-changed` | — |
+| PENDING\_CREDIT | Reward reserved | Credit Service | Requester suspended while waiting | RELEASE\_PENDING\_CREDIT (cancelled) | Reserved, then release requested | `order.release-requested`, `order.status-changed` | — |
+| PENDING\_CREDIT | Reservation rejected | Credit Service | — | REJECTED | None; nothing was reserved | `order.status-changed` | — |
+| OPEN | Accept | Student | Actor is not the requester; acceptance deadline not passed | ACCEPTED | None; stays reserved | `order.status-changed` | 403 `SELF_ACCEPTANCE_FORBIDDEN`; 409 `ACCEPTANCE_DEADLINE_PASSED`; 409 `ORDER_NOT_OPEN` once taken or closed |
+| OPEN | Cancel | Requester | — | RELEASE\_PENDING\_CREDIT (cancelled) | Release requested | `order.release-requested`, `order.status-changed` | — |
+| OPEN | Requester suspended | System | — | RELEASE\_PENDING\_CREDIT (cancelled) | Release requested | `order.release-requested`, `order.status-changed` | — |
+| OPEN | Acceptance deadline passes | System | — | RELEASE\_PENDING\_CREDIT (expired) | Release requested | `order.release-requested`, `order.status-changed` | — |
+| ACCEPTED | Record pickup | Assigned courier | — | PICKED\_UP | None; stays reserved | `order.status-changed` | — |
+| ACCEPTED | Cancel | Requester | — | RELEASE\_PENDING\_CREDIT (cancelled) | Release requested | `order.release-requested`, `order.status-changed` | — |
+| ACCEPTED | Requester suspended | System | — | RELEASE\_PENDING\_CREDIT (cancelled) | Release requested | `order.release-requested`, `order.status-changed` | — |
+| ACCEPTED | Withdraw or pickup timeout | Assigned courier (withdraw) or System | Acceptance deadline not passed | OPEN | None; stays reserved | `order.status-changed` | — |
+| ACCEPTED | Withdraw or pickup timeout | Assigned courier (withdraw) or System | Acceptance deadline passed | RELEASE\_PENDING\_CREDIT (expired) | Release requested | `order.release-requested`, `order.status-changed` | — |
+| ACCEPTED | Courier suspended | System | — | OPEN, with the courier removed and the acceptance deadline extended by the time they held the order | None; stays reserved | `order.status-changed` | — |
+| PICKED\_UP | Record delivery | Assigned courier | — | DELIVERED | None; stays reserved | `order.status-changed` | — |
+| PICKED\_UP | Report non-delivery | Requester | Delivery period since pickup has passed | DISPUTED | None; stays reserved | `order.status-changed` | 409 `DELIVERY_PERIOD_NOT_PASSED` |
+| PICKED\_UP | Delivery period passes, or requester suspended | System | Requester suspended and delivery period passed | DISPUTED | None; stays reserved | `order.status-changed` | — |
+| PICKED\_UP | Courier suspended | System | — | DISPUTED | None; stays reserved | `order.status-changed` | — |
+| DELIVERED | Confirm receipt | Requester | — | COMPLETION\_PENDING\_CREDIT | Transfer to the courier requested | `order.completion-requested`, `order.status-changed` | — |
+| DELIVERED | Auto-confirmation period passes | System | — | COMPLETION\_PENDING\_CREDIT | Transfer to the courier requested | `order.completion-requested`, `order.status-changed` | — |
+| DELIVERED | Report non-receipt | Requester | Auto-confirmation period not passed | DISPUTED | None; stays reserved | `order.status-changed` | 409 `AUTO_CONFIRMATION_PASSED` |
+| DISPUTED | Referred to an administrator, or referral cleared | System | See *Administrator referral and decision* | DISPUTED (unchanged) | None; stays reserved | Nothing | — |
+| DISPUTED | Resolve for courier | Administrator the dispute is referred to | A reason is given; the administrator was never the errand's requester or courier | COMPLETION\_PENDING\_CREDIT | Transfer to the courier requested | `order.completion-requested`, `order.status-changed` | 422 `VALIDATION_FAILED`; 403 `CONFLICT_OF_INTEREST`; 403 `NOT_REFERRED_ADMIN` |
+| DISPUTED | Resolve for requester | Administrator the dispute is referred to | A reason is given; the administrator was never the errand's requester or courier | RELEASE\_PENDING\_CREDIT (cancelled) | Release requested | `order.release-requested`, `order.status-changed` | 422 `VALIDATION_FAILED`; 403 `CONFLICT_OF_INTEREST`; 403 `NOT_REFERRED_ADMIN` |
+| COMPLETION\_PENDING\_CREDIT | Transfer confirmed | Credit Service | — | COMPLETED | Transferred: the courier's available credits rise by the reward | `order.status-changed` | — |
+| RELEASE\_PENDING\_CREDIT | Release confirmed | Credit Service | Recorded reason is cancelled | CANCELLED | Released: back to the requester's available credits | `order.status-changed` | — |
+| RELEASE\_PENDING\_CREDIT | Release confirmed | Credit Service | Recorded reason is expired | EXPIRED | Released: back to the requester's available credits | `order.status-changed` | — |
 
 # Timers
 The periods come from the D1 backlog and are configurable. The delivery and auto-confirmation
@@ -72,6 +77,20 @@ While an order is in any `*_PENDING_CREDIT` state, no participant action, admini
 - **Transfers and releases do not fail as a business outcome.** The credits are already reserved, so a transfer or release has no reason to be refused. A missing reply leaves the order pending for retry or support handling (D1 OS-FR5.1.2); reconciliation (ORD-09) re-sends the same request, which the Credit Service applies at most once.
 - **Messages that cannot be processed** are retried five times and then dead-lettered for an operator. They are never dropped.
 - **The release reason** (cancelled or expired) is kept on the order. The Credit Service does not need it and does not send it back.
+
+# Races and corner cases
+Each case has a test. The `*.postgres.test.ts` ones run against a real PostgreSQL database in CI, since the in-memory database used elsewhere runs one transaction at a time.
+
+| Case | What happens | Test |
+| ----- | ----- | ----- |
+| Many couriers accept at once | One conditional update wins. The errand becomes ACCEPTED once, and every other courier gets `409 ORDER_NOT_OPEN`. | `test/order-acceptance.postgres.test.ts` |
+| Acceptance races the acceptance deadline | The errand is accepted or expires, never both: one history row, and a release only if it expired. | `test/order-expiry.postgres.test.ts` |
+| Acceptance races the requester's cancellation | Whichever commits first wins. If an acceptance wins, the cancellation, sent with the open errand's version, gets `409 ORDER_CHANGED` with the new status and version; the requester can still cancel the accepted errand by sending that version. If the cancellation wins, every acceptance gets `409 ORDER_NOT_OPEN` and no courier is assigned. Either way one release is requested at most. | `test/order-acceptance.postgres.test.ts` |
+| Receipt confirmed twice | The first confirmation moves the errand to COMPLETION\_PENDING\_CREDIT and requests one transfer. A second one, sent at the same time or later, gets `409 INVALID_ORDER_STATE` and requests nothing, so the courier is paid once. | `test/order-completion.postgres.test.ts` |
+| The requester's report, their confirmation and auto-confirmation land together | One outcome: one history row, and one transfer request only if the errand was confirmed, by the requester or the timer. The others are refused or skipped. | `test/order-outcomes.postgres.test.ts` |
+| A reservation reply races the requester's suspension | The errand is never left open. Either the reply finds the requester suspended and cancels it, or it opens the errand and the suspension, waiting on the row lock, cancels it. One release is requested either way. | `test/participant-suspension.postgres.test.ts` |
+| A supplier is renamed, moved or deactivated after an errand is posted | The errand keeps the copy of the supplier taken at creation, in its details and in the open list, and its receipt copies the same snapshot. Reading an errand never asks the Supplier Service again. A new errand for the deactivated supplier gets `422 INVALID_SUPPLIER`. | `test/order-creation.test.ts` |
+| One student as requester and courier at once | Allowed. A student with an open errand of their own can accept, pick up and deliver another student's; `GET /orders/mine` lists both, with `myRole` `REQUESTER` and `COURIER`. They still cannot accept their own (`403 SELF_ACCEPTANCE_FORBIDDEN`). | `test/my-errands.test.ts` |
 
 # Services it talks to
 
@@ -114,6 +133,8 @@ instance has a private queue that drops cached identities on any status or role 
 - **`orderVersion`.** Every `order.status-changed` carries the errand's version after the change. Nothing in this service reads it: it is for a future consumer of that event, which keeps the highest version it has applied and ignores anything at or below it ([ADR 0009](../docs/adr/0009-messaging-rabbitmq-events-and-ordering.md)).
 
 ## Persistence and projections
+
+Why PostgreSQL, and every table and column: [`docs/order-service/schema.md`](../docs/order-service/schema.md).
 
 The generated migration under `order-service/drizzle/` creates the Order-owned `orders`,
 `order_status_history`, `order_idempotency_keys`, `processed_events`, and `outbox_events` tables.
@@ -516,6 +537,10 @@ Run these from the repository root.
 | `npm test -w @foc/order-service`          | Run PGlite tests and, with `TEST_POSTGRES_URL`, the real-PostgreSQL race, recovery and SIGKILL suites on ephemeral databases (docs/testing.md) |
 | `npm run typecheck -w @foc/order-service` | Type-check without emitting   |
 | `npm run lint`                            | Lint every service            |
+
+To try the API by hand, bring the stack up with `docker compose up --build` and send
+[`requests.http`](requests.http) top to bottom (VS Code REST Client or the IntelliJ HTTP Client): one
+errand from creation to payment, one cancelled, and the refused cases between.
 
 ### Required environment
 
