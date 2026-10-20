@@ -607,6 +607,7 @@ export class OrdersRepository {
           previousStatus: null,
           newStatus: 'PENDING_CREDIT',
           occurredAt,
+          orderVersion: 1,
         },
       });
       await fault?.('status-outbox-written');
@@ -665,6 +666,7 @@ export class OrdersRepository {
           previousStatus: 'OPEN',
           newStatus: 'ACCEPTED',
           occurredAt,
+          orderVersion: order.version,
         },
       });
       return { accepted: true, order };
@@ -1093,6 +1095,7 @@ function emittedEvent(eventType: string, before: OrderRow, after: OrderRow, occu
         previousStatus: before.status,
         newStatus: after.status,
         occurredAt,
+        orderVersion: after.version,
       },
     };
   }

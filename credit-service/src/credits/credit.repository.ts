@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   EVENTS,
+  PredecessorMissingError,
   creditsReleasedPayload,
   creditsTransferredPayload,
   insertOutboxEvent,
@@ -70,14 +71,19 @@ type StatusOperationRow = Row & {
   occurred_at: Date | string | null;
 };
 
-export class WalletNotReadyError extends Error {
+/**
+ * Both are steps that arrived before the one they depend on (EI-NFR2.1.2). The consumer counts
+ * each attempt, retries, and sets the step aside for review if the earlier one never arrives;
+ * nothing here guesses the missing outcome.
+ */
+export class WalletNotReadyError extends PredecessorMissingError {
   constructor(readonly userId: string) {
     super(`Wallet for ${userId} does not exist yet.`);
     this.name = 'WalletNotReadyError';
   }
 }
 
-export class ReservationNotReadyError extends Error {
+export class ReservationNotReadyError extends PredecessorMissingError {
   constructor(readonly orderId: string) {
     super(`Reservation for ${orderId} is not ready yet.`);
     this.name = 'ReservationNotReadyError';

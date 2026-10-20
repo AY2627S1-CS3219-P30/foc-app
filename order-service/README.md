@@ -110,6 +110,8 @@ instance has a private queue that drops cached identities on any status or role 
 - **Sending.** A transition that sends a message writes it to this service's outbox table in the same database transaction as the status change. Nothing calls the publisher directly. The shared relay from EVT-02 (#135) publishes each row after commit, so a crash between saving and sending delays the message but never loses it. The outbox table arrives with the first order migration (ORD-01, ORD-02).
 - **Receiving.** Each received message's id is recorded in the same transaction as the transition it causes, so a redelivered reply changes nothing (EVT-02).
 - **Suspensions.** The User Service writes each suspension to its outbox and the shared relay publishes it. This service handles it once per message through the inbox, as above. Without a broker (running locally outside Compose), suspensions do not reach errands; a suspended user is still refused on every request.
+- **A reply that arrives late (EVT-03).** Credit answers a re-sent request with its recorded result under a new event id, so a second `credit.reserved` can arrive after the errand has moved on. If the errand has changed since that confirmation was applied, the copy is acknowledged, logged and counted (`foc_events_stale_total`), and changes nothing; a copy that arrives while the errand is still where the confirmation left it (`OPEN`, or cancelled for a suspended requester) is a plain repeat. A second rejection for an errand that is already `REJECTED` is likewise a repeat. A reply that contradicts the record, such as a rejection for an errand that was reserved and accepted, is set aside as a dead letter for an operator.
+- **`orderVersion`.** Every `order.status-changed` carries the errand's version after the change. Nothing in this service reads it: it is for a future consumer of that event, which keeps the highest version it has applied and ignores anything at or below it ([ADR 0009](../docs/adr/0009-messaging-rabbitmq-events-and-ordering.md)).
 
 ## Persistence and projections
 
@@ -530,8 +532,9 @@ A missing required variable stops the service at boot and names the variable.
 Nothing falls back to an insecure default.
 
 ```bash
+set -a; . ./.env; set +a   # the stack's addresses and logins, from your .env
 SERVICE_NAME=order-service PORT=3003 \
-  DATABASE_URL=postgres://order_service:order_service_dev@localhost:55432/foc_order \
+  DATABASE_URL=$HOST_ORDER_DATABASE_URL \
   SUPPLIER_SERVICE_URL=http://localhost:3002 \
   CREDIT_WAIT_TIMEOUT_MS=300000 ACCEPTANCE_WINDOW_MS=3600000 \
   PICKUP_TIMEOUT_MS=1800000 DELIVERY_PERIOD_MS=7200000 AUTO_CONFIRM_MS=86400000 \
@@ -544,8 +547,7 @@ curl -i http://localhost:3003/health
 Apply the same generated migrations used by Compose with:
 
 ```bash
-DATABASE_URL=postgres://order_service:order_service_dev@localhost:55432/foc_order \
-  npm run db:migrate -w @foc/order-service
+DATABASE_URL=$HOST_ORDER_DATABASE_URL npm run db:migrate -w @foc/order-service
 ```
 
 ### What you get from `@foc/platform`

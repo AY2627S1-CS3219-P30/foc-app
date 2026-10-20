@@ -544,6 +544,21 @@ export interface components {
             service: "order-service";
             version: string;
             uptimeSeconds: number;
+            /** @description Each dependency the service asks on every call. `database` is mandatory: while it is down the answer is 503. `broker` is not: the outbox holds events until it is back. */
+            dependencies?: {
+                [key: string]: "up" | "down";
+            };
+        };
+        HealthUnavailable: {
+            /** @constant */
+            status: "unavailable";
+            /** @constant */
+            service: "order-service";
+            version: string;
+            uptimeSeconds: number;
+            dependencies?: {
+                [key: string]: "up" | "down";
+            };
         };
         SupplierSnapshot: {
             /** Format: uuid */
@@ -1044,6 +1059,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+            /** @description A dependency the service cannot work without (its database) is unavailable. It answers 200 again as soon as the dependency is back, with no restart (PL-NFR3.1.2). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthUnavailable"];
                 };
             };
         };

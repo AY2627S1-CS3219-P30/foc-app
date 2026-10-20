@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BrokerConnection } from './connection.js';
 import { EventConsumer } from './consumer.js';
 import { EventPublisher } from './publisher.js';
+import { UnroutableEventError } from './envelope.js';
 import { EVENTS, userActivatedPayload } from './catalogue.js';
 import { EXCHANGE, HEADER_FAILURE, deadLetterQueueName } from './topology.js';
 
@@ -11,7 +12,7 @@ import { EXCHANGE, HEADER_FAILURE, deadLetterQueueName } from './topology.js';
  * on a laptop without the stack up still passes:
  *
  *   docker compose up -d rabbitmq
- *   RABBITMQ_URL=amqp://foc:foc_dev@localhost:55672 npm test -w @foc/platform
+ *   set -a; . ./.env; set +a; RABBITMQ_URL=$HOST_RABBITMQ_URL npm test -w @foc/platform
  */
 const URL = process.env.RABBITMQ_URL;
 const suite = URL ? describe : describe.skip;
@@ -19,6 +20,12 @@ const suite = URL ? describe : describe.skip;
 // A unique prefix per run, so a re-run never inherits a previous run's messages.
 const RUN = Math.random().toString(36).slice(2, 8);
 const QUEUE = `foc.test-${RUN}.activation`;
+
+/** A publisher for event types that exist only in this suite, each with the activation payload. */
+const testPublisher = (b: BrokerConnection, ...eventTypes: string[]) =>
+  new EventPublisher(b, 'test', {
+    schemas: Object.fromEntries(eventTypes.map((type) => [type, userActivatedPayload])),
+  });
 
 const waitFor = async <T>(fn: () => T | undefined, ms = 8000): Promise<T> => {
   const deadline = Date.now() + ms;
@@ -125,7 +132,7 @@ suite('broker integration', () => {
         if (ctx.attempt < 2) throw new Error('dependency not ready');
       },
     });
-    await new EventPublisher(b, 'test').publish({
+    await testPublisher(b, 'test.retry').publish({
       eventType: 'test.retry',
       schemaVersion: 1,
       aggregateId: 'a-1',
@@ -216,7 +223,7 @@ suite('broker integration', () => {
       payloadSchema: userActivatedPayload,
       handler: (_e, ctx) => void seenB.push(ctx.attempt),
     });
-    await new EventPublisher(b, 'test').publish({
+    await testPublisher(b, key).publish({
       eventType: key,
       schemaVersion: 1,
       aggregateId: 'a-1',
@@ -257,7 +264,7 @@ suite('broker integration', () => {
     await waitFor(() => (b.isConnected() ? undefined : true)); // it noticed ...
     await waitFor(() => (b.isConnected() ? true : undefined)); // ... and came back
 
-    await new EventPublisher(b, 'test').publish({
+    await testPublisher(b, 'test.recover').publish({
       eventType: 'test.recover',
       schemaVersion: 1,
       aggregateId: 'a-2',
@@ -282,4 +289,48 @@ suite('broker integration', () => {
     });
     expect(Date.now() - started).toBeLessThan(1000);
   }, 15_000);
+  it('refuses to lose an event that needs a consumer while no queue is bound, then delivers it', async () => {
+    const type = `test.unrouted-${RUN}`;
+    const queue = `foc.test-${RUN}.unrouted`;
+    // A producer on a broker where nothing has ever bound a queue to this event.
+    const producerSide = new BrokerConnection(URL as string, `test-${RUN}-unrouted-producer`, []);
+    await producerSide.connect();
+    const publisher = new EventPublisher(producerSide, 'test', {
+      schemas: { [type]: userActivatedPayload },
+      requiresConsumer: new Set([type]),
+    });
+    const event = {
+      eventType: type,
+      schemaVersion: 1,
+      aggregateId: 'u-unrouted',
+      correlationId: 'unrouted-trace',
+      payload: { userId: 'u-unrouted', activatedAt: new Date().toISOString() },
+    };
+
+    await expect(publisher.publish(event)).rejects.toBeInstanceOf(UnroutableEventError);
+
+    // Its consumer starts and declares the queue; the same publish now arrives.
+    const consumerSide = new BrokerConnection(
+      URL as string,
+      `test-${RUN}-unrouted`,
+      [{ queue, routingKeys: [type] }],
+      [60, 60],
+    );
+    await consumerSide.connect();
+    let seen: string | undefined;
+    await new EventConsumer(consumerSide).subscribe({
+      queue,
+      eventType: type,
+      payloadSchema: userActivatedPayload,
+      handler: (envelope) => {
+        seen = envelope.eventId;
+      },
+    });
+    const sent = await publisher.publish(event);
+    expect(await waitFor(() => seen)).toBe(sent.eventId);
+
+    await producerSide.close();
+    await consumerSide.close();
+    await deleteQueues([queue]);
+  }, 25_000);
 });
