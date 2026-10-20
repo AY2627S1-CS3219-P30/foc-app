@@ -125,6 +125,16 @@ export class OrdersRepository {
   }
 
   /** Reads the order under its row lock, held until `tx` ends. */
+  /** The errand version Credit's reservation produced, if one was ever applied (EVT-03). */
+  async reservationAppliedAt(tx: Queryable, orderId: string): Promise<number | undefined> {
+    const { rows } = await tx.query<{ order_version: number } & Row>(
+      `SELECT order_version FROM order_status_history
+        WHERE order_id = $1 AND action = 'CREDIT_RESERVED'`,
+      [orderId],
+    );
+    return rows[0] ? Number(rows[0].order_version) : undefined;
+  }
+
   async lockById(tx: Queryable, orderId: string): Promise<OrderRow | undefined> {
     const result = await tx.query<StoredOrder>(
       `SELECT ${ORDER_COLUMNS} FROM orders WHERE order_id = $1 FOR UPDATE`,
