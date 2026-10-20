@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState, type FormEvent } from "react";
+import { flushSync } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/Button";
 import { CreditSlider } from "@/components/CreditSlider";
@@ -11,6 +12,7 @@ import { ResponsiveShell } from "@/components/ResponsiveShell";
 import { ErrorState, LoadingState } from "@/components/States";
 import { SupplierUnavailable } from "@/components/SupplierPicker";
 import { Textarea } from "@/components/Textarea";
+import { useAuth } from "@/lib/auth";
 import {
   pickupLabel,
   resumeDraft,
@@ -28,21 +30,25 @@ import styles from "../composer.module.css";
 const MAX_ITEMS = 50;
 
 /** Mounted once the supplier has loaded, so the stored draft is only read in the browser. */
-function DetailsForm({ supplier }: { supplier: Supplier }) {
+function DetailsForm({ userId, supplier }: { userId: string; supplier: Supplier }) {
   const router = useRouter();
-  const [draft, setDraft] = useState(() => resumeDraft(supplier.supplierId));
-  const [errors, setErrors] = useState<DraftErrors>({});
+  const [draft, setDraft] = useState(() => resumeDraft(userId, supplier.supplierId));
+  const [errors, setErrors] = useState<DraftErrors>(draft.errors ?? {});
 
   const update = (changes: Partial<Draft>) => setDraft((d) => ({ ...d, ...changes }));
   const updateItem = (index: number, changes: Partial<DraftItem>) =>
     update({ items: draft.items.map((item, i) => (i === index ? { ...item, ...changes } : item)) });
 
-  function review(event: FormEvent) {
+  function review(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const form = event.currentTarget;
     const found = validateDraft(draft);
-    setErrors(found);
-    if (Object.keys(found).length) return;
-    saveDraft(draft);
+    if (Object.keys(found).length) {
+      flushSync(() => setErrors(found));
+      form.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+      return;
+    }
+    saveDraft(userId, { ...draft, errors: undefined });
     router.push(`/request/new/review?supplierId=${supplier.supplierId}`);
   }
 
@@ -54,14 +60,14 @@ function DetailsForm({ supplier }: { supplier: Supplier }) {
         {draft.items.map((item, i) => (
           <fieldset key={i} className={styles.item}>
             <legend>Item {i + 1}</legend>
-            <Field label="Name" required>
+            <Field label="Name" error={errors[`items.${i}.name`]} required>
               <Input
                 maxLength={200}
                 value={item.name}
                 onChange={(e) => updateItem(i, { name: e.target.value })}
               />
             </Field>
-            <Field label="Quantity" required>
+            <Field label="Quantity" error={errors[`items.${i}.quantity`]} required>
               <Input
                 type="number"
                 inputMode="numeric"
@@ -71,7 +77,11 @@ function DetailsForm({ supplier }: { supplier: Supplier }) {
                 onChange={(e) => updateItem(i, { quantity: Number(e.target.value) })}
               />
             </Field>
-            <Field label="Note" hint="Optional, like a size or an order number.">
+            <Field
+              label="Note"
+              hint="Optional, like a size or an order number."
+              error={errors[`items.${i}.note`]}
+            >
               <Input
                 maxLength={500}
                 value={item.note}
@@ -124,7 +134,11 @@ function DetailsForm({ supplier }: { supplier: Supplier }) {
           onChange={(e) => update({ deliveryInstructions: e.target.value })}
         />
       </Field>
-      <CreditSlider value={draft.reward} onChange={(reward) => update({ reward })} />
+      <CreditSlider
+        value={draft.reward}
+        onChange={(reward) => update({ reward })}
+        error={errors.reward}
+      />
       <div className={styles.actions}>
         <Button type="button" variant="outline" onClick={() => router.push("/request/new")}>
           Change pickup point
@@ -137,6 +151,7 @@ function DetailsForm({ supplier }: { supplier: Supplier }) {
 
 function Details() {
   const router = useRouter();
+  const { user } = useAuth();
   const [lookup, retry] = useSupplier(useSearchParams().get("supplierId"));
 
   return lookup.status === "loading" ? (
@@ -148,7 +163,7 @@ function Details() {
       {lookup.message}
     </ErrorState>
   ) : (
-    <DetailsForm supplier={lookup.supplier} />
+    user && <DetailsForm userId={user.id} supplier={lookup.supplier} />
   );
 }
 

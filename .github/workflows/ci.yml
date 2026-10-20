@@ -335,17 +335,22 @@ jobs:
         run: docker compose -p foc-it down -v
 
   # ---------------------------------------------------------------------------
-  # The account journey (USR-05) in a real browser against the real stack:
-  # keyboard only, at 360, 768 and 1440 px, with an axe scan of every screen.
-  # A copy of the stack of its own, so the smoke job's teardown cannot race it.
+  # The browser journeys in a real browser against the real stack, at 360, 768
+  # and 1440 px: the account journey (USR-05), keyboard only with an axe scan of
+  # every screen, and the request journey (WEB-01) through the Supplier, Order and
+  # Credit Services. A copy of the stack of its own, so the smoke job's teardown
+  # cannot race it.
   # ---------------------------------------------------------------------------
   e2e:
-    name: Account journey (Playwright)
+    name: Browser journeys (Playwright)
     needs: detect
     if: >-
       needs.detect.outputs.web == 'true' ||
       needs.detect.outputs.stack == 'true' ||
-      contains(needs.detect.outputs.services, 'user-service')
+      contains(needs.detect.outputs.services, 'user-service') ||
+      contains(needs.detect.outputs.services, 'supplier-service') ||
+      contains(needs.detect.outputs.services, 'order-service') ||
+      contains(needs.detect.outputs.services, 'credit-service')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -379,7 +384,7 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         working-directory: web-app
         run: bunx playwright install-deps chromium
-      - name: Run the account journey
+      - name: Run the browser journeys
         working-directory: web-app
         run: bun run e2e
       - name: Container logs

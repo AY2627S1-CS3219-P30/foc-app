@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock, setSystemTime } from 'bun:test';
 import { Window } from 'happy-dom';
-import type { Draft } from '../src/lib/composer';
+import { toCreateOrder, type Draft } from '../src/lib/composer';
 import type { Order } from '../src/lib/order-api';
 
 const window = new Window();
@@ -13,7 +13,10 @@ Object.assign(globalThis, {
 const { act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 
-const auth = { authed: <T,>(call: (token: string) => Promise<T>) => call('test-token') };
+const auth = {
+  authed: <T,>(call: (token: string) => Promise<T>) => call('test-token'),
+  user: { id: 'me' },
+};
 const router = { push: mock((href: string) => void href), replace: mock((href: string) => void href) };
 let search = new URLSearchParams();
 mock.module('../src/lib/auth', () => ({ useAuth: () => auth }));
@@ -21,6 +24,7 @@ mock.module('../src/components/ResponsiveShell', () => ({
   ResponsiveShell: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 mock.module('next/navigation', () => ({ useRouter: () => router, useSearchParams: () => search }));
+const { default: DetailsPage } = await import('../src/app/(app)/request/new/details/page');
 const { default: ReviewPage } = await import('../src/app/(app)/request/new/review/page');
 const { OrderDetail } = await import('../src/app/(app)/request/[id]/OrderDetail');
 const { SUPPLIER_UNAVAILABLE } = await import('../src/components/SupplierPicker');
@@ -147,10 +151,12 @@ const button = (scope: ParentNode, text: string) => {
   if (!found) throw new Error(`No "${text}" button`);
   return found;
 };
-const savedDraft = () => JSON.parse(sessionStorage.getItem('foc.request-draft') ?? 'null');
+const DRAFT_KEY = 'foc.request-draft:me';
+const saveDraft = (draft: Draft) => sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+const savedDraft = () => JSON.parse(sessionStorage.getItem(DRAFT_KEY) ?? 'null');
 
 describe('review and submit', () => {
-  beforeEach(() => sessionStorage.setItem('foc.request-draft', JSON.stringify(DRAFT)));
+  beforeEach(() => saveDraft(DRAFT));
 
   it('shows the supplier, items, zone, open period, reward and both balances', async () => {
     const container = await render(<ReviewPage />, fakeServices({ available: 10 }));
@@ -202,6 +208,63 @@ describe('review and submit', () => {
     expect(router.replace).toHaveBeenCalledWith(`/request/${ORDER_ID}`);
   });
 
+  it('finds the errand an earlier version posted when its response was lost and the details changed', async () => {
+    saveDraft({ ...DRAFT, reward: 4, sentBody: toCreateOrder(DRAFT) });
+    const services = fakeServices();
+    const answers = [
+      failure(422, 'IDEMPOTENCY_KEY_REUSED', 'This Idempotency-Key was already used.'),
+      json(200, order()),
+    ];
+    services.answer = () => answers.shift()!;
+    const container = await render(<ReviewPage />, services);
+
+    await act(async () => button(container, 'Post request').click());
+    await flush();
+    expect(services.posts).toEqual([
+      { key: 'draft-key', body: expect.objectContaining({ reward: 4 }) },
+      { key: 'draft-key', body: expect.objectContaining({ reward: 3 }) },
+    ]);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("weren't applied");
+    expect(savedDraft()).toBeNull();
+
+    await act(async () => button(container, 'View request').click());
+    expect(router.replace).toHaveBeenCalledWith(`/request/${ORDER_ID}`);
+  });
+
+  it('remembers the body it sent, so a later edit can still find that errand', async () => {
+    const services = fakeServices();
+    services.answer = () => failure(503, 'SUPPLIER_SERVICE_UNAVAILABLE', 'down');
+    const container = await render(<ReviewPage />, services);
+
+    await act(async () => button(container, 'Post request').click());
+    await flush();
+    expect(savedDraft()?.sentBody).toEqual(services.posts[0]!.body);
+  });
+
+  it('takes the service\'s field errors back to the details form', async () => {
+    const services = fakeServices();
+    services.answer = () =>
+      json(422, {
+        error: {
+          code: 'VALIDATION_FAILED',
+          message: 'The order request is invalid.',
+          correlationId: 'test',
+          details: [{ field: 'items.0.name', code: 'too_small', message: 'Name the item.' }],
+        },
+      });
+    const review = await render(<ReviewPage />, services);
+    await act(async () => button(review, 'Post request').click());
+    await flush();
+    expect(review.textContent).toContain('Item 1: Name the item.');
+
+    const details = await render(<DetailsPage />, services);
+    const name = details.querySelector('input')!;
+    expect(name.getAttribute('aria-invalid')).toBe('true');
+    expect(details.querySelector(`#${name.getAttribute('aria-describedby')}`)?.textContent).toBe(
+      'Name the item.',
+    );
+  });
+
   it('blocks a student with no credits and points them to courier work', async () => {
     const container = await render(<ReviewPage />, fakeServices({ available: 0 }));
     expect(button(container, 'Post request').disabled).toBe(true);
@@ -225,6 +288,17 @@ describe('review and submit', () => {
     expect(container.textContent).toContain(SUPPLIER_UNAVAILABLE);
     await act(async () => button(container, 'Back to pickup points').click());
     expect(router.push).toHaveBeenCalledWith('/request/new');
+  });
+});
+
+describe('details', () => {
+  it('marks the invalid fields and focuses the first one when review fails', async () => {
+    const container = await render(<DetailsPage />, fakeServices());
+    await act(async () => button(container, 'Review request').click());
+    const name = container.querySelector('input')!;
+    expect(name.getAttribute('aria-invalid')).toBe('true');
+    expect(window.document.activeElement).toBe(name as unknown as Element);
+    expect(router.push).not.toHaveBeenCalled();
   });
 });
 

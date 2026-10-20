@@ -58,7 +58,7 @@ export default function EditRequestPage({ params }: { params: Promise<{ id: stri
       <Field label="Title" required>
         <Input value={title} onChange={(e) => setTitle(e.target.value)} />
       </Field>
-      <CreditSlider value={credits} onChange={setCredits} />
+      <CreditSlider value={credits} onChange={setCredits} max={30} />
       <Field label="Description">
         <Textarea value={description} onChange={(e) => setDescription(e.target.value)} />
       </Field>

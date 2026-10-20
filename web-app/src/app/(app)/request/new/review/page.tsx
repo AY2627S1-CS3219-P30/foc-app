@@ -12,25 +12,35 @@ import {
   OPEN_PERIOD_MINUTES,
   clearDraft,
   creditShortfall,
+  itemsError,
   itemsLabel,
+  keyReused,
   loadDraft,
   pickupLabel,
   projectedBalance,
+  saveDraft,
   submitFailure,
   toCreateOrder,
   type Draft,
-  type DraftField,
   type SubmitFailure,
 } from "@/lib/composer";
 import { STUDENT_NAV } from "@/lib/nav";
-import { createOrder, getMyWallet, type Wallet } from "@/lib/order-api";
+import { createOrder, getMyWallet, type CreateOrder, type Wallet } from "@/lib/order-api";
 import type { Supplier } from "@/lib/supplier-api";
 import { useSupplier } from "@/lib/use-supplier";
 import styles from "../composer.module.css";
 
 const credits = (n: number) => `${n} ${n === 1 ? "credit" : "credits"}`;
 
-function Summary({ supplier, draft }: { supplier: Supplier; draft: Draft }) {
+function Summary({
+  userId,
+  supplier,
+  draft,
+}: {
+  userId: string;
+  supplier: Supplier;
+  draft: Draft;
+}) {
   const router = useRouter();
   const { authed } = useAuth();
   const [wallet, setWallet] = useState<Wallet | null>(null);
@@ -38,8 +48,10 @@ function Summary({ supplier, draft }: { supplier: Supplier; draft: Draft }) {
   const [walletRevision, setWalletRevision] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [failure, setFailure] = useState<SubmitFailure | null>(null);
+  const [alreadyPosted, setAlreadyPosted] = useState<string | null>(null);
   const inflight = useRef(false);
   const order = toCreateOrder(draft);
+  const sentBody = draft.sentBody ?? order;
   const detailsHref = `/request/new/details?supplierId=${supplier.supplierId}`;
 
   useEffect(() => {
@@ -58,13 +70,24 @@ function Summary({ supplier, draft }: { supplier: Supplier; draft: Draft }) {
     inflight.current = true;
     setSubmitting(true);
     setFailure(null);
+    saveDraft(userId, { ...draft, sentBody });
+    const post = (body: CreateOrder) =>
+      authed((token) => createOrder(token, body, draft.idempotencyKey));
     try {
-      const created = await authed((token) => createOrder(token, order, draft.idempotencyKey));
-      clearDraft();
-      router.replace(`/request/${created.orderId}`);
+      // A lost response can leave an earlier version under this key; replaying it finds that errand.
+      const [created, replayed] = await post(order).then(
+        (created) => [created, false] as const,
+        async (err: unknown) => {
+          if (!keyReused(err)) throw err;
+          return [await post(sentBody), true] as const;
+        },
+      );
+      clearDraft(userId);
+      if (replayed) setAlreadyPosted(created.orderId);
+      else router.replace(`/request/${created.orderId}`);
     } catch (err) {
       const next = submitFailure(err);
-      if (next.kind === "resent") clearDraft();
+      if (next.kind === "fields") saveDraft(userId, { ...draft, sentBody, errors: next.errors });
       setFailure(next);
       inflight.current = false;
       setSubmitting(false);
@@ -81,28 +104,38 @@ function Summary({ supplier, draft }: { supplier: Supplier; draft: Draft }) {
   if (failure?.kind === "supplier")
     return <SupplierUnavailable onChooseAnother={() => router.push("/request/new")} />;
 
+  if (alreadyPosted)
+    return (
+      <div className={styles.form}>
+        <p role="alert" className={styles.notice}>
+          This request was already posted before your latest changes, so they weren&apos;t applied.
+        </p>
+        <div className={styles.actions}>
+          <Button onClick={() => router.replace(`/request/${alreadyPosted}`)}>View request</Button>
+        </div>
+      </div>
+    );
+
   const shortfall = wallet ? creditShortfall(wallet.available, draft.reward) : undefined;
-  const fieldError = (field: DraftField) => {
-    const message = failure?.kind === "fields" ? failure.errors[field] : undefined;
-    return message && <p className={styles.error}>{message}</p>;
-  };
+  const errors = failure?.kind === "fields" ? failure.errors : {};
+  const fieldError = (message?: string) => message && <p className={styles.error}>{message}</p>;
 
   return (
     <div className={styles.form}>
       <NavRow label="Pickup" value={pickupLabel(supplier)} />
-      {fieldError("supplierId")}
+      {fieldError(errors.supplierId)}
       <NavRow label="Items" value={itemsLabel(order.items)} />
-      {fieldError("items")}
+      {fieldError(itemsError(errors))}
       <NavRow label="Delivery zone" value={order.deliveryZone} />
-      {fieldError("deliveryZone")}
+      {fieldError(errors.deliveryZone)}
       <NavRow label="Delivery instructions" value={order.deliveryInstructions} />
-      {fieldError("deliveryInstructions")}
+      {fieldError(errors.deliveryInstructions)}
       <NavRow
         label="Open period"
         value={`Open for ${OPEN_PERIOD_MINUTES} minutes once your credits are reserved`}
       />
       <NavRow label="Reward" value={credits(order.reward)} />
-      {fieldError("reward")}
+      {fieldError(errors.reward)}
       {wallet ? (
         <>
           <NavRow label="Available balance" value={credits(wallet.available)} />
@@ -139,10 +172,7 @@ function Summary({ supplier, draft }: { supplier: Supplier; draft: Draft }) {
         <Button variant="outline" disabled={submitting} onClick={() => router.push(detailsHref)}>
           Edit details
         </Button>
-        <Button
-          disabled={!wallet || !!shortfall || submitting || failure?.kind === "resent"}
-          onClick={submit}
-        >
+        <Button disabled={!wallet || !!shortfall || submitting} onClick={submit}>
           {submitting ? "Posting…" : failure?.kind === "retry" ? "Try again" : "Post request"}
         </Button>
       </div>
@@ -151,9 +181,9 @@ function Summary({ supplier, draft }: { supplier: Supplier; draft: Draft }) {
 }
 
 /** Mounted once the supplier has loaded, so the stored draft is only read in the browser. */
-function ReviewStep({ supplier }: { supplier: Supplier }) {
+function ReviewStep({ userId, supplier }: { userId: string; supplier: Supplier }) {
   const router = useRouter();
-  const [draft] = useState(loadDraft);
+  const [draft] = useState(() => loadDraft(userId));
 
   if (draft?.supplierId !== supplier.supplierId)
     return (
@@ -168,11 +198,12 @@ function ReviewStep({ supplier }: { supplier: Supplier }) {
         }
       />
     );
-  return <Summary supplier={supplier} draft={draft} />;
+  return <Summary userId={userId} supplier={supplier} draft={draft} />;
 }
 
 function Review() {
   const router = useRouter();
+  const { user } = useAuth();
   const [lookup, retry] = useSupplier(useSearchParams().get("supplierId"));
 
   return lookup.status === "loading" ? (
@@ -184,7 +215,7 @@ function Review() {
       {lookup.message}
     </ErrorState>
   ) : (
-    <ReviewStep supplier={lookup.supplier} />
+    user && <ReviewStep userId={user.id} supplier={lookup.supplier} />
   );
 }
 

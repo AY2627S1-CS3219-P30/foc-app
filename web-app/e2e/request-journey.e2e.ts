@@ -25,6 +25,7 @@ test("request journey: post, wait for credits, open; then an insufficient-credit
 }, testInfo) => {
   const email = `e2e-request-${testInfo.project.name}-${Date.now()}@u.nus.edu`;
   const token = await activeStudent(request, email);
+  const supplier = await firstSupplier(request, token);
   const auth = { authorization: `Bearer ${token}` };
   const wallet = async () =>
     (await (await request.get(`${CREDIT}/wallets/me`, { headers: auth })).json()) as {
@@ -42,7 +43,7 @@ test("request journey: post, wait for credits, open; then an insufficient-credit
   });
 
   await test.step("post: PENDING_CREDIT, then open, with exactly the reward reserved", async () => {
-    await compose(page, { item: "Kopi O", reward: 5 });
+    await compose(page, { supplier: supplier.name, item: "Kopi O", reward: 5 });
     await expect(page.getByText("Open for 60 minutes once your credits are reserved")).toBeVisible();
     await expect(row(page, "Available balance")).toContainText("10 credits");
     await expect(row(page, "Available after reserving the reward")).toContainText("5 credits");
@@ -61,13 +62,13 @@ test("request journey: post, wait for credits, open; then an insufficient-credit
   });
 
   await test.step("a reward the wallet no longer covers is rejected with the reason", async () => {
-    await compose(page, { item: "Kaya toast", reward: 5 });
+    await compose(page, { supplier: supplier.name, item: "Kaya toast", reward: 5 });
     await expect(row(page, "Available after reserving the reward")).toContainText("0 credits");
 
     const other = await request.post(`${ORDER}/orders`, {
       headers: { ...auth, "idempotency-key": randomUUID() },
       data: {
-        supplierId: await firstSupplierId(request, token),
+        supplierId: supplier.supplierId,
         items: [{ name: "Drained elsewhere", quantity: 1 }],
         deliveryZone: "PGP",
         deliveryInstructions: "Lobby",
@@ -86,10 +87,13 @@ test("request journey: post, wait for credits, open; then an insufficient-credit
   });
 });
 
-/** Picks the first pickup point, fills one item and the delivery details, and opens the review. */
-async function compose(page: Page, { item, reward }: { item: string; reward: number }) {
+/** Picks the pickup point, fills one item and the delivery details, and opens the review. */
+async function compose(
+  page: Page,
+  { supplier, item, reward }: { supplier: string; item: string; reward: number },
+) {
   await page.goto("/request/new");
-  await page.locator("ul button").first().click();
+  await page.getByRole("button", { name: supplier }).click();
   await expect(page).toHaveURL(/\/request\/new\/details\?supplierId=/);
   await page.getByRole("textbox", { name: "Name", exact: true }).fill(item);
   await page.getByRole("textbox", { name: "Delivery zone" }).fill("PGP House 7");
@@ -126,10 +130,14 @@ async function activeStudent(request: APIRequestContext, email: string): Promise
   return accessToken;
 }
 
-async function firstSupplierId(request: APIRequestContext, token: string): Promise<string> {
+/** The first pickup point the picker lists, since both read the same default order. */
+async function firstSupplier(
+  request: APIRequestContext,
+  token: string,
+): Promise<{ supplierId: string; name: string }> {
   const page = await request.get(`${SUPPLIER}/suppliers`, {
     headers: { authorization: `Bearer ${token}` },
     params: { pageSize: 1 },
   });
-  return (await page.json()).items[0].supplierId;
+  return (await page.json()).items[0];
 }

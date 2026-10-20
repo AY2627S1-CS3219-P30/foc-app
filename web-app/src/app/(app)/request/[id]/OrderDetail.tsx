@@ -11,7 +11,7 @@ import { ScreenHeader } from "@/components/ScreenHeader";
 import { ErrorState, LoadingState } from "@/components/States";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth";
-import { itemsLabel } from "@/lib/composer";
+import { draftFrom, itemsLabel, saveDraft } from "@/lib/composer";
 import { getOrder, type Order } from "@/lib/order-api";
 import { ORDER_STATUS, rejectionMessage } from "@/lib/order-status";
 import { vars } from "@/styles/tokens";
@@ -21,7 +21,10 @@ const POLL_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000];
 /** After this long in `PENDING_CREDIT`, say it is slower than usual. */
 const STILL_WAITING_MS = 30_000;
 
-/** Reads the order, and keeps reading while it waits for credits. A 4xx stops; anything else retries. */
+/**
+ * Reads the order, and keeps reading while it waits for credits and the tab is visible. A 4xx stops;
+ * anything else retries.
+ */
 function useOrder(orderId: string) {
   const { authed } = useAuth();
   const [order, setOrder] = useState<Order | null>(null);
@@ -35,6 +38,10 @@ function useOrder(orderId: string) {
     let live = true;
 
     async function read() {
+      if (document.visibilityState === "hidden") {
+        document.addEventListener("visibilitychange", read, { once: true });
+        return;
+      }
       try {
         const next = await authed((token) => getOrder(token, orderId));
         if (!live) return;
@@ -42,9 +49,11 @@ function useOrder(orderId: string) {
         setProblem(null);
         if (next.status !== "PENDING_CREDIT") return;
       } catch (err) {
-        if (!live || !(err instanceof ApiError)) return;
-        setProblem(err);
-        if (err.status >= 400 && err.status < 500) return;
+        if (!live) return;
+        if (err instanceof ApiError) {
+          setProblem(err);
+          if (err.status >= 400 && err.status < 500) return;
+        }
       }
       setStillWaiting(Date.now() - started >= STILL_WAITING_MS);
       timer = setTimeout(read, POLL_DELAYS_MS[Math.min(attempt++, POLL_DELAYS_MS.length - 1)]);
@@ -54,6 +63,7 @@ function useOrder(orderId: string) {
     return () => {
       live = false;
       clearTimeout(timer);
+      document.removeEventListener("visibilitychange", read);
     };
   }, [authed, orderId]);
 
@@ -63,8 +73,17 @@ function useOrder(orderId: string) {
 const deadline = (at: string) =>
   new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
-function StatusBody({ order, stillWaiting }: { order: Order; stillWaiting: boolean }) {
+function StatusBody({
+  order,
+  stillWaiting,
+  problem,
+}: {
+  order: Order;
+  stillWaiting: boolean;
+  problem: ApiError | null;
+}) {
   const router = useRouter();
+  const { user } = useAuth();
   const muted = { fontSize: vars.text.md, color: vars.color.textMuted };
 
   return (
@@ -87,6 +106,11 @@ function StatusBody({ order, stillWaiting }: { order: Order; stillWaiting: boole
         )}
         {order.status === "REJECTED" && <p style={muted}>{rejectionMessage(order)}</p>}
       </div>
+      {problem && (
+        <p role="alert" style={{ fontSize: vars.text.sm, color: vars.color.danger }}>
+          Could not refresh this request. {problem.message}
+        </p>
+      )}
       <NavRow label="Items" value={itemsLabel(order.items)} />
       <NavRow label="Delivery zone" value={order.deliveryZone} />
       {order.deliveryInstructions && (
@@ -94,7 +118,13 @@ function StatusBody({ order, stillWaiting }: { order: Order; stillWaiting: boole
       )}
       <NavRow label="Reward" value={`${order.reward} credits`} />
       {order.status === "REJECTED" && (
-        <Button full onClick={() => router.push("/request/new")}>
+        <Button
+          full
+          onClick={() => {
+            if (user) saveDraft(user.id, draftFrom(order));
+            router.push(`/request/new/details?supplierId=${order.supplier.supplierId}`);
+          }}
+        >
           Post a new request
         </Button>
       )}
@@ -108,7 +138,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const title = order?.supplier.name ?? "Request";
 
   const body = order ? (
-    <StatusBody order={order} stillWaiting={stillWaiting} />
+    <StatusBody order={order} stillWaiting={stillWaiting} problem={problem} />
   ) : problem ? (
     <ErrorState title={problem.status === 404 ? "This request no longer exists." : "Could not load this request"}>
       {problem.status !== 404 && problem.message}
