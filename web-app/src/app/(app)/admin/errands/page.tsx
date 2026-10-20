@@ -1,15 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { Button } from "@/components/Button";
 import { adminApi } from "@/lib/admin-api";
-import {
-  formatDuration,
-  formatWhen,
-  RECONCILIATION_ACTIONS,
-  shortId,
-} from "@/lib/admin-labels";
-import { AdminShell, Loaded, Section, Tag, UserLink } from "../_components/ui";
+import { formatDuration, formatWhen, RECONCILIATION_ACTIONS } from "@/lib/admin-labels";
+import { AdminShell, Loaded, Section, Tag, TraceLink, UserLink } from "../_components/ui";
 import { useAdminData } from "../_components/use-admin-data";
 import styles from "../_components/admin.module.css";
 
@@ -140,14 +134,5 @@ export default function ErrandsPage() {
         </p>
       </Section>
     </AdminShell>
-  );
-}
-
-/** An errand's ID, opening its full trace on the Operations tab (PLT-05). */
-function TraceLink({ orderId }: { orderId: string }) {
-  return (
-    <Link href={`/admin/operations?order=${orderId}#trace`} className={styles.link} title="Trace this errand">
-      {shortId(orderId)}
-    </Link>
   );
 }

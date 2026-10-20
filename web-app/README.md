@@ -232,7 +232,7 @@ refuses a student with `403` on its own.
 | Page | Calls |
 | --- | --- |
 | Overview | Role requests and alerts (User Service); stuck errands and reconciliation (Order Service) |
-| Users, one account | `GET /admin/directory` to find, `GET /admin/users/{userId}` to open (recorded), suspend, reactivate, role change |
+| Users, one account | `GET /admin/directory` to find, `GET /admin/users/{userId}` to open (recorded), suspend, reactivate, role change; its errands from `GET /admin/orders?requesterId=` and `?courierId=` (Order Service, ORD-15), each list loading on its own (ADM-05) |
 | Role requests | `GET /admin/role-requests`, approve, reject |
 | Audit trail | `GET /admin/audit-records`, by administrator, account, action and dates |
 | Admin activity | `GET /admin/alerts`, `GET /admin/reads` |

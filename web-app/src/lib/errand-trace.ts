@@ -4,7 +4,7 @@
  */
 
 import type { DeadLetter, OperatorAlert, OrderCreditTrace, OrderTimeline } from "./admin-api";
-import { RECONCILIATION_ACTIONS, type Tone } from "./admin-labels";
+import { ORDER_STATUSES, RECONCILIATION_ACTIONS, type Tone } from "./admin-labels";
 
 export type TraceSource = "Order" | "Credit";
 
@@ -60,6 +60,10 @@ function deadLetterEntries(source: TraceSource, letters: DeadLetter[]): TraceEnt
   });
 }
 
+/** The console's name for a status; one this build does not know is shown as its code. */
+const statusName = (status: string) =>
+  ORDER_STATUSES[status as keyof typeof ORDER_STATUSES] ?? status;
+
 /** Every recorded step of one errand, oldest first. Either half may be missing. */
 export function errandTrace(order?: OrderTimeline, credit?: OrderCreditTrace): TraceEntry[] {
   const entries: TraceEntry[] = [];
@@ -69,8 +73,8 @@ export function errandTrace(order?: OrderTimeline, credit?: OrderCreditTrace): T
         at: h.occurredAt,
         source: "Order",
         title: h.previousStatus
-          ? `${h.previousStatus} → ${h.newStatus}`
-          : `Created, ${h.newStatus}`,
+          ? `${statusName(h.previousStatus)} → ${statusName(h.newStatus)}`
+          : `Created, ${statusName(h.newStatus)}`,
         detail: `${h.action} by ${h.actorType.toLowerCase()}${h.actorId ? ` ${h.actorId}` : ""}`,
         tone: "neutral",
       });
