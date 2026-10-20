@@ -165,3 +165,37 @@ describe('GET /internal/introspect (session liveness + identity)', () => {
       .expect(401);
   });
 });
+
+describe('GET /internal/admins', () => {
+  it('lists only active administrators, by user ID alone', async () => {
+    const register = async (email: string) =>
+      (await http().post('/auth/register').send(validRegistration(email)).expect(201)).body
+        .userId as string;
+    const active = await register('e0123457@u.nus.edu');
+    const suspended = await register('e0123458@u.nus.edu');
+    const pending = await register('e0123459@u.nus.edu');
+    const unclaimed = await register('e0123460@u.nus.edu');
+    for (const id of [active, suspended, pending, unclaimed]) {
+      await t.db.query("INSERT INTO user_roles (user_id, role) VALUES ($1, 'ADMIN')", [id]);
+    }
+    await t.db.query("UPDATE users SET status = 'ACTIVE' WHERE id = ANY($1)", [
+      [active, unclaimed],
+    ]);
+    await t.db.query("UPDATE users SET status = 'SUSPENDED' WHERE id = $1", [suspended]);
+    // A seeded admin still on the bootstrap password cannot sign in, so cannot take referrals.
+    await t.db.query('UPDATE users SET must_change_password = true WHERE id = $1', [unclaimed]);
+
+    const res = await asService('/internal/admins').expect(200);
+    const ids = (res.body.items as Array<{ userId: string }>).map((item) => item.userId);
+    expect(ids).toContain(active);
+    expect(ids).not.toContain(suspended);
+    expect(ids).not.toContain(pending);
+    expect(ids).not.toContain(unclaimed);
+    expect(ids).not.toContain(userId); // an active student without the role
+    for (const item of res.body.items) expect(Object.keys(item)).toEqual(['userId']);
+  });
+
+  it('requires a service credential', async () => {
+    await http().get('/internal/admins').expect(401);
+  });
+});

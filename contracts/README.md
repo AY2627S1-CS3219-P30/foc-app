@@ -22,6 +22,11 @@ contracts:events`; do not edit it by hand. CI fails a pull request that changes 
 incompatibly (removed or redefined required field, removed operation, newly required request
 field). See [docs/testing.md](../docs/testing.md#contract-checks-ei-nfr311).
 
+A breaking change that the same three reviews approve goes in `approved-breaking-changes.json`: the
+exact line the check prints, the pull request, why, and who reviewed it. The check lets through only
+those lines. An entry can be deleted once its pull request has merged and main has been pushed
+again, since no later base still has the old contract.
+
 ## Cross-service proposals for approval (FND-03 scope)
 
 These are **proposals, not decisions**. They live here so Jonus and Patrick can approve or change them in a PR

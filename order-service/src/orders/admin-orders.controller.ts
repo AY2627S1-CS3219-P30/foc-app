@@ -1,14 +1,16 @@
-import { Controller, Get, Inject, Param } from '@nestjs/common';
-import { AdminOnly } from '@foc/auth-client';
+import { Body, Controller, Get, HttpCode, Inject, Param, Post, Req } from '@nestjs/common';
+import { AdminOnly, CurrentUser, type AuthContext } from '@foc/auth-client';
 import { ApiException, DEAD_LETTERS, type DeadLetters } from '@foc/platform';
+import type { Request } from 'express';
 import { z } from 'zod';
 import { env } from '../config.js';
 import { OperationsRepository } from './operations.repository.js';
 import { OrdersService } from './orders.service.js';
+import { parseOrderId, parseResolveOrder } from './validation.js';
 
 const orderIdSchema = z.uuid();
 
-/** Operator views. Administrator-only; they read but never change an order. */
+/** Administrator-only: operator views, and decisions on disputes referred to the caller. */
 @Controller('admin/orders')
 export class AdminOrdersController {
   constructor(
@@ -34,7 +36,38 @@ export class AdminOrdersController {
     return this.orders.creditWaitExceeded(env.CREDIT_WAIT_TIMEOUT_MS);
   }
 
-  /** Operator alerts (CREDIT_WAIT_EXCEEDED, CREDIT_STATE_CONFLICT) across every errand, newest first. */
+  /** Disputes referred to the caller, and those not yet referred to anyone. */
+  @Get('referred')
+  @AdminOnly()
+  referred(@CurrentUser() caller: AuthContext) {
+    return this.orders.referred(caller);
+  }
+
+  /** The most recent dispute decisions, newest first. */
+  @Get('decisions')
+  @AdminOnly()
+  decisions() {
+    return this.orders.decisions();
+  }
+
+  @Post(':id/resolve')
+  @HttpCode(200)
+  @AdminOnly()
+  resolve(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() caller: AuthContext,
+    @Req() request: Request & { correlationId?: string },
+  ) {
+    return this.orders.resolve(
+      parseOrderId(id),
+      parseResolveOrder(body),
+      caller,
+      request.correlationId ?? 'unknown',
+    );
+  }
+
+  /** Operator alerts (credit waits and conflicts, unreferred disputes) across every errand, newest first. */
   @Get('alerts')
   @AdminOnly()
   alerts() {
