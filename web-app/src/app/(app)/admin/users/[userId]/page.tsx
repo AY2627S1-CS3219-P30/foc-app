@@ -14,6 +14,7 @@ import { AdminShell, Loaded, Section, Tag } from "../../_components/ui";
 import { useAdminData } from "../../_components/use-admin-data";
 import styles from "../../_components/admin.module.css";
 import { AccountActions } from "./AccountActions";
+import { AccountErrands } from "./AccountErrands";
 
 export default function AccountPage({ params }: { params: Promise<{ userId: string }> }) {
   const { userId } = use(params);
@@ -118,6 +119,8 @@ function Account({ userId }: { userId: string }) {
               />
             </Section>
           )}
+
+          <AccountErrands userId={shown.id} />
 
           <Section
             title="Audit trail for this account"
