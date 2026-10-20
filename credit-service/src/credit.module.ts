@@ -4,7 +4,7 @@ import { LOGGER, PgDb, provideDeadLetters, type PgDbOptions } from '@foc/platfor
 import { env } from './config.js';
 import { SERVICE_KEYS, ServiceKeyGuard } from './auth/service-key.guard.js';
 import { AdminActivity, WALLET_READS_ALERT_PER_HOUR } from './credits/admin-activity.js';
-import { CreditRepository } from './credits/credit.repository.js';
+import { CreditRepository, INITIAL_ALLOCATION } from './credits/credit.repository.js';
 import { AdminCreditController, DeadLettersController } from './credits/operations.controller.js';
 import { CreditOperationsRepository } from './credits/operations.repository.js';
 import { CreditStatusController } from './credits/status.controller.js';
@@ -33,6 +33,7 @@ export class CreditModule {
         CreditOperationsRepository,
         AdminActivity,
         { provide: WALLET_READS_ALERT_PER_HOUR, useValue: env.ADMIN_WALLET_READS_ALERT_PER_HOUR },
+        { provide: INITIAL_ALLOCATION, useValue: env.INITIAL_CREDIT_ALLOCATION },
         // PLT-05: parks this service's dead letters once the broker connects, and redrives them.
         provideDeadLetters({ db: RAW_DB }),
         ServiceKeyGuard,

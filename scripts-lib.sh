@@ -43,8 +43,11 @@ wait_for() { # seconds wanted command...
   return 1
 }
 
+# What a new wallet is issued: INITIAL_CREDIT_ALLOCATION from .env, else the service's default.
+INITIAL_CREDITS="${INITIAL_CREDIT_ALLOCATION:-10}"
+
 # Signs up and activates a student through the dev mailbox, logs them in, and
-# waits for their 10-credit wallet. Sets STUDENT_ID and STUDENT_TOKEN.
+# waits for their initial wallet. Sets STUDENT_ID and STUDENT_TOKEN.
 signup() { # label
   local email="demo-$1-$RUN@$EMAIL_DOMAIN" password token
   password=$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')
@@ -66,8 +69,8 @@ signup() { # label
     echo "Could not sign in as $email." >&2
     exit 1
   fi
-  wait_for 30 10 wallet_available "$STUDENT_ID" || {
-    echo "No 10-credit wallet for $email after 30 s (got '${LAST:-nothing}')." >&2
+  wait_for 30 "$INITIAL_CREDITS" wallet_available "$STUDENT_ID" || {
+    echo "No ${INITIAL_CREDITS}-credit wallet for $email after 30 s (got '${LAST:-nothing}')." >&2
     exit 1
   }
 }

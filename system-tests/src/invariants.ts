@@ -1,8 +1,10 @@
+import { reservedBackingViolations } from '../../credit-service/src/credits/invariants.js';
 import type { Stack } from './stack.js';
 
 /**
  * The closed-economy invariants (ADR 0007, CS-NFR1.1.2, CS-NFR2.1.1), checked against what the
- * services actually stored. Each returns human-readable violations; an empty list means it holds.
+ * services actually stored. The last, that each wallet's reserved credits are its open
+ * reservations, is the Credit Service's own (CRD-09); the others do not imply it. Each returns human-readable violations; an empty list means it holds.
  */
 export async function economyViolations(stack: Stack): Promise<string[]> {
   const db = stack.creditDb.db;
@@ -53,6 +55,7 @@ export async function economyViolations(stack: Stack): Promise<string[]> {
       out.push(`order ${row.order_id} has a terminal outcome without a reservation`);
     }
   }
+  out.push(...(await reservedBackingViolations(db)));
   return out;
 }
 

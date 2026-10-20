@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   EVENTS,
   PredecessorMissingError,
@@ -13,6 +13,7 @@ import {
 import { RAW_DB } from '../db/db.js';
 import {
   INITIAL_CREDIT_ALLOCATION,
+  MAX_RESERVATION_AMOUNT,
   type LedgerItem,
   type OrderCreditStatus,
   type ReleaseInput,
@@ -108,10 +109,18 @@ const balance = (row: { available: number; reserved: number }): ResultingBalance
   total: Number(row.available) + Number(row.reserved),
 });
 
+/** The credits a new wallet is issued: `INITIAL_CREDIT_ALLOCATION` from `config.ts`. */
+export const INITIAL_ALLOCATION = Symbol('INITIAL_ALLOCATION');
+
 /** Credit's single persistence boundary. Event handlers pass their inbox transaction in. */
 @Injectable()
 export class CreditRepository {
-  constructor(@Inject(RAW_DB) private readonly db: Db) {}
+  constructor(
+    @Inject(RAW_DB) private readonly db: Db,
+    @Optional()
+    @Inject(INITIAL_ALLOCATION)
+    readonly initialAllocation: number = INITIAL_CREDIT_ALLOCATION,
+  ) {}
 
   /** Returns true only for the activation that created and funded the wallet. */
   async issueInitial(tx: Queryable, userId: string): Promise<boolean> {
@@ -120,7 +129,7 @@ export class CreditRepository {
        VALUES ($1, $2, 0)
        ON CONFLICT DO NOTHING
        RETURNING user_id, available, reserved, created_at, updated_at`,
-      [userId, INITIAL_CREDIT_ALLOCATION],
+      [userId, this.initialAllocation],
     );
     if (inserted.rows.length === 0) return false;
 
@@ -129,7 +138,7 @@ export class CreditRepository {
       `INSERT INTO credit_transactions
          (transaction_id, transaction_type, wallet_user_id, amount)
        VALUES ($1, 'ISSUE', $2, $3)`,
-      [transactionId, userId, INITIAL_CREDIT_ALLOCATION],
+      [transactionId, userId, this.initialAllocation],
     );
     await tx.query(
       `INSERT INTO ledger_entries
@@ -138,7 +147,7 @@ export class CreditRepository {
        VALUES
          ($1, $2, 1, NULL, 'PLATFORM_ISSUANCE', 'DEBIT', $3, NULL, NULL),
          ($4, $2, 2, $5, 'AVAILABLE', 'CREDIT', $3, $3, 0)`,
-      [randomUUID(), transactionId, INITIAL_CREDIT_ALLOCATION, randomUUID(), userId],
+      [randomUUID(), transactionId, this.initialAllocation, randomUUID(), userId],
     );
     return true;
   }
@@ -164,7 +173,7 @@ export class CreditRepository {
     if (claimed.rows.length === 0) return this.replayOrRejectConflict(tx, input);
     await fault?.('operation-claimed');
 
-    if (input.amount > 5) {
+    if (input.amount > MAX_RESERVATION_AMOUNT) {
       const outcome: ReservationOutcome = {
         status: 'REJECTED',
         reason: 'AMOUNT_OUT_OF_RANGE',

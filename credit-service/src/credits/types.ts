@@ -1,4 +1,17 @@
+/**
+ * What a student's wallet is issued on first activation, unless `INITIAL_CREDIT_ALLOCATION` is set
+ * (`config.ts`). The reasoning is in the README, under "The initial allocation".
+ */
 export const INITIAL_CREDIT_ALLOCATION = 10;
+
+/** The largest reward an errand may carry. A larger reservation is refused (`AMOUNT_OUT_OF_RANGE`). */
+export const MAX_RESERVATION_AMOUNT = 5;
+
+/**
+ * What a configured allocation may be. Below the largest reward, a new student could not post every
+ * errand; above 50, a typo would mint credits that every later errand inherits.
+ */
+export const INITIAL_ALLOCATION_BOUNDS = { min: MAX_RESERVATION_AMOUNT, max: 50 } as const;
 
 export type TransactionType = 'ISSUE' | 'RESERVE' | 'RELEASE' | 'TRANSFER';
 export type ReservationRejection =
