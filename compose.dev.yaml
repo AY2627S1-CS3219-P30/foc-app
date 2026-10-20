@@ -1,0 +1,21 @@
+# Development override (PLT-06): for running ONE service by hand against the rest in Compose.
+#
+#   docker compose -f compose.yaml -f compose.dev.yaml up -d
+#
+# compose.yaml does not publish a service's internal port, so a service started with
+# `npm run dev:order` on this machine cannot reach the User Service's /internal/introspect
+# (on the published port those routes answer 404). This publishes each internal port on
+# 127.0.0.1 only: the by-hand service then uses, for example,
+#
+#   USER_SERVICE_URL=http://localhost:4001
+#
+# Nothing else changes. Without this file the internal ports are not reachable from the host.
+services:
+  user-service:
+    ports: ['127.0.0.1:4001:4001']
+  supplier-service:
+    ports: ['127.0.0.1:4002:4002']
+  order-service:
+    ports: ['127.0.0.1:4003:4003']
+  credit-service:
+    ports: ['127.0.0.1:4004:4004']

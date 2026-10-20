@@ -27,8 +27,9 @@ A violation fails the test, and so the build.
 
 ```bash
 # Bounded suite, as CI runs it (Shared packages job)
-TEST_POSTGRES_URL=postgres://postgres:postgres_dev@localhost:55432/postgres \
-RABBITMQ_URL=amqp://foc:foc_dev@localhost:55672 npm test -w @foc/system-tests
+set -a; . ./.env; set +a   # the stack's addresses and logins, from your .env
+TEST_POSTGRES_URL=$HOST_POSTGRES_URL RABBITMQ_URL=$HOST_RABBITMQ_URL \
+  npm test -w @foc/system-tests
 
 # Replay one property seed exactly, or widen the CI profile
 PROPERTY_SEEDS=3 TEST_POSTGRES_URL=… npm test -w @foc/system-tests

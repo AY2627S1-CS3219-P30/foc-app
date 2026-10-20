@@ -1,0 +1,11 @@
+# What never enters a build context (PL-NFR2.1.1). The service images are built
+# from the repository root, so without this the whole tree, `.env` included, is
+# sent to the builder on every build.
+.env
+.env.*
+!.env.example
+.git
+**/node_modules
+**/dist
+**/coverage
+**/*.tsbuildinfo

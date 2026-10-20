@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs
 import {
   EVENTS,
   EVENT_CONSUMER,
+  StaleEventError,
   UnparseableMessageError,
   creditReservationRejectedPayload,
   creditsReservedPayload,
@@ -89,6 +90,17 @@ export class ReservationResultsConsumer implements OnApplicationBootstrap {
       throw new UnparseableMessageError(
         `reservation result cannot move order from ${order.status}`,
       );
+    }
+    // A repeat of a confirmation is stale once the errand has changed since that confirmation was
+    // applied. Credit sends one by design when a request is sent again, so it is acknowledged and
+    // counted rather than set aside (EVT-03).
+    if (result.kind === 'rejected' && outcome.kind === 'RESERVED') {
+      const appliedAt = await this.orders.reservationAppliedAt(tx, orderId);
+      if (appliedAt !== undefined && order.version > appliedAt) {
+        throw new StaleEventError(
+          `reservation confirmation was applied at version ${appliedAt}; the errand is now ${order.status} at version ${order.version}`,
+        );
+      }
     }
     const changed = result.kind === 'applied';
     this.logger.log({

@@ -6,6 +6,11 @@
 #
 # Fails loudly with a non-zero exit code, so CI can gate on it.
 set -euo pipefail
+cd "$(dirname "$0")"
+. ./scripts-env.sh
+
+# No request may hang the run: a port that never answers is a failure, not a wait.
+curl() { command curl --max-time 20 "$@"; }
 
 WEB_PORT="${WEB_APP_PORT:-3000}"
 USER_PORT="${USER_SERVICE_PORT:-3001}"
@@ -97,6 +102,10 @@ for pair in "user-service:$USER_PORT" "supplier-service:$SUPPLIER_PORT" \
   else
     fail "$name /health returned: $body"
   fi
+  # PLT-06: health is about the service's dependencies too, not only its process.
+  deps=$(printf '%s' "$body" | python3 -c 'import sys,json;d=json.load(sys.stdin).get("dependencies",{});print(d.get("database"),d.get("broker"))' 2>/dev/null || true)
+  [[ "$deps" == "up up" ]] && pass "$name reports its database and the broker as up" ||
+    fail "$name reports its dependencies as '${deps:-nothing}'"
 done
 
 # ---- the browser can actually call them -------------------------------------
@@ -142,18 +151,19 @@ fi
 # ---- the broker topology exists ---------------------------------------------
 # Delay (retry) exchanges are namespaced per service, so two services can tune
 # their own backoff without colliding on a queue's fixed TTL.
-for ex in foc.events foc.events.dlx foc.credit-service.delay.1 foc.user-service.delay.1; do
+for ex in foc.events foc.events.dlx foc.credit-service.delay.1 foc.user-service.delay.1 \
+  foc.credit-service.requeue foc.order-service.requeue; do
   # `docker compose exec` leaves carriage returns behind, which defeat grep -x.
-  if docker compose exec -T rabbitmq rabbitmqctl -q list_exchanges name 2>/dev/null |
-    tr -d '\r' | grep -qx "$ex"; then
+  exchanges=$(docker compose exec -T rabbitmq rabbitmqctl -q list_exchanges name 2>/dev/null | tr -d '\r' || true)
+  if grep -qx "$ex" <<<"$exchanges"; then
     pass "exchange $ex declared"
   else
     fail "exchange $ex missing"
   fi
 done
 for queue in foc.credit.wallet-provisioning foc.credit.reservations foc.credit.completions foc.credit.releases; do
-  if docker compose exec -T rabbitmq rabbitmqctl -q list_queues name 2>/dev/null |
-    tr -d '\r' | grep -qx "${queue}.dlq"; then
+  queues=$(docker compose exec -T rabbitmq rabbitmqctl -q list_queues name 2>/dev/null | tr -d '\r' || true)
+  if grep -qx "${queue}.dlq" <<<"$queues"; then
     pass "$queue has a dead-letter queue"
   else
     fail "$queue dead-letter queue missing"
@@ -227,13 +237,16 @@ code=$(curl -fsS -o /dev/null -w '%{http_code}' "http://localhost:${WEB_PORT}/" 
 [[ "$code" == "200" ]] && pass "web app responds 200" || fail "web app returned $code"
 
 # ---- metrics reach the dashboard (PLT-04) ------------------------------------
-METRICS_AUTH="Authorization: Bearer ${METRICS_TOKEN:-dev-only-metrics-token-change-me}"
+METRICS_AUTH="Authorization: Bearer ${METRICS_TOKEN:?}"
 for pair in "user-service:$USER_PORT" "supplier-service:$SUPPLIER_PORT" \
   "order-service:$ORDER_PORT" "credit-service:$CREDIT_PORT"; do
   name="${pair%%:*}"
   port="${pair##*:}"
-  if curl -fsS "http://localhost:${port}/metrics" -H "$METRICS_AUTH" 2>/dev/null |
-    grep -q '^# TYPE http_request_duration_seconds histogram'; then
+  # Read whole before it is searched: `grep -q` stops at the first match, and once a service's
+  # metrics outgrow the pipe (a stack that has been used for a while) curl is cut off mid-write,
+  # which under pipefail turned a healthy endpoint into a failure.
+  metrics=$(curl -fsS "http://localhost:${port}/metrics" -H "$METRICS_AUTH" 2>/dev/null || true)
+  if grep -q '^# TYPE http_request_duration_seconds histogram' <<<"$metrics"; then
     pass "$name serves /metrics"
   else
     fail "$name /metrics missing or not Prometheus format"
@@ -271,7 +284,7 @@ rules=$(curl -fsS "${PROMETHEUS}/api/v1/rules" 2>/dev/null |
 # Order (4) and Credit (4) each drain their own dead-letter queues into their database, where an
 # operator redrives them. A queue nobody consumes would hold dead letters out of the console's sight.
 RABBIT_API="http://localhost:${RABBITMQ_MANAGEMENT_PORT:-15672}/api/queues/%2F?columns=name,consumers"
-RABBIT_AUTH="${RABBITMQ_USER:-foc}:${RABBITMQ_PASSWORD:-foc_dev}"
+RABBIT_AUTH="${RABBITMQ_USER:-foc}:${RABBITMQ_PASSWORD:?}"
 dlqs=""
 for _ in $(seq 1 15); do
   dlqs=$(curl -fsS -u "$RABBIT_AUTH" "$RABBIT_API" 2>/dev/null |
@@ -287,6 +300,93 @@ title=$(curl -fsS "${GRAFANA}/api/dashboards/uid/foc-platform" 2>/dev/null |
   python3 -c 'import sys,json; print(json.load(sys.stdin)["dashboard"]["title"])' 2>/dev/null) || title=""
 [[ "$title" == "FoC Platform" ]] && pass "Grafana serves the FoC Platform dashboard" ||
   fail "Grafana dashboard missing (got '${title:-nothing}')"
+
+# ---- containers get only what they need (PLT-06, PL-NFR2.1.2) ----------------
+# Every container's main process is unprivileged.
+rootful=""
+for id in $(docker compose ps -q); do
+  name=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}}' "$id" 2>/dev/null || true)
+  uid=$(docker exec "$id" sh -c "awk '/^Uid:/{print \$2}' /proc/1/status" 2>/dev/null | tr -d '\r' || true)
+  [[ -n "$uid" && "$uid" != "0" ]] || rootful="$rootful $name(uid ${uid:-unknown})"
+done
+[[ -z "$rootful" ]] && pass "every container runs as non-root" || fail "not shown to be non-root:$rootful"
+
+# The data stores answer on this machine only.
+for spec in "postgres 5432" "rabbitmq 5672" "rabbitmq 15672"; do
+  bound=$(docker compose port ${spec} 2>/dev/null | tr -d '\r' || true)
+  [[ "$bound" == 127.0.0.1:* ]] && pass "${spec/ /:} is published on 127.0.0.1 only" ||
+    fail "${spec/ /:} is published on '${bound:-nothing}'"
+done
+
+# A role's password is asked for over the network (inside the container, Postgres trusts itself).
+wrong=$(docker compose exec -T order-service node --input-type=module -e "
+import pg from 'pg';
+const url = new URL(process.env.DATABASE_URL);
+url.password = 'not-the-password';
+const client = new pg.Client({ connectionString: url.toString(), connectionTimeoutMillis: 3000 });
+client.connect().then(() => console.log('accepted'), (e) => console.log(e.code === '28P01' ? 'refused' : (e.code ?? e.message)))
+  .finally(() => client.end().catch(() => undefined));
+" 2>/dev/null | tr -d '\r' | tail -1 || true)
+[[ "$wrong" == "refused" ]] && pass "Postgres refuses a service role with the wrong password" ||
+  fail "a wrong database password was '${wrong:-not tried}'"
+
+# /internal/** is not served where a browser reaches a service ...
+for probe in "user-service:$USER_PORT:/internal/introspect" "credit-service:$CREDIT_PORT:/internal/orders/x/credit-status"; do
+  IFS=: read -r name port path <<<"$probe"
+  code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${port}${path}" 2>/dev/null || true)
+  [[ "$code" == "404" ]] && pass "$name hides $path on its public port" || fail "$name answered $code for $path on its public port"
+done
+# ... its internal port is not published ...
+published=$(docker compose port user-service 4001 2>/dev/null | tr -d '\r' || true)
+[[ -z "$published" || "$published" == ":0" ]] && pass "the internal port is not published" ||
+  fail "the User Service's internal port is published on $published"
+# ... and another service reaches it there (401: it got as far as the service-key check).
+inside=$(docker compose exec -T order-service node -e "fetch('http://user-service:4001/internal/introspect').then((r) => console.log(r.status), () => console.log('unreachable'))" 2>/dev/null | tr -d '\r' | tail -1 || true)
+[[ "$inside" =~ ^[0-9]+$ && "$inside" != "404" ]] && pass "the Order Service reaches the User Service's internal routes ($inside without a key)" ||
+  fail "from the Order Service, /internal/introspect was '${inside:-not tried}'"
+
+# The web app's container is on a network of its own: it has no route to the database.
+reach=$(docker compose exec -T web-app node -e "
+const s = require('net').connect({ host: 'postgres', port: 5432, timeout: 2000 });
+const say = (w) => { console.log(w); process.exit(0); };
+s.on('connect', () => say('reached')); s.on('error', () => say('unreachable')); s.on('timeout', () => say('unreachable'));
+" 2>/dev/null | tr -d '\r' | tail -1 || true)
+[[ "$reach" == "unreachable" ]] && pass "the web app's container cannot reach Postgres" ||
+  fail "from the web app's container, Postgres was '${reach:-not tried}'"
+
+# ---- one broker account per service (PLT-06) ---------------------------------
+# What the broker says when a service, signed in as itself, does something on a
+# confirm channel: "accepted", or "refused" for a 403.
+broker_says() { # service  javascript-using-`ch`
+  docker compose exec -T "$1" node --input-type=module -e "
+import amqp from 'amqplib';
+const conn = await amqp.connect(process.env.RABBITMQ_URL);
+conn.on('error', () => undefined);
+const ch = await conn.createConfirmChannel();
+const outcome = await new Promise((resolve) => {
+  ch.on('error', (err) => resolve(String(err.message)));
+  ch.on('close', () => resolve('closed'));
+  Promise.resolve($2).then(() => ch.waitForConfirms()).then(() => resolve('accepted'), (err) => resolve(String(err.message)));
+});
+console.log(/ACCESS_REFUSED|403/.test(outcome) ? 'refused' : outcome);
+process.exit(0);
+" 2>/dev/null | tr -d '\r' | tail -1 || true
+}
+said=$(broker_says order-service "ch.publish('foc.events', 'user.activated', Buffer.from('{}'))")
+[[ "$said" == "refused" ]] && pass "the broker refuses user.activated from the Order Service" ||
+  fail "user.activated from the Order Service was '${said:-not tried}'"
+said=$(broker_says order-service "ch.publish('', 'foc.credit.wallet-provisioning', Buffer.from('{}'))")
+[[ "$said" == "refused" ]] && pass "the broker refuses the Order Service a direct write to a Credit queue" ||
+  fail "a direct write to a Credit queue by the Order Service was '${said:-not tried}'"
+said=$(broker_says order-service "ch.consume('foc.credit.wallet-provisioning', () => undefined)")
+[[ "$said" == "refused" ]] && pass "the Order Service cannot read a Credit queue" ||
+  fail "reading a Credit queue as the Order Service was '${said:-not tried}'"
+said=$(broker_says order-service "ch.publish('foc.events', 'order.smoke-probe', Buffer.from('{}'))")
+[[ "$said" == "accepted" ]] && pass "the Order Service may publish under its own routing keys" ||
+  fail "an order.* publish by the Order Service was '${said:-not tried}'"
+said=$(broker_says supplier-service "ch.publish('foc.events', 'supplier.anything', Buffer.from('{}'))")
+[[ "$said" == "refused" ]] && pass "the Supplier Service, which publishes nothing, may publish nothing" ||
+  fail "a publish by the Supplier Service was '${said:-not tried}'"
 
 echo
 if [[ $FAILURES -eq 0 ]]; then

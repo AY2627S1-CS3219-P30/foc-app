@@ -59,7 +59,13 @@ function topicMatches(pattern: string, key: string): boolean {
 
 /** What a consumer reads back from the publish options amqplib was given. */
 function toProperties(options: Options.Publish = {}): ConsumeMessage['properties'] {
-  const { persistent, headers, ...rest } = options as Options.Publish & Record<string, unknown>;
+  // `mandatory` tells the broker what to do with the message; it is not one of its properties.
+  const {
+    persistent,
+    headers,
+    mandatory: _mandatory,
+    ...rest
+  } = options as Options.Publish & Record<string, unknown>;
   return {
     ...rest,
     headers: { ...(headers ?? {}) },
@@ -92,9 +98,10 @@ export function createMemoryBroker(): MemoryBroker {
     routingKey: string,
     content: Buffer,
     properties: Message['properties'],
-  ) {
+  ): number {
     // A queue bound twice receives one copy, as in RabbitMQ.
-    for (const name of new Set(route(exchange, routingKey))) {
+    const targets = new Set(route(exchange, routingKey));
+    for (const name of targets) {
       enqueue(queues.get(name)!, {
         content,
         properties: { ...properties, headers: { ...(properties.headers ?? {}) } },
@@ -103,6 +110,7 @@ export function createMemoryBroker(): MemoryBroker {
         redelivered: false,
       });
     }
+    return targets.size;
   }
 
   function enqueue(queue: Queue, message: Message) {
@@ -239,8 +247,19 @@ export function createMemoryBroker(): MemoryBroker {
     ): boolean {
       this.check();
       try {
-        send(exchange, routingKey, content, toProperties(options));
-        setImmediate(() => done?.(null));
+        const properties = toProperties(options);
+        const routed = send(exchange, routingKey, content, properties);
+        setImmediate(() => {
+          // A mandatory message no queue takes is handed back before it is confirmed.
+          if (routed === 0 && options?.mandatory) {
+            this.emit('return', {
+              content,
+              fields: { exchange, routingKey, replyCode: 312, replyText: 'NO_ROUTE' },
+              properties,
+            });
+          }
+          done?.(null);
+        });
       } catch (err) {
         setImmediate(() => done?.(err));
       }

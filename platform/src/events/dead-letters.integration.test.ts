@@ -95,7 +95,9 @@ suite('dead letters against the real broker (PLT-05)', () => {
       },
     });
 
-    const sent = await new EventPublisher(broker, 'test').publish({
+    const sent = await new EventPublisher(broker, 'test', {
+      schemas: { [`test.dead-letters-${RUN}`]: userActivatedPayload },
+    }).publish({
       eventType: `test.dead-letters-${RUN}`,
       schemaVersion: 1,
       aggregateId: 'user-77',
