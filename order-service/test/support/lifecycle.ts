@@ -4,6 +4,7 @@ import {
   CreditTerminalResultsConsumer,
   TRANSFER_RESULTS_QUEUE,
 } from '../../src/credit-terminal-results.consumer.js';
+import { LifecycleScheduler } from '../../src/orders/lifecycle.scheduler.js';
 import { asRequester, asStranger, http, type TestApp } from '../helpers/app.js';
 
 export const SEEDED_ORDER = '00000000-0000-4000-8000-000000000129';
@@ -248,10 +249,43 @@ export async function reservationReply(t: TestApp, orderId: string, rejected = f
   );
 }
 
-/** Records the administrator a dispute was referred to. ORD-11 (#171) owns doing this for real. */
+/** Records a referred administrator directly, for states the scheduler never refers. */
 export async function referTo(t: TestApp, adminId: string, orderId = SEEDED_ORDER) {
   await t.db.query(`UPDATE orders SET referred_admin_id = $2 WHERE order_id = $1`, [
     orderId,
     adminId,
   ]);
+}
+
+/** One scheduler run with the default timers, against the app's (fake) User Service. */
+export const sweep = (t: TestApp, batchSize?: number) =>
+  new LifecycleScheduler(t.orders, t.directory, {
+    pickupTimeoutMs: 30 * 60_000,
+    creditWaitTimeoutMs: 5 * 60_000,
+    intervalMs: 10_000,
+    batchSize,
+  }).sweep();
+
+/**
+ * Drives the order to DISPUTED with no administrator yet: from DELIVERED the requester reports
+ * non-receipt; from PICKED_UP the courier is suspended. Neither has an endpoint of its own yet.
+ */
+export async function dispute(
+  t: TestApp,
+  from: 'PICKED_UP' | 'DELIVERED',
+  orderId = SEEDED_ORDER,
+): Promise<void> {
+  await advance(t, from, orderId);
+  const result = await t.orders.transition({
+    orderId,
+    correlationId: 'corr-dispute',
+    ...(from === 'DELIVERED'
+      ? {
+          action: 'REPORT_NON_RECEIPT',
+          actor: { kind: 'USER', id: REQUESTER, isAdmin: false },
+          expectedVersion: 5,
+        }
+      : { action: 'COURIER_SUSPENDED', actor: { kind: 'SYSTEM', id: 'user-suspensions' } }),
+  });
+  if (result.kind !== 'applied') throw new Error(`could not dispute from ${from}`);
 }

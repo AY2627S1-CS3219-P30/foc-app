@@ -21,7 +21,7 @@ The web app's mock data has only five statuses today (`open`, `accepted`, `in_tr
 # Transition Table
 **Guard** is what must also be true, beyond the order being in the From state and the actor being allowed. If a guard fails, the order does not change and the caller is refused. Every student and administrator action also needs an active account: a suspended caller is refused before any guard is checked. A reply from the Credit Service is acted on only if it names the same order and amount the request did.
 
-**Emits** is what the transition sends, written to the outbox in the same transaction (see *Sending and receiving safely*). Every transition sends `order.status-changed`. A transition into a `*_PENDING_CREDIT` state also sends the request that state waits for.
+**Emits** is what the transition sends, written to the outbox in the same transaction (see *Sending and receiving safely*). Every status change sends `order.status-changed`; naming or clearing a dispute's administrator keeps the status and sends nothing. A transition into a `*_PENDING_CREDIT` state also sends the request that state waits for.
 
 | From | Trigger | Actor | Guard | To | Emits |
 | ----- | ----- | ----- | ----- | ----- | ----- |
@@ -45,8 +45,9 @@ The web app's mock data has only five statuses today (`open`, `accepted`, `in_tr
 | DELIVERED | Confirm receipt | Requester | — | COMPLETION\_PENDING\_CREDIT | `order.completion-requested`, `order.status-changed` |
 | DELIVERED | Auto-confirmation period passes | System | — | COMPLETION\_PENDING\_CREDIT | `order.completion-requested`, `order.status-changed` |
 | DELIVERED | Report non-receipt | Requester | — | DISPUTED | `order.status-changed` |
-| DISPUTED | Resolve for courier | Administrator | A reason is given | COMPLETION\_PENDING\_CREDIT | `order.completion-requested`, `order.status-changed` |
-| DISPUTED | Resolve for requester | Administrator | A reason is given | RELEASE\_PENDING\_CREDIT (cancelled) | `order.release-requested`, `order.status-changed` |
+| DISPUTED | Referred to an administrator, or referral cleared | System | See *Administrator referral and decision* | DISPUTED (unchanged) | Nothing |
+| DISPUTED | Resolve for courier | Administrator the dispute is referred to | A reason is given; the administrator was never the errand's requester or courier | COMPLETION\_PENDING\_CREDIT | `order.completion-requested`, `order.status-changed` |
+| DISPUTED | Resolve for requester | Administrator the dispute is referred to | A reason is given; the administrator was never the errand's requester or courier | RELEASE\_PENDING\_CREDIT (cancelled) | `order.release-requested`, `order.status-changed` |
 | COMPLETION\_PENDING\_CREDIT | Transfer confirmed | Credit Service | — | COMPLETED | `order.status-changed` |
 | RELEASE\_PENDING\_CREDIT | Release confirmed | Credit Service | Recorded reason is cancelled | CANCELLED | `order.status-changed` |
 | RELEASE\_PENDING\_CREDIT | Release confirmed | Credit Service | Recorded reason is expired | EXPIRED | `order.status-changed` |
@@ -76,6 +77,7 @@ While an order is in any `*_PENDING_CREDIT` state, no participant action, admini
 | ----- | ----- | ----- |
 | Credit Service | Messages, both directions | Reserve, transfer and return each order's reward. Every `*_PENDING_CREDIT` state is waiting for one of its replies. |
 | User Service | HTTP, through `@foc/auth-client` | Who is calling, whether they are an administrator, and that their account is active. Checked on every request; a suspension takes effect within 5 seconds. |
+| User Service | HTTP, `GET /internal/admins` | Which administrators may act now, so the scheduler can refer each dispute to one. Called once per run, only while a dispute exists, with `INTERNAL_SERVICE_KEY`; if the User Service does not answer, referrals wait for the next run. |
 | User Service | Messages, received | Suspensions, which drive the "requester suspended" and "courier suspended" transitions. |
 | Supplier Service | HTTP, `GET /suppliers/:id` | At creation: refuse an inactive supplier and keep a copy of the supplier on the order, so it survives later changes. The call carries the requester's own token, so the Supplier Service needs no service-to-service route. |
 | Web app | HTTP | Every student and administrator command and query. |
@@ -114,7 +116,8 @@ The generated migration under `order-service/drizzle/` creates the Order-owned `
 Database constraints enforce the closed
 status set, reward range, non-empty item list, version counter, terminal rejection shape, and the
 courier required by assigned/delivery states. `order_status_history` records the previous and new
-status, action, actor, order version, and timestamp; one history row is permitted per order version.
+status, action, actor, an optional reason, order version, and timestamp; one history row is permitted
+per order version.
 
 `src/orders/order-state-machine.ts` is the executable source for transition, actor, guard, and emitted
 event rules. The generated matrix test evaluates every status × action × actor combination and checks
@@ -148,8 +151,8 @@ structured item summary omits item notes, exact delivery instructions, participa
 pending or rejected order. `GET /orders/:id` gives that same public projection to an unrelated
 student. A caller can explicitly request `?view=private`; only the requester, assigned courier, or
 the administrator named in `referred_admin_id` receives it, and every other caller receives `403`.
-ORD-11 (#171) owns setting the referral owner and deciding the dispute; this read surface only
-enforces the authorization boundary.
+The scheduler sets and clears `referred_admin_id` for disputes (see *Administrator referral and
+decision*).
 
 `GET /orders/mine` returns `{ items, truncated }`: the caller's errands in any status, as requester
 or current courier, each in its private projection with `myRole` (`REQUESTER` or `COURIER`). It is
@@ -216,6 +219,47 @@ dead-lettering and duplicate rules as a transfer. A release for a completed orde
 a released one, is refused, so transfer and release are mutually exclusive outcomes. ORD-06 (#149)
 owns the courier-suspension path (reopen with the deadline extended).
 
+### Administrator referral and decision (ORD-11)
+
+Every `DISPUTED` errand is referred to one administrator, who alone reads its private details and
+decides it. The move into `DISPUTED` commits with no administrator; the lifecycle scheduler refers it
+on its next run. It asks the User Service once for the administrators who may act
+(`GET /internal/admins`: active, holding the role, and past the bootstrap password), then:
+
+1. A dispute referred to someone not on that list (suspended, demoted, or unknown) has the referral
+   cleared (`ADMIN_UNASSIGNED`).
+2. A dispute referred to no one is referred (`ADMIN_ASSIGNED`) to the listed administrator with the
+   fewest undecided disputes, leaving out anyone who was ever the errand's requester or courier
+   (including a courier who withdrew or timed out); ties go to the fewest referrals kept overall,
+   then the lower user ID.
+
+Both go through the ordinary transition path under the row lock: the status stays `DISPUTED`, the
+version moves (so a replaced administrator's decision is stale), a history row naming the
+administrator in its `reason` is written, and no message is sent. Each run takes up to its batch
+size of disputes needing one of these, oldest first; disputes already with an administrator who may
+act are not in that batch, so they never hold up a newer one. If the User Service does not answer,
+or answers that there are no administrators at all, nothing is cleared or referred, a warning is
+logged, and the next run tries again; timers are unaffected. An empty list is not trusted to clear
+referrals: there would be no one to refer them to, and a request from anyone who has really lost the
+role is already refused. If administrators are listed but every one took part in the errand, one
+`REFERRAL_UNASSIGNED` operator alert is recorded for the errand, however many runs see it, and every
+such run logs a warning until the errand is referred.
+
+`POST /admin/orders/:id/resolve` takes `{ "outcome": "COURIER" | "REQUESTER", "reason",
+"expectedVersion" }`, with a reason of 1 to 500 characters (trimmed). `COURIER` moves the errand to
+`COMPLETION_PENDING_CREDIT` and requests the transfer; `REQUESTER` moves it to
+`RELEASE_PENDING_CREDIT` (cancelled) and requests the release. The reason is kept on the history row
+with the administrator and time; that row is the record of the decision. An administrator who was
+ever the errand's requester or courier gets `403 CONFLICT_OF_INTEREST`; any other administrator than
+the referred one gets `403 NOT_REFERRED_ADMIN` (checked again under the row lock); a repeated or
+stale decision gets `409` and requests nothing. A dispute raised before delivery and resolved for the
+courier completes with a receipt whose `deliveredAt` is null.
+
+`GET /admin/orders/referred` lists the caller's referrals with their private details and every
+dispute referred to no one yet without them, each with `referredBy` (the action that disputed it) and
+`assignedToMe`. `GET /admin/orders/decisions` shows every administrator the 100 most recent
+decisions: errand, administrator, outcome, reason and time.
+
 ### Recovery and privacy verification (ORD-09)
 
 - **Kill after commit (OS-NFR4.1.1).** Every transition writes its events to the outbox in its own
@@ -234,13 +278,16 @@ owns the courier-suspension path (reopen with the deadline extended).
   order with how long it has waited. The order is never rejected for waiting.
 - **Privacy (OS-NFR5.1).** `GET /orders/:id/history` returns the private status history to the
   requester, the current courier and the referred administrator only. `order-privacy.test.ts` checks
-  every read surface (detail, private view, history, receipt, open list) for anonymous, requester,
-  current courier, former courier (withdrawn or timed out), unrelated student, referred
-  administrator and unreferred administrator at every lifecycle state. It looks for the delivery
+  every read surface (detail, private view, history, receipt, open list, my errands and the
+  administrator dispute views) for anonymous, requester, current courier, former courier (withdrawn
+  or timed out), unrelated student, referred administrator and unreferred administrator at every
+  lifecycle state, including a dispute before referral, after it, and after its administrator is
+  replaced. It looks for the delivery
   instructions, item notes and every participant ID, and asserts status events carry no private
   fields.
-- **Refused mutations (OS-NFR5.1.2).** `order-mutation-matrix.test.ts` tries every command endpoint as
-  every caller (plus a suspended account) in every reachable state. Whatever the transition table
+- **Refused mutations (OS-NFR5.1.2).** `order-mutation-matrix.test.ts` tries every command endpoint,
+  including the dispute decision, as every caller (plus a suspended account) in every reachable
+  state, with a dispute unreferred, referred, and re-referred to another administrator. Whatever the transition table
   refuses returns `403` or `409` and leaves the order, history and outbox unchanged. The one
   exception is deliberate: an order whose existence is private (`PENDING_CREDIT`, `REJECTED`)
   answers anyone but its requester with the non-enumerating `404` used by every read.
