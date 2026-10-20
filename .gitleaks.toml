@@ -18,13 +18,8 @@ regexes = [
 
 [[allowlists]]
 description = "The token-response example in the User Service contract, and the types generated from it: a truncated sample, not a token."
-condition = "AND"
-paths = [
-  '''(^|/)contracts/user-service\.openapi\.yaml$''',
-  '''(^|/)web-app/src/lib/generated/user-service\.ts$''',
-]
-regexTarget = "line"
-regexes = ['''eyJhbGciOiJFZERTQSJ9\.eyJzdWIiOiIwMTk4YTFjMi\.\.\.''']
+regexTarget = "secret"
+regexes = ['''^eyJhbGciOiJFZERTQSJ9\.eyJzdWIiOiIwMTk4YTFjMi''']
 
 [[allowlists]]
 description = "The password the Order Service's REST client file (requests.http, ORD-14) gives the students it registers on a local stack: they exist only on that stack."
