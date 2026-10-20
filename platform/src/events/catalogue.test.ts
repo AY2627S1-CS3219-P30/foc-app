@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   EVENTS,
   PAYLOAD_SCHEMAS,
+  REQUIRES_CONSUMER,
   creditReleaseRequestedPayload,
   creditReservationRejectedPayload,
   creditReservationRequestedPayload,
@@ -147,6 +148,44 @@ describe('credit terminal-operation payloads', () => {
 });
 
 describe('order status change payload', () => {
+  it('names the events that must reach a consumer, and leaves out the ones that may have none', () => {
+    // A wallet, and every step of the reservation, transfer and release workflows.
+    expect([...REQUIRES_CONSUMER].sort()).toEqual(
+      [
+        EVENTS.USER_ACTIVATED,
+        EVENTS.CREDIT_RESERVATION_REQUESTED,
+        EVENTS.CREDITS_RESERVED,
+        EVENTS.CREDIT_RESERVATION_REJECTED,
+        EVENTS.ORDER_COMPLETION_REQUESTED,
+        EVENTS.CREDITS_TRANSFERRED,
+        EVENTS.CREDIT_RELEASE_REQUESTED,
+        EVENTS.CREDITS_RELEASED,
+      ].sort(),
+    );
+    // Cache invalidations go to whichever instances are running; status changes have no reader yet.
+    for (const optional of [
+      EVENTS.USER_SUSPENDED,
+      EVENTS.USER_REACTIVATED,
+      EVENTS.USER_ROLE_CHANGED,
+      EVENTS.ORDER_STATUS_CHANGED,
+    ]) {
+      expect(REQUIRES_CONSUMER.has(optional)).toBe(false);
+    }
+  });
+
+  it('carries the errand version a status change produced, so a reader can tell an older one', () => {
+    const change = {
+      orderId: '00000000-0000-4000-8000-000000000129',
+      previousStatus: 'OPEN',
+      newStatus: 'ACCEPTED',
+      occurredAt: '2026-10-13T08:00:00.000Z',
+    };
+    expect(orderStatusChangedPayload.parse({ ...change, orderVersion: 3 }).orderVersion).toBe(3);
+    expect(orderStatusChangedPayload.safeParse({ ...change, orderVersion: 0 }).success).toBe(false);
+    // Additive within version 1: a change written before the field existed still parses.
+    expect(orderStatusChangedPayload.parse(change)).toEqual(change);
+  });
+
   it('shares only the lifecycle fact and requires a UUID order identifier', () => {
     expect(
       orderStatusChangedPayload.safeParse({

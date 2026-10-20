@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   EVENTS,
+  StaleEventError,
   UnparseableMessageError,
   createEnvelope,
   type EventConsumer,
@@ -11,7 +12,7 @@ import {
   RESERVATION_RESULTS_QUEUE,
   ReservationResultsConsumer,
 } from '../src/reservation-results.consumer.js';
-import { asRequester, createTestApp, http, type TestApp } from './helpers/app.js';
+import { asRequester, asStranger, createTestApp, http, type TestApp } from './helpers/app.js';
 
 const supplierId = '00000000-0000-4000-8000-000000000125';
 
@@ -161,6 +162,107 @@ describe('Credit reservation result handling', () => {
       rejectionReason: 'INSUFFICIENT_CREDITS',
       availableAtRejection: 1,
     });
+  });
+
+  it('ignores a repeated confirmation that arrives after the errand has moved on, and changes nothing', async () => {
+    t = await createTestApp();
+    const orderId = await pendingOrder(t);
+    const sub = await subscription(t);
+    const context = { attempt: 1, queue: RESERVATION_RESULTS_QUEUE };
+    // Credit replays its recorded reply under a new event id when a request is sent again.
+    const reserved = () =>
+      createEnvelope({
+        eventId: randomUUID(),
+        eventType: EVENTS.CREDITS_RESERVED,
+        schemaVersion: 1,
+        aggregateId: orderId,
+        producer: 'credit-service',
+        correlationId: 'corr-reserved',
+        payload: { orderId, requesterId: 'seed-requester', amount: 3 },
+      });
+    await sub.handler(reserved(), context);
+    await http(t)
+      .post(`/orders/${orderId}/accept`)
+      .set('Authorization', asStranger)
+      .send({ expectedVersion: 2 })
+      .expect(201);
+    const before = {
+      order: await t.orders.findById(orderId),
+      history: (await t.db.query('SELECT count(*)::int AS n FROM order_status_history')).rows,
+      outbox: (await t.db.query('SELECT count(*)::int AS n FROM outbox_events')).rows,
+    };
+    expect(before.order).toMatchObject({ status: 'ACCEPTED', version: 3 });
+
+    await expect(sub.handler(reserved(), context)).rejects.toBeInstanceOf(StaleEventError);
+
+    expect(await t.orders.findById(orderId)).toEqual(before.order);
+    expect((await t.db.query('SELECT count(*)::int AS n FROM order_status_history')).rows).toEqual(
+      before.history,
+    );
+    expect((await t.db.query('SELECT count(*)::int AS n FROM outbox_events')).rows).toEqual(
+      before.outbox,
+    );
+  });
+
+  it('still sets aside a confirmation that contradicts a recorded rejection', async () => {
+    t = await createTestApp();
+    const orderId = await pendingOrder(t);
+    const sub = await subscription(t);
+    const context = { attempt: 1, queue: RESERVATION_RESULTS_QUEUE };
+    const result = (eventType: string, extra: object = {}) =>
+      createEnvelope({
+        eventId: randomUUID(),
+        eventType,
+        schemaVersion: 1,
+        aggregateId: orderId,
+        producer: 'credit-service',
+        correlationId: 'corr-contradiction',
+        payload: { orderId, requesterId: 'seed-requester', amount: 3, ...extra },
+      });
+    await sub.handler(
+      result(EVENTS.CREDIT_RESERVATION_REJECTED, { reason: 'INSUFFICIENT_CREDITS', available: 1 }),
+      context,
+    );
+
+    // Credit cannot have both refused and reserved the same request: a person must look.
+    await expect(sub.handler(result(EVENTS.CREDITS_RESERVED), context)).rejects.toBeInstanceOf(
+      UnparseableMessageError,
+    );
+    expect(await t.orders.findById(orderId)).toMatchObject({ status: 'REJECTED', version: 2 });
+  });
+
+  it('sends each status change with the errand version it produced', async () => {
+    t = await createTestApp();
+    const orderId = await pendingOrder(t);
+    const sub = await subscription(t);
+    await sub.handler(
+      createEnvelope({
+        eventId: randomUUID(),
+        eventType: EVENTS.CREDITS_RESERVED,
+        schemaVersion: 1,
+        aggregateId: orderId,
+        producer: 'credit-service',
+        correlationId: 'corr-versions',
+        payload: { orderId, requesterId: 'seed-requester', amount: 3 },
+      }),
+      { attempt: 1, queue: RESERVATION_RESULTS_QUEUE },
+    );
+    await http(t)
+      .post(`/orders/${orderId}/accept`)
+      .set('Authorization', asStranger)
+      .send({ expectedVersion: 2 })
+      .expect(201);
+
+    const sent = await t.db.query<{ payload: { newStatus: string; orderVersion?: number } }>(
+      `SELECT payload FROM outbox_events
+        WHERE aggregate_id = $1 AND event_type = 'order.status-changed' ORDER BY seq`,
+      [orderId],
+    );
+    expect(sent.rows.map((r) => [r.payload.newStatus, r.payload.orderVersion])).toEqual([
+      ['PENDING_CREDIT', 1],
+      ['OPEN', 2],
+      ['ACCEPTED', 3],
+    ]);
   });
 
   it('rejects a conflicting replay of an already-recorded refusal', async () => {

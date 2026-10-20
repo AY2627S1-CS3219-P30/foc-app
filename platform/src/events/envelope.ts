@@ -60,6 +60,54 @@ export function createEnvelope<T>(input: NewEventInput<T>): Envelope<T> {
   };
 }
 
+/**
+ * Thrown by the publisher for an event the catalogue does not describe, or a payload that fails its
+ * schema. Nothing reaches the broker: a shape a consumer would dead-letter fails where it was made.
+ */
+export class EventValidationError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = 'EventValidationError';
+  }
+}
+
+/**
+ * Thrown by the publisher when the broker hands back an event that needs a consumer because no
+ * queue is bound for it. The broker would otherwise confirm the message and discard it. The outbox
+ * treats it as any failed publish: the row is kept and retried until a queue exists.
+ */
+export class UnroutableEventError extends Error {
+  constructor(eventType: string) {
+    super(`unroutable: no queue is bound for ${eventType}`);
+    this.name = 'UnroutableEventError';
+  }
+}
+
+/**
+ * EI-NFR2.1.1 — thrown by a handler for a step older than a change it has already applied, such as
+ * a second copy of a reply that arrives after the errand has moved on. The consumer acknowledges
+ * it, counts it and logs it for operators; it is never applied, retried or dead-lettered.
+ */
+export class StaleEventError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = 'StaleEventError';
+  }
+}
+
+/**
+ * EI-NFR2.1.2 — thrown by a handler for a step that depends on an earlier one that has not happened
+ * yet, such as a transfer whose reservation has not been recorded. The consumer counts it and
+ * retries it as any failure; once its attempts are spent it is set aside for review. The handler
+ * must not guess the missing step's outcome.
+ */
+export class PredecessorMissingError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = 'PredecessorMissingError';
+  }
+}
+
 /** Thrown when a message cannot be understood. These never retry — they dead-letter. */
 export class UnparseableMessageError extends Error {
   constructor(reason: string) {
@@ -69,11 +117,35 @@ export class UnparseableMessageError extends Error {
 }
 
 /**
+ * EI-NFR3.1.2 — a message in a major version this consumer was not written for. It is set aside
+ * whole, stating that the form is unsupported; no part of it is acted on.
+ */
+export class UnsupportedVersionError extends UnparseableMessageError {
+  constructor(eventType: string, schemaVersion: number, supported: readonly number[]) {
+    super(
+      `unsupported schema version ${schemaVersion} for ${eventType}; supported: ${supported.join(', ')}`,
+    );
+    this.name = 'UnsupportedVersionError';
+  }
+}
+
+/** The major versions a consumer supports unless it says otherwise. */
+export const DEFAULT_SUPPORTED_VERSIONS: readonly number[] = [1];
+
+/**
  * Validates an inbound message against the envelope and the payload schema
  * registered for its type. A failure here is permanent: retrying a malformed
  * message just wastes the retry budget.
+ *
+ * The major version is checked before the payload is read. A newer major may
+ * change what a field means while still fitting the older schema, so fitting
+ * the schema is not permission to act on it.
  */
-export function parseEnvelope<T>(raw: Buffer, payloadSchema: z.ZodType<T>): Envelope<T> {
+export function parseEnvelope<T>(
+  raw: Buffer,
+  payloadSchema: z.ZodType<T>,
+  supportedVersions: readonly number[] = DEFAULT_SUPPORTED_VERSIONS,
+): Envelope<T> {
   let json: unknown;
   try {
     json = JSON.parse(raw.toString('utf8'));
@@ -85,6 +157,14 @@ export function parseEnvelope<T>(raw: Buffer, payloadSchema: z.ZodType<T>): Enve
   if (!outer.success) {
     throw new UnparseableMessageError(
       `envelope invalid: ${outer.error.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('; ')}`,
+    );
+  }
+
+  if (!supportedVersions.includes(outer.data.schemaVersion)) {
+    throw new UnsupportedVersionError(
+      outer.data.eventType,
+      outer.data.schemaVersion,
+      supportedVersions,
     );
   }
 

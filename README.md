@@ -115,16 +115,17 @@ docker compose ps        # every row should read healthy
 
 Then open <http://localhost:3000>.
 
-| Command                               | What it does                                 |
-| ------------------------------------- | -------------------------------------------- |
-| `docker compose up -d --build`        | Build and start everything                   |
-| `docker compose ps`                   | Show health of each container                |
-| `docker compose logs -f user-service` | Follow one service's logs                    |
-| `docker compose restart`              | Restart everything, **keeping** data         |
-| `docker compose down`                 | Stop and remove containers, **keeping** data |
-| `docker compose down -v`              | Stop and **delete the databases too**        |
-| `./scripts-smoke.sh`                  | Verify the running stack                     |
-| `./scripts-smoke.sh --up`             | Verify a separate copy, then delete it       |
+| Command                               | What it does                                  |
+| ------------------------------------- | --------------------------------------------- |
+| `docker compose up -d --build`        | Build and start everything                    |
+| `docker compose ps`                   | Show health of each container                 |
+| `docker compose logs -f user-service` | Follow one service's logs                     |
+| `docker compose restart`              | Restart everything, **keeping** data          |
+| `docker compose down`                 | Stop and remove containers, **keeping** data  |
+| `docker compose down -v`              | Stop and **delete the databases too**         |
+| `./scripts-smoke.sh`                  | Verify the running stack                      |
+| `./scripts-smoke.sh --up`             | Verify a separate copy, then delete it        |
+| `./scripts-demo-failures.sh`          | Force messaging failures on the running stack |
 
 `docker compose down` keeps your data. Use `-v` only when you want a clean
 database — it is also the only way to re-run `postgres-init.sql`, which runs
@@ -219,19 +220,20 @@ nothing to set up and no sign-in needed to view it. Both are published on
 `METRICS_TOKEN` to each service (Compose mounts it as a file); to read one
 yourself, `curl -H "Authorization: Bearer $METRICS_TOKEN" localhost:3001/metrics`.
 
-| Panel                            | Shows                                                                                                | From                                                         |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| HTTP p95 latency, by service     | time to answer, 95th percentile                                                                      | `http_request_duration_seconds`                              |
-| Requests by status code          | request rate per HTTP status                                                                         | `http_request_duration_seconds_count`                        |
-| Errands by status                | errands in each state right now                                                                      | `foc_orders` (Order Service)                                 |
-| Consumer backlog per queue       | messages waiting for a consumer                                                                      | RabbitMQ's exporter                                          |
-| Event lag p95, by queue          | time from an event occurring to its consumer handling it                                             | `foc_event_lag_seconds`                                      |
-| Retries per minute, by queue     | retries scheduled after a handler failed                                                             | `foc_event_retries_total`                                    |
-| Dead letters waiting, by queue   | parked for an operator (PLT-05); "not yet parked" only while the owning service is down              | `foc_dead_letters_waiting`, RabbitMQ's exporter              |
-| Dead-lettered events by reason   | `unparseable` (set aside at once) or `exhausted` (retries spent); a per-instance queue drops instead | `foc_events_dead_lettered_total`, `foc_events_dropped_total` |
-| Outbox backlog                   | events committed but not yet confirmed by the broker                                                 | `foc_outbox_backlog`, `..._oldest_unpublished_age_seconds`   |
-| Oldest errand waiting for Credit | how long the oldest `PENDING_CREDIT` errand has waited for its reservation                           | `foc_orders_pending_credit_oldest_age_seconds`               |
-| Firing alerts                    | the rules in `observability/alerts.yml` that are firing now                                          | Prometheus `ALERTS`                                          |
+| Panel                             | Shows                                                                                                                          | From                                                                                |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| HTTP p95 latency, by service      | time to answer, 95th percentile                                                                                                | `http_request_duration_seconds`                                                     |
+| Requests by status code           | request rate per HTTP status                                                                                                   | `http_request_duration_seconds_count`                                               |
+| Errands by status                 | errands in each state right now                                                                                                | `foc_orders` (Order Service)                                                        |
+| Consumer backlog per queue        | messages waiting for a consumer                                                                                                | RabbitMQ's exporter                                                                 |
+| Event lag p95, by queue           | time from an event occurring to its consumer handling it                                                                       | `foc_event_lag_seconds`                                                             |
+| Retries per minute, by queue      | retries scheduled after a handler failed                                                                                       | `foc_event_retries_total`                                                           |
+| Dead letters waiting, by queue    | parked for an operator (PLT-05); "not yet parked" only while the owning service is down                                        | `foc_dead_letters_waiting`, RabbitMQ's exporter                                     |
+| Dead-lettered events by reason    | `unparseable` or `unsupported_version` (set aside at once), or `exhausted` (retries spent); a per-instance queue drops instead | `foc_events_dead_lettered_total`, `foc_events_dropped_total`                        |
+| Outbox backlog                    | events committed but not yet confirmed by the broker                                                                           | `foc_outbox_backlog`, `..._oldest_unpublished_age_seconds`                          |
+| Oldest errand waiting for Credit  | how long the oldest `PENDING_CREDIT` errand has waited for its reservation                                                     | `foc_orders_pending_credit_oldest_age_seconds`                                      |
+| Firing alerts                     | the rules in `observability/alerts.yml` that are firing now                                                                    | Prometheus `ALERTS`                                                                 |
+| Repeated, stale and waiting steps | deliveries already applied, steps older than a change already applied, and steps retried while an earlier one is missing       | `foc_events_duplicate_total`, `foc_events_stale_total`, `foc_events_deferred_total` |
 
 - **Follow one request.** Its correlation ID is in the `x-correlation-id`
   response header. `docker compose logs | grep <id>` then shows every service it
@@ -286,6 +288,7 @@ Alertmanager runs locally, so nothing is sent anywhere.
 | `DeadLetterWaiting`      | any dead letter is waiting, at once                            |
 | `DeadLetterNotParked`    | a `.dlq` queue has held a message for 2 minutes (service down) |
 | `ErrandWaitingForCredit` | an errand has waited more than 5 minutes for its reservation   |
+| `OutboxEventStuck`       | a saved event has not been published for 2 minutes             |
 | `ServiceDown`            | a service has not answered a scrape for a minute               |
 
 The rules have unit tests, which CI runs before the Compose smoke test:
@@ -339,9 +342,10 @@ Start Docker Desktop and wait for the whale icon to settle.
 
 Services exchange domain events through RabbitMQ rather than calling each other
 and waiting. [`catalogue.ts`](platform/src/events/catalogue.ts) declares every
-message, grouped by the six workflows in `EI-FR1.1.1`. The first — create a
-wallet after a student's first activation — runs today, and the rest land with
-their own tickets.
+message, grouped by the six workflows in `EI-FR1.1.1`.
+[ADR 0009](docs/adr/0009-messaging-rabbitmq-events-and-ordering.md) records why
+RabbitMQ, which messages are facts and which are requests, how a repeat is
+recognised, and why nothing depends on the order messages arrive in.
 
 ### What a service gets
 
@@ -382,17 +386,23 @@ Every message carries the same envelope. Two fields matter most:
   request_, `causationId` says _which event directly produced this one_.
 
 The rest — `eventId`, `eventType`, `schemaVersion`, `aggregateId`, `occurredAt`,
-`producer` — is validated on send **and** on receive. A handler never sees a
-payload that failed its schema.
+`producer` — is validated on send **and** on receive. The publisher refuses an
+event type the catalogue does not describe, or a payload that fails its schema,
+before anything reaches the broker, and a handler never sees a payload that
+failed its schema or a major `schemaVersion` it was not written for.
 
 ### What happens when a handler fails
 
-| Outcome                 | Behaviour                                                                   |
-| ----------------------- | --------------------------------------------------------------------------- |
-| Handled                 | Acknowledged                                                                |
-| **Transient failure**   | Retried up to 5 times with growing delay — 1s, 5s, 15s, 60s                 |
-| **Attempts exhausted**  | Dead-lettered with the failure reason attached, then parked for an operator |
-| **Unparseable message** | Dead-lettered immediately — retrying malformed input only burns the budget  |
+| Outcome                                 | Behaviour                                                                                            |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Handled                                 | Acknowledged                                                                                         |
+| **Transient failure**                   | Retried up to 5 times with growing delay — 1s, 5s, 15s, 60s                                          |
+| **Attempts exhausted**                  | Dead-lettered with the failure reason attached, then parked for an operator                          |
+| **Unparseable message**                 | Dead-lettered immediately — retrying malformed input only burns the budget                           |
+| **Unsupported major version**           | Dead-lettered whole, before its payload is read, stating that the form is unsupported                |
+| **Already applied**                     | Acknowledged with no further effect; a redelivery of the same event id is counted                    |
+| **Older than a change already applied** | Acknowledged, ignored and counted; never applied, retried or dead-lettered                           |
+| **Waiting on an earlier step**          | Counted and retried like a transient failure; set aside for review if the earlier step never arrives |
 
 Retry uses delay queues rather than requeueing: a nack-and-requeue loop spins
 hot and starves every other message. A failed message goes to a queue whose only
@@ -421,6 +431,23 @@ A subscription can also be **per instance** (`exclusive`, `autoDelete`,
 see every message — the auth cache invalidation of USR-07. Such a queue goes
 with its connection and has no retry or dead-letter queue: a failed message is
 dropped, so its handler must be idempotent and have a fallback.
+
+### Seeing it fail on purpose
+
+`./scripts-demo-failures.sh` forces four failures on the running stack and checks
+what the system did about each (EVT-03). It signs up its own students each run,
+so it can be repeated.
+
+| Step                                                           | What it shows                                                                      |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| The Credit Service is killed, then an errand is created        | The errand waits as `PENDING_CREDIT`, then opens with 3 credits reserved once      |
+| An activation published again, twice, with the same event id   | One wallet, one issue of 10 credits; `foc_events_duplicate_total` rises by 2       |
+| `credit.reserved` delivered again after a courier has accepted | Ignored and counted (`foc_events_stale_total`); no dead letter                     |
+| An activation in schema version 2                              | Set aside whole as a dead letter, reason "unsupported schema version 2"; no wallet |
+| The closing check                                              | Wallets hold exactly the credits that were issued                                  |
+
+The last step but one leaves a dead letter waiting, so the `DeadLetterWaiting`
+alert fires and the Operations tab has something to show.
 
 ### Inspecting it
 
@@ -455,6 +482,15 @@ transaction as the change**, and the platform's relay publishes it after the
 commit ([EVT-02](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/135)).
 The event exists exactly when the change does — a rollback discards both, and a
 crash after the commit only delays the event until the relay next runs.
+
+An event that must reach a consumer (`REQUIRES_CONSUMER` in the catalogue: a
+wallet, and every reservation, transfer and release step) is published as
+mandatory. If no queue is bound for it yet, which happens on a clean broker when
+a producer starts before its consumer ever has, the broker hands it back and the
+publish fails as `unroutable`. The row stays in the outbox and is retried until
+the queue exists, instead of being confirmed and then discarded. The relay goes
+on to the rows behind it, later events for the same user or errand wait, and
+`OutboxEventStuck` fires if it is still there after two minutes.
 
 ```ts
 import {
@@ -579,6 +615,7 @@ npm run typecheck
 npm test
 npm run test:contract        # contract compatibility + provider checks
 ./scripts-smoke.sh --up      # the Compose smoke job
+./scripts-demo-failures.sh --up   # the failure demo it runs afterwards
 ```
 
 Every test suite, its naming convention and the variables that switch on the real-PostgreSQL and
