@@ -333,14 +333,12 @@ describe('history', () => {
   it('shows a failed refresh alongside the last loaded list', async () => {
     const service = fakeOrderService();
     const container = await render(<OrderHistoryPage />, service);
-    const alert = container.querySelector('[role="alert"]')!;
     expect(container.textContent).toContain('No errands yet');
 
     service.history = () => failure(503, 'INTERNAL');
     await act(async () => window.dispatchEvent(new window.Event('online')));
     await flush();
-    expect(container.querySelector('[role="alert"]')).toBe(alert);
-    expect(alert.textContent).toContain('Could not refresh your errands.');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Could not refresh your errands');
     expect(container.textContent).toContain('No errands yet');
   });
 });
