@@ -20,6 +20,7 @@ import {
   REQUESTER,
   SEEDED_ORDER,
   SEEDED_REWARD,
+  TRANSFER_RESULTS_QUEUE,
   advance,
   backdate,
   createPending,
@@ -31,6 +32,7 @@ import {
   reservationReply,
   subscriptionsOf,
   sweep,
+  transferred,
 } from './support/lifecycle.js';
 
 /**
@@ -415,13 +417,7 @@ describe('participant suspension (ORD-06)', () => {
     };
     const entryAt = async (auth: string, version: number, orderId = SEEDED_ORDER) =>
       (await entriesOf(auth, orderId)).find((e) => e.version === version);
-    /** Everything an entry says about what caused it. */
-    const cause = ({ action, actorType, actorId, reason }: Entry) => ({
-      action,
-      actorType,
-      actorId,
-      reason,
-    });
+    /** Everything an entry says about what caused it, as anyone but the referred admin reads it. */
     const SYSTEM_OUTCOME = {
       action: 'SYSTEM_OUTCOME',
       actorType: 'SYSTEM',
@@ -437,10 +433,7 @@ describe('participant suspension (ORD-06)', () => {
       expect(await entryAt(asStranger, 4)).toMatchObject({
         previousStatus: 'ACCEPTED',
         newStatus: 'RELEASE_PENDING_CREDIT',
-        action: 'SYSTEM_OUTCOME',
-        actorType: 'SYSTEM',
-        actorId: null,
-        reason: null,
+        ...SYSTEM_OUTCOME,
       });
       // The same reason a cancellation gives, so the order says no more than its history.
       const { body } = await http(t)
@@ -462,15 +455,52 @@ describe('participant suspension (ORD-06)', () => {
       expect((await lastAction(t))!.action).toBe('PICKUP_TIMEOUT');
       expect((await lastAction(t, suspended))!.action).toBe('COURIER_SUSPENDED');
 
-      const timedOut = (await entryAt(asRequester, 4))!;
-      const bySuspension = (await entryAt(asRequester, 4, suspended))!;
-      expect(timedOut).toMatchObject({
-        previousStatus: 'ACCEPTED',
-        newStatus: 'OPEN',
+      // Both read as the same action, actor type, actor and reason.
+      for (const orderId of [SEEDED_ORDER, suspended]) {
+        expect(await entryAt(asRequester, 4, orderId), orderId).toMatchObject({
+          previousStatus: 'ACCEPTED',
+          newStatus: 'OPEN',
+          ...SYSTEM_OUTCOME,
+        });
+      }
+    });
+
+    it("shows the requester the Credit Service's cancellation for their suspension as a system outcome", async () => {
+      t = await createTestApp();
+      const orderId = await createPending(t);
+      await suspend(t, REQUESTER);
+      await reservationReply(t, orderId);
+      expect(await lastAction(t, orderId)).toMatchObject({
+        action: 'CREDIT_RESERVED',
+        actorType: 'CREDIT_SERVICE',
+        reason: 'requester suspended',
+      });
+
+      expect(await entryAt(asRequester, 2, orderId)).toMatchObject({
+        previousStatus: 'PENDING_CREDIT',
+        newStatus: 'RELEASE_PENDING_CREDIT',
         ...SYSTEM_OUTCOME,
       });
-      expect(bySuspension).toMatchObject({ previousStatus: 'ACCEPTED', newStatus: 'OPEN' });
-      expect(cause(bySuspension)).toEqual(cause(timedOut));
+    });
+
+    it("shows an administrator's decision as made, whatever its reason says", async () => {
+      t = await createTestApp();
+      await dispute(t, 'DELIVERED');
+      await sweep(t);
+      await http(t)
+        .post(`/admin/orders/${SEEDED_ORDER}/resolve`)
+        .set('Authorization', asAdmin)
+        .send({ outcome: 'COURIER', reason: 'requester suspended', expectedVersion: 7 })
+        .expect(200);
+
+      for (const auth of [asRequester, asStranger]) {
+        expect(await entryAt(auth, 8)).toMatchObject({
+          action: 'RESOLVE_FOR_COURIER',
+          actorType: 'ADMIN',
+          actorId: 'admin-1',
+          reason: 'requester suspended',
+        });
+      }
     });
 
     it('shows the requester an expiry as a system outcome too', async () => {
@@ -515,12 +545,12 @@ describe('participant suspension (ORD-06)', () => {
         },
         8: { action: 'ADMIN_ASSIGNED', actorId: 'lifecycle-scheduler', reason: 'admin-1' },
       };
+      const requesterView = await entriesOf(asRequester);
+      const adminView = await entriesOf(asAdmin);
       for (const [version, entry] of Object.entries(recorded)) {
-        expect(await entryAt(asRequester, Number(version)), version).toMatchObject(SYSTEM_OUTCOME);
-        expect(await entryAt(asAdmin, Number(version)), version).toMatchObject({
-          actorType: 'SYSTEM',
-          ...entry,
-        });
+        const at = (view: Entry[]) => view.find((e) => e.version === Number(version));
+        expect(at(requesterView), version).toMatchObject(SYSTEM_OUTCOME);
+        expect(at(adminView), version).toMatchObject({ actorType: 'SYSTEM', ...entry });
       }
     });
 
@@ -535,6 +565,8 @@ describe('participant suspension (ORD-06)', () => {
         .set('Authorization', asRequester)
         .send({ expectedVersion: 3 })
         .expect(200);
+      await deliver(t, TRANSFER_RESULTS_QUEUE, transferred());
+      await deliver(t, RELEASE_RESULTS_QUEUE, released({ orderId: cancelled }));
 
       for (const orderId of [SEEDED_ORDER, cancelled]) {
         const recorded = await t.orders.findHistory(orderId);
@@ -542,11 +574,23 @@ describe('participant suspension (ORD-06)', () => {
           expect(await entriesOf(auth, orderId)).toEqual(recorded);
         }
       }
-      expect((await t.orders.findHistory(cancelled)).map((e) => e.action)).toEqual([
+      const actions = async (orderId: string) =>
+        (await t!.orders.findHistory(orderId)).map((e) => e.action);
+      expect(await actions(SEEDED_ORDER)).toEqual([
+        'CREATE',
+        'CREDIT_RESERVED',
+        'ACCEPT',
+        'RECORD_PICKUP',
+        'RECORD_DELIVERY',
+        'CONFIRM_RECEIPT',
+        'TRANSFER_CONFIRMED',
+      ]);
+      expect(await actions(cancelled)).toEqual([
         'CREATE',
         'CREDIT_RESERVED',
         'ACCEPT',
         'CANCEL',
+        'RELEASE_CONFIRMED',
       ]);
     });
   });

@@ -719,9 +719,10 @@ export interface components {
                 /**
                  * @description The transition's action. To anyone but the referred administrator, every change
                  *     the system made (a timer, a referral or a suspension) shows as `SYSTEM_OUTCOME`,
-                 *     with a null `actorId` and `reason`, so the history does not say what caused it.
-                 *     So does the Credit Service's cancellation for a suspended requester. The statuses
-                 *     are always the real ones, so a change only a suspension makes can be inferred.
+                 *     with `actorType` `SYSTEM` and a null `actorId` and `reason`, so the history does
+                 *     not say what caused it. So does the Credit Service's cancellation for a suspended
+                 *     requester. The statuses and times are always the real ones, so a change only a
+                 *     suspension makes can be inferred.
                  */
                 action: string;
                 actorType: string;
