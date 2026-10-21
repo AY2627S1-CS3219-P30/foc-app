@@ -108,10 +108,32 @@ const OWN: Record<NonNullable<Role>, Partial<Record<OrderStatus, Partial<Wording
   },
 };
 
-export const statusWording = (status: OrderStatus, role: Role): Wording => ({
-  ...ORDER_STATUS[status],
-  ...(role && OWN[role][status]),
-});
+type ReleaseReason = NonNullable<Order["releaseReason"]>;
+
+/** Why a `RELEASE_PENDING_CREDIT` errand is ending, which only its requester and courier are told. */
+const ENDING: Record<ReleaseReason, { label: string; why: string }> = {
+  CANCELLED: { label: "Cancelling", why: "The errand is being cancelled." },
+  EXPIRED: {
+    label: "Expiring",
+    why: "No courier kept the errand before its deadline, so it is expiring.",
+  },
+};
+
+const RETURNING: Record<NonNullable<Role>, string> = {
+  REQUESTER: "The Credit Service is returning the reward to you.",
+  COURIER: "There's no reward for this errand, so the Credit Service is returning it to the requester.",
+};
+
+/** What this role reads about the errand. `RELEASE_PENDING_CREDIT` also depends on `releaseReason`. */
+export function statusWording(
+  { status, releaseReason }: Pick<Order, "status" | "releaseReason">,
+  role: Role,
+): Wording {
+  const wording = { ...ORDER_STATUS[status], ...(role && OWN[role][status]) };
+  if (status !== "RELEASE_PENDING_CREDIT" || !releaseReason || !role) return wording;
+  const { label, why } = ENDING[releaseReason];
+  return { ...wording, label, explanation: `${why} ${RETURNING[role]}` };
+}
 
 const FINAL = new Set<OrderStatus>(["REJECTED", "COMPLETED", "CANCELLED", "EXPIRED"]);
 

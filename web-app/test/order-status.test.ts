@@ -31,7 +31,7 @@ describe("ORDER_STATUS", () => {
   it("has slow copy for every state that waits on the Credit Service, and no other, for every role", () => {
     for (const status of statuses as OrderStatus[])
       for (const role of [null, "REQUESTER", "COURIER"] as const) {
-        const { slow } = statusWording(status, role);
+        const { slow } = statusWording({ status, releaseReason: "CANCELLED" }, role);
         if (waitsOnCredit(status)) expect(slow).toMatch(/^This is taking longer than usual\..+\.$/);
         else expect(slow).toBeUndefined();
       }
@@ -61,32 +61,79 @@ describe("waitsOnCredit", () => {
 
 describe("statusWording", () => {
   const all = statuses as OrderStatus[];
+  const roles = [null, "REQUESTER", "COURIER"] as const;
+  const reasons = [undefined, "CANCELLED", "EXPIRED"] as const;
+
+  it("gives every status a label and a sentence for every role and release reason", () => {
+    for (const status of all)
+      for (const role of roles)
+        for (const releaseReason of reasons) {
+          const { label, explanation } = statusWording({ status, releaseReason }, role);
+          expect(label.length).toBeGreaterThan(0);
+          expect(explanation).toMatch(/^[A-Z].+\.$/);
+        }
+  });
+
+  it("says whether a release is a cancellation or an expiry, to the requester and courier alike", () => {
+    const release = (releaseReason: "CANCELLED" | "EXPIRED", role: "REQUESTER" | "COURIER") =>
+      statusWording({ status: "RELEASE_PENDING_CREDIT", releaseReason }, role);
+
+    expect(release("CANCELLED", "REQUESTER")).toMatchObject({
+      label: "Cancelling",
+      explanation: "The errand is being cancelled. The Credit Service is returning the reward to you.",
+    });
+    expect(release("EXPIRED", "REQUESTER")).toMatchObject({
+      label: "Expiring",
+      explanation:
+        "No courier kept the errand before its deadline, so it is expiring. The Credit Service is returning the reward to you.",
+    });
+    expect(release("CANCELLED", "COURIER").label).toBe("Cancelling");
+    expect(release("CANCELLED", "COURIER").explanation).toBe(
+      "The errand is being cancelled. There's no reward for this errand, so the Credit Service is returning it to the requester.",
+    );
+    expect(release("EXPIRED", "COURIER").label).toBe("Expiring");
+    for (const role of ["REQUESTER", "COURIER"] as const)
+      expect(release("CANCELLED", role).explanation).not.toBe(release("EXPIRED", role).explanation);
+    expect(release("CANCELLED", "REQUESTER").explanation).not.toBe(release("CANCELLED", "COURIER").explanation);
+  });
+
+  it("keeps the general release wording without a reason, which only participants receive", () => {
+    expect(statusWording({ status: "RELEASE_PENDING_CREDIT" }, "REQUESTER").label).toBe("Returning credits");
+    expect(statusWording({ status: "RELEASE_PENDING_CREDIT", releaseReason: "EXPIRED" }, null).label).toBe(
+      "Returning credits",
+    );
+  });
+
+  it("never shows a release reason on another status", () => {
+    expect(statusWording({ status: "CANCELLED", releaseReason: "EXPIRED" }, "REQUESTER").label).toBe("Cancelled");
+  });
 
   it("speaks of the requester and courier in the third person to anyone else", () => {
     for (const status of all) {
-      const { label, explanation, slow } = statusWording(status, null);
+      const { label, explanation, slow } = statusWording({ status }, null);
       expect(`${label} ${explanation} ${slow ?? ""}`).not.toMatch(/\byou/i);
     }
-    expect(statusWording("RELEASE_PENDING_CREDIT", null).explanation).toContain("to the requester");
+    expect(statusWording({ status: "RELEASE_PENDING_CREDIT" }, null).explanation).toContain("to the requester");
   });
 
   it("asks the requester to act on a delivery, and returns the reward to them", () => {
-    expect(statusWording("DELIVERED", "REQUESTER").label).toBe("Delivered, confirm receipt");
-    expect(statusWording("DELIVERED", "REQUESTER").explanation).toContain("Confirm you received it");
+    expect(statusWording({ status: "DELIVERED" }, "REQUESTER").label).toBe("Delivered, confirm receipt");
+    expect(statusWording({ status: "DELIVERED" }, "REQUESTER").explanation).toContain("Confirm you received it");
     for (const status of ["RELEASE_PENDING_CREDIT", "CANCELLED", "EXPIRED"] as const)
-      expect(statusWording(status, "REQUESTER").explanation).toEndWith("to you.");
+      for (const releaseReason of reasons)
+        expect(statusWording({ status, releaseReason }, "REQUESTER").explanation).toEndWith("to you.");
   });
 
   it("never asks the courier to confirm receipt, and pays them", () => {
     for (const status of all) {
-      const { label, explanation } = statusWording(status, "COURIER");
+      const { label, explanation } = statusWording({ status, releaseReason: "CANCELLED" }, "COURIER");
       expect(label).not.toContain("confirm receipt");
       expect(explanation).not.toContain("Confirm you");
       expect(explanation).not.toMatch(/return.* to you/);
       expect(explanation).toMatch(/^[A-Z].+\.$/);
     }
-    expect(statusWording("DELIVERED", "COURIER").label).toBe("Delivered");
-    expect(statusWording("COMPLETED", "COURIER").explanation).toBe("The reward has been transferred to you.");
+    expect(statusWording({ status: "DELIVERED" }, "COURIER").label).toBe("Delivered");
+    expect(statusWording({ status: "COMPLETED" }, "COURIER").explanation).toBe("The reward has been transferred to you.");
   });
 });
 

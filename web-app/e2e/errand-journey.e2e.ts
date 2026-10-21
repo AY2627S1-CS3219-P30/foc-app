@@ -3,9 +3,10 @@ import { expect, test, type Browser, type Page } from "@playwright/test";
 import { ORDER, ORDER_URL, errandEmail, firstSupplier, signIn, visible } from "./request-helpers";
 
 /**
- * WEB-02 and WEB-05 end to end, once per breakpoint, against the real stack: two couriers race to
- * accept one errand. One wins and the other's stale card is replaced. The winner sees the delivery
- * instructions, records pickup and delivery, and the requester confirms receipt.
+ * WEB-02, WEB-03 and WEB-05 end to end, once per breakpoint, against the real stack: two couriers race
+ * to accept one errand. One wins and the other's stale card is replaced. The winner sees the delivery
+ * instructions, records pickup and delivery, and the requester confirms receipt, then follows the
+ * receipt to the payment in their wallet and back.
  */
 
 const INSTRUCTIONS = "Leave it at the lobby counter.";
@@ -74,6 +75,28 @@ test("errand journey: a lost acceptance race, fulfilment, and the requester conf
     await expect(badge(page, "Delivered, confirm receipt")).toBeVisible();
     await act(page, "Confirm receipt", "Confirm receipt");
     await expect(badge(page, "Complete")).toBeVisible({ timeout: 30_000 });
+  });
+
+  await test.step("the receipt links to the payment in the wallet, and the payment back to it", async () => {
+    const receipt = new RegExp(`/request/${orderId}/receipt$`);
+    await page.getByRole("link", { name: "View receipt" }).filter({ visible: true }).click();
+    await expect(page).toHaveURL(receipt);
+    await expect(visible(page, "Another student").first()).toBeVisible();
+
+    await page.getByRole("link", { name: "See it in your wallet" }).filter({ visible: true }).click();
+    await expect(page).toHaveURL(/\/wallet\?tx=[0-9a-f-]{36}$/);
+    const payment = page.locator('[aria-current="true"]');
+    await expect(payment).toBeFocused();
+    await expect(payment).toContainText("Paid your courier");
+    await expect(payment).toContainText("-1");
+
+    await payment.getByRole("link", { name: "Paid your courier" }).click();
+    await expect(page).toHaveURL(receipt);
+  });
+
+  await test.step("the courier's wallet shows what they earned", async () => {
+    await winner.goto("/wallet");
+    await expect(visible(winner, "Earned for a delivery").first()).toBeVisible();
   });
 
   await Promise.all([winner, loser].map((courier) => courier.context().close()));

@@ -447,8 +447,8 @@ describe('requester', () => {
     };
     await confirmAction(container, 'Cancel errand', 'Cancel errand');
     expect(service.commands.map((c) => c.body)).toEqual([{ expectedVersion: 3 }, { expectedVersion: 4 }]);
-    expect(container.textContent).toContain('Returning credits');
-    expect(container.textContent).toContain('It was cancelled.');
+    expect(container.textContent).toContain('Cancelling');
+    expect(container.textContent).toContain('The errand is being cancelled. The Credit Service is returning the reward to you.');
   });
 
   it("starts a dialog that can't be undone on Go back, and reads out what it does", async () => {
