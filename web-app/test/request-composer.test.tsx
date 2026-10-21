@@ -28,6 +28,7 @@ const { default: DetailsPage } = await import('../src/app/(app)/request/new/deta
 const { default: ReviewPage } = await import('../src/app/(app)/request/new/review/page');
 const { OrderDetail } = await import('../src/app/(app)/request/[id]/OrderDetail');
 const { SUPPLIER_UNAVAILABLE } = await import('../src/components/SupplierPicker');
+const { CreditsProvider } = await import('../src/lib/credits');
 
 afterAll(() => {
   for (const key of ['window', 'document', 'sessionStorage', 'IS_REACT_ACT_ENVIRONMENT'])
@@ -141,7 +142,7 @@ async function render(element: React.ReactElement, services: ReturnType<typeof f
   window.document.body.replaceChildren(container);
   const root = createRoot(container as unknown as Element);
   mounted = root;
-  await act(() => root.render(element));
+  await act(() => root.render(<CreditsProvider>{element}</CreditsProvider>));
   await flush();
   return container as unknown as HTMLElement;
 }
@@ -471,12 +472,19 @@ describe('order status', () => {
       throw new TypeError('boom');
     });
     auth.authed = read;
+    const services = fakeServices();
+    const { fetch } = services;
+    let orderReads = 0;
+    services.fetch = async (request) => {
+      if (new URL(request.url).pathname === `/orders/${ORDER_ID}`) orderReads++;
+      return fetch(request);
+    };
     try {
-      const container = await render(<OrderDetail orderId={ORDER_ID} />, fakeServices());
+      const container = await render(<OrderDetail orderId={ORDER_ID} />, services);
       expect(container.textContent).toContain('Could not load this request');
       expect(container.textContent).toContain('Something went wrong.');
       await clock.advance(15000);
-      expect(read).toHaveBeenCalledTimes(1);
+      expect(orderReads).toBe(1);
     } finally {
       auth.authed = authed;
     }

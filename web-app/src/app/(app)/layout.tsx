@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Menu } from "@/components/Menu";
 import { ErrorState, LoadingState } from "@/components/States";
 import { useAuth } from "@/lib/auth";
+import { CreditsProvider } from "@/lib/credits";
 import styles from "./layout.module.css";
 
 /**
@@ -49,9 +50,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <>
+    <CreditsProvider>
       {children}
       <Menu />
-    </>
+    </CreditsProvider>
   );
 }

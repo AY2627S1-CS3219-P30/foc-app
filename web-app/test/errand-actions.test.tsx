@@ -9,7 +9,7 @@ const { createRoot } = await import('react-dom/client');
 
 const auth = {
   authed: <T,>(call: (token: string) => Promise<T>) => call('test-token'),
-  user: { id: 'me' },
+  user: { id: 'me', profile: { displayName: 'Me', preferredMode: 'REQUESTER' } },
 };
 const router = { push: mock((href: string) => void href), back: mock(() => {}) };
 mock.module('../src/lib/auth', () => ({ useAuth: () => auth }));
@@ -23,6 +23,8 @@ mock.module('../src/components/DesktopShell', () => ({
 const { default: FeedPage } = await import('../src/app/(app)/feed/page');
 const { OrderDetail } = await import('../src/app/(app)/request/[id]/OrderDetail');
 const { StoreProvider } = await import('../src/lib/store');
+const { CreditsProvider } = await import('../src/lib/credits');
+const { TopBar } = await import('../src/components/TopBar');
 
 afterAll(() => {
   for (const key of ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'])
@@ -91,6 +93,8 @@ function fakeOrderService() {
     current: order(),
     commands: [] as Command[],
     serverAhead: 0,
+    wallet: (): Response => json(200, { available: 5 }),
+    walletReads: 0,
     stamp: (o: Order): Order => ({ ...o, serverTime: new Date(Date.now() + service.serverAhead).toISOString() }),
     answer: (): Response => json(200, service.stamp({ ...service.current, version: 4 })),
     read: (): Response => json(200, service.stamp(service.reads.shift() ?? service.current)),
@@ -108,7 +112,10 @@ function fakeOrderService() {
             .map((o) => ({ ...o, timeRemainingSeconds: (Date.parse(o.acceptanceDeadlineAt) - Date.now()) / 1000 }))
             .filter((o) => o.timeRemainingSeconds > 0),
         );
-      if (pathname === '/wallets/me') return json(200, { available: 5 });
+      if (pathname === '/wallets/me') {
+        service.walletReads++;
+        return service.wallet();
+      }
       if (pathname.startsWith('/orders/')) return service.read();
       return failure(404, 'NOT_FOUND');
     },
@@ -179,7 +186,13 @@ async function render(element: React.ReactElement, service: ReturnType<typeof fa
   window.document.body.replaceChildren(container);
   const root = createRoot(container as unknown as Element);
   mounted = root;
-  await act(() => root.render(<StoreProvider>{element}</StoreProvider>));
+  await act(() =>
+    root.render(
+      <StoreProvider>
+        <CreditsProvider>{element}</CreditsProvider>
+      </StoreProvider>,
+    ),
+  );
   await flush();
   return container as unknown as HTMLElement;
 }
@@ -221,8 +234,10 @@ describe('feed', () => {
     service.answer = () => json(201, order({ orderId: OTHER_ID, status: 'ACCEPTED' }));
     const container = await render(<FeedPage />, service);
 
+    expect(button(container, 'Accept').getAttribute('aria-label')).toBe('Accept errand from Their cafe');
     await act(async () => button(container, 'Accept').click());
     expect(dialog(container).textContent).toContain('Accept this errand?');
+    expect(container.ownerDocument.activeElement).toBe(button(dialog(container), 'Accept'));
     expect(service.commands).toEqual([]);
 
     await act(async () => button(dialog(container), 'Accept').click());
@@ -244,6 +259,9 @@ describe('feed', () => {
     expect(container.textContent).toContain('Another courier accepted this errand first');
     expect(container.textContent).not.toContain('Their cafe');
     expect(buttons(container, 'Accept')).toEqual([]);
+    const focused = container.ownerDocument.activeElement;
+    expect(focused?.getAttribute('role')).toBe('status');
+    expect(focused?.textContent).toContain('Another courier accepted');
     expect(router.push).not.toHaveBeenCalled();
   });
 
@@ -308,6 +326,7 @@ describe('courier', () => {
     expect(service.commands).toEqual([{ path: `/orders/${ORDER_ID}/pickup`, body: { expectedVersion: 3 } }]);
     expect(buttons(container, 'Mark as delivered').length).toBeGreaterThan(0);
     expect(buttons(container, "I've picked it up")).toEqual([]);
+    expect(container.ownerDocument.activeElement?.getAttribute('role')).toBe('status');
   });
 
   it('counts a retried pickup as done when the lost first send went through', async () => {
@@ -393,6 +412,17 @@ describe('requester', () => {
     expect(service.commands.map((c) => c.body)).toEqual([{ expectedVersion: 3 }, { expectedVersion: 4 }]);
     expect(container.textContent).toContain('Returning credits');
     expect(container.textContent).toContain('It was cancelled.');
+  });
+
+  it("starts a dialog that can't be undone on Go back, and reads out what it does", async () => {
+    const service = fakeOrderService();
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+
+    await act(async () => button(container, 'Cancel errand').click());
+    const document = container.ownerDocument;
+    expect(document.activeElement).toBe(button(dialog(container), 'Go back'));
+    const description = document.getElementById(dialog(container).getAttribute('aria-describedby')!);
+    expect(description?.textContent).toContain("This can't be undone.");
   });
 
   it('keeps a failed send in the dialog to try again', async () => {
@@ -507,5 +537,48 @@ describe('requester', () => {
     expect(container.textContent).toContain('With an administrator');
     expect(container.textContent).toContain("There's nothing for you to do while they decide.");
     expect(container.querySelectorAll('button:not([aria-label="Back"])').length).toBe(0);
+  });
+});
+
+describe('credits', () => {
+  const pills = (container: HTMLElement) => container.textContent?.match(/\d+ credits/g);
+
+  it('reads the balance once for every top bar, and keeps it when a read fails', async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    const container = await render(
+      <>
+        <TopBar />
+        <TopBar />
+      </>,
+      service,
+    );
+    expect(pills(container)).toEqual(['5 credits', '5 credits']);
+    expect(service.walletReads).toBe(1);
+
+    service.wallet = () => failure(503, 'INTERNAL');
+    await clock.advance(30_000);
+    expect(service.walletReads).toBe(2);
+    expect(pills(container)).toEqual(['5 credits', '5 credits']);
+  });
+
+  it('reads the balance again once a command goes through', async () => {
+    const service = fakeOrderService();
+    service.answer = () => {
+      service.current = order({ status: 'RELEASE_PENDING_CREDIT', releaseReason: 'CANCELLED', version: 4 });
+      return json(200, service.current);
+    };
+    const container = await render(
+      <>
+        <TopBar />
+        <OrderDetail orderId={ORDER_ID} />
+      </>,
+      service,
+    );
+    expect(container.textContent).toContain('5 credits');
+
+    service.wallet = () => json(200, { available: 8 });
+    await confirmAction(container, 'Cancel errand', 'Cancel errand');
+    expect(container.textContent).toContain('8 credits');
   });
 });

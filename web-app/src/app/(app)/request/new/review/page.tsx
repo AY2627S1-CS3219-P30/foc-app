@@ -24,6 +24,7 @@ import {
   type Draft,
   type SubmitFailure,
 } from "@/lib/composer";
+import { useCredits } from "@/lib/credits";
 import { STUDENT_NAV } from "@/lib/nav";
 import { createOrder, getMyWallet, type CreateOrder, type Wallet } from "@/lib/order-api";
 import type { Supplier } from "@/lib/supplier-api";
@@ -43,6 +44,7 @@ function Summary({
 }) {
   const router = useRouter();
   const { authed } = useAuth();
+  const { refresh: refreshCredits } = useCredits();
   const [draft, setDraft] = useState(stored);
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [walletProblem, setWalletProblem] = useState("");
@@ -88,6 +90,7 @@ function Summary({
           return [await post(sentBody), true] as const;
         },
       );
+      refreshCredits();
       if (!replayed) {
         clearDraft(userId);
         router.replace(`/request/${created.orderId}`);

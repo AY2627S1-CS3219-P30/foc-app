@@ -12,6 +12,7 @@ import { Screen, ScreenContent } from "@/components/Screen";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth";
+import { useCredits } from "@/lib/credits";
 import { STUDENT_NAV } from "@/lib/nav";
 import { listOpenOrders, type OpenOrder } from "@/lib/order-api";
 import { ORDER_ACTIONS } from "@/lib/order-actions";
@@ -71,8 +72,12 @@ export default function FeedPage() {
   const withdrawn = useQueryParam("withdrawn") === "1";
   const [notice, setNotice] = useState<string | null>(null);
   const now = useNowAfter((time) => nextChange(listings, time));
+  const { refresh: refreshCredits } = useCredits();
   const accept = useOrderAction({
-    onDone: (order) => router.push(`/request/${order.orderId}`),
+    onDone: (order) => {
+      refreshCredits();
+      router.push(`/request/${order.orderId}`);
+    },
     onStale: (message) => {
       setNotice(message);
       reload();
@@ -86,10 +91,14 @@ export default function FeedPage() {
       errand={{ ...l, items: l.itemSummary }}
       meta={timeLeft(l.expiresAt - now)}
       action={
-        <Button variant="accent" onClick={() => {
+        <Button
+          variant="accent"
+          aria-label={`Accept errand from ${l.supplier.name}`}
+          onClick={() => {
             setNotice(null);
             accept.ask(l, ORDER_ACTIONS.accept);
-          }}>
+          }}
+        >
           Accept
         </Button>
       }
@@ -107,7 +116,7 @@ export default function FeedPage() {
       )
     ) : (
       <>
-        <FormAlert tone="info">{notice ?? (withdrawn && WITHDRAWN)}</FormAlert>
+        <FormAlert tone="info" takeFocus>{notice ?? (withdrawn && WITHDRAWN)}</FormAlert>
         {problem && <FormAlert>Could not refresh the list. {problem}</FormAlert>}
         {cards.length === 0 ? (
           <EmptyState title="No open errands right now">Check back soon.</EmptyState>

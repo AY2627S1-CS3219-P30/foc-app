@@ -8,6 +8,8 @@ export type OrderAction = {
   command: Command;
   label: string;
   variant: "primary" | "outline";
+  /** It can't be taken back, so its dialog starts on "Go back" rather than on confirming. */
+  destructive?: true;
   confirm: { title: string; body: string; label: string };
 };
 
@@ -56,6 +58,7 @@ export const ORDER_ACTIONS: Record<Command, OrderAction> = {
     command: "withdraw",
     label: "Withdraw",
     variant: "outline",
+    destructive: true,
     confirm: {
       title: "Withdraw from this errand?",
       body: "It goes back to the feed for another courier, or expires if its deadline has passed. You won't be paid for it.",
@@ -66,6 +69,7 @@ export const ORDER_ACTIONS: Record<Command, OrderAction> = {
     command: "cancel",
     label: "Cancel errand",
     variant: "outline",
+    destructive: true,
     confirm: {
       title: "Cancel this errand?",
       body: "Its reward is returned to your available credits. This can't be undone.",
@@ -76,6 +80,7 @@ export const ORDER_ACTIONS: Record<Command, OrderAction> = {
     command: "confirmReceipt",
     label: "Confirm receipt",
     variant: "primary",
+    destructive: true,
     confirm: {
       title: "Confirm you received it?",
       body: "The reward goes to the courier. This can't be undone.",
