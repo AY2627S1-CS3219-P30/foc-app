@@ -281,6 +281,13 @@ describe('feed', () => {
     expect(container.textContent).toContain('Another courier accepted this errand first');
     expect(router.push).not.toHaveBeenCalled();
   });
+
+  it('says so after a withdrawal', async () => {
+    window.happyDOM.setURL('http://localhost/feed?withdrawn=1');
+    const container = await render(<FeedPage />, fakeOrderService());
+    window.happyDOM.setURL('http://localhost/');
+    expect(container.textContent).toContain('You withdrew from the errand.');
+  });
 });
 
 describe('courier', () => {
@@ -322,20 +329,16 @@ describe('courier', () => {
     expect(buttons(container, 'Mark as delivered').length).toBeGreaterThan(0);
   });
 
-  it('withdraws after confirming, and loses the delivery instructions with the errand', async () => {
+  it('withdraws after confirming, then goes back to the feed', async () => {
     const service = fakeOrderService();
     service.current = order({ ...assigned, status: 'ACCEPTED' });
-    service.answer = () => {
-      service.current = order({ requesterId: undefined, deliveryInstructions: undefined, version: 4 });
-      return json(200, service.current);
-    };
+    // A withdrawal answers with the public projection: the errand no longer names them.
+    service.answer = () => json(200, order({ requesterId: undefined, deliveryInstructions: undefined, version: 4 }));
     const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
 
     await confirmAction(container, 'Withdraw', 'Withdraw');
     expect(service.commands).toEqual([{ path: `/orders/${ORDER_ID}/withdraw`, body: { expectedVersion: 3 } }]);
-    expect(buttons(container, 'Withdraw')).toEqual([]);
-    expect(buttons(container, "I've picked it up")).toEqual([]);
-    expect(container.textContent).not.toContain('Lobby counter');
+    expect(router.push).toHaveBeenCalledWith('/feed?withdrawn=1');
   });
 
   it('records delivery after confirming, then leaves the next step to the requester', async () => {
@@ -350,6 +353,14 @@ describe('courier', () => {
     await confirmAction(container, 'Mark as delivered', 'Record delivery');
     expect(service.commands).toEqual([{ path: `/orders/${ORDER_ID}/deliver`, body: { expectedVersion: 3 } }]);
     expect(container.querySelectorAll('button:not([aria-label="Back"])').length).toBe(0);
+  });
+
+  it('reads about a delivery as the courier, not as the requester', async () => {
+    const service = fakeOrderService();
+    service.current = order({ ...assigned, status: 'DELIVERED' });
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+    expect(container.textContent).toContain("You've recorded delivery.");
+    expect(container.textContent).not.toContain('confirm receipt');
   });
 
   it('shows no delivery instructions before the errand is theirs', async () => {

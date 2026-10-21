@@ -16,7 +16,7 @@ import { useAuth } from "@/lib/auth";
 import { draftFrom, itemsLabel, saveDraft } from "@/lib/composer";
 import type { Order } from "@/lib/order-api";
 import { actionDeadline, actionsFor, roleIn, type OrderAction, type Role } from "@/lib/order-actions";
-import { explanation, rejectionMessage } from "@/lib/order-status";
+import { rejectionMessage, statusWording } from "@/lib/order-status";
 import { useNowAfter } from "@/lib/use-now";
 import { useOrder } from "@/lib/use-order";
 import { useOrderAction } from "@/lib/use-order-action";
@@ -92,10 +92,10 @@ function StatusBody({
   return (
     <>
       <div>
-        <Badge status={order.status} />
+        <Badge status={order.status} role={role} />
       </div>
       <div role="status" style={{ display: "flex", flexDirection: "column", gap: vars.space[2] }}>
-        <p style={muted}>{explanation(order.status, role)}</p>
+        <p style={muted}>{statusWording(order.status, role).explanation}</p>
         {order.status === "PENDING_CREDIT" && stillWaiting && (
           <p style={muted}>
             This is taking longer than usual. Your request is saved and opens as soon as the credits
@@ -148,6 +148,7 @@ function StatusBody({
 
 /** One errand, with the next steps the signed-in student may take on it. */
 export function OrderDetail({ orderId }: { orderId: string }) {
+  const router = useRouter();
   const { user } = useAuth();
   const { order, skew, problem, stillWaiting, refresh } = useOrder(orderId);
   const [notice, setNotice] = useState<string | null>(null);
@@ -157,6 +158,11 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const now = useNowAfter(() => (deadline === null ? null : deadline + skew)) - skew;
   const act = useOrderAction({
     onDone: (next) => {
+      // Only a withdrawal takes the courier off the errand, leaving nothing here for them.
+      if (role === "COURIER" && !roleIn(next, user?.id)) {
+        router.push("/feed?withdrawn=1");
+        return;
+      }
       setNotice(null);
       refresh(next);
     },

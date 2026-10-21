@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { readFile } from "node:fs/promises";
-import { ORDER_STATUS, rejectionMessage } from "../src/lib/order-status";
+import type { OrderStatus } from "../src/lib/order-api";
+import { ORDER_STATUS, rejectionMessage, statusWording } from "../src/lib/order-status";
 
 /** The `Order.status` union as generated from the contract, so a new state fails here. */
 const generated = await readFile(
@@ -25,6 +26,37 @@ describe("ORDER_STATUS", () => {
     expect(ORDER_STATUS.PENDING_CREDIT.label).toBe("Waiting for credits");
     expect(ORDER_STATUS.COMPLETION_PENDING_CREDIT.label).toBe("Paying the courier");
     expect(ORDER_STATUS.RELEASE_PENDING_CREDIT.label).toBe("Returning credits");
+  });
+});
+
+describe("statusWording", () => {
+  const all = statuses as OrderStatus[];
+
+  it("speaks of the requester and courier in the third person to anyone else", () => {
+    for (const status of all) {
+      const { label, explanation } = statusWording(status, null);
+      expect(`${label} ${explanation}`).not.toMatch(/\byou/i);
+    }
+    expect(statusWording("RELEASE_PENDING_CREDIT", null).explanation).toContain("to the requester");
+  });
+
+  it("asks the requester to act on a delivery, and returns the reward to them", () => {
+    expect(statusWording("DELIVERED", "REQUESTER").label).toBe("Delivered, confirm receipt");
+    expect(statusWording("DELIVERED", "REQUESTER").explanation).toContain("Confirm you received it");
+    for (const status of ["RELEASE_PENDING_CREDIT", "CANCELLED", "EXPIRED"] as const)
+      expect(statusWording(status, "REQUESTER").explanation).toEndWith("to you.");
+  });
+
+  it("never asks the courier to confirm receipt, and pays them", () => {
+    for (const status of all) {
+      const { label, explanation } = statusWording(status, "COURIER");
+      expect(label).not.toContain("confirm receipt");
+      expect(explanation).not.toContain("Confirm you");
+      expect(explanation).not.toMatch(/return.* to you/);
+      expect(explanation).toMatch(/^[A-Z].+\.$/);
+    }
+    expect(statusWording("DELIVERED", "COURIER").label).toBe("Delivered");
+    expect(statusWording("COMPLETED", "COURIER").explanation).toBe("The reward has been transferred to you.");
   });
 });
 

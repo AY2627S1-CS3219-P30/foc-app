@@ -2,12 +2,17 @@ import { REWARD_MAX, REWARD_MIN } from "./composer";
 import type { Order, OrderStatus } from "./order-api";
 import type { Role } from "./order-actions";
 
-/** Labels are the ones order-service/README.md's state table gives the web app. */
-export const ORDER_STATUS: Record<OrderStatus, { label: string; explanation: string }> = {
+type Wording = { label: string; explanation: string };
+
+/**
+ * What a student with no part in the errand reads. Labels are the ones order-service/README.md's
+ * state table gives the web app, except `DELIVERED`'s, which asks the requester to act and so is theirs alone.
+ */
+export const ORDER_STATUS: Record<OrderStatus, Wording> = {
   PENDING_CREDIT: {
     label: "Waiting for credits",
     explanation:
-      "Your request is in. The Credit Service is reserving its reward, and couriers will see it once that's done.",
+      "The request is in. The Credit Service is reserving its reward, and couriers will see it once that's done.",
   },
   OPEN: {
     label: "Open",
@@ -22,8 +27,9 @@ export const ORDER_STATUS: Record<OrderStatus, { label: string; explanation: str
     explanation: "The courier has collected the items and is on the way to deliver them.",
   },
   DELIVERED: {
-    label: "Delivered, confirm receipt",
-    explanation: "The courier has recorded delivery. Confirm you received it, or report that you didn't.",
+    label: "Delivered",
+    explanation:
+      "The courier has recorded delivery. The requester confirms receipt, or it's confirmed automatically.",
   },
   DISPUTED: {
     label: "With an administrator",
@@ -35,7 +41,8 @@ export const ORDER_STATUS: Record<OrderStatus, { label: string; explanation: str
   },
   RELEASE_PENDING_CREDIT: {
     label: "Returning credits",
-    explanation: "The errand is ending without payment. The Credit Service is returning the reward to you.",
+    explanation:
+      "The errand is ending without payment. The Credit Service is returning the reward to the requester.",
   },
   REJECTED: {
     label: "Not placed",
@@ -47,29 +54,54 @@ export const ORDER_STATUS: Record<OrderStatus, { label: string; explanation: str
   },
   CANCELLED: {
     label: "Cancelled",
-    explanation: "The errand was cancelled and the reward has been returned to you.",
+    explanation: "The errand was cancelled and the reward has been returned to the requester.",
   },
   EXPIRED: {
     label: "Expired",
-    explanation: "No courier kept the errand before its deadline, so the reward has been returned to you.",
+    explanation:
+      "No courier kept the errand before its deadline, so the reward has been returned to the requester.",
   },
 };
 
-/** Where the requester's wording above would mislead the courier. */
-const FOR_COURIER: Partial<Record<OrderStatus, string>> = {
-  ACCEPTED: "The errand is yours. Collect the items from the pickup point, then record pickup.",
-  PICKED_UP: "You have the items. Take them to the delivery zone, then record delivery.",
-  DELIVERED:
-    "You've recorded delivery. The requester confirms receipt, or it's confirmed automatically.",
-  COMPLETION_PENDING_CREDIT:
-    "Delivery is accepted. The Credit Service is transferring the reward to you.",
-  RELEASE_PENDING_CREDIT: "The errand is ending without payment.",
-  COMPLETED: "The reward has been transferred to you.",
-  CANCELLED: "The errand ended without payment.",
+/** Where the errand's requester or courier reads about their own part instead. */
+const OWN: Record<NonNullable<Role>, Partial<Record<OrderStatus, Partial<Wording>>>> = {
+  REQUESTER: {
+    PENDING_CREDIT: {
+      explanation:
+        "Your request is in. The Credit Service is reserving its reward, and couriers will see it once that's done.",
+    },
+    DELIVERED: {
+      label: "Delivered, confirm receipt",
+      explanation: "The courier has recorded delivery. Confirm you received it, or report that you didn't.",
+    },
+    RELEASE_PENDING_CREDIT: {
+      explanation: "The errand is ending without payment. The Credit Service is returning the reward to you.",
+    },
+    CANCELLED: { explanation: "The errand was cancelled and the reward has been returned to you." },
+    EXPIRED: {
+      explanation: "No courier kept the errand before its deadline, so the reward has been returned to you.",
+    },
+  },
+  COURIER: {
+    ACCEPTED: {
+      explanation: "The errand is yours. Collect the items from the pickup point, then record pickup.",
+    },
+    PICKED_UP: { explanation: "You have the items. Take them to the delivery zone, then record delivery." },
+    DELIVERED: {
+      explanation: "You've recorded delivery. The requester confirms receipt, or it's confirmed automatically.",
+    },
+    COMPLETION_PENDING_CREDIT: {
+      label: "Paying you",
+      explanation: "Delivery is accepted. The Credit Service is transferring the reward to you.",
+    },
+    COMPLETED: { explanation: "The reward has been transferred to you." },
+  },
 };
 
-export const explanation = (status: OrderStatus, role: Role) =>
-  (role === "COURIER" && FOR_COURIER[status]) || ORDER_STATUS[status].explanation;
+export const statusWording = (status: OrderStatus, role: Role): Wording => ({
+  ...ORDER_STATUS[status],
+  ...(role && OWN[role][status]),
+});
 
 const FINAL: ReadonlySet<OrderStatus> = new Set(["REJECTED", "COMPLETED", "CANCELLED", "EXPIRED"]);
 

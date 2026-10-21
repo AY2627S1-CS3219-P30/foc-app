@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { itemsLabel } from "@/lib/composer";
+import type { Role } from "@/lib/order-actions";
 import type { Order, OrderItem } from "@/lib/order-api";
 import { Badge } from "./Badge";
 import styles from "./ErrandCard.module.css";
@@ -20,10 +21,12 @@ export function ErrandGrid({ children }: { children: ReactNode }) {
  */
 export function ErrandCard({
   errand,
+  role,
   meta,
   action,
 }: {
   errand: Errand;
+  role?: Role;
   meta?: ReactNode;
   action?: ReactNode;
 }) {
@@ -31,7 +34,7 @@ export function ErrandCard({
     <div className={`card ${styles.card}`}>
       <Link href={`/request/${errand.orderId}`} className={styles.link}>
         <div className={styles.meta}>
-          <Badge status={errand.status} />
+          <Badge status={errand.status} role={role} />
           {meta && <span className={styles.when}>{meta}</span>}
         </div>
         <div className={styles.body}>

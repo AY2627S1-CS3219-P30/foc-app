@@ -17,10 +17,10 @@ import { vars } from "@/styles/tokens";
 /** Only while some errand is still active: past ones no longer change. */
 const HISTORY_POLL_MS = 30_000;
 
-const ROLE_LABEL: Record<MyOrder["myRole"], string> = {
-  REQUESTER: "You requested",
-  COURIER: "You're delivering",
-};
+function roleLabel({ myRole, status }: MyOrder) {
+  if (myRole === "REQUESTER") return "You requested";
+  return isFinal(status) ? "You were the courier" : "You're the courier";
+}
 
 function Section({ title, orders }: { title: string; orders: MyOrder[] }) {
   if (orders.length === 0) return null;
@@ -29,7 +29,7 @@ function Section({ title, orders }: { title: string; orders: MyOrder[] }) {
       <h2 style={{ fontSize: vars.text.lg, fontWeight: vars.weight.semibold }}>{title}</h2>
       <ErrandGrid>
         {orders.map((o) => (
-          <ErrandCard key={o.orderId} errand={o} meta={ROLE_LABEL[o.myRole]} />
+          <ErrandCard key={o.orderId} errand={o} role={o.myRole} meta={roleLabel(o)} />
         ))}
       </ErrandGrid>
     </section>

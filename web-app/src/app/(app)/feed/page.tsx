@@ -18,9 +18,11 @@ import { ORDER_ACTIONS } from "@/lib/order-actions";
 import { useNowAfter } from "@/lib/use-now";
 import { useOrderAction } from "@/lib/use-order-action";
 import { usePoll } from "@/lib/use-poll";
+import { useQueryParam } from "@/lib/use-query-param";
 
 const FEED_POLL_MS = 30_000;
 const MINUTE_MS = 60_000;
+const WITHDRAWN = "You withdrew from the errand. Another courier can take it, unless its deadline has passed.";
 
 /** `expiresAt` counts from the server's `timeRemainingSeconds`, so a wrong device clock can't skew it. */
 type Listing = OpenOrder & { expiresAt: number };
@@ -66,6 +68,7 @@ function nextChange(listings: Listing[] | null, now: number): number | null {
 export default function FeedPage() {
   const router = useRouter();
   const { listings, problem, reload } = useFeed();
+  const withdrawn = useQueryParam("withdrawn") === "1";
   const [notice, setNotice] = useState<string | null>(null);
   const now = useNowAfter((time) => nextChange(listings, time));
   const accept = useOrderAction({
@@ -104,7 +107,7 @@ export default function FeedPage() {
       )
     ) : (
       <>
-        <FormAlert tone="info">{notice}</FormAlert>
+        <FormAlert tone="info">{notice ?? (withdrawn && WITHDRAWN)}</FormAlert>
         {problem && <FormAlert>Could not refresh the list. {problem}</FormAlert>}
         {cards.length === 0 ? (
           <EmptyState title="No open errands right now">Check back soon.</EmptyState>
