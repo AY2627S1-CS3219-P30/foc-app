@@ -95,7 +95,7 @@ function fakeServices({ available = 10 } = {}) {
   const services = {
     posts: [] as Post[],
     answer: (): Promise<Response> | Response => json(201, order()),
-    reads: [] as (Order | Response)[],
+    reads: [] as (Order | Response | Promise<Response>)[],
     gets: 0,
     async fetch(request: Request): Promise<Response> {
       const { pathname } = new URL(request.url);
@@ -109,7 +109,7 @@ function fakeServices({ available = 10 } = {}) {
       if (pathname === `/orders/${ORDER_ID}`) {
         services.gets++;
         const next = services.reads.shift() ?? order();
-        return next instanceof Response ? next : json(200, next);
+        return next instanceof Response || next instanceof Promise ? next : json(200, next);
       }
       return failure(404, 'NOT_FOUND', 'Not found.');
     },
@@ -570,6 +570,52 @@ describe('order status', () => {
     expect(services.gets).toBe(2);
     expect(container.textContent).toContain('A courier has accepted the errand');
     expect(container.textContent).not.toContain('Post a new request');
+  });
+
+  it('reads again at once when the connection returns while a read is failing', async () => {
+    const clock = fakeClock();
+    const services = fakeServices();
+    const open = order({ status: 'OPEN', acceptanceDeadlineAt: '2026-10-20T02:00:00.000Z' });
+    services.reads = [open];
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, services);
+
+    let fail!: (err: Error) => void;
+    services.reads = [new Promise<Response>((_, reject) => (fail = reject)), order({ status: 'ACCEPTED' })];
+    const online = async () => {
+      await act(async () => window.dispatchEvent(new window.Event('online')));
+      await flush();
+    };
+    await online();
+    expect(services.gets).toBe(2);
+    await online();
+    expect(services.gets).toBe(2);
+
+    await act(async () => fail(new TypeError('fetch failed')));
+    await flush();
+    expect(services.gets).toBe(3);
+    expect(container.textContent).toContain('A courier has accepted the errand');
+    await clock.advance(30_000);
+    expect(services.gets).toBe(4);
+  });
+
+  it('stops reading a settled errand after ten minutes without a change, until the tab is shown', async () => {
+    const clock = fakeClock();
+    const services = fakeServices();
+    services.reads = Array.from({ length: 30 }, () =>
+      order({ status: 'OPEN', acceptanceDeadlineAt: '2026-10-20T02:00:00.000Z' }),
+    );
+    await render(<OrderDetail orderId={ORDER_ID} />, services);
+
+    for (let i = 0; i < 20; i++) await clock.advance(30_000);
+    expect(services.gets).toBe(21);
+    await clock.advance(60_000);
+    expect(services.gets).toBe(21);
+
+    await setVisibility('hidden');
+    await setVisibility('visible');
+    expect(services.gets).toBe(22);
+    await clock.advance(30_000);
+    expect(services.gets).toBe(23);
   });
 
   it('reads again on reconnecting, even after an error stopped polling', async () => {

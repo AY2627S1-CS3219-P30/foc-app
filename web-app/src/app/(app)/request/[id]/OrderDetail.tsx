@@ -92,7 +92,10 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   if (fromUrl && !replayed) setReplayed(true);
 
   useEffect(() => {
-    if (replayed) window.history.replaceState(null, "", window.location.pathname);
+    if (!replayed) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("replayed");
+    window.history.replaceState(null, "", url.href);
   }, [replayed]);
 
   const body = order ? (

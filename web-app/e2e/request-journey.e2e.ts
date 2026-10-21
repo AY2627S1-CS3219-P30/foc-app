@@ -3,13 +3,13 @@ import { expect, test } from "@playwright/test";
 import {
   activeStudent,
   compose,
-  CREDIT,
   firstSupplier,
   ORDER,
   ORDER_URL,
   row,
   signIn,
   visible,
+  wallet as readWallet,
 } from "./request-helpers";
 
 /**
@@ -31,11 +31,7 @@ test("request journey: post, wait for credits, open; then an insufficient-credit
   const token = await activeStudent(request, email);
   const supplier = await firstSupplier(request, token);
   const auth = { authorization: `Bearer ${token}` };
-  const wallet = async () =>
-    (await (await request.get(`${CREDIT}/wallets/me`, { headers: auth })).json()) as {
-      available: number;
-      reserved: number;
-    };
+  const wallet = () => readWallet(request, token);
 
   await test.step("sign in", () => signIn(page, email));
 

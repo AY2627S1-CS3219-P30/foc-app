@@ -2,13 +2,13 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   activeStudent,
   compose,
-  CREDIT,
   firstSupplier,
   ORDER,
   ORDER_URL,
   row,
   signIn,
   visible,
+  wallet as readWallet,
 } from "./request-helpers";
 
 /**
@@ -34,11 +34,7 @@ test("reconnect journey: a lost or offline post creates one errand", async ({
   const posted: string[] = [];
   let reserved = 0;
 
-  const wallet = async () =>
-    (await (await request.get(`${CREDIT}/wallets/me`, { headers: auth })).json()) as {
-      available: number;
-      reserved: number;
-    };
+  const wallet = () => readWallet(request, token);
   const postedOnce = async (reward: number) => {
     await expect(page).toHaveURL(ORDER_URL);
     posted.push(new URL(page.url()).pathname.split("/").at(-1)!);

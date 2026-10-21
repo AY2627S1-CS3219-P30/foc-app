@@ -71,6 +71,9 @@ const FINAL = new Set<OrderStatus>(["REJECTED", "COMPLETED", "CANCELLED", "EXPIR
 /** No transition leaves these states, so there is nothing more to read. */
 export const isFinal = (status: OrderStatus) => FINAL.has(status);
 
+/** The Credit Service is moving credits; the next state follows as soon as it answers. */
+export const waitsOnCredit = (status: OrderStatus) => status.endsWith("PENDING_CREDIT");
+
 /** What to do about a `REJECTED` order, for each reason the Credit Service gives. */
 export function rejectionMessage(order: Pick<Order, "reward" | "rejection">): string {
   const available = order.rejection?.available;

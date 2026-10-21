@@ -134,10 +134,11 @@ wallet still read the in-memory mock store (`src/lib/store.tsx`) until WEB-02 an
   (`src/lib/use-order.ts`) until the errand is `REJECTED`, `COMPLETED`, `CANCELLED` or `EXPIRED`:
   1, 2, 4, 8, then every 15 seconds in the `*_PENDING_CREDIT` states, every 30 seconds otherwise. A
   hidden tab pauses; showing it again or coming back online reads at once, even after an error
-  stopped polling. It says `PENDING_CREDIT` is taking longer than usual after 30 seconds. `OPEN` shows
-  the deadline from `acceptanceDeadlineAt`; `REJECTED` shows what to do for its reason, using
-  `rejection.available` when present. `REJECTED` and `EXPIRED` offer "Post a new request", a copy
-  under a new key.
+  stopped polling. In a settled state, polling also pauses after 10 minutes without a change until
+  the tab is shown or back online. It says any `*_PENDING_CREDIT` state is taking longer than usual
+  30 seconds after the order's `updatedAt`. `OPEN` shows the deadline from `acceptanceDeadlineAt`;
+  `REJECTED` shows what to do for its reason, using `rejection.available` when present. `REJECTED`
+  and `EXPIRED` offer "Post a new request", a copy under a new key.
 
 #### Recovery (WEB-04)
 

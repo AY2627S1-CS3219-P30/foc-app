@@ -3,7 +3,7 @@ import { expect, type APIRequestContext, type Page } from "@playwright/test";
 const USER = process.env.E2E_USER_SERVICE_URL ?? "http://localhost:3001";
 const SUPPLIER = process.env.E2E_SUPPLIER_SERVICE_URL ?? "http://localhost:3002";
 export const ORDER = process.env.E2E_ORDER_SERVICE_URL ?? "http://localhost:3003";
-export const CREDIT = process.env.E2E_CREDIT_SERVICE_URL ?? "http://localhost:3004";
+const CREDIT = process.env.E2E_CREDIT_SERVICE_URL ?? "http://localhost:3004";
 const PASSWORD = "a long enough passphrase";
 export const ORDER_URL = /\/request\/[0-9a-f-]{36}(\?.*)?$/;
 
@@ -57,6 +57,14 @@ export async function activeStudent(request: APIRequestContext, email: string): 
     )
     .toBe(200);
   return accessToken;
+}
+
+/** The signed-in student's wallet as the Credit Service reports it. */
+export async function wallet(
+  request: APIRequestContext,
+  token: string,
+): Promise<{ available: number; reserved: number }> {
+  return (await request.get(`${CREDIT}/wallets/me`, { headers: { authorization: `Bearer ${token}` } })).json();
 }
 
 /** The first pickup point the picker lists, since both read the same default order. */
