@@ -15,18 +15,20 @@ export function ResponsiveShell({
   navItems,
   activeHref,
   showCreditPill = true,
+  onBack,
   children,
 }: {
   title: string;
   navItems: NavItem[];
   activeHref: string;
   showCreditPill?: boolean;
+  onBack?: () => void;
   children: ReactNode;
 }) {
   return (
     <div className={styles.shell}>
       <div className={styles.appBar}>
-        <AppBar title={title} />
+        <AppBar title={title} onBack={onBack} />
       </div>
       <div className={styles.topBar}>
         <TopBar showCreditPill={showCreditPill} />
@@ -36,7 +38,14 @@ export function ResponsiveShell({
           <Sidebar items={navItems} activeHref={activeHref} />
         </div>
         <main className={styles.main}>
-          <h1 className={styles.heading}>{title}</h1>
+          <div className={styles.header}>
+            {onBack && (
+              <button className={styles.back} aria-label="Back" onClick={onBack}>
+                ←
+              </button>
+            )}
+            <h1 className={styles.heading}>{title}</h1>
+          </div>
           {children}
         </main>
       </div>

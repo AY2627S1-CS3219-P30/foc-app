@@ -15,13 +15,23 @@ const pushed: string[] = [];
 let search = '';
 mock.module('../src/lib/auth', () => ({ useAuth: () => auth }));
 mock.module('../src/components/ResponsiveShell', () => ({
-  ResponsiveShell: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  ResponsiveShell: ({ onBack, children }: { onBack?: () => void; children: React.ReactNode }) => (
+    <>
+      {onBack && (
+        <button type="button" onClick={onBack}>
+          Back
+        </button>
+      )}
+      {children}
+    </>
+  ),
 }));
 mock.module('next/navigation', () => ({
   useRouter: () => ({ push: (href: string) => pushed.push(href) }),
   useSearchParams: () => new URLSearchParams(search),
 }));
 const { SupplierPicker, SUPPLIER_UNAVAILABLE } = await import('../src/components/SupplierPicker');
+const { default: PickerPage } = await import('../src/app/(app)/request/new/page');
 const { default: DetailsPage } = await import('../src/app/(app)/request/new/details/page');
 
 const realFetch = globalThis.fetch;
@@ -69,7 +79,7 @@ async function render(node: React.ReactNode) {
   const container = window.document.createElement('div');
   window.document.body.replaceChildren(container);
   const root = createRoot(container as unknown as Element);
-  await act(() => root.render(node));
+  await act(async () => root.render(node));
   await settle();
   return { container: container as unknown as HTMLElement, root };
 }
@@ -173,9 +183,17 @@ describe('SupplierPicker', () => {
     expect(buttons(container).map((b) => b.textContent)).toEqual(['Campus CaféCafé · COM2']);
     await act(() => root.unmount());
   });
+
+  it('leads back to the feed from the picker page', async () => {
+    serve(() => page([cafe]));
+    const { container, root } = await render(<PickerPage />);
+    await act(async () => button(container, 'Back').click());
+    expect(pushed).toEqual(['/feed']);
+    await act(() => root.unmount());
+  });
 });
 
-describe('details step with an unavailable supplier', () => {
+describe('details step', () => {
   const detail = (active: boolean): Supplier => ({
     ...cafe,
     floor: '1',
@@ -190,13 +208,14 @@ describe('details step with an unavailable supplier', () => {
     updatedAt: '2026-01-01T00:00:00.000Z',
   });
 
-  async function renderDetails(respond: () => Response) {
-    search = `supplierId=${cafe.supplierId}`;
+  async function renderDetails(respond: () => Response, supplierId = cafe.supplierId) {
+    search = `supplierId=${supplierId}`;
     const urls = serve(respond);
     const rendered = await render(<DetailsPage />);
-    expect(urls.map((u) => u.pathname)).toEqual([`/suppliers/${cafe.supplierId}`]);
+    expect(urls.map((u) => u.pathname)).toEqual([`/suppliers/${supplierId}`]);
     return rendered;
   }
+  const alert = (container: HTMLElement) => container.querySelector('[role="alert"]')?.textContent;
 
   it('explains a deactivated supplier and leads back to the picker', async () => {
     const { container, root } = await renderDetails(() => json(200, detail(false)));
@@ -220,6 +239,49 @@ describe('details step with an unavailable supplier', () => {
     expect(container.textContent).toContain('Campus Café');
     expect(container.textContent).toContain('COM2, floor 1');
     expect(container.textContent).not.toContain(SUPPLIER_UNAVAILABLE);
+    await act(() => root.unmount());
+  });
+
+  it('explains a missing supplierId without calling the service', async () => {
+    search = '';
+    const urls = serve(() => json(200, detail(true)));
+    const { container, root } = await render(<DetailsPage />);
+    expect(urls).toHaveLength(0);
+    expect(alert(container)).toContain(SUPPLIER_UNAVAILABLE);
+    await act(() => root.unmount());
+  });
+
+  it('explains a malformed supplierId the service refuses', async () => {
+    const { container, root } = await renderDetails(
+      () =>
+        json(422, {
+          error: {
+            code: 'VALIDATION_FAILED',
+            message: 'One or more fields are invalid.',
+            correlationId: 'test',
+            details: [{ field: 'id', code: 'INVALID_FORMAT', message: 'Invalid UUID' }],
+          },
+        }),
+      'not-a-uuid',
+    );
+    expect(alert(container)).toContain(SUPPLIER_UNAVAILABLE);
+    await act(() => root.unmount());
+  });
+
+  it('shows any other 4xx as an error, not a withdrawn supplier', async () => {
+    const { container, root } = await renderDetails(() =>
+      failure(400, 'BAD_REQUEST', 'The request was malformed.'),
+    );
+    expect(alert(container)).toContain('The request was malformed.');
+    expect(container.textContent).not.toContain(SUPPLIER_UNAVAILABLE);
+    expect(button(container, 'Try again')).toBeDefined();
+    await act(() => root.unmount());
+  });
+
+  it('leads back to the picker', async () => {
+    const { container, root } = await renderDetails(() => json(200, detail(true)));
+    await act(async () => button(container, 'Back').click());
+    expect(pushed).toEqual(['/request/new']);
     await act(() => root.unmount());
   });
 });

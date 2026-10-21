@@ -173,8 +173,14 @@ function Details() {
 
 /** One tree for every width because it holds a form: see decisions.md W3. */
 export default function NewRequestDetailsPage() {
+  const router = useRouter();
   return (
-    <ResponsiveShell title="New request" navItems={STUDENT_NAV} activeHref="/feed">
+    <ResponsiveShell
+      title="New request"
+      navItems={STUDENT_NAV}
+      activeHref="/feed"
+      onBack={() => router.push("/request/new")}
+    >
       <Suspense fallback={null}>
         <Details />
       </Suspense>
