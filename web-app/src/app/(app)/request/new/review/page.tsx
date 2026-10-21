@@ -24,13 +24,12 @@ import {
   type Draft,
   type SubmitFailure,
 } from "@/lib/composer";
+import { creditLabel } from "@/lib/credit-label";
 import { STUDENT_NAV } from "@/lib/nav";
 import { createOrder, getMyWallet, type CreateOrder, type Wallet } from "@/lib/order-api";
 import type { Supplier } from "@/lib/supplier-api";
 import { useSupplier } from "@/lib/use-supplier";
 import styles from "../composer.module.css";
-
-const credits = (n: number) => `${n} ${n === 1 ? "credit" : "credits"}`;
 
 function Summary({
   userId,
@@ -161,17 +160,17 @@ function Summary({
         label="Open period"
         value="Open for a set time once your credits are reserved; the request shows the deadline"
       />
-      <NavRow label="Reward" value={credits(order.reward)} />
+      <NavRow label="Reward" value={creditLabel(order.reward)} />
       {fieldError(errors.reward)}
       {wallet ? (
         <>
-          <NavRow label="Available balance" value={credits(wallet.available)} />
+          <NavRow label="Available balance" value={creditLabel(wallet.available)} />
           {shortfall ? (
             <p className={`card ${styles.blocked}`}>{shortfall}</p>
           ) : (
             <NavRow
               label="Available after reserving the reward"
-              value={credits(projectedBalance(wallet.available, order.reward))}
+              value={creditLabel(projectedBalance(wallet.available, order.reward))}
             />
           )}
         </>

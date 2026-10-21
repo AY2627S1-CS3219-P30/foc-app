@@ -11,6 +11,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { formatWhen } from "@/lib/admin-labels";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth";
+import { creditLabel } from "@/lib/credit-label";
 import { getReceipt, type Receipt } from "@/lib/order-api";
 import { usePoll } from "@/lib/use-poll";
 import { vars } from "@/styles/tokens";
@@ -21,7 +22,7 @@ function ReceiptBody({ receipt, me }: { receipt: Receipt; me: string | undefined
   return (
     <>
       <NavRow label="Supplier" value={`${supplier.name}, ${supplier.building}, floor ${supplier.floor}`} />
-      <NavRow label="Reward" value={`${receipt.reward} ${receipt.reward === 1 ? "credit" : "credits"}`} />
+      <NavRow label="Reward" value={creditLabel(receipt.reward)} />
       <NavRow label="Requester" value={who(receipt.requesterId)} />
       <NavRow label="Courier" value={who(receipt.courierId)} />
       <NavRow label="Posted" value={formatWhen(t.createdAt)} />
@@ -70,7 +71,7 @@ export default function ReceiptPage({ params }: { params: Promise<{ id: string }
 
   const body = receipt ? (
     <ReceiptBody receipt={receipt} me={user?.id} />
-  ) : problem?.status === 404 ? (
+  ) : problem?.status === 404 && problem.code === "RECEIPT_NOT_FOUND" ? (
     <EmptyState
       title="No receipt yet"
       action={

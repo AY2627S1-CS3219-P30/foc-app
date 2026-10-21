@@ -8,7 +8,10 @@ Object.assign(globalThis, { window, document: window.document, IS_REACT_ACT_ENVI
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 
-const auth = { authed: <T,>(call: (token: string) => Promise<T>) => call("test-token"), user: { id: "me" } };
+const auth = {
+  authed: <T,>(call: (token: string) => Promise<T>) => call("test-token"),
+  user: { id: "me" },
+};
 mock.module("../src/lib/auth", () => ({ useAuth: () => auth }));
 mock.module("next/navigation", () => ({ useRouter: () => ({ push: () => {}, back: () => {} }) }));
 mock.module("../src/components/ResponsiveShell", () => ({
@@ -16,6 +19,7 @@ mock.module("../src/components/ResponsiveShell", () => ({
 }));
 const { default: WalletPage } = await import("../src/app/(app)/wallet/page");
 const { default: ReceiptPage } = await import("../src/app/(app)/request/[id]/receipt/page");
+const { CreditsProvider } = await import("../src/lib/credits");
 
 const ORDER = "11111111-0000-4000-8000-000000000001";
 const PAYMENT = "33333333-0000-4000-8000-000000000001";
@@ -68,6 +72,7 @@ function serve({
   wallet = { available: 3, reserved: 2, total: 5 },
   pages = { "": { items: [], nextCursor: null } } as Pages,
   receiptStatus = 200,
+  receiptCode = "RECEIPT_NOT_FOUND",
 } = {}) {
   globalThis.fetch = (async (request: Request) => {
     const url = new URL(request.url);
@@ -77,7 +82,7 @@ function serve({
     if (url.pathname.endsWith("/receipt"))
       return receiptStatus === 200
         ? json(200, receipt)
-        : json(receiptStatus, { error: { code: "NOT_FOUND", message: "No receipt." } });
+        : json(receiptStatus, { error: { code: receiptCode, message: "No receipt." } });
     return json(404, { error: { code: "NOT_FOUND", message: "Not found." } });
   }) as unknown as typeof fetch;
 }
@@ -102,7 +107,13 @@ afterAll(() => {
 });
 
 async function render(ui: React.ReactNode) {
-  await act(async () => root.render(<Suspense>{ui}</Suspense>));
+  await act(async () =>
+    root.render(
+      <Suspense>
+        <CreditsProvider>{ui}</CreditsProvider>
+      </Suspense>,
+    ),
+  );
   for (let i = 0; i < 8; i++) await act(async () => new Promise((r) => setTimeout(r, 0)));
 }
 
@@ -122,6 +133,7 @@ describe("the wallet (WEB-03)", () => {
     expect(text).toContain("Total5");
     expect(text).not.toContain("Earned this week");
     expect(text).not.toContain("can't post");
+    expect(asked.filter((url) => url.pathname === "/wallets/me")).toHaveLength(1);
   });
 
   it("explains that a student with nothing available can still earn as a courier", async () => {
@@ -166,7 +178,9 @@ describe("the wallet (WEB-03)", () => {
   it("loads the next page on demand, then hides Load more once there is none", async () => {
     const first = [entry("RESERVE", 0)];
     const second = [entry("ISSUE", 5)];
-    serve({ pages: { "": { items: first, nextCursor: "c2" }, c2: { items: second, nextCursor: null } } });
+    serve({
+      pages: { "": { items: first, nextCursor: "c2" }, c2: { items: second, nextCursor: null } },
+    });
     await render(<WalletPage />);
     expect(rows()).toHaveLength(1);
 
@@ -184,6 +198,69 @@ describe("the wallet (WEB-03)", () => {
     await act(async () => window.dispatchEvent(new window.Event("online")));
     await render(<WalletPage />);
     expect(asked.length).toBeGreaterThan(before);
+  });
+
+  it("shows a failed refresh above the last loaded wallet and retries", async () => {
+    serve({ pages: { "": { items: [entry("ISSUE", 5)], nextCursor: null } } });
+    await render(<WalletPage />);
+    const workingFetch = globalThis.fetch;
+    globalThis.fetch = (async (request: Request) =>
+      new URL(request.url).pathname === "/wallets/me/ledger"
+        ? json(503, { error: { code: "UNAVAILABLE", message: "Please try again." } })
+        : workingFetch(request)) as typeof fetch;
+
+    await act(async () => window.dispatchEvent(new window.Event("online")));
+    await render(<WalletPage />);
+    expect(container.textContent).toContain("The figures below may be out of date.");
+    expect(rows()).toHaveLength(1);
+
+    globalThis.fetch = workingFetch;
+    await act(async () => button("Try again")!.click());
+    await render(<WalletPage />);
+    expect(container.textContent).not.toContain("may be out of date");
+  });
+
+  it("discards a Load more page when a refresh replaces its cursor", async () => {
+    const original = entry("RESERVE", 0);
+    const replacement = entry("TRANSFER", 3);
+    const oldNext = entry("ISSUE", 5);
+    const pages: Pages = {
+      "": { items: [original], nextCursor: "old-cursor" },
+      "old-cursor": { items: [oldNext], nextCursor: null },
+    };
+    serve({ pages });
+    await render(<WalletPage />);
+    let finish!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+    const workingFetch = globalThis.fetch;
+    globalThis.fetch = (async (request: Request) =>
+      new URL(request.url).searchParams.get("cursor") === "old-cursor"
+        ? pending
+        : workingFetch(request)) as typeof fetch;
+
+    await act(async () => button("Load more")!.click());
+    pages[""] = { items: [replacement], nextCursor: "new-cursor" };
+    await act(async () => window.dispatchEvent(new window.Event("online")));
+    await render(<WalletPage />);
+    finish(json(200, { items: [oldNext], nextCursor: null }));
+    await render(<WalletPage />);
+
+    expect(rows().map((row) => row.id)).toEqual([`tx-${replacement.transactionId}`]);
+    expect(button("Load more")).toBeDefined();
+  });
+
+  it("explains a wallet that has not been issued yet", async () => {
+    serve();
+    const workingFetch = globalThis.fetch;
+    globalThis.fetch = (async (request: Request) =>
+      new URL(request.url).pathname.startsWith("/wallets/me")
+        ? json(404, { error: { code: "WALLET_NOT_FOUND", message: "Wallet not found." } })
+        : workingFetch(request)) as typeof fetch;
+    await render(<WalletPage />);
+    expect(container.textContent).toContain("Your wallet is being set up");
+    expect(button("Check again")).toBeDefined();
   });
 });
 
@@ -228,6 +305,10 @@ describe("from a receipt to its ledger entry and back (WEB-03)", () => {
     expect(document.activeElement).toBe(row as never);
     expect(row.querySelector("a")?.getAttribute("href")).toBe(`/request/${ORDER}/receipt`);
     expect(button("Load more")).toBeDefined();
+
+    await act(async () => window.dispatchEvent(new window.Event("online")));
+    await render(<WalletPage />);
+    expect(asked.map((u) => u.searchParams.get("cursor")).filter(Boolean)).toEqual(["c2", "c3"]);
   });
 
   it("says so when the linked entry is not in the wallet", async () => {
@@ -235,5 +316,31 @@ describe("from a receipt to its ledger entry and back (WEB-03)", () => {
     window.history.replaceState(null, "", `/wallet?tx=${PAYMENT}`);
     await render(<WalletPage />);
     expect(container.textContent).toContain("That entry isn't in your wallet's activity.");
+  });
+
+  it("finds the linked entry again if new activity pushes it past a refreshed first page", async () => {
+    const payment = entry("TRANSFER", -3, { transactionId: PAYMENT });
+    const pages: Pages = {
+      "": { items: [entry("RESERVE", 0)], nextCursor: "old-next" },
+      "old-next": { items: [payment], nextCursor: null },
+    };
+    serve({ pages });
+    window.history.replaceState(null, "", `/wallet?tx=${PAYMENT}`);
+    await render(<WalletPage />);
+
+    pages[""] = { items: [entry("TRANSFER", 3)], nextCursor: "new-next" };
+    pages["new-next"] = { items: [payment], nextCursor: null };
+    await act(async () => window.dispatchEvent(new window.Event("online")));
+    await render(<WalletPage />);
+
+    expect(asked.some((url) => url.searchParams.get("cursor") === "new-next")).toBe(true);
+    expect(container.querySelector(`#tx-${PAYMENT}`)?.getAttribute("aria-current")).toBe("true");
+  });
+
+  it("does not call an unknown order a receipt that is still pending", async () => {
+    serve({ receiptStatus: 404, receiptCode: "ORDER_NOT_FOUND" });
+    await render(<ReceiptPage params={Promise.resolve({ id: ORDER })} />);
+    expect(container.textContent).toContain("Could not load this receipt");
+    expect(container.textContent).not.toContain("No receipt yet");
   });
 });

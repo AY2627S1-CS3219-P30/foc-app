@@ -1,20 +1,22 @@
 import Link from "next/link";
 import { formatWhen } from "@/lib/admin-labels";
 import { cx } from "@/lib/cx";
+import { creditLabel } from "@/lib/credit-label";
 import type { LedgerItem } from "@/lib/order-api";
 import { vars } from "@/styles/tokens";
 import styles from "./LedgerRow.module.css";
-
-const credits = (n: number) => `${n} ${n === 1 ? "credit" : "credits"}`;
 
 function describe({ type, amount, totalChange }: LedgerItem): { label: string; color: string } {
   switch (type) {
     case "ISSUE":
       return { label: "Starting credits", color: vars.color.success };
     case "RESERVE":
-      return { label: `${credits(amount)} reserved for your errand`, color: vars.color.warning };
+      return {
+        label: `${creditLabel(amount)} reserved for your errand`,
+        color: vars.color.warning,
+      };
     case "RELEASE":
-      return { label: `${credits(amount)} released back to you`, color: vars.color.info };
+      return { label: `${creditLabel(amount)} released back to you`, color: vars.color.info };
     case "TRANSFER":
       return totalChange < 0
         ? { label: "Paid your courier", color: vars.color.danger }

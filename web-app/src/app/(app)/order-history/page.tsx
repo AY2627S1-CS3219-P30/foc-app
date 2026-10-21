@@ -6,7 +6,6 @@ import { AppBar } from "@/components/AppBar";
 import { buttonClass } from "@/components/Button";
 import { DesktopShell } from "@/components/DesktopShell";
 import { ErrandCard, ErrandGrid } from "@/components/ErrandCard";
-import { FormAlert } from "@/components/FormField";
 import { Screen, ScreenContent } from "@/components/Screen";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { formatWhen } from "@/lib/admin-labels";
@@ -105,7 +104,11 @@ export default function OrderHistoryPage() {
     )
   ) : (
     <>
-      <FormAlert>{problem ? `Could not refresh your errands. ${problem}` : null}</FormAlert>
+      {problem && (
+        <ErrorState title="Could not refresh your errands" onRetry={reload}>
+          Showing the last loaded history. {problem}
+        </ErrorState>
+      )}
       {mine.items.length === 0 ? (
         <EmptyState title="No errands yet">Errands you request or deliver will show up here.</EmptyState>
       ) : (

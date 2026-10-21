@@ -7,7 +7,10 @@ Object.assign(globalThis, { window, document: window.document, IS_REACT_ACT_ENVI
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 
-const auth = { authed: <T,>(call: (token: string) => Promise<T>) => call("test-token"), user: { id: "me" } };
+const auth = {
+  authed: <T,>(call: (token: string) => Promise<T>) => call("test-token"),
+  user: { id: "me" },
+};
 mock.module("../src/lib/auth", () => ({ useAuth: () => auth }));
 mock.module("next/navigation", () => ({ useRouter: () => ({ push: () => {}, back: () => {} }) }));
 mock.module("../src/components/DesktopShell", () => ({
@@ -41,7 +44,10 @@ const errand = (orderId: string, status: MyOrder["status"], changes: Partial<MyO
 });
 
 const json = (body: unknown) =>
-  new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+  new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
 
 const realFetch = globalThis.fetch;
 const realSetTimeout = globalThis.setTimeout;
@@ -152,6 +158,28 @@ describe("order history (WEB-03)", () => {
     await act(async () => window.dispatchEvent(new window.Event("online")));
     await settle();
     expect(reads).toBe(2);
+  });
+
+  it("shows a failed refresh with a retry while keeping the last history", async () => {
+    serve([errand("done", "COMPLETED")]);
+    await render();
+    const workingFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ error: { code: "UNAVAILABLE", message: "Try later." } }), {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      })) as typeof fetch;
+
+    await act(async () => window.dispatchEvent(new window.Event("online")));
+    await settle();
+    expect(container.textContent).toContain("Could not refresh your errands");
+    expect(section("Past")?.textContent).toContain("Supplier done");
+
+    globalThis.fetch = workingFetch;
+    const retry = [...container.querySelectorAll("button")].find((b) => b.textContent === "Try again")!;
+    await act(async () => retry.click());
+    await settle();
+    expect(container.textContent).not.toContain("Could not refresh your errands");
   });
 
   it("polls quickly while credits move, slowly while errands are active, and not once all are past", async () => {
