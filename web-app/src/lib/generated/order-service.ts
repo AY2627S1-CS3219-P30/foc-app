@@ -630,6 +630,12 @@ export interface components {
              *     reported it.
              */
             autoConfirmAt?: string;
+            /**
+             * @description Private, and only while `RELEASE_PENDING_CREDIT`: the status the errand ends in once the
+             *     Credit Service confirms the credits are returned.
+             * @enum {string}
+             */
+            releaseReason?: "CANCELLED" | "EXPIRED";
             rejection?: {
                 reason: string;
                 available?: number;

@@ -17,6 +17,7 @@ import type {
   OrderReceipt,
   OrderRow,
   OrderStatus,
+  ReleaseReason,
   SupplierSnapshot,
   OrderItem,
 } from './types.js';
@@ -33,7 +34,7 @@ type StoredOrder = Row & {
   delivery_instructions: string;
   reward: number;
   status: OrderStatus;
-  release_reason: 'CANCELLED' | 'EXPIRED' | null;
+  release_reason: ReleaseReason | null;
   rejection_reason: string | null;
   available_at_rejection: number | null;
   version: number;
