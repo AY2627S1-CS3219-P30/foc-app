@@ -1,12 +1,20 @@
 import { REWARD_MAX, REWARD_MIN } from "./composer";
 import type { Order, OrderStatus } from "./order-api";
 
-/** Labels are the ones order-service/README.md's state table gives the web app. */
-export const ORDER_STATUS: Record<OrderStatus, { label: string; explanation: string }> = {
+/**
+ * Labels are the ones order-service/README.md's state table gives the web app. `slow` is shown
+ * once a state that waits on the Credit Service has lasted longer than usual.
+ */
+export const ORDER_STATUS: Record<
+  OrderStatus,
+  { label: string; explanation: string; slow?: string }
+> = {
   PENDING_CREDIT: {
     label: "Waiting for credits",
     explanation:
       "Your request is in. The Credit Service is reserving its reward, and couriers will see it once that's done.",
+    slow:
+      "This is taking longer than usual. Your request is saved and opens as soon as the credits are reserved, so you can leave this page and come back.",
   },
   OPEN: {
     label: "Open",
@@ -31,10 +39,14 @@ export const ORDER_STATUS: Record<OrderStatus, { label: string; explanation: str
   COMPLETION_PENDING_CREDIT: {
     label: "Paying the courier",
     explanation: "Delivery is accepted. The Credit Service is transferring the reward to the courier.",
+    slow:
+      "This is taking longer than usual. Delivery is accepted and the courier is paid as soon as the transfer goes through, so you can leave this page and come back.",
   },
   RELEASE_PENDING_CREDIT: {
     label: "Returning credits",
     explanation: "The errand is ending without payment. The Credit Service is returning the reward to you.",
+    slow:
+      "This is taking longer than usual. Your credits are safe and come back to you as soon as the release goes through, so you can leave this page and come back.",
   },
   REJECTED: {
     label: "Not placed",

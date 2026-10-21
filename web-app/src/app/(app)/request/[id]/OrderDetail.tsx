@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { DesktopPanel } from "@/components/DesktopPanel";
@@ -22,17 +23,19 @@ const deadline = (at: string) =>
 
 function StatusBody({
   order,
+  replayed,
   stillWaiting,
   problem,
 }: {
   order: Order;
+  replayed: boolean;
   stillWaiting: boolean;
   problem: ApiError | null;
 }) {
   const router = useRouter();
   const { user } = useAuth();
-  const replayed = useQueryParam("replayed") === "1";
   const muted = { fontSize: vars.text.md, color: vars.color.textMuted };
+  const { explanation, slow } = ORDER_STATUS[order.status];
 
   return (
     <>
@@ -45,13 +48,8 @@ function StatusBody({
             This request was already posted, so it wasn&apos;t posted again.
           </p>
         )}
-        <p style={muted}>{ORDER_STATUS[order.status].explanation}</p>
-        {order.status === "PENDING_CREDIT" && stillWaiting && (
-          <p style={muted}>
-            This is taking longer than usual. Your request is saved and opens as soon as the credits
-            are reserved, so you can leave this page and come back.
-          </p>
-        )}
+        <p style={muted}>{explanation}</p>
+        {stillWaiting && slow && <p style={muted}>{slow}</p>}
         {order.status === "OPEN" && order.acceptanceDeadlineAt && (
           <p style={{ ...muted, fontWeight: vars.weight.semibold }}>
             Open until {deadline(order.acceptanceDeadlineAt)}
@@ -89,9 +87,16 @@ function StatusBody({
 export function OrderDetail({ orderId }: { orderId: string }) {
   const { order, problem, stillWaiting } = useOrder(orderId);
   const title = order?.supplier.name ?? "Request";
+  const fromUrl = useQueryParam("replayed") === "1";
+  const [replayed, setReplayed] = useState(false);
+  if (fromUrl && !replayed) setReplayed(true);
+
+  useEffect(() => {
+    if (replayed) window.history.replaceState(null, "", window.location.pathname);
+  }, [replayed]);
 
   const body = order ? (
-    <StatusBody order={order} stillWaiting={stillWaiting} problem={problem} />
+    <StatusBody order={order} replayed={replayed} stillWaiting={stillWaiting} problem={problem} />
   ) : problem ? (
     <ErrorState title={problem.status === 404 ? "This request no longer exists." : "Could not load this request"}>
       {problem.status !== 404 && problem.message}

@@ -26,6 +26,14 @@ describe("ORDER_STATUS", () => {
     expect(ORDER_STATUS.COMPLETION_PENDING_CREDIT.label).toBe("Paying the courier");
     expect(ORDER_STATUS.RELEASE_PENDING_CREDIT.label).toBe("Returning credits");
   });
+
+  it("has slow copy for every state that waits on the Credit Service, and no other", () => {
+    for (const [status, { slow }] of Object.entries(ORDER_STATUS)) {
+      if (status.endsWith("PENDING_CREDIT"))
+        expect(slow).toMatch(/^This is taking longer than usual\..+come back\.$/);
+      else expect(slow).toBeUndefined();
+    }
+  });
 });
 
 describe("isFinal", () => {

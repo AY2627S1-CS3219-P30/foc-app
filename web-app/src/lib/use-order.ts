@@ -10,7 +10,7 @@ import { isFinal } from "./order-status";
 const PENDING_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000];
 /** Between reads while the errand waits on someone else, like a courier or its deadline. */
 const SETTLED_DELAY_MS = 30_000;
-/** After this long in `PENDING_CREDIT`, say it is slower than usual. */
+/** After this long in any `*_PENDING_CREDIT` state, say it is slower than usual. */
 const STILL_WAITING_MS = 30_000;
 
 const pollDelay = (status: OrderStatus | undefined, attempt: number) =>

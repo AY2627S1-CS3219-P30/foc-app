@@ -19,6 +19,7 @@ import {
  *
  * One student runs the four cases in turn, keeping sign-ups inside the rate limit. Rewards of 2, 2
  * and 1 leave 5 of the 10 starting credits, so the last case posts the whole balance.
+ * Each case relies on the orders and wallet the earlier ones left, so debug the first failure.
  */
 
 test("reconnect journey: a lost or offline post creates one errand", async ({
@@ -58,7 +59,7 @@ test("reconnect journey: a lost or offline post creates one errand", async ({
     expect(drafts.some((key) => key.startsWith("foc.request-draft:"))).toBe(true);
 
     await page.getByRole("button", { name: "Try again" }).click();
-    await expect(page).toHaveURL(new RegExp(`/request/${await lost.orderId}\\?replayed=1$`));
+    await expect(page).toHaveURL(new RegExp(`/request/${await lost.orderId}$`));
     await expect(visible(page, "This request was already posted")).toBeVisible();
     await postedOnce(2);
   });
@@ -101,7 +102,7 @@ test("reconnect journey: a lost or offline post creates one errand", async ({
     await page.reload();
     await expect(page.getByText("You have no credits available")).toBeVisible();
     await page.getByRole("button", { name: "Post request" }).click();
-    await expect(page).toHaveURL(new RegExp(`/request/${await lost.orderId}\\?replayed=1$`));
+    await expect(page).toHaveURL(new RegExp(`/request/${await lost.orderId}$`));
     await postedOnce(5);
   });
 });

@@ -496,6 +496,34 @@ describe('order status', () => {
     expect(container.textContent).toContain('This is taking longer than usual');
   });
 
+  for (const [status, copy] of [
+    ['COMPLETION_PENDING_CREDIT', 'the courier is paid as soon as the transfer goes through'],
+    ['RELEASE_PENDING_CREDIT', 'Your credits are safe'],
+  ] as const) {
+    it(`switches to still-waiting copy when ${status} takes a while`, async () => {
+      const clock = fakeClock();
+      const services = fakeServices();
+      services.reads = Array.from({ length: 10 }, () => order({ status }));
+      const container = await render(<OrderDetail orderId={ORDER_ID} />, services);
+      expect(container.textContent).not.toContain('taking longer than usual');
+
+      for (const wait of [1000, 2000, 4000, 8000, 15000]) await clock.advance(wait);
+      expect(container.textContent).toContain('This is taking longer than usual');
+      expect(container.textContent).toContain(copy);
+    });
+  }
+
+  it('never calls a settled errand slow', async () => {
+    const clock = fakeClock();
+    const services = fakeServices();
+    services.reads = Array.from({ length: 3 }, () => order({ status: 'ACCEPTED' }));
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, services);
+    await clock.advance(30_000);
+    await clock.advance(30_000);
+    expect(services.gets).toBe(3);
+    expect(container.textContent).not.toContain('taking longer than usual');
+  });
+
   it('explains a rejection with the balance the Credit Service reported', async () => {
     const services = fakeServices();
     services.reads = [
@@ -578,6 +606,7 @@ describe('order status', () => {
     window.happyDOM.setURL(`http://localhost/request/${ORDER_ID}?replayed=1`);
     const container = await render(<OrderDetail orderId={ORDER_ID} />, fakeServices());
     expect(container.textContent).toContain('This request was already posted');
+    expect(window.location.search).toBe('');
   });
 
   it('stops on an error that is not an API failure instead of loading forever', async () => {
