@@ -83,17 +83,17 @@ function Summary({
       authed((token) => createOrder(token, body, draft.idempotencyKey));
     try {
       // A lost response can leave an earlier version under this key; replaying it finds that errand.
-      const [created, replayed] = await post(order).then(
-        (created) => [created, false] as const,
+      const [{ order: created, replayed }, unapplied] = await post(order).then(
+        (result) => [result, false] as const,
         async (err: unknown) => {
           if (!keyReused(err)) throw err;
           return [await post(sentBody), true] as const;
         },
       );
       refreshCredits();
-      if (!replayed) {
+      if (!unapplied) {
         clearDraft(userId);
-        router.replace(`/request/${created.orderId}`);
+        router.replace(`/request/${created.orderId}${replayed ? "?replayed=1" : ""}`);
         return;
       }
       // These edits weren't applied, so they move to a new key to post as their own errand.

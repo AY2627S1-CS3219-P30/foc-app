@@ -2,17 +2,19 @@ import { REWARD_MAX, REWARD_MIN } from "./composer";
 import type { Order, OrderStatus } from "./order-api";
 import type { Role } from "./order-actions";
 
-type Wording = { label: string; explanation: string };
+type Wording = { label: string; explanation: string; slow?: string };
 
 /**
  * What a student with no part in the errand reads. Labels are the ones order-service/README.md's
  * state table gives the web app, except `DELIVERED`'s, which asks the requester to act and so is theirs alone.
+ * `slow` is shown once a state that waits on the Credit Service has lasted longer than usual.
  */
 export const ORDER_STATUS: Record<OrderStatus, Wording> = {
   PENDING_CREDIT: {
     label: "Waiting for credits",
     explanation:
       "The request is in. The Credit Service is reserving its reward, and couriers will see it once that's done.",
+    slow: "This is taking longer than usual. The request is saved and opens as soon as the credits are reserved.",
   },
   OPEN: {
     label: "Open",
@@ -38,11 +40,13 @@ export const ORDER_STATUS: Record<OrderStatus, Wording> = {
   COMPLETION_PENDING_CREDIT: {
     label: "Paying the courier",
     explanation: "Delivery is accepted. The Credit Service is transferring the reward to the courier.",
+    slow: "This is taking longer than usual. Delivery is accepted and the courier is paid as soon as the transfer goes through.",
   },
   RELEASE_PENDING_CREDIT: {
     label: "Returning credits",
     explanation:
       "The errand is ending without payment. The Credit Service is returning the reward to the requester.",
+    slow: "This is taking longer than usual. The reward goes back to the requester as soon as the release goes through.",
   },
   REJECTED: {
     label: "Not placed",
@@ -69,13 +73,18 @@ const OWN: Record<NonNullable<Role>, Partial<Record<OrderStatus, Partial<Wording
     PENDING_CREDIT: {
       explanation:
         "Your request is in. The Credit Service is reserving its reward, and couriers will see it once that's done.",
+      slow: "This is taking longer than usual. Your request is saved and opens as soon as the credits are reserved, so you can leave this page and come back.",
     },
     DELIVERED: {
       label: "Delivered, confirm receipt",
       explanation: "The courier has recorded delivery. Confirm you received it, or report that you didn't.",
     },
+    COMPLETION_PENDING_CREDIT: {
+      slow: "This is taking longer than usual. Delivery is accepted and the courier is paid as soon as the transfer goes through, so you can leave this page and come back.",
+    },
     RELEASE_PENDING_CREDIT: {
       explanation: "The errand is ending without payment. The Credit Service is returning the reward to you.",
+      slow: "This is taking longer than usual. Your credits are safe and come back to you as soon as the release goes through, so you can leave this page and come back.",
     },
     CANCELLED: { explanation: "The errand was cancelled and the reward has been returned to you." },
     EXPIRED: {
@@ -93,6 +102,7 @@ const OWN: Record<NonNullable<Role>, Partial<Record<OrderStatus, Partial<Wording
     COMPLETION_PENDING_CREDIT: {
       label: "Paying you",
       explanation: "Delivery is accepted. The Credit Service is transferring the reward to you.",
+      slow: "This is taking longer than usual. Delivery is accepted and you're paid as soon as the transfer goes through, so you can leave this page and come back.",
     },
     COMPLETED: { explanation: "The reward has been transferred to you." },
   },
@@ -103,10 +113,13 @@ export const statusWording = (status: OrderStatus, role: Role): Wording => ({
   ...(role && OWN[role][status]),
 });
 
-const FINAL: ReadonlySet<OrderStatus> = new Set(["REJECTED", "COMPLETED", "CANCELLED", "EXPIRED"]);
+const FINAL = new Set<OrderStatus>(["REJECTED", "COMPLETED", "CANCELLED", "EXPIRED"]);
 
-/** A final errand never changes again. */
+/** No transition leaves these states, so there is nothing more to read. */
 export const isFinal = (status: OrderStatus) => FINAL.has(status);
+
+/** The Credit Service is moving credits; the next state follows as soon as it answers. */
+export const waitsOnCredit = (status: OrderStatus) => status.endsWith("PENDING_CREDIT");
 
 /** What to do about a `REJECTED` order, for each reason the Credit Service gives. */
 export function rejectionMessage(order: Pick<Order, "reward" | "rejection">): string {

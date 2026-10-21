@@ -111,6 +111,20 @@ async function checkPrivacy(
       expect(surfaces.private.status, where).toBe(200);
       expect(surfaces.history.status, where).toBe(200);
       expect(surfaces.history.body.entries.length, where).toBeGreaterThan(0);
+      // Only the referred administrator reads the history as recorded; to anyone else every system
+      // change looks the same, so the history does not say whether a timer or a suspension made it.
+      if (viewer.userId === context.referredAdmin) {
+        expect(surfaces.history.body.entries, where).toEqual(await t.orders.findHistory(orderId));
+      } else {
+        for (const entry of surfaces.history.body.entries) {
+          if (entry.actorType !== 'SYSTEM') continue;
+          expect(entry, where).toMatchObject({
+            action: 'SYSTEM_OUTCOME',
+            actorId: null,
+            reason: null,
+          });
+        }
+      }
       expect(surfaces.receipt.status, where).toBe(state === 'COMPLETED' ? 200 : 404);
       continue;
     }

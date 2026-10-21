@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { ORDER, ORDER_URL, activeStudent, firstSupplier, visible } from "./stack";
+import { ORDER, ORDER_URL, activeStudent, firstSupplier, visible } from "./request-helpers";
 
 /**
  * WEB-02 and WEB-05 end to end, once per breakpoint, against the real stack: two couriers race to

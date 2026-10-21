@@ -21,6 +21,7 @@ import { rejectionMessage, statusWording } from "@/lib/order-status";
 import { useNowAfter } from "@/lib/use-now";
 import { useOrder } from "@/lib/use-order";
 import { useOrderAction } from "@/lib/use-order-action";
+import { useQueryParam } from "@/lib/use-query-param";
 import { vars } from "@/styles/tokens";
 
 /** `at` on the server's clock, shown as this device's clock will read then. */
@@ -65,6 +66,7 @@ const ROLE_LABEL: Record<Exclude<Role, null>, string> = {
 
 function StatusBody({
   order,
+  replayed,
   role,
   actions,
   passed,
@@ -76,6 +78,7 @@ function StatusBody({
   onAct,
 }: {
   order: Order;
+  replayed: boolean;
   role: Role;
   actions: OrderAction[];
   passed: boolean;
@@ -91,6 +94,7 @@ function StatusBody({
   const { user } = useAuth();
   const status = useRef<HTMLDivElement>(null);
   const muted = { fontSize: vars.text.md, color: vars.color.textMuted };
+  const { explanation, slow } = statusWording(order.status, role);
   const note = statusNote(order, role, passed, skew);
   const { supplier } = order;
 
@@ -109,13 +113,13 @@ function StatusBody({
         tabIndex={-1}
         style={{ display: "flex", flexDirection: "column", gap: vars.space[2] }}
       >
-        <p style={muted}>{statusWording(order.status, role).explanation}</p>
-        {order.status === "PENDING_CREDIT" && stillWaiting && (
-          <p style={muted}>
-            This is taking longer than usual. Your request is saved and opens as soon as the credits
-            are reserved, so you can leave this page and come back.
+        {replayed && (
+          <p style={{ ...muted, fontWeight: vars.weight.semibold }}>
+            This request was already posted, so it wasn&apos;t posted again.
           </p>
         )}
+        <p style={muted}>{explanation}</p>
+        {stillWaiting && slow && <p style={muted}>{slow}</p>}
         {note && <p style={{ ...muted, fontWeight: vars.weight.semibold }}>{note}</p>}
         {order.status === "REJECTED" && <p style={muted}>{rejectionMessage(order)}</p>}
       </div>
@@ -145,7 +149,7 @@ function StatusBody({
           ))}
         </div>
       )}
-      {order.status === "REJECTED" && (
+      {role === "REQUESTER" && (order.status === "REJECTED" || order.status === "EXPIRED") && (
         <Button
           full
           onClick={() => {
@@ -190,10 +194,21 @@ export function OrderDetail({ orderId }: { orderId: string }) {
     },
   });
   const title = order?.supplier.name ?? "Request";
+  const fromUrl = useQueryParam("replayed") === "1";
+  const [replayed, setReplayed] = useState(false);
+  if (fromUrl && !replayed) setReplayed(true);
+
+  useEffect(() => {
+    if (!replayed) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("replayed");
+    window.history.replaceState(null, "", url.href);
+  }, [replayed]);
 
   const body = order ? (
     <StatusBody
       order={order}
+      replayed={replayed}
       role={role}
       actions={actionsFor(order, role, now)}
       passed={deadline !== null && now >= deadline}

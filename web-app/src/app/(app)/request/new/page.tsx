@@ -16,7 +16,12 @@ export default function NewRequestLocationPage() {
   }
 
   return (
-    <ResponsiveShell title="New request" navItems={STUDENT_NAV} activeHref="/feed">
+    <ResponsiveShell
+      title="New request"
+      navItems={STUDENT_NAV}
+      activeHref="/feed"
+      onBack={() => router.push("/feed")}
+    >
       <SupplierPicker onSelect={pick} />
     </ResponsiveShell>
   );

@@ -11,6 +11,12 @@ export type SupplierLookup =
   | { status: 'unavailable' }
   | { status: 'error'; message: string };
 
+/** The service refuses a malformed id with 422 `VALIDATION_FAILED` on `id`. */
+const isUnavailable = (cause: unknown) =>
+  cause instanceof ApiError &&
+  (cause.status === 404 ||
+    (cause.code === 'VALIDATION_FAILED' && cause.fieldMessage('id') !== undefined));
+
 /** A deactivated, missing or malformed supplier is `unavailable`, so it can be explained. */
 export function useSupplier(supplierId: string | null): [SupplierLookup, () => void] {
   const { authed } = useAuth();
@@ -34,8 +40,7 @@ export function useSupplier(supplierId: string | null): [SupplierLookup, () => v
         );
         return supplier.active ? { status: 'ready', supplier } : { status: 'unavailable' };
       } catch (cause) {
-        if (cause instanceof ApiError && (cause.status === 404 || cause.status === 400))
-          return { status: 'unavailable' };
+        if (isUnavailable(cause)) return { status: 'unavailable' };
         return {
           status: 'error',
           message: cause instanceof Error ? cause.message : 'Could not load the pickup point.',

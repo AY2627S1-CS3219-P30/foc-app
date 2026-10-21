@@ -1,6 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { expect, test, type Page } from "@playwright/test";
-import { CREDIT, ORDER, ORDER_URL, activeStudent, firstSupplier, visible } from "./stack";
+import { expect, test } from "@playwright/test";
+import {
+  activeStudent,
+  compose,
+  firstSupplier,
+  ORDER,
+  ORDER_URL,
+  row,
+  visible,
+  wallet as readWallet,
+} from "./request-helpers";
 
 /**
  * WEB-01 end to end, once per breakpoint, against the real stack (nothing mocked):
@@ -21,11 +30,7 @@ test("request journey: post, wait for credits, open; then an insufficient-credit
   const token = await activeStudent(page.request, email);
   const supplier = await firstSupplier(request, token);
   const auth = { authorization: `Bearer ${token}` };
-  const wallet = async () =>
-    (await (await request.get(`${CREDIT}/wallets/me`, { headers: auth })).json()) as {
-      available: number;
-      reserved: number;
-    };
+  const wallet = () => readWallet(request, token);
 
   await test.step("post: PENDING_CREDIT, then open, with exactly the reward reserved", async () => {
     await compose(page, { supplier: supplier.name, item: "Kopi O", reward: 5 });
@@ -73,22 +78,3 @@ test("request journey: post, wait for credits, open; then an insufficient-credit
     ).toBeVisible();
   });
 });
-
-/** Picks the pickup point, fills one item and the delivery details, and opens the review. */
-async function compose(
-  page: Page,
-  { supplier, item, reward }: { supplier: string; item: string; reward: number },
-) {
-  await page.goto("/request/new");
-  await page.getByRole("button", { name: supplier }).click();
-  await expect(page).toHaveURL(/\/request\/new\/details\?supplierId=/);
-  await page.getByRole("textbox", { name: "Name", exact: true }).fill(item);
-  await page.getByRole("textbox", { name: "Delivery zone" }).fill("PGP House 7");
-  await page.getByRole("textbox", { name: "Delivery instructions" }).fill("Leave it at the lobby counter.");
-  await page.getByRole("slider").fill(String(reward));
-  await page.getByRole("button", { name: "Review request" }).click();
-  await expect(page).toHaveURL(/\/request\/new\/review\?supplierId=/);
-}
-
-const row = (page: Page, label: string) =>
-  page.locator("div", { has: page.getByText(label, { exact: true }) }).last();

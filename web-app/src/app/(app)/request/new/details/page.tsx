@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, type FormEvent } from "react";
+import { Suspense, useId, useRef, useState, type FormEvent } from "react";
 import { flushSync } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/Button";
@@ -35,6 +35,8 @@ function DetailsForm({ userId, supplier }: { userId: string; supplier: Supplier 
   const router = useRouter();
   const [draft, setDraft] = useState(() => resumeDraft(userId, supplier.supplierId));
   const [errors, setErrors] = useState<DraftErrors>(draft.errors ?? {});
+  const items = useRef<HTMLFieldSetElement>(null);
+  const itemsErrorId = useId();
 
   const update = (changes: Partial<Draft>) => setDraft((d) => ({ ...d, ...changes }));
   const updateItem = (index: number, changes: Partial<DraftItem>) =>
@@ -46,7 +48,8 @@ function DetailsForm({ userId, supplier }: { userId: string; supplier: Supplier 
     const found = validateDraft(draft);
     if (Object.keys(found).length) {
       flushSync(() => setErrors(found));
-      form.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+      // The items' own error has no control, so its fieldset takes focus when nothing else failed.
+      (form.querySelector<HTMLElement>('[aria-invalid="true"]') ?? items.current)?.focus();
       return;
     }
     saveDraft(userId, { ...draft, errors: undefined });
@@ -56,7 +59,12 @@ function DetailsForm({ userId, supplier }: { userId: string; supplier: Supplier 
   return (
     <form className={styles.form} onSubmit={review} noValidate>
       <NavRow label="Pickup" value={pickupLabel(supplier)} />
-      <fieldset className={styles.items}>
+      <fieldset
+        ref={items}
+        tabIndex={-1}
+        className={styles.items}
+        aria-describedby={errors.items ? itemsErrorId : undefined}
+      >
         <legend className="field-label">Items</legend>
         {draft.items.map((item, i) => (
           <fieldset key={i} className={styles.item}>
@@ -103,7 +111,11 @@ function DetailsForm({ userId, supplier }: { userId: string; supplier: Supplier 
             )}
           </fieldset>
         ))}
-        {errors.items && <p className={styles.error}>{errors.items}</p>}
+        {errors.items && (
+          <p id={itemsErrorId} className={styles.error}>
+            {errors.items}
+          </p>
+        )}
         {draft.items.length < MAX_ITEMS && (
           <Button
             type="button"
@@ -173,8 +185,14 @@ function Details() {
 
 /** One tree for every width because it holds a form: see decisions.md W3. */
 export default function NewRequestDetailsPage() {
+  const router = useRouter();
   return (
-    <ResponsiveShell title="New request" navItems={STUDENT_NAV} activeHref="/feed">
+    <ResponsiveShell
+      title="New request"
+      navItems={STUDENT_NAV}
+      activeHref="/feed"
+      onBack={() => router.push("/request/new")}
+    >
       <Suspense fallback={null}>
         <Details />
       </Suspense>

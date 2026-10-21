@@ -15,10 +15,11 @@ afterAll(() => {
 });
 
 const requests: Request[] = [];
+let postStatus = 201;
 globalThis.fetch = (async (request: Request) => {
   requests.push(request.clone());
   return new Response(JSON.stringify({ ok: true }), {
-    status: request.method === "POST" ? 201 : 200,
+    status: request.method === "POST" ? postStatus : 200,
     headers: { "content-type": "application/json" },
   });
 }) as typeof fetch;
@@ -32,13 +33,20 @@ const body = {
 };
 
 it("creates an order with the idempotency key and bearer token", async () => {
-  await createOrder("access-token", body, "key-1");
+  expect((await createOrder("access-token", body, "key-1")).replayed).toBe(false);
   const [request] = requests.splice(0);
   expect(request!.method).toBe("POST");
   expect(request!.url).toBe("http://localhost:3003/orders");
   expect(request!.headers.get("idempotency-key")).toBe("key-1");
   expect(request!.headers.get("authorization")).toBe("Bearer access-token");
   expect(await request!.json()).toEqual(body);
+});
+
+it("says when the key replayed an order it had already created", async () => {
+  postStatus = 200;
+  expect((await createOrder("access-token", body, "key-1")).replayed).toBe(true);
+  postStatus = 201;
+  requests.splice(0);
 });
 
 it("reads an order from the Order Service and the wallet from the Credit Service", async () => {

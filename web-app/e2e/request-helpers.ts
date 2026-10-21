@@ -1,15 +1,33 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 
-/** The running stack the journeys drive. Nothing is mocked. */
-export const USER = process.env.E2E_USER_SERVICE_URL ?? "http://localhost:3001";
-export const SUPPLIER = process.env.E2E_SUPPLIER_SERVICE_URL ?? "http://localhost:3002";
+const USER = process.env.E2E_USER_SERVICE_URL ?? "http://localhost:3001";
+const SUPPLIER = process.env.E2E_SUPPLIER_SERVICE_URL ?? "http://localhost:3002";
 export const ORDER = process.env.E2E_ORDER_SERVICE_URL ?? "http://localhost:3003";
-export const CREDIT = process.env.E2E_CREDIT_SERVICE_URL ?? "http://localhost:3004";
-export const PASSWORD = "a long enough passphrase";
-export const ORDER_URL = /\/request\/[0-9a-f-]{36}$/;
+const CREDIT = process.env.E2E_CREDIT_SERVICE_URL ?? "http://localhost:3004";
+const PASSWORD = "a long enough passphrase";
+export const ORDER_URL = /\/request\/[0-9a-f-]{36}(\?.*)?$/;
 
-/** Screens render a phone and a desktop tree; CSS shows one. */
+/** Picks the pickup point, fills one item and the delivery details, and opens the review. */
+export async function compose(
+  page: Page,
+  { supplier, item, reward }: { supplier: string; item: string; reward: number },
+) {
+  await page.goto("/request/new");
+  await page.getByRole("button", { name: supplier }).click();
+  await expect(page).toHaveURL(/\/request\/new\/details\?supplierId=/);
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill(item);
+  await page.getByRole("textbox", { name: "Delivery zone" }).fill("PGP House 7");
+  await page.getByRole("textbox", { name: "Delivery instructions" }).fill("Leave it at the lobby counter.");
+  await page.getByRole("slider").fill(String(reward));
+  await page.getByRole("button", { name: "Review request" }).click();
+  await expect(page).toHaveURL(/\/request\/new\/review\?supplierId=/);
+}
+
+/** The order page renders a phone and a desktop tree; CSS shows one. */
 export const visible = (page: Page, text: string | RegExp) => page.getByText(text).filter({ visible: true });
+
+export const row = (page: Page, label: string) =>
+  page.locator("div", { has: page.getByText(label, { exact: true }) }).last();
 
 /**
  * Registers (unless already registered), activates through the dev mailbox and signs in; waits for
@@ -38,6 +56,14 @@ export async function activeStudent(
     )
     .toBe(200);
   return accessToken;
+}
+
+/** The signed-in student's wallet as the Credit Service reports it. */
+export async function wallet(
+  request: APIRequestContext,
+  token: string,
+): Promise<{ available: number; reserved: number }> {
+  return (await request.get(`${CREDIT}/wallets/me`, { headers: { authorization: `Bearer ${token}` } })).json();
 }
 
 /** The first pickup point the picker lists, since both read the same default order. */
