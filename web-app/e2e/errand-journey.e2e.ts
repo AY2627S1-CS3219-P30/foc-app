@@ -23,6 +23,7 @@ test("errand journey: a lost acceptance race, fulfilment, and the requester conf
   const supplier = await firstSupplier(request, token);
   const item = `Race ${stamp}`;
   const auth = { authorization: `Bearer ${token}` };
+  let requesterPaymentUrl = "";
 
   const created = await request.post(`${ORDER}/orders`, {
     headers: { ...auth, "idempotency-key": randomUUID() },
@@ -85,6 +86,7 @@ test("errand journey: a lost acceptance race, fulfilment, and the requester conf
 
     await page.getByRole("link", { name: "See it in your wallet" }).filter({ visible: true }).click();
     await expect(page).toHaveURL(/\/wallet\?tx=[0-9a-f-]{36}$/);
+    requesterPaymentUrl = page.url();
     const payment = page.locator('[aria-current="true"]');
     await expect(payment).toBeFocused();
     await expect(payment).toContainText("Paid your courier");
@@ -94,9 +96,20 @@ test("errand journey: a lost acceptance race, fulfilment, and the requester conf
     await expect(page).toHaveURL(receipt);
   });
 
-  await test.step("the courier's wallet shows what they earned", async () => {
-    await winner.goto("/wallet");
-    await expect(visible(winner, "Earned for a delivery").first()).toBeVisible();
+  await test.step("the courier follows the receipt to the same payment and back", async () => {
+    const receipt = new RegExp(`/request/${orderId}/receipt$`);
+    await winner.goto(`/request/${orderId}/receipt`);
+    await winner
+      .getByRole("link", { name: "See it in your wallet" })
+      .filter({ visible: true })
+      .click();
+    await expect(winner).toHaveURL(requesterPaymentUrl);
+    const payment = winner.locator('[aria-current="true"]');
+    await expect(payment).toBeFocused();
+    await expect(payment).toContainText("Earned for a delivery");
+    await expect(payment).toContainText("+1");
+    await payment.getByRole("link", { name: "Earned for a delivery" }).click();
+    await expect(winner).toHaveURL(receipt);
   });
 
   await Promise.all([winner, loser].map((courier) => courier.context().close()));

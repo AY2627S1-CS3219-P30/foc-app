@@ -51,9 +51,15 @@ export function LedgerRow({ entry, current = false }: { entry: LedgerItem; curre
           Total after: {entry.resultingTotal} · {formatWhen(entry.occurredAt)}
         </p>
       </div>
-      <span className={cx(styles.amount, change > 0 && styles.positive, change < 0 && styles.negative)}>
-        {change > 0 ? "+" : ""}
-        {change}
+      <span
+        className={cx(
+          styles.amount,
+          change > 0 && styles.positive,
+          change < 0 && styles.negative,
+          change === 0 && styles.neutral,
+        )}
+      >
+        {change === 0 ? "—" : `${change > 0 ? "+" : ""}${change}`}
       </span>
     </div>
   );

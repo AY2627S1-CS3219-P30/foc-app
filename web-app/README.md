@@ -66,7 +66,7 @@ the top bar and sidebar; `@media (min-width: 1440px)` widens the gutters. Nothin
 accept one errand (the loser's card is replaced with the reason), the winner sees the delivery
 instructions and records pickup and delivery, and the requester confirms receipt until the errand is
 complete. The requester then opens the receipt, follows it to the payment in their wallet and back,
-and the courier's wallet shows what they earned.
+and the courier follows the same payment from their receipt to their wallet and back.
 
 `e2e/account-journey.e2e.ts` runs the account journey (USR-05) in Chromium at 360, 768 and 1440 px against
 the real User Service: sign-up with a failed submit, activation through the dev mailbox, sign-in with a

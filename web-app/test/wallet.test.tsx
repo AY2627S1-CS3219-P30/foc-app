@@ -157,7 +157,7 @@ describe("the wallet (WEB-03)", () => {
     serve({ pages: { "": { items, nextCursor: null } } });
     await render(<WalletPage />);
 
-    expect(amounts()).toEqual(["+3", "-3", "0", "0", "+5"]);
+    expect(amounts()).toEqual(["+3", "-3", "—", "—", "+5"]);
     expect(rows().map((r) => r.querySelector("p")!.textContent)).toEqual([
       "Earned for a delivery",
       "Paid your courier",
@@ -318,22 +318,35 @@ describe("from a receipt to its ledger entry and back (WEB-03)", () => {
     expect(container.textContent).toContain("That entry isn't in your wallet's activity.");
   });
 
-  it("finds the linked entry again if new activity pushes it past a refreshed first page", async () => {
+  it("finds the linked entry again after more than one page of new activity", async () => {
     const payment = entry("TRANSFER", -3, { transactionId: PAYMENT });
+    const previous = entry("RESERVE", 0);
     const pages: Pages = {
-      "": { items: [entry("RESERVE", 0)], nextCursor: "old-next" },
+      "": { items: [previous], nextCursor: "old-next" },
       "old-next": { items: [payment], nextCursor: null },
     };
     serve({ pages });
     window.history.replaceState(null, "", `/wallet?tx=${PAYMENT}`);
     await render(<WalletPage />);
 
-    pages[""] = { items: [entry("TRANSFER", 3)], nextCursor: "new-next" };
-    pages["new-next"] = { items: [payment], nextCursor: null };
+    const newest = entry("TRANSFER", 3);
+    const newer = entry("ISSUE", 5);
+    pages[""] = { items: [newest], nextCursor: "new-next" };
+    pages["new-next"] = { items: [newer], nextCursor: "middle-next" };
+    pages["middle-next"] = { items: [previous], nextCursor: "payment-next" };
+    pages["payment-next"] = { items: [payment], nextCursor: null };
     await act(async () => window.dispatchEvent(new window.Event("online")));
     await render(<WalletPage />);
 
-    expect(asked.some((url) => url.searchParams.get("cursor") === "new-next")).toBe(true);
+    expect(asked.map((url) => url.searchParams.get("cursor")).filter(Boolean)).toEqual([
+      "old-next",
+      "new-next",
+      "middle-next",
+      "payment-next",
+    ]);
+    expect(rows().map((row) => row.id)).toEqual(
+      [newest, newer, previous, payment].map((item) => `tx-${item.transactionId}`),
+    );
     expect(container.querySelector(`#tx-${PAYMENT}`)?.getAttribute("aria-current")).toBe("true");
   });
 

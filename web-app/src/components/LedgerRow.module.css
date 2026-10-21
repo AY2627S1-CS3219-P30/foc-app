@@ -53,3 +53,7 @@
 .negative {
   color: var(--color-danger);
 }
+
+.neutral {
+  color: var(--color-text-subtle);
+}

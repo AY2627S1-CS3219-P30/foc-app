@@ -58,6 +58,7 @@ export default function WalletPage() {
         let fresh: Ledger = first;
         const current = ledgerRef.current;
         const refreshed = merge(current, first);
+        // A full page of newer entries can hide a previously visible target; walk again if it fell out.
         const walk =
           !!target &&
           !holds(refreshed, target) &&
