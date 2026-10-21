@@ -76,6 +76,7 @@ function StatusBody({
   notice,
   acted,
   onAct,
+  onRetry,
 }: {
   order: Order;
   replayed: boolean;
@@ -89,6 +90,7 @@ function StatusBody({
   /** Counts commands that went through. The button that sent one may be gone, so focus comes here. */
   acted: number;
   onAct: (action: OrderAction) => void;
+  onRetry: () => void;
 }) {
   const router = useRouter();
   const { user } = useAuth();
@@ -125,9 +127,17 @@ function StatusBody({
       </div>
       <FormAlert tone="info" takeFocus>{notice}</FormAlert>
       {problem && (
-        <p role="alert" style={{ fontSize: vars.text.sm, color: vars.color.danger }}>
-          Could not refresh this request. {problem.message}
-        </p>
+        <div
+          role="alert"
+          style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: vars.space[2] }}
+        >
+          <p style={{ fontSize: vars.text.sm, color: vars.color.danger }}>
+            Could not refresh this request. {problem.message}
+          </p>
+          <Button variant="outline" onClick={onRetry}>
+            Try again
+          </Button>
+        </div>
       )}
       {role && <NavRow label="Your part" value={ROLE_LABEL[role]} />}
       <NavRow
@@ -222,9 +232,13 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         setNotice(null);
         act.ask(order, action);
       }}
+      onRetry={() => refresh()}
     />
   ) : problem ? (
-    <ErrorState title={problem.status === 404 ? "This request no longer exists." : "Could not load this request"}>
+    <ErrorState
+      title={problem.status === 404 ? "This request no longer exists." : "Could not load this request"}
+      onRetry={problem.status === 404 ? undefined : () => refresh()}
+    >
       {problem.status !== 404 && problem.message}
     </ErrorState>
   ) : (
