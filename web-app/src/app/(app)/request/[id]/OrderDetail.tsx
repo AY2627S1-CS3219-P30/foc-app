@@ -173,6 +173,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const [acted, setActed] = useState(0);
   const { refresh: refreshCredits } = useCredits();
   const wasWaitingForCredits = useRef(false);
+  const orderStatus = order?.status;
   const role = order ? roleIn(order, user?.id) : null;
   const deadline = order ? actionDeadline(order, role) : null;
   // `now` is on the server's clock, like the deadlines: this device's may be wrong.
@@ -196,11 +197,11 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const title = order?.supplier.name ?? "Request";
   const [replayed, setReplayed] = useState(false);
   useEffect(() => {
-    if (!order) return;
-    const waiting = waitsOnCredit(order.status);
+    if (!orderStatus) return;
+    const waiting = waitsOnCredit(orderStatus);
     if (wasWaitingForCredits.current && !waiting) refreshCredits();
     wasWaitingForCredits.current = waiting;
-  }, [order?.status, refreshCredits]);
+  }, [orderStatus, refreshCredits]);
   useUrlFlag("replayed", () => setReplayed(true));
 
   const body = order ? (

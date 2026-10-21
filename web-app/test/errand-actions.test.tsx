@@ -562,7 +562,8 @@ describe('credits', () => {
     expect(pills(container)).toEqual(['5 credits', '5 credits']);
   });
 
-  it('reads the balance again once a command goes through', async () => {
+  it('reads the balance again after the errand leaves a credit-waiting state', async () => {
+    const clock = fakeClock();
     const service = fakeOrderService();
     service.answer = () => {
       service.current = order({ status: 'RELEASE_PENDING_CREDIT', releaseReason: 'CANCELLED', version: 4 });
@@ -579,6 +580,12 @@ describe('credits', () => {
 
     service.wallet = () => json(200, { available: 8 });
     await confirmAction(container, 'Cancel errand', 'Cancel errand');
+    expect(container.textContent).toContain('5 credits');
+    expect(service.walletReads).toBe(1);
+
+    service.current = order({ status: 'CANCELLED', releaseReason: 'CANCELLED', version: 5 });
+    await clock.advance(1_000);
     expect(container.textContent).toContain('8 credits');
+    expect(service.walletReads).toBe(2);
   });
 });
