@@ -62,6 +62,10 @@ the top bar and sidebar; `@media (min-width: 1440px)` widens the gutters. Nothin
 
 ## End-to-end checks
 
+`e2e/errand-journey.e2e.ts` runs WEB-02 and WEB-05 with three students: two couriers race to accept
+one errand (the loser's card is replaced with the reason), the winner sees the delivery instructions
+and records pickup and delivery, and the requester confirms receipt until the errand is complete.
+
 `e2e/account-journey.e2e.ts` runs the account journey (USR-05) in Chromium at 360, 768 and 1440 px against
 the real User Service: sign-up with a failed submit, activation through the dev mailbox, sign-in with a
 rejected password, the mode switch and log-out. Only the keyboard drives the forms, and every focus stop
@@ -109,8 +113,9 @@ Admin create, edit, and delete use the same service with the signed-in access to
 The new-request composer picks a pickup point with `SupplierPicker` (search over active suppliers
 only) and passes its `supplierId` on; the details step resolves it with `useSupplier` and explains a
 deactivated or missing supplier (`SUPPLIER_UNAVAILABLE`) instead of hiding it (SUP-04).
-Creating an errand calls the real Order and Credit Services (below). The feed, order history and
-wallet still read the in-memory mock store (`src/lib/store.tsx`) until WEB-02 and WEB-03.
+Creating an errand, the feed, order history, the errand page and the credit pill call the real
+Order and Credit Services (below). Only the wallet page still reads mock data (`src/lib/store.tsx`),
+until WEB-03.
 
 ### Request composer (WEB-01)
 
@@ -159,6 +164,39 @@ always takes a click the student can see.
 
 `e2e/reconnect-journey.e2e.ts` runs each case and checks through the API that it made one order and
 reserved its reward once.
+
+### After posting: couriers and requesters (WEB-02, WEB-05)
+
+- **Feed** (`/feed`): `GET /orders`, which already leaves out the student's own errands. Each card
+  shows the supplier, items, zone, reward and time left, counted from `timeRemainingSeconds` so a
+  wrong device clock cannot skew it, and goes at zero. The list is read again every 30 seconds, on
+  returning to the tab and on reconnecting.
+- **History** (`/order-history`): `GET /orders/mine`, split into active and past, each card saying
+  whether the student requested or is delivering it.
+- **Errand page** (`/request/{orderId}`): the role comes from the participant IDs, which only the
+  requester and courier receive; anyone else is a prospective courier. Delivery instructions show
+  only when the Order Service sends them, which it does once the errand is the courier's. The page
+  reads the errand until it is final: on the backing-off schedule while the Credit Service has it,
+  every 15 seconds otherwise, and at once on returning or reconnecting.
+- **Actions** come from one table, `actionsFor(order, role, now)` in `src/lib/order-actions.ts`,
+  which follows the Order Service's transition table:
+
+  | Status | Requester | Courier | Anyone else |
+  | --- | --- | --- | --- |
+  | `OPEN` | Cancel | — | Accept, until the deadline |
+  | `ACCEPTED` | Cancel | Record pickup, withdraw | — |
+  | `PICKED_UP` | Report not delivered, from `nonDeliveryReportAt` | Record delivery | — |
+  | `DELIVERED` | Confirm receipt; report not received until `autoConfirmAt` | — | — |
+  | `DISPUTED` and the rest | — | — | — |
+
+  A timer set for the governing deadline (`useNowAfter`) changes the offer at that moment, so the
+  referral option appears exactly 2 hours after pickup. A referred errand says it is with an
+  administrator and offers nothing.
+- **Sending** goes through `useOrderAction`: every action is confirmed in a dialog, then sent with the
+  version on screen as `expectedVersion`. A refusal because the errand moved on (`409`, `403`,
+  `404`: someone else accepted it, it changed, or a report came too early or too late) closes the
+  dialog, says what happened and re-reads, so the screen never keeps a button for a state that has
+  gone. A network or server failure stays in the dialog to try again.
 
 Every state's label and plain-language explanation is in `src/lib/order-status.ts`, typed from the
 generated contract so all twelve are covered.

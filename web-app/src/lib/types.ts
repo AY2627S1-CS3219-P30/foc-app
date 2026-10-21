@@ -27,12 +27,4 @@ export type LedgerEntry = {
   createdAt: number;
 };
 
-export type Supplier = {
-  id: string;
-  name: string;
-  location: string;
-  category: string;
-  distance: string;
-};
-
 export const CURRENT_USER = { id: "me", name: "You" };

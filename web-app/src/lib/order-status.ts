@@ -1,20 +1,20 @@
 import { REWARD_MAX, REWARD_MIN } from "./composer";
 import type { Order, OrderStatus } from "./order-api";
+import type { Role } from "./order-actions";
+
+type Wording = { label: string; explanation: string; slow?: string };
 
 /**
- * Labels are the ones order-service/README.md's state table gives the web app. `slow` is shown
- * once a state that waits on the Credit Service has lasted longer than usual.
+ * What a student with no part in the errand reads. Labels are the ones order-service/README.md's
+ * state table gives the web app, except `DELIVERED`'s, which asks the requester to act and so is theirs alone.
+ * `slow` is shown once a state that waits on the Credit Service has lasted longer than usual.
  */
-export const ORDER_STATUS: Record<
-  OrderStatus,
-  { label: string; explanation: string; slow?: string }
-> = {
+export const ORDER_STATUS: Record<OrderStatus, Wording> = {
   PENDING_CREDIT: {
     label: "Waiting for credits",
     explanation:
-      "Your request is in. The Credit Service is reserving its reward, and couriers will see it once that's done.",
-    slow:
-      "This is taking longer than usual. Your request is saved and opens as soon as the credits are reserved, so you can leave this page and come back.",
+      "The request is in. The Credit Service is reserving its reward, and couriers will see it once that's done.",
+    slow: "This is taking longer than usual. The request is saved and opens as soon as the credits are reserved.",
   },
   OPEN: {
     label: "Open",
@@ -29,8 +29,9 @@ export const ORDER_STATUS: Record<
     explanation: "The courier has collected the items and is on the way to deliver them.",
   },
   DELIVERED: {
-    label: "Delivered, confirm receipt",
-    explanation: "The courier has recorded delivery. Confirm you received it, or report that you didn't.",
+    label: "Delivered",
+    explanation:
+      "The courier has recorded delivery. The requester confirms receipt, or it's confirmed automatically.",
   },
   DISPUTED: {
     label: "With an administrator",
@@ -39,14 +40,13 @@ export const ORDER_STATUS: Record<
   COMPLETION_PENDING_CREDIT: {
     label: "Paying the courier",
     explanation: "Delivery is accepted. The Credit Service is transferring the reward to the courier.",
-    slow:
-      "This is taking longer than usual. Delivery is accepted and the courier is paid as soon as the transfer goes through, so you can leave this page and come back.",
+    slow: "This is taking longer than usual. Delivery is accepted and the courier is paid as soon as the transfer goes through.",
   },
   RELEASE_PENDING_CREDIT: {
     label: "Returning credits",
-    explanation: "The errand is ending without payment. The Credit Service is returning the reward to you.",
-    slow:
-      "This is taking longer than usual. Your credits are safe and come back to you as soon as the release goes through, so you can leave this page and come back.",
+    explanation:
+      "The errand is ending without payment. The Credit Service is returning the reward to the requester.",
+    slow: "This is taking longer than usual. The reward goes back to the requester as soon as the release goes through.",
   },
   REJECTED: {
     label: "Not placed",
@@ -58,13 +58,60 @@ export const ORDER_STATUS: Record<
   },
   CANCELLED: {
     label: "Cancelled",
-    explanation: "The errand was cancelled and the reward has been returned to you.",
+    explanation: "The errand was cancelled and the reward has been returned to the requester.",
   },
   EXPIRED: {
     label: "Expired",
-    explanation: "No courier kept the errand before its deadline, so the reward has been returned to you.",
+    explanation:
+      "No courier kept the errand before its deadline, so the reward has been returned to the requester.",
   },
 };
+
+/** Where the errand's requester or courier reads about their own part instead. */
+const OWN: Record<NonNullable<Role>, Partial<Record<OrderStatus, Partial<Wording>>>> = {
+  REQUESTER: {
+    PENDING_CREDIT: {
+      explanation:
+        "Your request is in. The Credit Service is reserving its reward, and couriers will see it once that's done.",
+      slow: "This is taking longer than usual. Your request is saved and opens as soon as the credits are reserved, so you can leave this page and come back.",
+    },
+    DELIVERED: {
+      label: "Delivered, confirm receipt",
+      explanation: "The courier has recorded delivery. Confirm you received it, or report that you didn't.",
+    },
+    COMPLETION_PENDING_CREDIT: {
+      slow: "This is taking longer than usual. Delivery is accepted and the courier is paid as soon as the transfer goes through, so you can leave this page and come back.",
+    },
+    RELEASE_PENDING_CREDIT: {
+      explanation: "The errand is ending without payment. The Credit Service is returning the reward to you.",
+      slow: "This is taking longer than usual. Your credits are safe and come back to you as soon as the release goes through, so you can leave this page and come back.",
+    },
+    CANCELLED: { explanation: "The errand was cancelled and the reward has been returned to you." },
+    EXPIRED: {
+      explanation: "No courier kept the errand before its deadline, so the reward has been returned to you.",
+    },
+  },
+  COURIER: {
+    ACCEPTED: {
+      explanation: "The errand is yours. Collect the items from the pickup point, then record pickup.",
+    },
+    PICKED_UP: { explanation: "You have the items. Take them to the delivery zone, then record delivery." },
+    DELIVERED: {
+      explanation: "You've recorded delivery. The requester confirms receipt, or it's confirmed automatically.",
+    },
+    COMPLETION_PENDING_CREDIT: {
+      label: "Paying you",
+      explanation: "Delivery is accepted. The Credit Service is transferring the reward to you.",
+      slow: "This is taking longer than usual. Delivery is accepted and you're paid as soon as the transfer goes through, so you can leave this page and come back.",
+    },
+    COMPLETED: { explanation: "The reward has been transferred to you." },
+  },
+};
+
+export const statusWording = (status: OrderStatus, role: Role): Wording => ({
+  ...ORDER_STATUS[status],
+  ...(role && OWN[role][status]),
+});
 
 const FINAL = new Set<OrderStatus>(["REJECTED", "COMPLETED", "CANCELLED", "EXPIRED"]);
 

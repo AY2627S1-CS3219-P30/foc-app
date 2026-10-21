@@ -614,6 +614,12 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+            /**
+             * Format: date-time
+             * @description The server's clock when it answered. A client measures the deadlines against it, not
+             *     against its own clock, which may be wrong.
+             */
+            serverTime: string;
             requesterId?: string;
             courierId?: string;
             deliveryInstructions?: string;

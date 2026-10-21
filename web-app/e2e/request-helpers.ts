@@ -7,15 +7,6 @@ const CREDIT = process.env.E2E_CREDIT_SERVICE_URL ?? "http://localhost:3004";
 const PASSWORD = "a long enough passphrase";
 export const ORDER_URL = /\/request\/[0-9a-f-]{36}(\?.*)?$/;
 
-export async function signIn(page: Page, email: string) {
-  await page.goto("/login");
-  await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
-  await page.getByRole("textbox", { name: "NUS email", exact: true }).fill(email);
-  await page.getByRole("textbox", { name: "Password", exact: true }).fill(PASSWORD);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/feed$/);
-}
-
 /** Picks the pickup point, fills one item and the delivery details, and opens the review. */
 export async function compose(
   page: Page,
@@ -38,15 +29,23 @@ export const visible = (page: Page, text: string | RegExp) => page.getByText(tex
 export const row = (page: Page, label: string) =>
   page.locator("div", { has: page.getByText(label, { exact: true }) }).last();
 
-/** Registers, activates through the dev mailbox and signs in; waits for the wallet to be issued. */
-export async function activeStudent(request: APIRequestContext, email: string): Promise<string> {
+/** Registers and activates through the dev mailbox. Every call counts against the sign-up limit. */
+export async function register(request: APIRequestContext, email: string, displayName = "E2E Requester") {
   const registered = await request.post(`${USER}/auth/register`, {
-    data: { email, password: PASSWORD, displayName: "E2E Requester" },
+    data: { email, password: PASSWORD, displayName },
   });
   expect(registered.ok(), await registered.text()).toBe(true);
   const mail = await (await request.get(`${USER}/dev/mailbox`, { params: { to: email } })).json();
   expect((await request.post(`${USER}/auth/activate`, { data: { token: mail.token } })).ok()).toBe(true);
+}
+
+/**
+ * Signs in and waits for the wallet to be issued. Given a page's `request`, it signs that page in
+ * too: they share the refresh cookie, so the page's first load picks up the session.
+ */
+export async function signIn(request: APIRequestContext, email: string): Promise<string> {
   const login = await request.post(`${USER}/auth/login`, { data: { email, password: PASSWORD } });
+  expect(login.ok(), await login.text()).toBe(true);
   const { accessToken } = await login.json();
   await expect
     .poll(
@@ -58,6 +57,18 @@ export async function activeStudent(request: APIRequestContext, email: string): 
     .toBe(200);
   return accessToken;
 }
+
+/** A new student, signed in. */
+export async function activeStudent(request: APIRequestContext, email: string): Promise<string> {
+  await register(request, email);
+  return signIn(request, email);
+}
+
+/** The errand journey's students, registered once per run by `global-setup.ts`. */
+export const ERRAND_STUDENTS = { requester: "E2E Requester", winner: "E2E Winner", loser: "E2E Loser" };
+
+export const errandEmail = (who: keyof typeof ERRAND_STUDENTS) =>
+  `e2e-errand-${who}-${process.env.E2E_RUN}@u.nus.edu`;
 
 /** The signed-in student's wallet as the Credit Service reports it. */
 export async function wallet(

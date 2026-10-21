@@ -28,6 +28,7 @@ const { default: DetailsPage } = await import('../src/app/(app)/request/new/deta
 const { default: ReviewPage } = await import('../src/app/(app)/request/new/review/page');
 const { OrderDetail } = await import('../src/app/(app)/request/[id]/OrderDetail');
 const { SUPPLIER_UNAVAILABLE } = await import('../src/components/SupplierPicker');
+const { CreditsProvider } = await import('../src/lib/credits');
 
 afterAll(() => {
   for (const key of ['window', 'document', 'sessionStorage', 'IS_REACT_ACT_ENVIRONMENT'])
@@ -80,6 +81,8 @@ const order = (changes: Partial<Order> = {}): Order => ({
   acceptanceDeadlineAt: null,
   createdAt: '2026-10-20T01:00:00.000Z',
   updatedAt: '2026-10-20T01:00:00.000Z',
+  serverTime: '2026-10-20T01:00:00.000Z',
+  requesterId: 'me',
   ...changes,
 });
 
@@ -109,7 +112,9 @@ function fakeServices({ available = 10 } = {}) {
       if (pathname === `/orders/${ORDER_ID}`) {
         services.gets++;
         const next = services.reads.shift() ?? order();
-        return next instanceof Response || next instanceof Promise ? next : json(200, next);
+        return next instanceof Response || next instanceof Promise
+          ? next
+          : json(200, { ...next, serverTime: new Date().toISOString() });
       }
       return failure(404, 'NOT_FOUND', 'Not found.');
     },
@@ -146,7 +151,7 @@ async function render(element: React.ReactElement, services: ReturnType<typeof f
   window.document.body.replaceChildren(container);
   const root = createRoot(container as unknown as Element);
   mounted = root;
-  await act(() => root.render(element));
+  await act(() => root.render(<CreditsProvider>{element}</CreditsProvider>));
   await flush();
   return container as unknown as HTMLElement;
 }
@@ -588,12 +593,12 @@ describe('order status', () => {
     await online();
     expect(services.gets).toBe(2);
     await online();
-    expect(services.gets).toBe(2);
+    expect(services.gets).toBe(3);
+    expect(container.textContent).toContain('A courier has accepted the errand');
 
     await act(async () => fail(new TypeError('fetch failed')));
     await flush();
-    expect(services.gets).toBe(3);
-    expect(container.textContent).toContain('A courier has accepted the errand');
+    expect(container.textContent).not.toContain('Could not');
     await clock.advance(30_000);
     expect(services.gets).toBe(4);
   });
@@ -663,12 +668,19 @@ describe('order status', () => {
       throw new TypeError('boom');
     });
     auth.authed = read;
+    const services = fakeServices();
+    const { fetch } = services;
+    let orderReads = 0;
+    services.fetch = async (request) => {
+      if (new URL(request.url).pathname === `/orders/${ORDER_ID}`) orderReads++;
+      return fetch(request);
+    };
     try {
-      const container = await render(<OrderDetail orderId={ORDER_ID} />, fakeServices());
+      const container = await render(<OrderDetail orderId={ORDER_ID} />, services);
       expect(container.textContent).toContain('Could not load this request');
       expect(container.textContent).toContain('Something went wrong.');
       await clock.advance(15000);
-      expect(read).toHaveBeenCalledTimes(1);
+      expect(orderReads).toBe(1);
     } finally {
       auth.authed = authed;
     }

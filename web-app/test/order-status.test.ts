@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { readFile } from "node:fs/promises";
-import { ORDER_STATUS, isFinal, rejectionMessage, waitsOnCredit } from "../src/lib/order-status";
+import type { OrderStatus } from "../src/lib/order-api";
+import { ORDER_STATUS, isFinal, rejectionMessage, statusWording, waitsOnCredit } from "../src/lib/order-status";
 
 /** The `Order.status` union as generated from the contract, so a new state fails here. */
 const generated = await readFile(
@@ -27,12 +28,13 @@ describe("ORDER_STATUS", () => {
     expect(ORDER_STATUS.RELEASE_PENDING_CREDIT.label).toBe("Returning credits");
   });
 
-  it("has slow copy for every state that waits on the Credit Service, and no other", () => {
-    for (const [status, { slow }] of Object.entries(ORDER_STATUS)) {
-      if (waitsOnCredit(status as keyof typeof ORDER_STATUS))
-        expect(slow).toMatch(/^This is taking longer than usual\..+come back\.$/);
-      else expect(slow).toBeUndefined();
-    }
+  it("has slow copy for every state that waits on the Credit Service, and no other, for every role", () => {
+    for (const status of statuses as OrderStatus[])
+      for (const role of [null, "REQUESTER", "COURIER"] as const) {
+        const { slow } = statusWording(status, role);
+        if (waitsOnCredit(status)) expect(slow).toMatch(/^This is taking longer than usual\..+\.$/);
+        else expect(slow).toBeUndefined();
+      }
   });
 });
 
@@ -54,6 +56,37 @@ describe("waitsOnCredit", () => {
       "PENDING_CREDIT",
       "RELEASE_PENDING_CREDIT",
     ]);
+  });
+});
+
+describe("statusWording", () => {
+  const all = statuses as OrderStatus[];
+
+  it("speaks of the requester and courier in the third person to anyone else", () => {
+    for (const status of all) {
+      const { label, explanation, slow } = statusWording(status, null);
+      expect(`${label} ${explanation} ${slow ?? ""}`).not.toMatch(/\byou/i);
+    }
+    expect(statusWording("RELEASE_PENDING_CREDIT", null).explanation).toContain("to the requester");
+  });
+
+  it("asks the requester to act on a delivery, and returns the reward to them", () => {
+    expect(statusWording("DELIVERED", "REQUESTER").label).toBe("Delivered, confirm receipt");
+    expect(statusWording("DELIVERED", "REQUESTER").explanation).toContain("Confirm you received it");
+    for (const status of ["RELEASE_PENDING_CREDIT", "CANCELLED", "EXPIRED"] as const)
+      expect(statusWording(status, "REQUESTER").explanation).toEndWith("to you.");
+  });
+
+  it("never asks the courier to confirm receipt, and pays them", () => {
+    for (const status of all) {
+      const { label, explanation } = statusWording(status, "COURIER");
+      expect(label).not.toContain("confirm receipt");
+      expect(explanation).not.toContain("Confirm you");
+      expect(explanation).not.toMatch(/return.* to you/);
+      expect(explanation).toMatch(/^[A-Z].+\.$/);
+    }
+    expect(statusWording("DELIVERED", "COURIER").label).toBe("Delivered");
+    expect(statusWording("COMPLETED", "COURIER").explanation).toBe("The reward has been transferred to you.");
   });
 });
 

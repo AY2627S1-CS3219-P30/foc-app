@@ -1,4 +1,4 @@
-import type { ErrandRequest, LedgerEntry, Supplier } from "./types";
+import type { ErrandRequest, LedgerEntry } from "./types";
 
 // Fixed reference point (not Date.now()) so seed timestamps are identical
 // on the server-rendered HTML and the client hydration pass.
@@ -152,15 +152,6 @@ export const INITIAL_LEDGER: LedgerEntry[] = [
     amount: 12,
     createdAt: SEED_NOW - 1000 * 60 * 60 * 26,
   },
-];
-
-export const SUPPLIERS: Supplier[] = [
-  { id: "s1", name: "CoffeeBean @ COM3", location: "COM3, Level 1", category: "Café", distance: "4 min" },
-  { id: "s2", name: "Printers @ PC Commons", location: "COM1, Level 1", category: "Printers", distance: "6 min" },
-  { id: "s3", name: "Luckin Coffee @ UTown", location: "Stephen Riady Centre", category: "Café", distance: "11 min" },
-  { id: "s4", name: "FairPrice @ UTown", location: "UTown Square, B1", category: "Marts", distance: "12 min" },
-  { id: "s5", name: "PGP Foyer", location: "Prince George's Park", category: "Landmark", distance: "2 min" },
-  { id: "s6", name: "Deck Koufu", location: "AS8, Level 1", category: "Canteen", distance: "8 min" },
 ];
 
 export const INITIAL_BALANCE = 120;

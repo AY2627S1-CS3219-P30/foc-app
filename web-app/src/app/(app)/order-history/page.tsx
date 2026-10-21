@@ -1,31 +1,89 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useState } from "react";
 import { AppBar } from "@/components/AppBar";
 import { DesktopShell } from "@/components/DesktopShell";
-import { ErrandCard } from "@/components/ErrandCard";
+import { ErrandCard, ErrandGrid } from "@/components/ErrandCard";
+import { FormAlert } from "@/components/FormField";
 import { Screen, ScreenContent } from "@/components/Screen";
-import { EmptyState } from "@/components/States";
+import { EmptyState, ErrorState, LoadingState } from "@/components/States";
+import { ApiError } from "@/lib/api-client";
+import { useAuth } from "@/lib/auth";
 import { STUDENT_NAV } from "@/lib/nav";
-import { useStore } from "@/lib/store";
-import { CURRENT_USER } from "@/lib/types";
+import { listMyOrders, type MyOrder } from "@/lib/order-api";
+import { isFinal } from "@/lib/order-status";
+import { usePoll } from "@/lib/use-poll";
 import { vars } from "@/styles/tokens";
 
-export default function OrderHistoryPage() {
-  const { state } = useStore();
+/** Only while some errand is still active: past ones no longer change. */
+const HISTORY_POLL_MS = 30_000;
 
-  const myRequests = useMemo(
-    () =>
-      state.requests
-        .filter((r) => r.requesterId === CURRENT_USER.id || r.courierId === CURRENT_USER.id)
-        .sort((a, b) => b.createdAt - a.createdAt),
-    [state.requests]
+function roleLabel({ myRole, status }: MyOrder) {
+  if (myRole === "REQUESTER") return "You requested";
+  return isFinal(status) ? "You were the courier" : "You're the courier";
+}
+
+function Section({ title, orders }: { title: string; orders: MyOrder[] }) {
+  if (orders.length === 0) return null;
+  return (
+    <section style={{ display: "flex", flexDirection: "column", gap: vars.space[3] }}>
+      <h2 style={{ fontSize: vars.text.lg, fontWeight: vars.weight.semibold }}>{title}</h2>
+      <ErrandGrid>
+        {orders.map((o) => (
+          <ErrandCard key={o.orderId} errand={o} role={o.myRole} meta={roleLabel(o)} />
+        ))}
+      </ErrandGrid>
+    </section>
   );
+}
 
-  const empty = (
-    <EmptyState title="No errands yet">
-      Errands you request or deliver will show up here.
-    </EmptyState>
+export default function OrderHistoryPage() {
+  const { authed } = useAuth();
+  const [mine, setMine] = useState<{ items: MyOrder[]; truncated: boolean } | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const read = useCallback(
+    async (signal: AbortSignal) => {
+      try {
+        const next = await authed((token) => listMyOrders(token, signal));
+        if (signal.aborted) return null;
+        setMine(next);
+        setProblem(null);
+        return next.items.some((o) => !isFinal(o.status)) ? HISTORY_POLL_MS : null;
+      } catch (err) {
+        if (signal.aborted) return null;
+        setProblem(err instanceof ApiError ? err.message : "Something went wrong.");
+        return HISTORY_POLL_MS;
+      }
+    },
+    [authed],
+  );
+  const reload = usePoll(read);
+
+  const content = !mine ? (
+    problem ? (
+      <ErrorState title="Could not load your errands" onRetry={reload}>
+        {problem}
+      </ErrorState>
+    ) : (
+      <LoadingState label="Loading your errands…" />
+    )
+  ) : (
+    <>
+      <FormAlert>{problem ? `Could not refresh your errands. ${problem}` : null}</FormAlert>
+      {mine.items.length === 0 ? (
+        <EmptyState title="No errands yet">Errands you request or deliver will show up here.</EmptyState>
+      ) : (
+        <>
+          <Section title="Active" orders={mine.items.filter((o) => !isFinal(o.status))} />
+          <Section title="Past" orders={mine.items.filter((o) => isFinal(o.status))} />
+          {mine.truncated && (
+            <p style={{ fontSize: vars.text.sm, color: vars.color.textSubtle }}>
+              Showing your 100 most recent errands.
+            </p>
+          )}
+        </>
+      )}
+    </>
   );
 
   return (
@@ -33,29 +91,13 @@ export default function OrderHistoryPage() {
       <div className="mobileOnly">
         <Screen>
           <AppBar title="Order History" />
-          <ScreenContent>
-            {myRequests.map((r) => (
-              <ErrandCard key={r.id} request={r} />
-            ))}
-            {myRequests.length === 0 && empty}
-          </ScreenContent>
+          <ScreenContent>{content}</ScreenContent>
         </Screen>
       </div>
 
       <div className="desktopOnly">
         <DesktopShell navItems={STUDENT_NAV} activeHref="/order-history" heading="Order history">
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
-              gap: vars.space[4],
-            }}
-          >
-            {myRequests.map((r) => (
-              <ErrandCard key={r.id} request={r} />
-            ))}
-          </div>
-          {myRequests.length === 0 && empty}
+          {content}
         </DesktopShell>
       </div>
     </>

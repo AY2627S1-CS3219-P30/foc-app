@@ -95,6 +95,8 @@ export interface OrderView {
   acceptanceDeadlineAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** The server's clock when it answered, so a client can measure the deadlines without its own. */
+  serverTime: string;
   requesterId?: string;
   courierId?: string;
   deliveryInstructions?: string;

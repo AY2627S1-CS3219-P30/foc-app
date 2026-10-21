@@ -1,5 +1,13 @@
 import { afterAll, expect, it } from "bun:test";
-import { createOrder, getMyWallet, getOrder } from "../src/lib/order-api";
+import {
+  createOrder,
+  getMyWallet,
+  getOrder,
+  listMyOrders,
+  listOpenOrders,
+  sendCommand,
+  type Command,
+} from "../src/lib/order-api";
 
 const originalFetch = globalThis.fetch;
 afterAll(() => {
@@ -48,4 +56,33 @@ it("reads an order from the Order Service and the wallet from the Credit Service
     "http://localhost:3003/orders/order-1",
     "http://localhost:3004/wallets/me",
   ]);
+});
+
+it("lists open errands and the caller's own", async () => {
+  await listOpenOrders("access-token");
+  await listMyOrders("access-token");
+  expect(requests.splice(0).map((r) => r.url)).toEqual([
+    "http://localhost:3003/orders",
+    "http://localhost:3003/orders/mine",
+  ]);
+});
+
+it("sends every command to its path with the version on screen", async () => {
+  const paths: Record<Command, string> = {
+    accept: "accept",
+    pickup: "pickup",
+    deliver: "deliver",
+    withdraw: "withdraw",
+    cancel: "cancel",
+    confirmReceipt: "confirm-receipt",
+    reportNonDelivery: "report-non-delivery",
+    reportNonReceipt: "report-non-receipt",
+  };
+  for (const [command, path] of Object.entries(paths)) {
+    await sendCommand("access-token", command as Command, { orderId: "order-1", version: 7 });
+    const [request] = requests.splice(0);
+    expect(request!.method).toBe("POST");
+    expect(request!.url).toBe(`http://localhost:3003/orders/order-1/${path}`);
+    expect(await request!.json()).toEqual({ expectedVersion: 7 });
+  }
 });

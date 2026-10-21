@@ -6,7 +6,6 @@ import {
   ORDER,
   ORDER_URL,
   row,
-  signIn,
   visible,
   wallet as readWallet,
 } from "./request-helpers";
@@ -28,7 +27,7 @@ test("reconnect journey: a lost or offline post creates one errand", async ({
   request,
 }, testInfo) => {
   const email = `e2e-reconnect-${testInfo.project.name}-${Date.now()}@u.nus.edu`;
-  const token = await activeStudent(request, email);
+  const token = await activeStudent(page.request, email);
   const supplier = await firstSupplier(request, token);
   const auth = { authorization: `Bearer ${token}` };
   const posted: string[] = [];
@@ -43,8 +42,6 @@ test("reconnect journey: a lost or offline post creates one errand", async ({
     expect(mine.items.map((o: { orderId: string }) => o.orderId).sort()).toEqual([...posted].sort());
     await expect.poll(wallet, { timeout: 30_000 }).toMatchObject({ available: 10 - reserved, reserved });
   };
-
-  await test.step("sign in", () => signIn(page, email));
 
   await test.step("response lost after the server got it: Try again finds the same errand", async () => {
     await compose(page, { supplier: supplier.name, item: "Kopi O", reward: 2 });

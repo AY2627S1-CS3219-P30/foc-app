@@ -83,6 +83,7 @@ export function projectOrder(
     acceptanceDeadlineAt: order.acceptanceDeadlineAt,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
+    serverTime: new Date().toISOString(),
     ...(canReadPrivate
       ? {
           requesterId: order.requesterId,
@@ -129,6 +130,7 @@ export function publicOrderView(order: OrderRow): OrderView {
     acceptanceDeadlineAt: order.acceptanceDeadlineAt,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
+    serverTime: new Date().toISOString(),
   };
 }
 

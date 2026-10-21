@@ -56,13 +56,15 @@ function Summary({
   const detailsHref = `/request/new/details?supplierId=${supplier.supplierId}`;
 
   useEffect(() => {
+    const controller = new AbortController();
     let live = true;
-    authed(getMyWallet).then(
+    authed((token) => getMyWallet(token, controller.signal)).then(
       (found) => live && setWallet(found),
       (cause: Error) => live && setWalletProblem(cause.message),
     );
     return () => {
       live = false;
+      controller.abort();
     };
   }, [authed, walletRevision]);
 

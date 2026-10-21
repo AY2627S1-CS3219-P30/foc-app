@@ -7,7 +7,6 @@ import {
   ORDER,
   ORDER_URL,
   row,
-  signIn,
   visible,
   wallet as readWallet,
 } from "./request-helpers";
@@ -28,12 +27,10 @@ test("request journey: post, wait for credits, open; then an insufficient-credit
   request,
 }, testInfo) => {
   const email = `e2e-request-${testInfo.project.name}-${Date.now()}@u.nus.edu`;
-  const token = await activeStudent(request, email);
+  const token = await activeStudent(page.request, email);
   const supplier = await firstSupplier(request, token);
   const auth = { authorization: `Bearer ${token}` };
   const wallet = () => readWallet(request, token);
-
-  await test.step("sign in", () => signIn(page, email));
 
   await test.step("post: PENDING_CREDIT, then open, with exactly the reward reserved", async () => {
     await compose(page, { supplier: supplier.name, item: "Kopi O", reward: 5 });

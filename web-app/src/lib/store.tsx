@@ -1,218 +1,29 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useReducer,
-  type ReactNode,
-} from "react";
-import {
-  INITIAL_BALANCE,
-  INITIAL_LEDGER,
-  INITIAL_RESERVED,
-  INITIAL_REQUESTS,
-  SUPPLIERS,
-} from "./mock-data";
-import { CURRENT_USER, type ErrandRequest, type LedgerEntry, type Supplier } from "./types";
+import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { INITIAL_BALANCE, INITIAL_LEDGER, INITIAL_RESERVED, INITIAL_REQUESTS } from "./mock-data";
 
-/** Errand and wallet state, still mock data until WEB-02/03. Sessions live in auth.tsx. */
-type State = {
-  isMenuOpen: boolean;
-  requests: ErrandRequest[];
-  ledger: LedgerEntry[];
-  balance: number;
-  reserved: number;
-  suppliers: Supplier[];
-};
-
-type NewRequestInput = {
-  title: string;
-  supplier: string;
-  dropoff: string;
-  description: string;
-  credits: number;
-};
-
-type Action =
-  | { type: "SET_MENU_OPEN"; open: boolean }
-  | { type: "EDIT_REQUEST"; id: string; input: NewRequestInput }
-  | { type: "ACCEPT_REQUEST"; id: string }
-  | { type: "COMPLETE_REQUEST"; id: string }
-  | { type: "CANCEL_REQUEST"; id: string }
-  | { type: "RELEASE_REQUEST"; id: string };
-
-const initialState: State = {
-  isMenuOpen: false,
+/** The menu, and the wallet page's mock data until WEB-03. Sessions live in auth.tsx. */
+const MOCK_WALLET = {
   requests: INITIAL_REQUESTS,
   ledger: INITIAL_LEDGER,
   balance: INITIAL_BALANCE,
   reserved: INITIAL_RESERVED,
-  suppliers: SUPPLIERS,
 };
 
-// Not a module-level counter: a reducer must stay pure (no shared mutable
-// state), since React's Strict Mode double-invokes reducers in dev to
-// catch exactly this kind of bug — a counter would drift on every
-// dispatch. crypto.randomUUID() has no such shared state to corrupt.
-function makeId(prefix: string) {
-  return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
-}
-
-function reducer(state: State, action: Action): State {
-  switch (action.type) {
-    case "SET_MENU_OPEN":
-      return { ...state, isMenuOpen: action.open };
-
-    case "EDIT_REQUEST": {
-      const existing = state.requests.find((r) => r.id === action.id);
-      if (!existing || existing.requesterId !== CURRENT_USER.id || existing.status !== "OPEN") {
-        return state;
-      }
-      const creditDelta = action.input.credits - existing.credits;
-      return {
-        ...state,
-        requests: state.requests.map((r) =>
-          r.id === action.id ? { ...r, ...action.input } : r
-        ),
-        balance: state.balance - creditDelta,
-        reserved: state.reserved + creditDelta,
-      };
-    }
-
-    case "ACCEPT_REQUEST": {
-      const existing = state.requests.find((r) => r.id === action.id);
-      if (!existing || existing.status !== "OPEN" || existing.requesterId === CURRENT_USER.id) {
-        return state;
-      }
-      return {
-        ...state,
-        requests: state.requests.map((r) =>
-          r.id === action.id
-            ? { ...r, status: "PICKED_UP", courierId: CURRENT_USER.id, courierName: CURRENT_USER.name }
-            : r
-        ),
-      };
-    }
-
-    case "COMPLETE_REQUEST": {
-      const existing = state.requests.find((r) => r.id === action.id);
-      if (!existing || existing.status !== "PICKED_UP" || existing.courierId !== CURRENT_USER.id) {
-        return state;
-      }
-      const ledgerEntry: LedgerEntry = {
-        id: makeId("l"),
-        type: "earned",
-        label: "Errand completed",
-        detail: existing.title,
-        amount: existing.credits,
-        createdAt: Date.now(),
-      };
-      return {
-        ...state,
-        requests: state.requests.map((r) =>
-          r.id === action.id ? { ...r, status: "COMPLETED" } : r
-        ),
-        ledger: [ledgerEntry, ...state.ledger],
-        balance: state.balance + existing.credits,
-      };
-    }
-
-    case "CANCEL_REQUEST": {
-      const existing = state.requests.find((r) => r.id === action.id);
-      const cancellable = existing?.status === "OPEN" || existing?.status === "PICKED_UP";
-      if (!existing || existing.requesterId !== CURRENT_USER.id || !cancellable) {
-        return state;
-      }
-      const ledgerEntry: LedgerEntry = {
-        id: makeId("l"),
-        type: "released",
-        label: "Credits released",
-        detail: existing.title,
-        amount: existing.credits,
-        createdAt: Date.now(),
-      };
-      return {
-        ...state,
-        requests: state.requests.map((r) =>
-          r.id === action.id ? { ...r, status: "CANCELLED" } : r
-        ),
-        ledger: [ledgerEntry, ...state.ledger],
-        balance: state.balance + existing.credits,
-        reserved: state.reserved - existing.credits,
-      };
-    }
-
-    case "RELEASE_REQUEST": {
-      // Courier backs out before delivering — the errand goes back to
-      // open for someone else to accept. No credits move: the courier
-      // was never paid, and the requester's reservation is untouched.
-      const existing = state.requests.find((r) => r.id === action.id);
-      if (!existing || existing.status !== "PICKED_UP" || existing.courierId !== CURRENT_USER.id) {
-        return state;
-      }
-      return {
-        ...state,
-        requests: state.requests.map((r) =>
-          r.id === action.id
-            ? { ...r, status: "OPEN", courierId: undefined, courierName: undefined }
-            : r
-        ),
-      };
-    }
-
-    default:
-      return state;
-  }
-}
-
 type Store = {
-  state: State;
+  state: typeof MOCK_WALLET & { isMenuOpen: boolean };
   setMenuOpen: (open: boolean) => void;
-  editRequest: (id: string, input: NewRequestInput) => void;
-  acceptRequest: (id: string) => void;
-  completeRequest: (id: string) => void;
-  cancelRequest: (id: string) => void;
-  releaseRequest: (id: string) => void;
 };
 
 const StoreContext = createContext<Store | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
-
-  const setMenuOpen = useCallback((open: boolean) => dispatch({ type: "SET_MENU_OPEN", open }), []);
-  const editRequest = useCallback(
-    (id: string, input: NewRequestInput) => dispatch({ type: "EDIT_REQUEST", id, input }),
-    []
-  );
-  const acceptRequest = useCallback((id: string) => dispatch({ type: "ACCEPT_REQUEST", id }), []);
-  const completeRequest = useCallback((id: string) => dispatch({ type: "COMPLETE_REQUEST", id }), []);
-  const cancelRequest = useCallback((id: string) => dispatch({ type: "CANCEL_REQUEST", id }), []);
-  const releaseRequest = useCallback((id: string) => dispatch({ type: "RELEASE_REQUEST", id }), []);
-
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const value = useMemo(
-    () => ({
-      state,
-      setMenuOpen,
-      editRequest,
-      acceptRequest,
-      completeRequest,
-      cancelRequest,
-      releaseRequest,
-    }),
-    [
-      state,
-      setMenuOpen,
-      editRequest,
-      acceptRequest,
-      completeRequest,
-      cancelRequest,
-      releaseRequest,
-    ]
+    () => ({ state: { ...MOCK_WALLET, isMenuOpen }, setMenuOpen: setIsMenuOpen }),
+    [isMenuOpen],
   );
-
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
 

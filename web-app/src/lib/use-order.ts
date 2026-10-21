@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ApiError } from "./api-client";
 import { useAuth } from "./auth";
 import { getOrder, type Order, type OrderStatus } from "./order-api";
 import { isFinal, waitsOnCredit } from "./order-status";
+import { useOnReturn } from "./use-on-return";
+import { usePoll } from "./use-poll";
 
 /** Waits between reads while the Credit Service works: backing off, then every 15 seconds. */
 const PENDING_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000];
@@ -15,83 +17,81 @@ const STILL_WAITING_MS = 30_000;
 /** Settled polling stops this long after the status last changed or the tab last woke. */
 const IDLE_LIMIT_MS = 10 * 60_000;
 
-const pollDelay = (status: OrderStatus | undefined, attempt: number) =>
-  !status || waitsOnCredit(status)
-    ? PENDING_DELAYS_MS[Math.min(attempt, PENDING_DELAYS_MS.length - 1)]
-    : SETTLED_DELAY_MS;
-
 /**
  * Reads the order, and keeps reading until it reaches a final state: often while credits move,
- * every 30 seconds otherwise. A hidden tab pauses; showing the tab or coming back online reads at
- * once. Settled polling also pauses after ten minutes without a change, until the tab is shown or
- * back online. A 4xx or an error that is not an {@link ApiError} (a bug, not the network) stops
- * polling.
+ * every 30 seconds otherwise. Settled polling also pauses after ten minutes without a change, until
+ * the tab is shown or back online. A 4xx, or an error that is not an {@link ApiError} (a bug, not
+ * the network), stops, and a 404 drops the errand so its actions go with it.
+ * `skew` is how far this device's clock runs ahead of the server's, from the order's `serverTime`.
  */
 export function useOrder(orderId: string) {
   const { authed } = useAuth();
   const [order, setOrder] = useState<Order | null>(null);
+  const [skew, setSkew] = useState(0);
   const [problem, setProblem] = useState<ApiError | null>(null);
   const [stillWaiting, setStillWaiting] = useState(false);
+  const status = useRef<OrderStatus | null>(null);
+  const version = useRef(-1);
+  const since = useRef(0);
+  const attempt = useRef(0);
 
-  useEffect(() => {
-    let status: OrderStatus | undefined;
-    let since = Date.now();
-    let attempt = 0;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let reading = false;
-    let wanted = false;
-    let live = true;
+  const show = useCallback((next: Order) => {
+    if (next.version < version.current) return;
+    version.current = next.version;
+    setOrder(next);
+    setSkew(Date.now() - Date.parse(next.serverTime));
+    setStillWaiting(
+      waitsOnCredit(next.status) &&
+        Date.parse(next.serverTime) - Date.parse(next.updatedAt) >= STILL_WAITING_MS,
+    );
+    if (next.status !== status.current) {
+      status.current = next.status;
+      since.current = Date.now();
+      attempt.current = 0;
+    }
+  }, []);
 
-    async function read() {
-      if ((status && isFinal(status)) || document.visibilityState === "hidden") return;
-      if (reading) {
-        wanted = true;
-        return;
-      }
-      clearTimeout(timer);
-      reading = true;
-      wanted = false;
+  /** Until the next read: backing off while credits move, `null` once settled polling goes idle. */
+  const nextDelay = useCallback(() => {
+    if (!status.current || waitsOnCredit(status.current))
+      return PENDING_DELAYS_MS[Math.min(attempt.current++, PENDING_DELAYS_MS.length - 1)];
+    return Date.now() - since.current >= IDLE_LIMIT_MS ? null : SETTLED_DELAY_MS;
+  }, []);
+
+  const read = useCallback(
+    async (signal: AbortSignal) => {
+      if (status.current && isFinal(status.current)) return null;
       try {
-        const next = await authed((token) => getOrder(token, orderId));
-        if (!live) return;
-        setOrder(next);
+        const next = await authed((token) => getOrder(token, orderId, signal));
+        if (signal.aborted) return null;
+        show(next);
         setProblem(null);
-        if (next.status !== status) {
-          status = next.status;
-          since = Date.now();
-          attempt = 0;
-        }
-        if (isFinal(next.status)) return;
-        setStillWaiting(Date.now() - Date.parse(next.updatedAt) >= STILL_WAITING_MS);
+        return isFinal(next.status) ? null : nextDelay();
       } catch (err) {
-        if (!live) return;
+        if (signal.aborted) return null;
         const problem =
           err instanceof ApiError ? err : new ApiError(0, "UNEXPECTED", "Something went wrong.");
         setProblem(problem);
-        if (problem.code === "UNEXPECTED" || (problem.status >= 400 && problem.status < 500)) return;
-      } finally {
-        reading = false;
+        if (problem.status === 404) setOrder(null);
+        const stop = problem.code === "UNEXPECTED" || (problem.status >= 400 && problem.status < 500);
+        return stop ? null : nextDelay();
       }
-      if (wanted) return read();
-      if (status && !waitsOnCredit(status) && Date.now() - since >= IDLE_LIMIT_MS) return;
-      timer = setTimeout(read, pollDelay(status, attempt++));
-    }
+    },
+    [authed, orderId, show, nextDelay],
+  );
+  const readNow = usePoll(read);
+  useOnReturn(() => {
+    since.current = Date.now();
+  });
 
-    function wake() {
-      since = Date.now();
-      void read();
-    }
+  /** Shows `latest` (a command's answer) at once, then reads again. */
+  const refresh = useCallback(
+    (latest?: Order) => {
+      if (latest) show(latest);
+      readNow();
+    },
+    [readNow, show],
+  );
 
-    void read();
-    window.addEventListener("online", wake);
-    document.addEventListener("visibilitychange", wake);
-    return () => {
-      live = false;
-      clearTimeout(timer);
-      window.removeEventListener("online", wake);
-      document.removeEventListener("visibilitychange", wake);
-    };
-  }, [authed, orderId]);
-
-  return { order, problem, stillWaiting };
+  return { order, skew, problem, stillWaiting, refresh };
 }
