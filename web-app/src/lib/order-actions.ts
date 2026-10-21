@@ -143,6 +143,26 @@ export function actionsFor(order: Order, role: Role, now: number): OrderAction[]
   return commandsFor(order.status, role, passed).map((command) => ORDER_ACTIONS[command]);
 }
 
+const TOOK_EFFECT: Record<Command, (order: Order, role: Role) => boolean> = {
+  accept: (_, role) => role === "COURIER",
+  pickup: (order) => order.status === "PICKED_UP",
+  deliver: (order) => order.status === "DELIVERED",
+  withdraw: (_, role) => role !== "COURIER",
+  cancel: (order) => order.status === "CANCELLED" || order.releaseReason === "CANCELLED",
+  confirmReceipt: (order) =>
+    order.status === "COMPLETION_PENDING_CREDIT" || order.status === "COMPLETED",
+  reportNonReceipt: (order) => order.status === "DISPUTED",
+  reportNonDelivery: (order) => order.status === "DISPUTED",
+};
+
+/**
+ * Whether `order` already shows what this user's `command` does. A send whose answer was lost may
+ * have gone through, so its retry is refused as stale; this tells that apart from losing a race.
+ */
+export function tookEffect(command: Command, order: Order, userId: string | undefined): boolean {
+  return TOOK_EFFECT[command](order, roleIn(order, userId));
+}
+
 /** Codes that mean the errand moved on, so the view is re-read rather than left with a dead button. */
 const STALE: Record<string, string> = {
   ORDER_NOT_OPEN: "Another courier accepted this errand first, or it closed.",

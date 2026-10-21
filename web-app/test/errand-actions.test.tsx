@@ -76,6 +76,10 @@ const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const failure = (status: number, code: string) =>
   json(status, { error: { code, message: `${code} from the server.`, correlationId: 'test' } });
+/** A send whose answer never arrives, so the app cannot tell whether it went through. */
+const lostAnswer = (): Response => {
+  throw new TypeError('Failed to fetch');
+};
 
 type Command = { path: string; body: unknown };
 
@@ -89,6 +93,7 @@ function fakeOrderService() {
     serverAhead: 0,
     stamp: (o: Order): Order => ({ ...o, serverTime: new Date(Date.now() + service.serverAhead).toISOString() }),
     answer: (): Response => json(200, service.stamp({ ...service.current, version: 4 })),
+    read: (): Response => json(200, service.stamp(service.reads.shift() ?? service.current)),
     async fetch(request: Request): Promise<Response> {
       const { pathname } = new URL(request.url);
       if (request.method === 'POST') {
@@ -104,7 +109,7 @@ function fakeOrderService() {
             .filter((o) => o.timeRemainingSeconds > 0),
         );
       if (pathname === '/wallets/me') return json(200, { available: 5 });
-      if (pathname.startsWith('/orders/')) return json(200, service.stamp(service.reads.shift() ?? service.current));
+      if (pathname.startsWith('/orders/')) return service.read();
       return failure(404, 'NOT_FOUND');
     },
   };
@@ -241,6 +246,41 @@ describe('feed', () => {
     expect(buttons(container, 'Accept')).toEqual([]);
     expect(router.push).not.toHaveBeenCalled();
   });
+
+  it('opens the errand when a retry is refused because the lost first accept went through', async () => {
+    const service = fakeOrderService();
+    service.open = [listing(OTHER_ID, 'Their cafe')];
+    service.answer = lostAnswer;
+    const container = await render(<FeedPage />, service);
+
+    await confirmAction(container, 'Accept', 'Accept');
+    expect(dialog(container).open).toBe(true);
+    expect(dialog(container).textContent).toContain("Can't reach the server.");
+
+    service.current = order({ orderId: OTHER_ID, status: 'ACCEPTED', requesterId: 'them', courierId: 'me', version: 2 });
+    service.answer = () => failure(409, 'ORDER_NOT_OPEN');
+    await act(async () => button(dialog(container), 'Accept').click());
+    await flush();
+    expect(service.commands.map((c) => c.body)).toEqual([{ expectedVersion: 1 }, { expectedVersion: 1 }]);
+    expect(container.textContent).not.toContain('Another courier');
+    expect(router.push).toHaveBeenCalledWith(`/request/${OTHER_ID}`);
+  });
+
+  it('still reports losing the race when the retry finds another courier on the errand', async () => {
+    const service = fakeOrderService();
+    service.open = [listing(OTHER_ID, 'Their cafe')];
+    service.answer = lostAnswer;
+    const container = await render(<FeedPage />, service);
+    await confirmAction(container, 'Accept', 'Accept');
+
+    service.open = [];
+    service.current = order({ orderId: OTHER_ID, status: 'ACCEPTED', requesterId: 'them', courierId: 'other' });
+    service.answer = () => failure(409, 'ORDER_NOT_OPEN');
+    await act(async () => button(dialog(container), 'Accept').click());
+    await flush();
+    expect(container.textContent).toContain('Another courier accepted this errand first');
+    expect(router.push).not.toHaveBeenCalled();
+  });
 });
 
 describe('courier', () => {
@@ -261,6 +301,55 @@ describe('courier', () => {
     expect(service.commands).toEqual([{ path: `/orders/${ORDER_ID}/pickup`, body: { expectedVersion: 3 } }]);
     expect(buttons(container, 'Mark as delivered').length).toBeGreaterThan(0);
     expect(buttons(container, "I've picked it up")).toEqual([]);
+  });
+
+  it('counts a retried pickup as done when the lost first send went through', async () => {
+    const service = fakeOrderService();
+    service.current = order({ ...assigned, status: 'ACCEPTED' });
+    service.answer = () => {
+      service.current = order({ ...assigned, status: 'PICKED_UP', version: 4 });
+      return lostAnswer();
+    };
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+    await confirmAction(container, "I've picked it up", 'Record pickup');
+    expect(dialog(container).open).toBe(true);
+
+    service.answer = () => failure(409, 'INVALID_ORDER_STATE');
+    await act(async () => button(dialog(container), 'Record pickup').click());
+    await flush();
+    expect(dialog(container).open).toBe(false);
+    expect(container.textContent).not.toContain('changed before your request arrived');
+    expect(buttons(container, 'Mark as delivered').length).toBeGreaterThan(0);
+  });
+
+  it('withdraws after confirming, and loses the delivery instructions with the errand', async () => {
+    const service = fakeOrderService();
+    service.current = order({ ...assigned, status: 'ACCEPTED' });
+    service.answer = () => {
+      service.current = order({ requesterId: undefined, deliveryInstructions: undefined, version: 4 });
+      return json(200, service.current);
+    };
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+
+    await confirmAction(container, 'Withdraw', 'Withdraw');
+    expect(service.commands).toEqual([{ path: `/orders/${ORDER_ID}/withdraw`, body: { expectedVersion: 3 } }]);
+    expect(buttons(container, 'Withdraw')).toEqual([]);
+    expect(buttons(container, "I've picked it up")).toEqual([]);
+    expect(container.textContent).not.toContain('Lobby counter');
+  });
+
+  it('records delivery after confirming, then leaves the next step to the requester', async () => {
+    const service = fakeOrderService();
+    service.current = order({ ...assigned, status: 'PICKED_UP' });
+    service.answer = () => {
+      service.current = order({ ...assigned, status: 'DELIVERED', version: 4 });
+      return json(200, service.current);
+    };
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+
+    await confirmAction(container, 'Mark as delivered', 'Record delivery');
+    expect(service.commands).toEqual([{ path: `/orders/${ORDER_ID}/deliver`, body: { expectedVersion: 3 } }]);
+    expect(container.querySelectorAll('button:not([aria-label="Back"])').length).toBe(0);
   });
 
   it('shows no delivery instructions before the errand is theirs', async () => {
@@ -303,6 +392,38 @@ describe('requester', () => {
     await confirmAction(container, 'Cancel errand', 'Cancel errand');
     expect(dialog(container).open).toBe(true);
     expect(dialog(container).textContent).toContain('INTERNAL from the server.');
+  });
+
+  it('shows an errand that has gone as gone, with no action left on it', async () => {
+    const service = fakeOrderService();
+    service.answer = () => {
+      service.read = () => failure(404, 'NOT_FOUND');
+      return failure(404, 'NOT_FOUND');
+    };
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+
+    await confirmAction(container, 'Cancel errand', 'Cancel errand');
+    expect(container.textContent).toContain('This request no longer exists.');
+    expect(buttons(container, 'Cancel errand')).toEqual([]);
+  });
+
+  it('confirms receipt after asking, and offers nothing more', async () => {
+    const service = fakeOrderService();
+    service.current = order({
+      status: 'DELIVERED',
+      courierId: 'them',
+      autoConfirmAt: new Date(Date.now() + 3_600_000).toISOString(),
+    });
+    service.answer = () => {
+      service.current = order({ status: 'COMPLETION_PENDING_CREDIT', courierId: 'them', version: 4 });
+      return json(200, service.current);
+    };
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+
+    await confirmAction(container, 'Confirm receipt', 'Confirm receipt');
+    expect(service.commands).toEqual([{ path: `/orders/${ORDER_ID}/confirm-receipt`, body: { expectedVersion: 3 } }]);
+    expect(buttons(container, 'Confirm receipt')).toEqual([]);
+    expect(buttons(container, "I didn't receive it")).toEqual([]);
   });
 
   it('offers to refer an undelivered errand at 2 hours after pickup, and not before', async () => {

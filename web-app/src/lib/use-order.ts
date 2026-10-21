@@ -18,7 +18,8 @@ const awaitingCredit = (status: Order["status"]) => status.endsWith("PENDING_CRE
 
 /**
  * Reads the order, and keeps reading until it is final: quickly while the Credit Service has it,
- * slower otherwise. A 4xx, or an error that is not an {@link ApiError} (a bug, not the network), stops.
+ * slower otherwise. A 4xx, or an error that is not an {@link ApiError} (a bug, not the network), stops,
+ * and a 404 drops the errand so its actions go with it.
  * `skew` is how far this device's clock runs ahead of the server's, from the order's `serverTime`.
  */
 export function useOrder(orderId: string) {
@@ -57,6 +58,7 @@ export function useOrder(orderId: string) {
         const problem =
           err instanceof ApiError ? err : new ApiError(0, "UNEXPECTED", "Something went wrong.");
         setProblem(problem);
+        if (problem.status === 404) setOrder(null);
         const stop = problem.code === "UNEXPECTED" || (problem.status >= 400 && problem.status < 500);
         return stop ? null : ACTIVE_POLL_MS;
       }
