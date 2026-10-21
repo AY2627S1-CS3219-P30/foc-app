@@ -1,5 +1,5 @@
 import type { Role } from "@/lib/order-actions";
-import type { OrderStatus } from "@/lib/order-api";
+import type { Order, OrderStatus } from "@/lib/order-api";
 import { statusWording } from "@/lib/order-status";
 import styles from "./Badge.module.css";
 
@@ -20,8 +20,8 @@ const TONES: Record<OrderStatus, Tone> = {
   EXPIRED: "neutral",
 };
 
-export function Badge({ status, role = null }: { status: OrderStatus; role?: Role }) {
+export function Badge({ order, role = null }: { order: Pick<Order, "status" | "releaseReason">; role?: Role }) {
   return (
-    <span className={`${styles.badge} ${styles[TONES[status]]}`}>{statusWording(status, role).label}</span>
+    <span className={`${styles.badge} ${styles[TONES[order.status]]}`}>{statusWording(order, role).label}</span>
   );
 }

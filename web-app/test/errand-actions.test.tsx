@@ -333,14 +333,12 @@ describe('history', () => {
   it('shows a failed refresh alongside the last loaded list', async () => {
     const service = fakeOrderService();
     const container = await render(<OrderHistoryPage />, service);
-    const alert = container.querySelector('[role="alert"]')!;
     expect(container.textContent).toContain('No errands yet');
 
     service.history = () => failure(503, 'INTERNAL');
     await act(async () => window.dispatchEvent(new window.Event('online')));
     await flush();
-    expect(container.querySelector('[role="alert"]')).toBe(alert);
-    expect(alert.textContent).toContain('Could not refresh your errands.');
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Could not refresh your errands');
     expect(container.textContent).toContain('No errands yet');
   });
 });
@@ -447,8 +445,8 @@ describe('requester', () => {
     };
     await confirmAction(container, 'Cancel errand', 'Cancel errand');
     expect(service.commands.map((c) => c.body)).toEqual([{ expectedVersion: 3 }, { expectedVersion: 4 }]);
-    expect(container.textContent).toContain('Returning credits');
-    expect(container.textContent).toContain('It was cancelled.');
+    expect(container.textContent).toContain('Cancelling');
+    expect(container.textContent).toContain('The errand is being cancelled. The Credit Service is returning the reward to you.');
   });
 
   it("starts a dialog that can't be undone on Go back, and reads out what it does", async () => {

@@ -20,7 +20,9 @@ export type OrderItem = components["schemas"]["OrderItem"];
 export type CreateOrder = components["schemas"]["CreateOrder"];
 export type OpenOrder = components["schemas"]["OpenOrderSummary"];
 export type MyOrder = components["schemas"]["MyOrders"]["items"][number];
+export type Receipt = components["schemas"]["OrderReceipt"];
 export type Wallet = CreditComponents["schemas"]["Wallet"];
+export type LedgerItem = CreditComponents["schemas"]["LedgerItem"];
 
 const orderApi = createApiClient<paths>(ORDER_SERVICE_URL, {
   notConfiguredMessage:
@@ -53,6 +55,17 @@ export const getOrder = (token: string, orderId: string, signal?: AbortSignal) =
 
 export const getMyWallet = (token: string, signal?: AbortSignal) =>
   unwrap(creditApi.GET("/wallets/me", { headers: bearer(token), signal }));
+
+export const getReceipt = (token: string, orderId: string) =>
+  unwrap(
+    orderApi.GET("/orders/{orderId}/receipt", {
+      params: { path: { orderId } },
+      headers: bearer(token),
+    }),
+  );
+
+export const listMyLedger = (token: string, cursor?: string) =>
+  unwrap(creditApi.GET("/wallets/me/ledger", { params: { query: { cursor } }, headers: bearer(token) }));
 
 export const listOpenOrders = (token: string, signal?: AbortSignal) =>
   unwrap(orderApi.GET("/orders", { headers: bearer(token), signal }));

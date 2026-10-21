@@ -6,7 +6,7 @@ import type { Order, OrderItem } from "@/lib/order-api";
 import { Badge } from "./Badge";
 import styles from "./ErrandCard.module.css";
 
-type Errand = Pick<Order, "orderId" | "supplier" | "deliveryZone" | "reward" | "status"> & {
+type Errand = Pick<Order, "orderId" | "supplier" | "deliveryZone" | "reward" | "status" | "releaseReason"> & {
   items: OrderItem[];
 };
 
@@ -16,25 +16,27 @@ export function ErrandGrid({ children }: { children: ReactNode }) {
 }
 
 /**
- * One errand in a list. The card is a link to the errand; `action` sits beside it, not inside,
- * since a button nested in a link is invalid and unreachable for some assistive technology.
+ * One errand in a list. The card is a link to the errand; `details` and `action` sit after it, not
+ * inside, so the link's name stays short and no control is nested in it.
  */
 export function ErrandCard({
   errand,
   role,
   meta,
+  details,
   action,
 }: {
   errand: Errand;
   role?: Role;
   meta?: ReactNode;
+  details?: ReactNode;
   action?: ReactNode;
 }) {
   return (
     <div className={`card ${styles.card}`}>
       <Link href={`/request/${errand.orderId}`} className={styles.link}>
         <div className={styles.meta}>
-          <Badge status={errand.status} role={role} />
+          <Badge order={errand} role={role} />
           {meta && <span className={styles.when}>{meta}</span>}
         </div>
         <div className={styles.body}>
@@ -43,6 +45,7 @@ export function ErrandCard({
           <p className={styles.zone}>To {errand.deliveryZone}</p>
         </div>
       </Link>
+      {details && <div className={styles.details}>{details}</div>}
       <div className={styles.action}>
         <div className={styles.reward}>
           <strong>{errand.reward}</strong>

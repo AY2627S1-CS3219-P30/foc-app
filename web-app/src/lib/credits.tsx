@@ -1,14 +1,16 @@
 "use client";
 
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { ApiError } from "./api-client";
 import { useAuth } from "./auth";
-import { getMyWallet } from "./order-api";
+import { getMyWallet, type Wallet } from "./order-api";
 import { usePoll } from "./use-poll";
 
 const CREDITS_POLL_MS = 30_000;
 
 type Credits = {
-  /** The available balance, or `null` until it is first read. */
+  wallet: Wallet | null;
+  problem: ApiError | null;
   available: number | null;
   /** Reads it again now, after something that may have moved credits. */
   refresh: () => void;
@@ -17,9 +19,8 @@ type Credits = {
 const CreditsContext = createContext<Credits | null>(null);
 
 /**
- * The student's available balance, read once for every screen rather than by each one. Credits move
- * on the server (reservations, releases, payouts), so it is read again on a timer and on return. It
- * is advice, so a failed read keeps the last balance rather than hiding it.
+ * The student's wallet, shared across screens. Credits move on the server (reservations, releases,
+ * payouts), so it is read again on a timer and on return. A failed read keeps the last wallet.
  */
 export function CreditsProvider({
   children,
@@ -29,22 +30,30 @@ export function CreditsProvider({
   enabled?: boolean;
 }) {
   const { authed } = useAuth();
-  const [available, setAvailable] = useState<number | null>(null);
+  const [wallet, setWallet] = useState<Wallet | null>(null);
+  const [problem, setProblem] = useState<ApiError | null>(null);
   const read = useCallback(
     async (signal: AbortSignal) => {
       if (!enabled) return null;
       try {
-        const wallet = await authed((token) => getMyWallet(token, signal));
-        if (!signal.aborted) setAvailable(wallet.available);
-      } catch {
-        // Keep the last balance: one failed read says nothing about it.
+        const next = await authed((token) => getMyWallet(token, signal));
+        if (!signal.aborted) {
+          setWallet(next);
+          setProblem(null);
+        }
+      } catch (err) {
+        if (!signal.aborted)
+          setProblem(err instanceof ApiError ? err : new ApiError(0, "UNEXPECTED", "Something went wrong."));
       }
       return CREDITS_POLL_MS;
     },
     [authed, enabled],
   );
   const refresh = usePoll(read);
-  const value = useMemo(() => ({ available, refresh }), [available, refresh]);
+  const value = useMemo(
+    () => ({ wallet, problem, available: wallet?.available ?? null, refresh }),
+    [wallet, problem, refresh],
+  );
   return <CreditsContext.Provider value={value}>{children}</CreditsContext.Provider>;
 }
 

@@ -3,6 +3,8 @@ import {
   createOrder,
   getMyWallet,
   getOrder,
+  getReceipt,
+  listMyLedger,
   listMyOrders,
   listOpenOrders,
   sendCommand,
@@ -65,6 +67,19 @@ it("lists open errands and the caller's own", async () => {
     "http://localhost:3003/orders",
     "http://localhost:3003/orders/mine",
   ]);
+});
+
+it("reads a receipt from the Order Service and pages the ledger from the Credit Service", async () => {
+  await getReceipt("access-token", "order-1");
+  await listMyLedger("access-token");
+  await listMyLedger("access-token", "c2");
+  const sent = requests.splice(0);
+  expect(sent.map((r) => r.url)).toEqual([
+    "http://localhost:3003/orders/order-1/receipt",
+    "http://localhost:3004/wallets/me/ledger",
+    "http://localhost:3004/wallets/me/ledger?cursor=c2",
+  ]);
+  expect(sent.every((r) => r.headers.get("authorization") === "Bearer access-token")).toBe(true);
 });
 
 it("sends every command to its path with the version on screen", async () => {

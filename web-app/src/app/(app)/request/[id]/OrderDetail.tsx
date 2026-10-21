@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ActionDialog } from "@/components/ActionDialog";
 import { Badge } from "@/components/Badge";
-import { Button } from "@/components/Button";
+import { Button, buttonClass } from "@/components/Button";
 import { DesktopPanel } from "@/components/DesktopPanel";
 import { FormAlert } from "@/components/FormField";
 import { NavRow } from "@/components/NavRow";
@@ -35,15 +36,8 @@ function when(at: string, skew: number) {
   });
 }
 
-const RELEASE_NOTE: Record<NonNullable<Order["releaseReason"]>, string> = {
-  CANCELLED: "It was cancelled.",
-  EXPIRED: "No courier kept it before its deadline, so it expired.",
-};
-
-/** What this errand's details mean for this role now: its deadline, or why it is ending. */
+/** What this errand's details mean for this role now, such as its deadline. */
 function statusNote(order: Order, role: Role, passed: boolean, skew: number): string | null {
-  if (order.status === "RELEASE_PENDING_CREDIT" && order.releaseReason)
-    return RELEASE_NOTE[order.releaseReason];
   if (order.status === "OPEN" && order.acceptanceDeadlineAt)
     return `Open until ${when(order.acceptanceDeadlineAt, skew)}`;
   if (order.status === "DISPUTED" && role) return "There's nothing for you to do while they decide.";
@@ -96,7 +90,7 @@ function StatusBody({
   const { user } = useAuth();
   const status = useRef<HTMLDivElement>(null);
   const muted = { fontSize: vars.text.md, color: vars.color.textMuted };
-  const { explanation, slow } = statusWording(order.status, role);
+  const { explanation, slow } = statusWording(order, role);
   const note = statusNote(order, role, passed, skew);
   const { supplier } = order;
 
@@ -107,7 +101,7 @@ function StatusBody({
   return (
     <>
       <div>
-        <Badge status={order.status} role={role} />
+        <Badge order={order} role={role} />
       </div>
       <div
         ref={status}
@@ -158,6 +152,11 @@ function StatusBody({
             </Button>
           ))}
         </div>
+      )}
+      {role && order.status === "COMPLETED" && (
+        <Link href={`/request/${order.orderId}/receipt`} className={buttonClass({ variant: "outline", full: true })}>
+          View receipt
+        </Link>
       )}
       {role === "REQUESTER" && (order.status === "REJECTED" || order.status === "EXPIRED") && (
         <Button

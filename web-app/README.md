@@ -62,9 +62,11 @@ the top bar and sidebar; `@media (min-width: 1440px)` widens the gutters. Nothin
 
 ## End-to-end checks
 
-`e2e/errand-journey.e2e.ts` runs WEB-02 and WEB-05 with three students: two couriers race to accept
-one errand (the loser's card is replaced with the reason), the winner sees the delivery instructions
-and records pickup and delivery, and the requester confirms receipt until the errand is complete.
+`e2e/errand-journey.e2e.ts` runs WEB-02, WEB-03 and WEB-05 with three students: two couriers race to
+accept one errand (the loser's card is replaced with the reason), the winner sees the delivery
+instructions and records pickup and delivery, and the requester confirms receipt until the errand is
+complete. The requester then opens the receipt, follows it to the payment in their wallet and back,
+and the courier follows the same payment from their receipt to their wallet and back.
 
 `e2e/account-journey.e2e.ts` runs the account journey (USR-05) in Chromium at 360, 768 and 1440 px against
 the real User Service: sign-up with a failed submit, activation through the dev mailbox, sign-in with a
@@ -113,9 +115,8 @@ Admin create, edit, and delete use the same service with the signed-in access to
 The new-request composer picks a pickup point with `SupplierPicker` (search over active suppliers
 only) and passes its `supplierId` on; the details step resolves it with `useSupplier` and explains a
 deactivated or missing supplier (`SUPPLIER_UNAVAILABLE`) instead of hiding it (SUP-04).
-Creating an errand, the feed, order history, the errand page and the credit pill call the real
-Order and Credit Services (below). Only the wallet page still reads mock data (`src/lib/store.tsx`),
-until WEB-03.
+Creating an errand, the feed, order history, the errand page, its receipt, the wallet and the credit
+pill call the real Order and Credit Services (below). Nothing reads mock data.
 
 ### Request composer (WEB-01)
 
@@ -165,14 +166,28 @@ always takes a click the student can see.
 `e2e/reconnect-journey.e2e.ts` runs each case and checks through the API that it made one order and
 reserved its reward once.
 
-### After posting: couriers and requesters (WEB-02, WEB-05)
+### After posting: couriers and requesters (WEB-02, WEB-03, WEB-05)
 
 - **Feed** (`/feed`): `GET /orders`, which already leaves out the student's own errands. Each card
   shows the supplier, items, zone, reward and time left, counted from `timeRemainingSeconds` so a
   wrong device clock cannot skew it, and goes at zero. The list is read again every 30 seconds, on
   returning to the tab and on reconnecting.
-- **History** (`/order-history`): `GET /orders/mine`, split into active and past, each card saying
-  whether the student requested or is delivering it.
+- **History** (`/order-history`): `GET /orders/mine`, split into active and past. Each card shows the
+  status, what it means for the student's part, their role, when it was posted, and until when it is
+  open, when it last changed or when it ended. A complete errand links to its receipt. The list is read every 5 seconds while
+  any errand is in a `*_PENDING_CREDIT` state, every 30 seconds while any is otherwise active, and on
+  returning or reconnecting.
+- **Receipt** (`/request/{orderId}/receipt`): `GET /orders/{orderId}/receipt`, readable by the
+  requester and courier once the courier is paid. It shows the supplier, reward, both parties, every
+  timestamp (`deliveredAt` is null when an administrator decided the errand for the courier) and links
+  to the payment in the wallet. Before then it says there is no receipt yet.
+- **Wallet** (`/wallet`): `GET /wallets/me` for the available, reserved and total figures, and
+  `GET /wallets/me/ledger` paged by cursor with "Load more". Each entry shows its signed change to the
+  total (`totalChange`: 0 for a reservation or release, which only move credits between available and
+  reserved) and the total after it, and links to its errand, or to the receipt for a transfer.
+  `/wallet?tx={transactionId}` (the receipt's `creditTransactionId`) loads pages until that entry is
+  shown and focuses it, or says it isn't in the wallet. With nothing available, it explains that the
+  student can't post but can still earn as a courier. Read again on returning or reconnecting.
 - **Errand page** (`/request/{orderId}`): the role comes from the participant IDs, which only the
   requester and courier receive; anyone else is a prospective courier. Delivery instructions show
   only when the Order Service sends them, which it does once the errand is the courier's. The page
@@ -300,7 +315,10 @@ so send one and log it alongside the response to trace a failure across services
 
 Order statuses are the twelve in
 [`order-service/README.md`](../order-service/README.md), as generated into
-`Order["status"]`; `src/lib/order-status.ts` labels and explains each one.
+`Order["status"]`; `src/lib/order-status.ts` labels and explains each one, for the requester, the
+courier and anyone else. `statusWording(order, role)` takes the order because a
+`RELEASE_PENDING_CREDIT` errand reads as cancelling or expiring from its `releaseReason`; the badge,
+the cards and the errand page all use it, and none of the waiting states shows a spinner.
 
 ## Structure
 
@@ -308,7 +326,7 @@ Order statuses are the twelve in
 src/
 ├── app/           routes — (app) group for the authenticated shell
 ├── components/    shared UI and the form, button and state primitives
-├── lib/           auth, API clients (generated/ from contracts), store, navigation, mock data
+├── lib/           auth, API clients (generated/ from contracts), store, navigation
 └── styles/        design tokens (tokens.ts → generated tokens.css)
 ```
 
