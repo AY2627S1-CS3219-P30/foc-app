@@ -132,8 +132,8 @@ export class OrdersService {
     @Inject(SupplierClient) private readonly suppliers: SupplierClient,
   ) {}
 
-  async listOpen(): Promise<OpenOrderSummary[]> {
-    return this.orders.listOpen();
+  async listOpen(callerId: string): Promise<OpenOrderSummary[]> {
+    return this.orders.listOpen(callerId);
   }
 
   /** The caller's own errands, each in their private projection, with `truncated` past the cap. */

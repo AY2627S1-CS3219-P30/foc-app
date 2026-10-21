@@ -154,14 +154,14 @@ export class OrdersRepository {
     return result.rows[0] ? mapOrder(result.rows[0]) : undefined;
   }
 
-  async listOpen(now = new Date()): Promise<OpenOrderSummary[]> {
+  async listOpen(callerId: string, now = new Date()): Promise<OpenOrderSummary[]> {
     const result = await this.db.query<StoredOrder>(
       `SELECT ${ORDER_COLUMNS}
          FROM orders
-        WHERE status = 'OPEN' AND acceptance_deadline_at > $1
+        WHERE status = 'OPEN' AND acceptance_deadline_at > $1 AND requester_id <> $2
         ORDER BY acceptance_deadline_at, created_at, order_id
         LIMIT 100`,
-      [now.toISOString()],
+      [now.toISOString(), callerId],
     );
     return result.rows.map((stored) => {
       const order = mapOrder(stored);

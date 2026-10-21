@@ -41,6 +41,16 @@ describe('open-order discovery and atomic acceptance', () => {
     ).toEqual([]);
   });
 
+  it("leaves the caller's own errands out of discovery", async () => {
+    t = await createTestApp();
+    const requester = await http(t).get('/orders').set('Authorization', asRequester).expect(200);
+    expect(requester.body).toEqual([]);
+    const stranger = await http(t).get('/orders').set('Authorization', asStranger).expect(200);
+    expect(stranger.body.map((order: { orderId: string }) => order.orderId)).toEqual([
+      SEEDED_ORDER,
+    ]);
+  });
+
   it('gives private detail only to participants or the specifically referred administrator', async () => {
     t = await createTestApp();
     await t.db.query(
