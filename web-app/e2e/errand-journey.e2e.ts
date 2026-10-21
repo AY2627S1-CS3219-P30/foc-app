@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { ORDER, ORDER_URL, activeStudent, firstSupplier, visible } from "./request-helpers";
+import { ORDER, ORDER_URL, errandEmail, firstSupplier, signIn, visible } from "./request-helpers";
 
 /**
  * WEB-02 and WEB-05 end to end, once per breakpoint, against the real stack: two couriers race to
@@ -16,11 +16,9 @@ test("errand journey: a lost acceptance race, fulfilment, and the requester conf
   request,
 }, testInfo) => {
   const stamp = `${testInfo.project.name}-${Date.now()}`;
-  // One set of accounts for every project and retry in the run (see playwright.config.ts).
-  const email = (who: string) => `e2e-errand-${who}-${process.env.E2E_RUN}@u.nus.edu`;
-  const token = await activeStudent(page.request, email("requester"));
-  const winner = await student(browser, page, email("winner"), "E2E Winner");
-  const loser = await student(browser, page, email("loser"), "E2E Loser");
+  const token = await signIn(page.request, errandEmail("requester"));
+  const winner = await student(browser, page, errandEmail("winner"));
+  const loser = await student(browser, page, errandEmail("loser"));
   const supplier = await firstSupplier(request, token);
   const item = `Race ${stamp}`;
   const auth = { authorization: `Bearer ${token}` };
@@ -68,11 +66,12 @@ test("errand journey: a lost acceptance race, fulfilment, and the requester conf
     await act(winner, "I've picked it up", "Record pickup");
     await expect(badge(winner, "In transit")).toBeVisible();
     await act(winner, "Mark as delivered", "Record delivery");
-    await expect(badge(winner, "Delivered, confirm receipt")).toBeVisible();
+    await expect(badge(winner, "Delivered")).toBeVisible();
   });
 
   await test.step("the requester confirms receipt and the courier is paid", async () => {
     await page.goto(`/request/${orderId}`);
+    await expect(badge(page, "Delivered, confirm receipt")).toBeVisible();
     await act(page, "Confirm receipt", "Confirm receipt");
     await expect(badge(page, "Complete")).toBeVisible({ timeout: 30_000 });
   });
@@ -81,12 +80,12 @@ test("errand journey: a lost acceptance race, fulfilment, and the requester conf
 });
 
 /** Another signed-in student, in a browser context of their own at the same width. */
-async function student(browser: Browser, like: Page, email: string, displayName: string): Promise<Page> {
+async function student(browser: Browser, like: Page, email: string): Promise<Page> {
   const context = await browser.newContext({
     baseURL: test.info().project.use.baseURL,
     viewport: like.viewportSize(),
   });
-  await activeStudent(context.request, email, displayName);
+  await signIn(context.request, email);
   return context.newPage();
 }
 
