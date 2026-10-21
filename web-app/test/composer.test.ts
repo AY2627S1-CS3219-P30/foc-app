@@ -8,6 +8,8 @@ import {
   itemsError,
   loadDraft,
   projectedBalance,
+  removeItemErrors,
+  restartDraft,
   resumeDraft,
   saveDraft,
   submitFailure,
@@ -68,6 +70,13 @@ describe("idempotency key", () => {
     clearDraft(USER);
     expect(loadDraft(USER)).toBeNull();
     expect(resumeDraft(USER, SUPPLIER).idempotencyKey).not.toBe(first.idempotencyKey);
+  });
+
+  it("is new when the same details restart as a new request", () => {
+    const sent = draft({ sentBody: toCreateOrder(draft()), errors: { reward: "Too big" } });
+    const restarted = restartDraft(sent);
+    expect(restarted).toEqual({ ...draft(), idempotencyKey: expect.any(String) });
+    expect(restarted.idempotencyKey).not.toBe(sent.idempotencyKey);
   });
 });
 
@@ -170,6 +179,29 @@ describe("itemsError", () => {
   });
 });
 
+describe("removeItemErrors", () => {
+  it("drops the removed item's errors and moves later items' up, keeping the rest", () => {
+    expect(
+      removeItemErrors(
+        {
+          "items.0.name": "Name it",
+          "items.1.name": "Too long",
+          "items.1.note": "Too long",
+          "items.2.quantity": "Too many",
+          items: "Too many items",
+          supplierId: "Not active",
+        },
+        1,
+      ),
+    ).toEqual({
+      "items.0.name": "Name it",
+      "items.1.quantity": "Too many",
+      items: "Too many items",
+      supplierId: "Not active",
+    });
+  });
+});
+
 describe("submitFailure", () => {
   it("sends an inactive supplier back to the picker", () => {
     expect(submitFailure(new ApiError(422, "INVALID_SUPPLIER", "The supplier is not active."))).toEqual({
@@ -205,10 +237,10 @@ describe("submitFailure", () => {
     expect(submitFailure(bad)).toEqual({ kind: "fields", errors: { reward: "Too big" } });
   });
 
-  it("says when an earlier version was already sent with this key", () => {
+  it("offers to start over when another tab already sent this key", () => {
     expect(submitFailure(new ApiError(422, "IDEMPOTENCY_KEY_REUSED", "reused"))).toEqual({
-      kind: "error",
-      message: expect.stringContaining("already sent"),
+      kind: "reused",
+      message: "This request was already sent from another tab. Start over to post these details as a new request.",
     });
   });
 

@@ -15,6 +15,7 @@ import { Textarea } from "@/components/Textarea";
 import { useAuth } from "@/lib/auth";
 import {
   pickupLabel,
+  removeItemErrors,
   resumeDraft,
   saveDraft,
   validateDraft,
@@ -92,7 +93,10 @@ function DetailsForm({ userId, supplier }: { userId: string; supplier: Supplier 
               <Button
                 type="button"
                 variant="subtle"
-                onClick={() => update({ items: draft.items.filter((_, j) => j !== i) })}
+                onClick={() => {
+                  update({ items: draft.items.filter((_, j) => j !== i) });
+                  setErrors((e) => removeItemErrors(e, i));
+                }}
               >
                 Remove item {i + 1}
               </Button>

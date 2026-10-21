@@ -164,7 +164,9 @@ describe('review and submit', () => {
     expect(text).toContain('Kopi Corner — COM2, floor 1');
     expect(text).toContain('2 × Kopi O (less sugar)');
     expect(text).toContain('PGP House 7');
-    expect(text).toContain('Open for 60 minutes once your credits are reserved');
+    expect(text).toContain(
+      'Open for a set time once your credits are reserved; the request shows the deadline',
+    );
     expect(text).toContain('Reward3 credits');
     expect(text).toContain('Available balance10 credits');
     expect(text).toContain('Available after reserving the reward7 credits');
@@ -225,9 +227,61 @@ describe('review and submit', () => {
       { key: 'draft-key', body: expect.objectContaining({ reward: 3 }) },
     ]);
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("weren't applied");
-    expect(savedDraft()).toBeNull();
 
     await act(async () => button(container, 'View request').click());
+    expect(router.replace).toHaveBeenCalledWith(`/request/${ORDER_ID}`);
+  });
+
+  it('keeps the edits the earlier errand missed under a new key, to post on request', async () => {
+    saveDraft({ ...DRAFT, reward: 4, sentBody: toCreateOrder(DRAFT) });
+    const services = fakeServices();
+    const answers = [
+      failure(422, 'IDEMPOTENCY_KEY_REUSED', 'This Idempotency-Key was already used.'),
+      json(200, order()),
+      json(201, order({ orderId: 'new-order', reward: 4 })),
+    ];
+    services.answer = () => answers.shift()!;
+    const container = await render(<ReviewPage />, services);
+
+    await act(async () => button(container, 'Post request').click());
+    await flush();
+    const kept = savedDraft();
+    expect(kept).toMatchObject({ reward: 4, deliveryZone: 'PGP House 7' });
+    expect(kept.idempotencyKey).not.toBe('draft-key');
+    expect(kept.sentBody).toBeUndefined();
+
+    await act(async () => button(container, 'Post these changes as a new request').click());
+    await flush();
+    await act(async () => button(container, 'Post request').click());
+    await flush();
+    expect(services.posts[2]).toEqual({
+      key: kept.idempotencyKey,
+      body: expect.objectContaining({ reward: 4 }),
+    });
+    expect(router.replace).toHaveBeenCalledWith('/request/new-order');
+    expect(savedDraft()).toBeNull();
+  });
+
+  it('starts over under a new key when another tab already sent this key', async () => {
+    const services = fakeServices();
+    services.answer = () =>
+      failure(422, 'IDEMPOTENCY_KEY_REUSED', 'This Idempotency-Key was already used.');
+    const container = await render(<ReviewPage />, services);
+
+    await act(async () => button(container, 'Post request').click());
+    await flush();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('another tab');
+    expect(savedDraft()?.sentBody).toBeUndefined();
+
+    await act(async () => button(container, 'Start over').click());
+    const restarted = savedDraft();
+    expect(restarted).toMatchObject({ reward: 3, deliveryZone: 'PGP House 7' });
+    expect(restarted.idempotencyKey).not.toBe('draft-key');
+
+    services.answer = () => json(201, order());
+    await act(async () => button(container, 'Post request').click());
+    await flush();
+    expect(services.posts.at(-1)?.key).toBe(restarted.idempotencyKey);
     expect(router.replace).toHaveBeenCalledWith(`/request/${ORDER_ID}`);
   });
 
@@ -239,6 +293,39 @@ describe('review and submit', () => {
     await act(async () => button(container, 'Post request').click());
     await flush();
     expect(savedDraft()?.sentBody).toEqual(services.posts[0]!.body);
+  });
+
+  it('keeps a body whose response was lost when a later edit is refused', async () => {
+    saveDraft({ ...DRAFT, reward: 4, sentBody: toCreateOrder(DRAFT) });
+    const services = fakeServices();
+    services.answer = () => failure(403, 'ACCOUNT_SUSPENDED', 'Suspended.');
+    const container = await render(<ReviewPage />, services);
+
+    await act(async () => button(container, 'Post request').click());
+    await flush();
+    expect(savedDraft()?.sentBody).toEqual(toCreateOrder(DRAFT));
+  });
+
+  it('lets a sent body post again despite a shortfall, as it may hold the reward', async () => {
+    saveDraft({ ...DRAFT, sentBody: toCreateOrder(DRAFT) });
+    const container = await render(<ReviewPage />, fakeServices({ available: 0 }));
+    expect(container.textContent).toContain('Delivering errands as a courier is how you earn credits.');
+    expect(button(container, 'Post request').disabled).toBe(false);
+  });
+
+  it('still posts when the balance cannot be read', async () => {
+    const services = fakeServices();
+    const { fetch } = services;
+    services.fetch = async (request) =>
+      new URL(request.url).pathname === '/wallets/me'
+        ? failure(503, 'UNAVAILABLE', 'down')
+        : fetch(request);
+    const container = await render(<ReviewPage />, services);
+    expect(container.textContent).toContain('Could not load your balance');
+
+    await act(async () => button(container, 'Post request').click());
+    await flush();
+    expect(router.replace).toHaveBeenCalledWith(`/request/${ORDER_ID}`);
   });
 
   it('takes the service\'s field errors back to the details form', async () => {
@@ -256,6 +343,7 @@ describe('review and submit', () => {
     await act(async () => button(review, 'Post request').click());
     await flush();
     expect(review.textContent).toContain('Item 1: Name the item.');
+    expect(savedDraft()?.sentBody).toBeUndefined();
 
     const details = await render(<DetailsPage />, services);
     const name = details.querySelector('input')!;
@@ -299,6 +387,20 @@ describe('details', () => {
     expect(name.getAttribute('aria-invalid')).toBe('true');
     expect(window.document.activeElement).toBe(name as unknown as Element);
     expect(router.push).not.toHaveBeenCalled();
+  });
+
+  it('keeps each error on its own item when an earlier item is removed', async () => {
+    saveDraft({
+      ...DRAFT,
+      items: [DRAFT.items[0], { name: 'Kaya toast', quantity: 1, note: '' }],
+      errors: { 'items.1.name': 'Name the item.' },
+    });
+    const container = await render(<DetailsPage />, fakeServices());
+    await act(async () => button(container, 'Remove item 1').click());
+    const name = container.querySelector('input')!;
+    expect(name.value).toBe('Kaya toast');
+    expect(name.getAttribute('aria-invalid')).toBe('true');
+    expect(container.textContent).toContain('Name the item.');
   });
 });
 
@@ -359,5 +461,24 @@ describe('order status', () => {
     expect(container.textContent).toContain(
       'You had 1 available for a 3-credit reward. Post it again with a reward of 1 or less',
     );
+  });
+
+  it('stops on an error that is not an API failure instead of loading forever', async () => {
+    const clock = fakeClock();
+    const authed = auth.authed;
+    const read = mock(async (call: (token: string) => Promise<unknown>) => {
+      await call('test-token');
+      throw new TypeError('boom');
+    });
+    auth.authed = read;
+    try {
+      const container = await render(<OrderDetail orderId={ORDER_ID} />, fakeServices());
+      expect(container.textContent).toContain('Could not load this request');
+      expect(container.textContent).toContain('Something went wrong.');
+      await clock.advance(15000);
+      expect(read).toHaveBeenCalledTimes(1);
+    } finally {
+      auth.authed = authed;
+    }
   });
 });

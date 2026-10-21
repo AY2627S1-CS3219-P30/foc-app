@@ -22,8 +22,8 @@ const POLL_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000];
 const STILL_WAITING_MS = 30_000;
 
 /**
- * Reads the order, and keeps reading while it waits for credits and the tab is visible. A 4xx stops;
- * anything else retries.
+ * Reads the order, and keeps reading while it waits for credits and the tab is visible. A 4xx or an
+ * error that is not an {@link ApiError} (a bug, not the network) stops; anything else retries.
  */
 function useOrder(orderId: string) {
   const { authed } = useAuth();
@@ -50,10 +50,10 @@ function useOrder(orderId: string) {
         if (next.status !== "PENDING_CREDIT") return;
       } catch (err) {
         if (!live) return;
-        if (err instanceof ApiError) {
-          setProblem(err);
-          if (err.status >= 400 && err.status < 500) return;
-        }
+        const problem =
+          err instanceof ApiError ? err : new ApiError(0, "UNEXPECTED", "Something went wrong.");
+        setProblem(problem);
+        if (problem.code === "UNEXPECTED" || (problem.status >= 400 && problem.status < 500)) return;
       }
       setStillWaiting(Date.now() - started >= STILL_WAITING_MS);
       timer = setTimeout(read, POLL_DELAYS_MS[Math.min(attempt++, POLL_DELAYS_MS.length - 1)]);

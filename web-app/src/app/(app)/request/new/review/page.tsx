@@ -9,7 +9,6 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { SupplierUnavailable } from "@/components/SupplierPicker";
 import { useAuth } from "@/lib/auth";
 import {
-  OPEN_PERIOD_MINUTES,
   clearDraft,
   creditShortfall,
   itemsError,
@@ -18,6 +17,7 @@ import {
   loadDraft,
   pickupLabel,
   projectedBalance,
+  restartDraft,
   saveDraft,
   submitFailure,
   toCreateOrder,
@@ -35,7 +35,7 @@ const credits = (n: number) => `${n} ${n === 1 ? "credit" : "credits"}`;
 function Summary({
   userId,
   supplier,
-  draft,
+  draft: stored,
 }: {
   userId: string;
   supplier: Supplier;
@@ -43,6 +43,7 @@ function Summary({
 }) {
   const router = useRouter();
   const { authed } = useAuth();
+  const [draft, setDraft] = useState(stored);
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [walletProblem, setWalletProblem] = useState("");
   const [walletRevision, setWalletRevision] = useState(0);
@@ -65,12 +66,17 @@ function Summary({
     };
   }, [authed, walletRevision]);
 
+  const keep = (next: Draft) => {
+    saveDraft(userId, next);
+    setDraft(next);
+  };
+
   async function submit() {
     if (inflight.current) return;
     inflight.current = true;
     setSubmitting(true);
     setFailure(null);
-    saveDraft(userId, { ...draft, sentBody });
+    keep({ ...draft, sentBody });
     const post = (body: CreateOrder) =>
       authed((token) => createOrder(token, body, draft.idempotencyKey));
     try {
@@ -82,16 +88,26 @@ function Summary({
           return [await post(sentBody), true] as const;
         },
       );
-      clearDraft(userId);
-      if (replayed) setAlreadyPosted(created.orderId);
-      else router.replace(`/request/${created.orderId}`);
+      if (!replayed) {
+        clearDraft(userId);
+        router.replace(`/request/${created.orderId}`);
+        return;
+      }
+      // These edits weren't applied, so they move to a new key to post as their own errand.
+      keep(restartDraft(draft));
+      setAlreadyPosted(created.orderId);
     } catch (err) {
       const next = submitFailure(err);
-      if (next.kind === "fields") saveDraft(userId, { ...draft, sentBody, errors: next.errors });
+      // A refusal means this body wasn't stored, though one sent before it still may be.
+      keep({
+        ...draft,
+        sentBody: next.kind === "retry" ? sentBody : draft.sentBody,
+        ...(next.kind === "fields" && { errors: next.errors }),
+      });
       setFailure(next);
-      inflight.current = false;
-      setSubmitting(false);
     }
+    inflight.current = false;
+    setSubmitting(false);
   }
 
   const retryOnReconnect = useEffectEvent(() => void submit());
@@ -111,6 +127,15 @@ function Summary({
           This request was already posted before your latest changes, so they weren&apos;t applied.
         </p>
         <div className={styles.actions}>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setAlreadyPosted(null);
+              setWalletRevision((r) => r + 1);
+            }}
+          >
+            Post these changes as a new request
+          </Button>
           <Button onClick={() => router.replace(`/request/${alreadyPosted}`)}>View request</Button>
         </div>
       </div>
@@ -132,7 +157,7 @@ function Summary({
       {fieldError(errors.deliveryInstructions)}
       <NavRow
         label="Open period"
-        value={`Open for ${OPEN_PERIOD_MINUTES} minutes once your credits are reserved`}
+        value="Open for a set time once your credits are reserved; the request shows the deadline"
       />
       <NavRow label="Reward" value={credits(order.reward)} />
       {fieldError(errors.reward)}
@@ -172,9 +197,21 @@ function Summary({
         <Button variant="outline" disabled={submitting} onClick={() => router.push(detailsHref)}>
           Edit details
         </Button>
-        <Button disabled={!wallet || !!shortfall || submitting} onClick={submit}>
-          {submitting ? "Posting…" : failure?.kind === "retry" ? "Try again" : "Post request"}
-        </Button>
+        {failure?.kind === "reused" ? (
+          <Button
+            onClick={() => {
+              keep(restartDraft(draft));
+              setFailure(null);
+            }}
+          >
+            Start over
+          </Button>
+        ) : (
+          // A sent body may already hold the reward, so a lower balance can't block finding it.
+          <Button disabled={submitting || (!!shortfall && !draft.sentBody)} onClick={submit}>
+            {submitting ? "Posting…" : failure?.kind === "retry" ? "Try again" : "Post request"}
+          </Button>
+        )}
       </div>
     </div>
   );

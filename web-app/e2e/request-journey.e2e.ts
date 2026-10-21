@@ -44,7 +44,9 @@ test("request journey: post, wait for credits, open; then an insufficient-credit
 
   await test.step("post: PENDING_CREDIT, then open, with exactly the reward reserved", async () => {
     await compose(page, { supplier: supplier.name, item: "Kopi O", reward: 5 });
-    await expect(page.getByText("Open for 60 minutes once your credits are reserved")).toBeVisible();
+    await expect(
+      page.getByText("Open for a set time once your credits are reserved; the request shows the deadline"),
+    ).toBeVisible();
     await expect(row(page, "Available balance")).toContainText("10 credits");
     await expect(row(page, "Available after reserving the reward")).toContainText("5 credits");
 

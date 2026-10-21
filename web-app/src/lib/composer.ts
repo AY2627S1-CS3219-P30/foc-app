@@ -2,9 +2,6 @@ import { ApiError, newCorrelationId } from "./api-client";
 import type { CreateOrder, Order, OrderItem } from "./order-api";
 import type { Supplier } from "./supplier-api";
 
-/** How long an errand stays open once its credits are reserved (the Order Service's default). */
-export const OPEN_PERIOD_MINUTES = 60;
-
 export const REWARD_MIN = 1;
 export const REWARD_MAX = 5;
 
@@ -84,6 +81,14 @@ export function draftFrom(order: Order): Draft {
   };
 }
 
+/** The same details under a new key, so posting them makes a new errand. */
+export const restartDraft = (draft: Draft): Draft => ({
+  ...draft,
+  idempotencyKey: newCorrelationId(),
+  sentBody: undefined,
+  errors: undefined,
+});
+
 export const pickupLabel = (supplier: Supplier) =>
   `${supplier.name} — ${supplier.building}, floor ${supplier.floor}`;
 
@@ -145,10 +150,23 @@ export function itemsError(errors: DraftErrors): string | undefined {
   return field && `Item ${Number(field.split(".")[1]) + 1}: ${message}`;
 }
 
+/** The errors once item `index` is removed: its own go, and later items' move up with their items. */
+export function removeItemErrors(errors: DraftErrors, index: number): DraftErrors {
+  const kept: Record<string, string | undefined> = {};
+  for (const [field, message] of Object.entries(errors)) {
+    const [, n, key] = /^items\.(\d+)\.(\w+)$/.exec(field) ?? [];
+    const item = Number(n);
+    if (!n || item < index) kept[field] = message;
+    else if (item > index) kept[`items.${item - 1}.${key}`] = message;
+  }
+  return kept;
+}
+
 export type SubmitFailure =
   | { kind: "supplier"; message: string }
   | { kind: "fields"; errors: DraftErrors }
   | { kind: "retry"; message: string }
+  | { kind: "reused"; message: string }
   | { kind: "error"; message: string };
 
 const RETRY = "We couldn't send your request. Try again — it won't be posted twice.";
@@ -164,9 +182,9 @@ export function submitFailure(err: unknown): SubmitFailure {
   if (err.code === "NOT_CONFIGURED") return { kind: "error", message: err.message };
   if (err.code === "IDEMPOTENCY_KEY_REUSED")
     return {
-      kind: "error",
+      kind: "reused",
       message:
-        "An earlier version of this request was already sent. Check your order history before posting it again.",
+        "This request was already sent from another tab. Start over to post these details as a new request.",
     };
   if (err.status === 0 || err.status >= 500) return { kind: "retry", message: RETRY };
   if ((err.status === 400 || err.status === 422) && err.details.length) {
