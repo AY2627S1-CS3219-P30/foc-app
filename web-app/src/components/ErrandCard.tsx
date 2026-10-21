@@ -1,14 +1,13 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import type { Order } from "@/lib/order-api";
+import { itemsLabel } from "@/lib/composer";
+import type { Order, OrderItem } from "@/lib/order-api";
 import { Badge } from "./Badge";
 import styles from "./ErrandCard.module.css";
 
 type Errand = Pick<Order, "orderId" | "supplier" | "deliveryZone" | "reward" | "status"> & {
-  items: { name: string; quantity: number }[];
+  items: OrderItem[];
 };
-
-const summary = (items: Errand["items"]) => items.map((i) => `${i.quantity} × ${i.name}`).join(", ");
 
 /**
  * One errand in a list. The card is a link to the errand; `action` sits beside it, not inside,
@@ -32,7 +31,7 @@ export function ErrandCard({
         </div>
         <div className={styles.body}>
           <p className={styles.title}>{errand.supplier.name}</p>
-          <p className={styles.items}>{summary(errand.items)}</p>
+          <p className={styles.items}>{itemsLabel(errand.items)}</p>
           <p className={styles.zone}>To {errand.deliveryZone}</p>
         </div>
       </Link>

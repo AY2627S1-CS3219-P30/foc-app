@@ -51,7 +51,7 @@ function statusNote(order: Order, role: Role, passed: boolean): string | null {
       : `If it hasn't arrived by ${when(order.nonDeliveryReportAt)}, you can report it to an administrator.`;
   if (order.status === "DELIVERED" && order.autoConfirmAt)
     return passed
-      ? "It now counts as received, and the courier is being paid."
+      ? "It's too late to report it now. If you don't confirm it, it's confirmed automatically."
       : `If you don't answer by ${when(order.autoConfirmAt)}, it's confirmed automatically.`;
   return null;
 }

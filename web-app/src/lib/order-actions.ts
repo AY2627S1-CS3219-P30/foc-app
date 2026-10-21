@@ -58,7 +58,7 @@ export const ORDER_ACTIONS: Record<Command, OrderAction> = {
     variant: "outline",
     confirm: {
       title: "Withdraw from this errand?",
-      body: "It goes back to the feed for another courier, and you won't be paid for it.",
+      body: "It goes back to the feed for another courier, or expires if its deadline has passed. You won't be paid for it.",
       label: "Withdraw",
     },
   },

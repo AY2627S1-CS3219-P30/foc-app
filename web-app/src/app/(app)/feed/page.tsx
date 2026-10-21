@@ -88,7 +88,10 @@ export default function FeedPage() {
       errand={{ ...l, items: l.itemSummary }}
       meta={timeLeft(l.expiresAt - now)}
       action={
-        <Button variant="accent" onClick={() => accept.ask(l, ORDER_ACTIONS.accept)}>
+        <Button variant="accent" onClick={() => {
+            setNotice(null);
+            accept.ask(l, ORDER_ACTIONS.accept);
+          }}>
           Accept
         </Button>
       }
