@@ -212,8 +212,14 @@ describe('requester outcome actions and auto-confirmation (ORD-10)', () => {
     expect(await completionRequests(t)).toEqual([
       { orderId: SEEDED_ORDER, requesterId: REQUESTER, courierId: COURIER, amount: SEEDED_REWARD },
     ]);
+    // Recorded as the timer; the requester reads it as a system outcome.
+    expect((await t.orders.findHistory(SEEDED_ORDER)).at(-1)).toMatchObject({
+      action: 'AUTO_CONFIRM',
+      actorType: 'SYSTEM',
+      newStatus: 'COMPLETION_PENDING_CREDIT',
+    });
     expect((await lastHistory(t)).slice(-1)).toEqual([
-      { action: 'AUTO_CONFIRM', actorType: 'SYSTEM', newStatus: 'COMPLETION_PENDING_CREDIT' },
+      { action: 'SYSTEM_OUTCOME', actorType: 'SYSTEM', newStatus: 'COMPLETION_PENDING_CREDIT' },
     ]);
   });
 

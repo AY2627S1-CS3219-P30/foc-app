@@ -20,12 +20,19 @@ const SUSPENSION_REASONS = new Set(
 type HistoryEntry = Awaited<ReturnType<OrdersRepository['findHistory']>>[number];
 
 /**
- * A history entry a suspension caused, as anyone but the referred administrator sees it: a
- * system outcome, without the action, actor or reason that would say someone was suspended.
+ * A history entry as anyone but the referred administrator sees it. Every system move, whether a
+ * timer, a referral or a suspension made it, shows as the same system outcome, without the action,
+ * actor or reason that would say which; so does the Credit Service's cancellation for a suspended
+ * requester. An administrator's decision is never masked, whatever its reason says. The statuses
+ * stay true, so a move only a suspension makes can still be worked out.
  */
-function withoutSuspension(entry: HistoryEntry): HistoryEntry {
-  if (entry.reason === null || !SUSPENSION_REASONS.has(entry.reason)) return entry;
-  return { ...entry, action: 'SYSTEM_OUTCOME', actorId: null, reason: null };
+function asParticipantSees(entry: HistoryEntry): HistoryEntry {
+  const creditForSuspension =
+    entry.actorType === 'CREDIT_SERVICE' &&
+    entry.reason !== null &&
+    SUSPENSION_REASONS.has(entry.reason);
+  if (entry.actorType !== 'SYSTEM' && !creditForSuspension) return entry;
+  return { ...entry, action: 'SYSTEM_OUTCOME', actorType: 'SYSTEM', actorId: null, reason: null };
 }
 const notFound = () => new ApiException(404, 'NOT_FOUND', 'Order not found.');
 
@@ -357,7 +364,7 @@ export class OrdersService {
     }
     const entries = await this.orders.findHistory(orderId);
     const isReferredAdmin = caller.isAdmin && caller.userId === order.referredAdminId;
-    return { orderId, entries: isReferredAdmin ? entries : entries.map(withoutSuspension) };
+    return { orderId, entries: isReferredAdmin ? entries : entries.map(asParticipantSees) };
   }
 
   async reconciliationAttempts() {
