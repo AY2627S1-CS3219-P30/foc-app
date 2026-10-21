@@ -709,6 +709,7 @@ components:
         - acceptanceDeadlineAt
         - createdAt
         - updatedAt
+        - serverTime
       properties:
         orderId: { type: string, format: uuid }
         supplier: { $ref: '#/components/schemas/SupplierSnapshot' }
@@ -737,6 +738,12 @@ components:
         acceptanceDeadlineAt: { type: [string, 'null'], format: date-time }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+        serverTime:
+          type: string
+          format: date-time
+          description: |
+            The server's clock when it answered. A client measures the deadlines against it, not
+            against its own clock, which may be wrong.
         requesterId: { type: string }
         courierId: { type: string }
         deliveryInstructions: { type: string }

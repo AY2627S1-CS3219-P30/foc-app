@@ -19,14 +19,21 @@ const awaitingCredit = (status: Order["status"]) => status.endsWith("PENDING_CRE
 /**
  * Reads the order, and keeps reading until it is final: quickly while the Credit Service has it,
  * slower otherwise. A 4xx, or an error that is not an {@link ApiError} (a bug, not the network), stops.
+ * `skew` is how far this device's clock runs ahead of the server's, from the order's `serverTime`.
  */
 export function useOrder(orderId: string) {
   const { authed } = useAuth();
   const [order, setOrder] = useState<Order | null>(null);
+  const [skew, setSkew] = useState(0);
   const [problem, setProblem] = useState<ApiError | null>(null);
   const [stillWaiting, setStillWaiting] = useState(false);
   const since = useRef<number | null>(null);
   const creditReads = useRef(0);
+
+  const show = useCallback((next: Order) => {
+    setOrder(next);
+    setSkew(Date.now() - Date.parse(next.serverTime));
+  }, []);
 
   const read = useCallback(
     async (signal: AbortSignal) => {
@@ -34,7 +41,7 @@ export function useOrder(orderId: string) {
       try {
         const next = await authed((token) => getOrder(token, orderId));
         if (signal.aborted) return null;
-        setOrder(next);
+        show(next);
         setProblem(null);
         setStillWaiting(
           next.status === "PENDING_CREDIT" && Date.now() - since.current >= STILL_WAITING_MS,
@@ -54,18 +61,18 @@ export function useOrder(orderId: string) {
         return stop ? null : ACTIVE_POLL_MS;
       }
     },
-    [authed, orderId],
+    [authed, orderId, show],
   );
   const readNow = usePoll(read);
 
   /** Shows `latest` (a command's answer) at once, then reads again. */
   const refresh = useCallback(
     (latest?: Order) => {
-      if (latest) setOrder(latest);
+      if (latest) show(latest);
       readNow();
     },
-    [readNow],
+    [readNow, show],
   );
 
-  return { order, problem, stillWaiting, refresh };
+  return { order, skew, problem, stillWaiting, refresh };
 }

@@ -26,6 +26,7 @@ const order = (status: OrderStatus, changes: Partial<Order> = {}): Order => ({
   acceptanceDeadlineAt: LATER,
   createdAt: EARLIER,
   updatedAt: EARLIER,
+  serverTime: new Date(NOW).toISOString(),
   ...(status === "PICKED_UP" ? { nonDeliveryReportAt: LATER } : {}),
   ...(status === "DELIVERED" ? { autoConfirmAt: LATER } : {}),
   ...changes,

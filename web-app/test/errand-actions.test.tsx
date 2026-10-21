@@ -53,6 +53,7 @@ const order = (changes: Partial<Order> = {}): Order => ({
   acceptanceDeadlineAt: new Date(START + 3_600_000).toISOString(),
   createdAt: new Date(START).toISOString(),
   updatedAt: new Date(START).toISOString(),
+  serverTime: new Date(START).toISOString(),
   requesterId: 'me',
   deliveryInstructions: 'Lobby counter',
   ...changes,
@@ -78,13 +79,16 @@ const failure = (status: number, code: string) =>
 
 type Command = { path: string; body: unknown };
 
+/** `serverAhead` is how far the server's clock runs ahead of this device's. */
 function fakeOrderService() {
   const service = {
     open: [] as OpenOrder[],
     reads: [] as Order[],
     current: order(),
     commands: [] as Command[],
-    answer: (): Response => json(200, { ...service.current, version: 4 }),
+    serverAhead: 0,
+    stamp: (o: Order): Order => ({ ...o, serverTime: new Date(Date.now() + service.serverAhead).toISOString() }),
+    answer: (): Response => json(200, service.stamp({ ...service.current, version: 4 })),
     async fetch(request: Request): Promise<Response> {
       const { pathname } = new URL(request.url);
       if (request.method === 'POST') {
@@ -100,7 +104,7 @@ function fakeOrderService() {
             .filter((o) => o.timeRemainingSeconds > 0),
         );
       if (pathname === '/wallets/me') return json(200, { available: 5 });
-      if (pathname.startsWith('/orders/')) return json(200, service.reads.shift() ?? service.current);
+      if (pathname.startsWith('/orders/')) return json(200, service.stamp(service.reads.shift() ?? service.current));
       return failure(404, 'NOT_FOUND');
     },
   };
@@ -313,6 +317,24 @@ describe('requester', () => {
     expect(buttons(container, 'Report not delivered')).toEqual([]);
 
     await clock.advance(2 * 3_600_000 - 1000);
+    expect(buttons(container, 'Report not delivered')).toEqual([]);
+
+    await clock.advance(1000);
+    expect(buttons(container, 'Report not delivered').length).toBeGreaterThan(0);
+  });
+
+  it("measures the deadline on the server's clock when this device's is behind", async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    service.serverAhead = 10 * 60_000;
+    service.current = order({
+      status: 'PICKED_UP',
+      courierId: 'them',
+      nonDeliveryReportAt: new Date(START + service.serverAhead + 3_600_000).toISOString(),
+    });
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+
+    await clock.advance(3_600_000 - 1000);
     expect(buttons(container, 'Report not delivered')).toEqual([]);
 
     await clock.advance(1000);
