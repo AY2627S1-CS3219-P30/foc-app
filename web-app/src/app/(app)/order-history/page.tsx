@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { AppBar } from "@/components/AppBar";
 import { DesktopShell } from "@/components/DesktopShell";
-import { ErrandCard } from "@/components/ErrandCard";
+import { ErrandCard, ErrandGrid } from "@/components/ErrandCard";
 import { Screen, ScreenContent } from "@/components/Screen";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { ApiError } from "@/lib/api-client";
@@ -27,17 +27,11 @@ function Section({ title, orders }: { title: string; orders: MyOrder[] }) {
   return (
     <section style={{ display: "flex", flexDirection: "column", gap: vars.space[3] }}>
       <h2 style={{ fontSize: vars.text.lg, fontWeight: vars.weight.semibold }}>{title}</h2>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(min(320px, 100%), 1fr))",
-          gap: vars.space[4],
-        }}
-      >
+      <ErrandGrid>
         {orders.map((o) => (
           <ErrandCard key={o.orderId} errand={o} meta={ROLE_LABEL[o.myRole]} />
         ))}
-      </div>
+      </ErrandGrid>
     </section>
   );
 }

@@ -9,6 +9,11 @@ type Errand = Pick<Order, "orderId" | "supplier" | "deliveryZone" | "reward" | "
   items: OrderItem[];
 };
 
+/** Lays errand cards out in as many columns as fit. */
+export function ErrandGrid({ children }: { children: ReactNode }) {
+  return <div className={styles.grid}>{children}</div>;
+}
+
 /**
  * One errand in a list. The card is a link to the errand; `action` sits beside it, not inside,
  * since a button nested in a link is invalid and unreachable for some assistive technology.

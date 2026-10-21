@@ -6,7 +6,7 @@ import { ActionDialog } from "@/components/ActionDialog";
 import { AppBar } from "@/components/AppBar";
 import { Button } from "@/components/Button";
 import { DesktopShell } from "@/components/DesktopShell";
-import { ErrandCard } from "@/components/ErrandCard";
+import { ErrandCard, ErrandGrid } from "@/components/ErrandCard";
 import { FormAlert } from "@/components/FormField";
 import { Screen, ScreenContent } from "@/components/Screen";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
@@ -18,7 +18,6 @@ import { ORDER_ACTIONS } from "@/lib/order-actions";
 import { useNowAfter } from "@/lib/use-now";
 import { useOrderAction } from "@/lib/use-order-action";
 import { usePoll } from "@/lib/use-poll";
-import { vars } from "@/styles/tokens";
 
 const FEED_POLL_MS = 30_000;
 const MINUTE_MS = 60_000;
@@ -110,15 +109,7 @@ export default function FeedPage() {
         {cards.length === 0 ? (
           <EmptyState title="No open errands right now">Check back soon.</EmptyState>
         ) : (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(min(320px, 100%), 1fr))",
-              gap: vars.space[4],
-            }}
-          >
-            {cards}
-          </div>
+          <ErrandGrid>{cards}</ErrandGrid>
         )}
       </>
     );
