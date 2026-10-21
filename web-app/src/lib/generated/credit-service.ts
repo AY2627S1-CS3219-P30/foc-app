@@ -285,6 +285,8 @@ export interface components {
             resultingReserved: number;
             /** @description Always resultingAvailable + resultingReserved. */
             resultingTotal: number;
+            /** @description The signed change to this wallet's total: positive when it went up, negative when it went down, 0 when credit only moved between available and reserved. */
+            totalChange: number;
         };
         LedgerPage: {
             items: components["schemas"]["LedgerItem"][];

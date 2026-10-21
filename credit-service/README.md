@@ -58,6 +58,11 @@ records only who redrove it and why. The admin trace and alert routes show no ba
 not recorded wallet reads. The complete wire contract is
 [`contracts/credit-service.openapi.yaml`](../contracts/credit-service.openapi.yaml).
 
+**Ledger rows.** `amount` is always positive. `totalChange` is the signed change the transaction
+made to this wallet's total, summed from its own double-entry lines: `ISSUE` is `+amount`, `RESERVE`
+and `RELEASE` are `0`, and `TRANSFER` is `-amount` for the requester and `+amount` for the courier.
+It equals the difference in `resultingTotal` from the previous row, across cursor pages too.
+
 **Watching the admins (ADM-04).** Every admin wallet or ledger read is recorded in
 `admin_wallet_reads`. When one administrator has read `ADMIN_WALLET_READS_ALERT_PER_HOUR` (50 by
 default) distinct wallets within an hour, the service raises `BULK_WALLET_READS` once for that hour
