@@ -173,9 +173,9 @@ The transactional inbox and business-state check make 100 duplicate replies one 
 below); creation never rejects it merely because the timer passes. `created_at`, status, and the existing
 `orders_status_created_idx` provide the durable discovery boundary that recovery will consume.
 
-`GET /orders` returns at most 100 unexpired `OPEN` errands ordered by acceptance deadline. Its
-structured item summary omits item notes, exact delivery instructions, participant IDs, and every
-pending or rejected order. `GET /orders/:id` gives that same public projection to an unrelated
+`GET /orders` returns at most 100 unexpired `OPEN` errands ordered by acceptance deadline, leaving
+out the caller's own (they are in `GET /orders/mine`). Its structured item summary omits item notes,
+exact delivery instructions, participant IDs, and every pending or rejected order. `GET /orders/:id` gives that same public projection to an unrelated
 student. A caller can explicitly request `?view=private`; only the requester, assigned courier, or
 the administrator named in `referred_admin_id` receives it, and every other caller receives `403`.
 The scheduler sets and clears `referred_admin_id` for disputes (see *Administrator referral and
