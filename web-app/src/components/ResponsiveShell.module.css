@@ -34,6 +34,15 @@
   gap: var(--space-3);
 }
 
+/* On a phone the app bar holds the title and the back arrow. */
+.header {
+  display: contents;
+}
+
+.back {
+  display: none;
+}
+
 /* The app bar already names the screen on a phone, so the heading is for assistive technology only. */
 .heading {
   position: absolute;
@@ -72,6 +81,27 @@
     max-width: var(--size-content);
   }
 
+  .header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+  }
+
+  .back {
+    width: var(--size-control);
+    height: var(--size-control);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-xl);
+  }
+
+  .back:hover {
+    background: var(--color-surface);
+  }
+
   .heading {
     position: static;
     width: auto;
@@ -79,7 +109,6 @@
     overflow: visible;
     clip-path: none;
     white-space: normal;
-    margin-bottom: var(--space-4);
     font-size: var(--text-2xl);
     font-weight: var(--weight-bold);
   }
