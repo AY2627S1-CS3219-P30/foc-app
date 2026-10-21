@@ -34,7 +34,7 @@ const post = (t: TestApp, path: string, auth: string, expectedVersion: number) =
     .set('Authorization', auth)
     .send({ expectedVersion });
 const scheduler = (t: TestApp, pickupTimeoutMs = 30 * MINUTE) =>
-  new LifecycleScheduler(t.orders, {
+  new LifecycleScheduler(t.orders, t.directory, {
     pickupTimeoutMs,
     creditWaitTimeoutMs: 5 * MINUTE,
     intervalMs: 10_000,
@@ -207,8 +207,13 @@ describe('lifecycle scheduler (OS-FR6.1.2, OS-FR6.1.3, OS-NFR3.1)', () => {
     expect(await scheduler(t).sweep()).toEqual({
       expired: 0,
       pickupTimedOut: 0,
+      autoConfirmed: 0,
+      undeliveredReferred: 0,
       skipped: 0,
       creditWaitAlerts: 0,
+      adminsAssigned: 0,
+      adminsUnassigned: 0,
+      referralAlerts: 0,
     });
     expect(await footprint(t)).toEqual(before);
   });

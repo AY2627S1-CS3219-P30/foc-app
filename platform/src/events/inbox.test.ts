@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
 import { Logger } from '@nestjs/common';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Db, Queryable, Row } from '../db.js';
 import { EVENTS, type UserActivatedPayload } from './catalogue.js';
 import { createEnvelope, type Envelope } from './envelope.js';
@@ -155,6 +155,43 @@ describe('withInbox', () => {
 
     expect(attempts).toBe(2);
     expect(await wallets(db)).toHaveLength(1);
+    await db.close();
+  });
+});
+
+describe('telling the consumer about a duplicate (EVT-03)', () => {
+  it('tells the consumer when it skipped a duplicate', async () => {
+    const db = await consumerDb();
+    const event = activation();
+    const onDuplicate = vi.fn();
+    const handler = withInbox<UserActivatedPayload>(db, 'wallets', (e, tx) =>
+      issueWallet(tx, e.payload.userId),
+    );
+
+    await handler(event, { ...context, onDuplicate });
+    expect(onDuplicate).not.toHaveBeenCalled();
+    await handler(event, { ...context, onDuplicate });
+    await handler(event, { ...context, onDuplicate });
+
+    expect(onDuplicate).toHaveBeenCalledTimes(2);
+    expect(await wallets(db)).toHaveLength(1);
+    await db.close();
+  });
+
+  it('tells the consumer when a replayable command was a redelivery, and still reruns it', async () => {
+    const db = await consumerDb();
+    const event = activation();
+    const onDuplicate = vi.fn();
+    let runs = 0;
+    const handler = withReplayableInbox<UserActivatedPayload>(db, 'wallets', () => {
+      runs += 1;
+    });
+
+    await handler(event, { ...context, onDuplicate });
+    await handler(event, { ...context, onDuplicate });
+
+    expect(runs).toBe(2);
+    expect(onDuplicate).toHaveBeenCalledTimes(1);
     await db.close();
   });
 });

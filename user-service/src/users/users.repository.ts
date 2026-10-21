@@ -235,6 +235,20 @@ export const usersRepository = {
     await db.update(profiles).set(set).where(eq(profiles.userId, userId));
   },
 
+  /**
+   * Every ACTIVE user holding ADMIN who can sign in, by ID alone. A seeded admin that has not yet
+   * replaced the bootstrap password cannot hold a session, so it is left out.
+   */
+  async listActiveAdminIds(db: Database): Promise<string[]> {
+    const rows = await db
+      .select({ userId: users.id })
+      .from(users)
+      .innerJoin(userRoles, and(eq(userRoles.userId, users.id), eq(userRoles.role, 'ADMIN')))
+      .where(and(eq(users.status, 'ACTIVE'), eq(users.mustChangePassword, false)))
+      .orderBy(users.id);
+    return rows.map((row) => row.userId);
+  },
+
   /** Deliberately selects only what the least-data lookup may return — never a hash or token. */
   async findIdentity(db: Database, userId: string): Promise<IdentityRow | null> {
     const rows = await db

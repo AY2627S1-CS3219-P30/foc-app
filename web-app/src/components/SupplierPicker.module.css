@@ -1,7 +1,12 @@
-.picker {
+.picker,
+.body {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+
+.body[aria-busy="true"] {
+  opacity: 0.7;
 }
 
 .results {

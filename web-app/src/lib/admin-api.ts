@@ -32,6 +32,10 @@ export type AdminRead = UserSchemas["AdminRead"];
 export type AdminAlert = UserSchemas["AdminAlert"];
 export type AdminAlertKind = UserSchemas["AdminAlertKind"];
 export type CreditWait = OrderSchemas["CreditWaitList"]["items"][number];
+/** ORD-15: an errand as an administrator sees it in an account's list (public fields only). */
+export type AccountErrand = OrderSchemas["Order"];
+export type AccountErrandPage = OrderSchemas["AccountOrderPage"];
+export type OrderStatus = AccountErrand["status"];
 export type ReconciliationAttempt = OrderSchemas["ReconciliationAttempts"]["items"][number];
 export type Wallet = CreditSchemas["Wallet"];
 export type LedgerItem = CreditSchemas["LedgerItem"];
@@ -69,6 +73,9 @@ export type AuditQuery = Paging & {
   to?: string;
 };
 export type ReadsQuery = Paging & { actorId?: string; targetUserId?: string };
+/** One account's errands: those it requested, those it holds as courier, or both. One is required. */
+export type AccountErrandQuery = Paging &
+  ({ requesterId: string; courierId?: string } | { courierId: string; requesterId?: string });
 
 /** The ledger page size the console asks for. */
 export const LEDGER_PAGE = 20;
@@ -174,12 +181,15 @@ export function createAdminApi({
     stepUp: (token: string, password: string) =>
       unwrap(users.POST("/auth/step-up", { body: { password }, headers: bearer(token) })),
 
+    /** ORD-15: one account's errands, newest first. Students are refused by the Order Service. */
+    accountErrands: (token: string, query: AccountErrandQuery) =>
+      unwrap(orders.GET("/admin/orders", { params: { query }, headers: bearer(token) })),
     creditWaits: (token: string) =>
       unwrap(orders.GET("/admin/orders/pending-credit", { headers: bearer(token) })),
     reconciliation: (token: string) =>
       unwrap(orders.GET("/admin/orders/reconciliation-attempts", { headers: bearer(token) })),
 
-    /** PLT-05: `CREDIT_WAIT_EXCEEDED` and `CREDIT_STATE_CONFLICT`, newest first. */
+    /** PLT-05: `CREDIT_WAIT_EXCEEDED`, `CREDIT_STATE_CONFLICT` and `REFERRAL_UNASSIGNED`, newest first. */
     operatorAlerts: (token: string) =>
       unwrap(orders.GET("/admin/orders/alerts", { headers: bearer(token) })),
     /** Everything the Order Service recorded about one errand. */

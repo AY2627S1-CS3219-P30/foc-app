@@ -573,6 +573,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/internal/admins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The administrators who may act now
+         * @description Every `ACTIVE` account holding `ADMIN` that can sign in, by user ID alone, so another service
+         *     can route work (such as a disputed errand) to one of them. A seeded administrator that has
+         *     not yet replaced its bootstrap password is left out. Reveals no more than
+         *     `/internal/users/{userId}`.
+         */
+        get: operations["listActiveAdmins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/internal/introspect": {
         parameters: {
             query?: never;
@@ -1277,6 +1300,36 @@ export interface operations {
                         service: "user-service";
                         /** @enum {string} */
                         status: "ok";
+                        /** @description Each dependency the service asks on every call. `database` is mandatory; `broker` is not (the outbox holds events until it is back). */
+                        dependencies?: {
+                            [key: string]: "up" | "down";
+                        };
+                    };
+                };
+            };
+            /** @description The database is unavailable. The service answers 200 again as soon as it is back, with no restart (PL-NFR3.1.2). */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "service": "user-service",
+                     *       "status": "unavailable",
+                     *       "dependencies": {
+                     *         "database": "down"
+                     *       }
+                     *     }
+                     */
+                    "application/json": {
+                        /** @constant */
+                        service: "user-service";
+                        /** @constant */
+                        status: "unavailable";
+                        dependencies?: {
+                            [key: string]: "up" | "down";
+                        };
                     };
                 };
             };
@@ -2015,6 +2068,41 @@ export interface operations {
             };
             401: components["responses"]["ServiceUnauthenticated"];
             503: components["responses"]["DependencyUnavailable"];
+        };
+    };
+    listActiveAdmins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The active administrators. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         {
+                     *           "userId": "0198a1c2-5b3e-7c11-9d4a-2f8b6e1a7c30"
+                     *         }
+                     *       ]
+                     *     }
+                     */
+                    "application/json": {
+                        items: {
+                            /** Format: uuid */
+                            userId: string;
+                        }[];
+                    };
+                };
+            };
+            401: components["responses"]["ServiceUnauthenticated"];
         };
     };
     introspectSession: {

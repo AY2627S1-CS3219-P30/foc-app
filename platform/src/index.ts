@@ -8,8 +8,11 @@ export {
 export { createLogger, errorMessage, PinoLoggerService, requestLogger } from './logging.js';
 export { ApiException, ErrorEnvelopeFilter, type ErrorEnvelope } from './errors.js';
 export {
+  HEALTH_INDICATORS,
   HealthController,
   SERVICE_INFO,
+  isHealthIndicator,
+  type HealthIndicator,
   type HealthResponse,
   type ServiceInfo,
 } from './health.controller.js';

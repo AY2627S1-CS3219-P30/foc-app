@@ -2,7 +2,12 @@ import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { CORRELATION_HEADER, ErrorEnvelopeFilter } from '@foc/platform';
+import {
+  CORRELATION_HEADER,
+  ErrorEnvelopeFilter,
+  HEALTH_INDICATORS,
+  type HealthIndicator,
+} from '@foc/platform';
 import { AppModule } from '../src/app.module.js';
 import { LifecycleScheduler } from '../src/orders/lifecycle.scheduler.js';
 
@@ -16,6 +21,11 @@ describe('order-service', () => {
     app = moduleRef.createNestApplication();
     app.useGlobalFilters(new ErrorEnvelopeFilter());
     await app.init();
+    // /health asks the service's dependencies (PLT-06), and this suite has no database to reach.
+    // They answer here; what happens when one does not is tested in @foc/platform.
+    for (const dependency of app.get<() => HealthIndicator[]>(HEALTH_INDICATORS)()) {
+      vi.spyOn(dependency, 'checkHealth').mockResolvedValue();
+    }
   });
 
   afterAll(async () => {
@@ -27,6 +37,8 @@ describe('order-service', () => {
     expect(res.body.status).toBe('ok');
     expect(res.body.service).toBe('order-service');
     expect(typeof res.body.uptimeSeconds).toBe('number');
+    // Its own database is one of the things its health depends on.
+    expect(res.body.dependencies).toMatchObject({ database: 'up' });
   });
 
   it('echoes an inbound correlation ID', async () => {

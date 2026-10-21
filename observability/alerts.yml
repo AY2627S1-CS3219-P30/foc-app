@@ -42,6 +42,21 @@ groups:
             Look for a dead letter on the reservation queues, and at the errand's trace in the
             Operations tab. Reconciliation retries it on its own.
 
+      # A change was saved but its event has not been published for two minutes. A healthy outbox
+      # drains in under a second, so either the broker is unreachable or nobody is listening for
+      # the event yet (EVT-03: its consumer has never declared its queue). The row is retried on
+      # its own, and later events for the same errand or user wait behind it.
+      - alert: OutboxEventStuck
+        expr: max by (service) (foc_outbox_oldest_unpublished_age_seconds) > 120
+        labels:
+          severity: page
+        annotations:
+          summary: 'An event has waited {{ $value | humanizeDuration }} in the outbox of {{ $labels.service }}'
+          description: >-
+            Read last_error on that service's unpublished outbox_events rows. "unroutable" means
+            the service that consumes the event has never declared its queue: start it. Anything
+            else points at RabbitMQ.
+
       - alert: ServiceDown
         expr: up{job="services"} == 0
         for: 1m

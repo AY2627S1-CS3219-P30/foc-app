@@ -50,7 +50,7 @@ const cafe = summary('Campus Café', 1);
 const kopi = summary('Kopi Corner', 2);
 
 /** Answers each call with `respond` and records the request URLs. */
-function serve(respond: (url: URL) => Response) {
+function serve(respond: (url: URL) => Response | Promise<Response>) {
   const urls: URL[] = [];
   globalThis.fetch = (async (request: Request) => {
     const url = new URL(request.url);
@@ -91,6 +91,7 @@ describe('SupplierPicker', () => {
     );
     expect(urls.map((u) => u.pathname)).toEqual(['/suppliers']);
     expect(urls[0]!.searchParams.has('q')).toBe(false);
+    expect(urls[0]!.searchParams.get('pageSize')).toBe('100');
     const options = buttons(container);
     expect(options.map((b) => b.textContent)).toEqual([
       'Campus CaféCafé · COM2',
@@ -112,6 +113,31 @@ describe('SupplierPicker', () => {
     await debounce();
     await settle();
     expect(urls.map((u) => u.searchParams.get('q'))).toEqual([null, 'kopi']);
+    expect(buttons(container).map((b) => b.textContent)).toEqual(['Kopi CornerCafé · COM2']);
+    await act(() => root.unmount());
+  });
+
+  it('keeps the previous results visible while a new search loads', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    serve(async (url) => {
+      if (url.searchParams.get('q') !== 'kopi') return page([cafe, kopi]);
+      await held;
+      return page([kopi]);
+    });
+    const { container, root } = await render(<SupplierPicker onSelect={() => {}} />);
+    await type(container.querySelector('input') as HTMLInputElement, 'kopi');
+    await debounce();
+    await settle();
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+    expect(buttons(container).map((b) => b.textContent)).toEqual([
+      'Campus CaféCafé · COM2',
+      'Kopi CornerCafé · COM2',
+    ]);
+    release();
+    await settle();
+    expect(container.querySelector('[aria-busy]')).toBeNull();
     expect(buttons(container).map((b) => b.textContent)).toEqual(['Kopi CornerCafé · COM2']);
     await act(() => root.unmount());
   });

@@ -6,6 +6,7 @@ import { CreditReconciler } from '../../order-service/src/orders/credit-reconcil
 import type { CreditStatusReader } from '../../order-service/src/orders/credit-status.client.js';
 import { OrdersRepository } from '../../order-service/src/orders/orders.repository.js';
 import { ReservationResultsConsumer } from '../../order-service/src/reservation-results.consumer.js';
+import { UserDirectoryClient } from '../../order-service/src/orders/user-directory.client.js';
 import { CreditRepository } from '../../credit-service/src/credits/credit.repository.js';
 import { ReservationConsumer } from '../../credit-service/src/reservation-consumer.js';
 import {
@@ -54,7 +55,13 @@ export class Stack {
     const stack = new Stack(orderDb, creditDb);
     const { consumer } = stack.bus;
     await Promise.all([
-      new ReservationResultsConsumer(consumer, orderDb.db, stack.orders).onApplicationBootstrap(),
+      new ReservationResultsConsumer(
+        consumer,
+        orderDb.db,
+        stack.orders,
+        // There is no User Service here: every requester is active.
+        new UserDirectoryClient(async () => Response.json({ exists: true, status: 'ACTIVE' })),
+      ).onApplicationBootstrap(),
       new CreditTerminalResultsConsumer(
         consumer,
         orderDb.db,

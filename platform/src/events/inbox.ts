@@ -100,7 +100,10 @@ export type InboxHandler<T> = (
  */
 export function withInbox<T>(db: Db, consumer: string, handler: InboxHandler<T>): EventHandler<T> {
   return async (envelope, context) => {
-    await processOnce(db, consumer, envelope, (tx) => handler(envelope, tx, context));
+    const applied = await processOnce(db, consumer, envelope, (tx) =>
+      handler(envelope, tx, context),
+    );
+    if (!applied) context.onDuplicate?.();
   };
 }
 
@@ -149,8 +152,9 @@ export function withReplayableInbox<T>(
   handler: ReplayableInboxHandler<T>,
 ): EventHandler<T> {
   return async (envelope, context) => {
-    await processReplayable(db, consumer, envelope, (tx, firstDelivery) =>
-      handler(envelope, tx, context, firstDelivery),
+    const firstDelivery = await processReplayable(db, consumer, envelope, (tx, first) =>
+      handler(envelope, tx, context, first),
     );
+    if (!firstDelivery) context.onDuplicate?.();
   };
 }
