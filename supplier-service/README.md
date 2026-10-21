@@ -1,11 +1,13 @@
-# Supplier Service (SUP-01, SUP-02)
+# Supplier Service (SUP-01, SUP-02, SUP-04)
 
 Owned by **Patrick** (Catalogue & Frontend). The campus supplier **catalogue**:
 the stores, cafés, printing points, shops and landmarks a student can request an
 errand from. SUP-01 delivered the data layer, the admin CRUD API, and an
 idempotent seed. **SUP-02** adds search, filtering, sorting and pagination to the
-listing (see [below](#listing-search-filtering--sorting-sup-02)). The listing UI
-(SUP-03) and the deletion-hold against live errands (SUP-04) are out of scope.
+listing (see [below](#listing-search-filtering--sorting-sup-02)). **SUP-04**'s
+deletion hold is met by deactivation (see
+[below](#deletion-hold-sup-04)); the listing UI (SUP-03) and the supplier picker
+live in `web-app`.
 
 Built on the shared runtime: `@foc/platform` (config, logging, correlation,
 health, the `{ error: { code, message, correlationId, details } }` envelope) and
@@ -228,6 +230,22 @@ get-by-ID, create, update and deactivate** with both a student and an admin
 token, end to end against the Compose stack with no UI running (D2 §3). See the
 header of that file for how to obtain the two bearer tokens.
 
-### Next tickets
+## Deletion hold (SUP-04)
 
-SUP-03 (listing UI), SUP-04 (deletion-hold against live errands).
+SS-FR2.1.2.1 and EC2 ask that a supplier referenced by a live errand is never
+removed, and that one marked for deletion is not offered for a new errand. No
+hard deletion, reference count or call to the Order Service is needed, because:
+
+- **Suppliers are never removed.** `DELETE /suppliers/:id` only sets
+  `active = false` (ADR 0008: "deactivation, never deletion"). The row stays, and
+  `GET /suppliers/:id` still resolves it with `active: false`
+  (`test/suppliers.test.ts`, "excludes a deactivated supplier from listings but
+  keeps its row, fetchable by id").
+- **Errands do not depend on the row.** Each errand snapshots the supplier at
+  creation (ORD-08, `orders.supplier_snapshot`) and never asks this service
+  again, so deactivating or renaming a supplier cannot change a live or finished
+  errand.
+- **Marked for deletion means not selectable.** `GET /suppliers` lists active
+  suppliers only, so the web-app picker never offers a deactivated one, and the
+  Order Service refuses one with `422 INVALID_SUPPLIER`. A link to a deactivated
+  supplier is explained to the user rather than silently missing.

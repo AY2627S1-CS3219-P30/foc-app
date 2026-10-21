@@ -216,7 +216,7 @@ describe('optimistic locking (If-Match / version)', () => {
 });
 
 describe('soft deactivation', () => {
-  it('excludes a deactivated supplier from listings but keeps it fetchable by id', async () => {
+  it('excludes a deactivated supplier from listings but keeps its row, fetchable by id', async () => {
     const created = (await create(validSupplier()).expect(201)).body;
     await http(t)
       .delete(`/suppliers/${created.supplierId}`)
@@ -236,6 +236,7 @@ describe('soft deactivation', () => {
         .expect(200)
     ).body;
     expect(byId).toMatchObject({ supplierId: created.supplierId, active: false });
+    expect(await countSuppliers()).toBe(1);
   });
 
   it('frees the name+building for reuse once deactivated, and is idempotent', async () => {
