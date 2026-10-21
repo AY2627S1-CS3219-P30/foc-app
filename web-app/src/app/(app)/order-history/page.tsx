@@ -13,14 +13,13 @@ import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth";
 import { STUDENT_NAV } from "@/lib/nav";
 import { listMyOrders, type MyOrder } from "@/lib/order-api";
-import { isFinal, statusWording, waitsOnCredit } from "@/lib/order-status";
+import { isFinal, PENDING_POLL_MS, statusWording, waitsOnCredit } from "@/lib/order-status";
+import type { PreferredMode } from "@/lib/user-api";
 import { usePoll } from "@/lib/use-poll";
 import { vars } from "@/styles/tokens";
 
 /** Only while some errand is still active: past ones no longer change. */
 const HISTORY_POLL_MS = 30_000;
-/** While the Credit Service moves some errand's credits, which takes seconds. */
-const PENDING_POLL_MS = 5_000;
 
 function nextRead(items: MyOrder[]) {
   if (items.some((o) => waitsOnCredit(o.status))) return PENDING_POLL_MS;
@@ -73,26 +72,51 @@ function Section({ title, orders }: { title: string; orders: MyOrder[] }) {
 }
 
 export default function OrderHistoryPage() {
-  const { authed } = useAuth();
-  const [mine, setMine] = useState<{ items: MyOrder[]; truncated: boolean } | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
+  const { authed, user } = useAuth();
+  const mode = user?.profile.preferredMode;
+  const [history, setHistory] = useState<{
+    mode: PreferredMode;
+    items: MyOrder[];
+    truncated: boolean;
+    activeRequests: MyOrder[];
+    requestsTruncated: boolean;
+  } | null>(null);
+  const [failure, setFailure] = useState<{ mode: PreferredMode; message: string } | null>(null);
   const read = useCallback(
     async (signal: AbortSignal) => {
+      if (!mode) return null;
       try {
-        const next = await authed((token) => listMyOrders(token, signal));
+        const [next, requests] = await authed((token) =>
+          Promise.all([
+            listMyOrders(token, { role: mode }, signal),
+            mode === "COURIER"
+              ? listMyOrders(token, { role: "REQUESTER", active: true }, signal)
+              : Promise.resolve(null),
+          ]),
+        );
         if (signal.aborted) return null;
-        setMine(next);
-        setProblem(null);
-        return nextRead(next.items);
+        const items = next.items;
+        const activeRequests = requests?.items ?? [];
+        setHistory({
+          mode,
+          items,
+          truncated: next.truncated,
+          activeRequests,
+          requestsTruncated: requests?.truncated ?? false,
+        });
+        setFailure(null);
+        return nextRead([...items, ...activeRequests]);
       } catch (err) {
         if (signal.aborted) return null;
-        setProblem(err instanceof ApiError ? err.message : "Something went wrong.");
+        setFailure({ mode, message: err instanceof ApiError ? err.message : "Something went wrong." });
         return HISTORY_POLL_MS;
       }
     },
-    [authed],
+    [authed, mode],
   );
   const reload = usePoll(read);
+  const mine = history?.mode === mode ? history : null;
+  const problem = failure && failure.mode === mode ? failure.message : null;
 
   const content = !mine ? (
     problem ? (
@@ -109,12 +133,22 @@ export default function OrderHistoryPage() {
           Showing the last loaded history. {problem}
         </ErrorState>
       )}
-      {mine.items.length === 0 ? (
-        <EmptyState title="No errands yet">Errands you request or deliver will show up here.</EmptyState>
+      {mine.items.length === 0 && mine.activeRequests.length === 0 ? (
+        <EmptyState title="No errands yet">
+          {mode === "REQUESTER"
+            ? "Requests you place will show up here."
+            : "Errands you deliver will show up here."}
+        </EmptyState>
       ) : (
         <>
-          <Section title="Active" orders={mine.items.filter((o) => !isFinal(o.status))} />
-          <Section title="Past" orders={mine.items.filter((o) => isFinal(o.status))} />
+          {mode === "COURIER" && <Section title="Your active requests" orders={mine.activeRequests} />}
+          <Section title={mode === "COURIER" ? "Active deliveries" : "Active"} orders={mine.items.filter((o) => !isFinal(o.status))} />
+          <Section title={mode === "COURIER" ? "Past deliveries" : "Past"} orders={mine.items.filter((o) => isFinal(o.status))} />
+          {mine.requestsTruncated && (
+            <p style={{ fontSize: vars.text.sm, color: vars.color.textSubtle }}>
+              Showing your 100 most recently updated active requests.
+            </p>
+          )}
           {mine.truncated && (
             <p style={{ fontSize: vars.text.sm, color: vars.color.textSubtle }}>
               Showing your 100 most recent errands.

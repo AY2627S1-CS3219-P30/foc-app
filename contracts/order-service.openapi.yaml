@@ -33,7 +33,15 @@ paths:
         Errands the caller requested or is the current courier of, in any status, most recently
         changed first, at most 100 (no paging yet); `truncated` is true when more were left out. Each
         carries the caller's private projection and `myRole`. A courier who withdrew or timed out no
-        longer holds the errand and does not see it.
+        longer holds the errand and does not see it. Filter by `role` before the limit; `active=true`
+        includes only errands that have not reached a final status.
+      parameters:
+        - in: query
+          name: role
+          schema: { type: string, enum: [REQUESTER, COURIER] }
+        - in: query
+          name: active
+          schema: { type: boolean }
       responses:
         '200':
           description: The caller's errands.

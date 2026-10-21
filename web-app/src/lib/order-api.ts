@@ -70,8 +70,12 @@ export const listMyLedger = (token: string, cursor?: string) =>
 export const listOpenOrders = (token: string, signal?: AbortSignal) =>
   unwrap(orderApi.GET("/orders", { headers: bearer(token), signal }));
 
-export const listMyOrders = (token: string, signal?: AbortSignal) =>
-  unwrap(orderApi.GET("/orders/mine", { headers: bearer(token), signal }));
+export const listMyOrders = (
+  token: string,
+  filter: { role?: "REQUESTER" | "COURIER"; active?: boolean } = {},
+  signal?: AbortSignal,
+) =>
+  unwrap(orderApi.GET("/orders/mine", { params: { query: filter }, headers: bearer(token), signal }));
 
 const COMMAND_PATHS = {
   accept: "/orders/{orderId}/accept",

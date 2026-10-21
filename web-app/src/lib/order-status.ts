@@ -136,6 +136,7 @@ export function statusWording(
 }
 
 const FINAL = new Set<OrderStatus>(["REJECTED", "COMPLETED", "CANCELLED", "EXPIRED"]);
+export const PENDING_POLL_MS = 5_000;
 
 /** No transition leaves these states, so there is nothing more to read. */
 export const isFinal = (status: OrderStatus) => FINAL.has(status);

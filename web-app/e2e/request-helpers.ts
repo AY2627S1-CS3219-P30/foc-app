@@ -1,6 +1,6 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 
-const USER = process.env.E2E_USER_SERVICE_URL ?? "http://localhost:3001";
+export const USER = process.env.E2E_USER_SERVICE_URL ?? "http://localhost:3001";
 const SUPPLIER = process.env.E2E_SUPPLIER_SERVICE_URL ?? "http://localhost:3002";
 export const ORDER = process.env.E2E_ORDER_SERVICE_URL ?? "http://localhost:3003";
 const CREDIT = process.env.E2E_CREDIT_SERVICE_URL ?? "http://localhost:3004";

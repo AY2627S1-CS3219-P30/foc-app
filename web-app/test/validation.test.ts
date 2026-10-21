@@ -6,7 +6,7 @@ import {
   validateRegistration,
 } from "../src/lib/validation";
 import { ApiError, toApiError } from "../src/lib/user-api";
-import { orderForMode } from "../src/lib/nav";
+import { navForMode } from "../src/lib/nav";
 
 describe("registration validation mirrors the User Service", () => {
   const ok = {
@@ -101,12 +101,22 @@ describe("toApiError reads the shared error envelope", () => {
   });
 });
 
-describe("orderForMode", () => {
-  const items = [{ href: "/feed" }, { href: "/suppliers" }, { href: "/order-history" }];
+describe("navForMode", () => {
+  const items = [
+    { href: "/feed", label: "Request feed" },
+    { href: "/suppliers", label: "Suppliers" },
+    { href: "/order-history", label: "Order history" },
+  ];
 
-  it("leads with the mode's screen and keeps every screen", () => {
-    expect(orderForMode(items, "REQUESTER").map((i) => i.href)).toEqual(["/order-history", "/feed", "/suppliers"]);
-    expect(orderForMode(items, "COURIER").map((i) => i.href)).toEqual(["/feed", "/suppliers", "/order-history"]);
-    expect(orderForMode(items)).toBe(items);
+  it("puts each mode's leading screen first", () => {
+    expect(navForMode(items, "REQUESTER").map((i) => i.href)).toEqual(["/order-history", "/feed", "/suppliers"]);
+    expect(navForMode(items, "COURIER").map((i) => i.href)).toEqual(["/feed", "/suppliers", "/order-history"]);
+    expect(navForMode(items)).toBe(items);
+  });
+
+  it("calls the feed 'Your requests' for requesters only", () => {
+    const feedLabel = (mode: "REQUESTER" | "COURIER") => navForMode(items, mode).find((i) => i.href === "/feed")?.label;
+    expect(feedLabel("REQUESTER")).toBe("Your requests");
+    expect(feedLabel("COURIER")).toBe("Request feed");
   });
 });
