@@ -72,7 +72,7 @@ export interface paths {
         };
         /**
          * Discover currently acceptable errands.
-         * @description Returns only unexpired OPEN orders and never exposes delivery instructions or participant IDs.
+         * @description Returns only unexpired OPEN orders, leaves out the caller's own errands, and never exposes delivery instructions or participant IDs.
          */
         get: operations["listOpenOrders"];
         put?: never;
