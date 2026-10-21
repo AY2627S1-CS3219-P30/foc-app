@@ -1,7 +1,7 @@
 "use client";
 
-import { Suspense, use } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { use } from "react";
+import { useRouter } from "next/navigation";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { DesktopPanel } from "@/components/DesktopPanel";
@@ -12,61 +12,27 @@ import { ScreenHeader } from "@/components/ScreenHeader";
 import { useStore } from "@/lib/store";
 import { CURRENT_USER } from "@/lib/types";
 import { vars } from "@/styles/tokens";
+import { OrderDetail } from "./OrderDetail";
 
 function RequestDetail({ id }: { id: string }) {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const justPosted = searchParams.get("posted") === "1";
   const { state, acceptRequest, completeRequest, cancelRequest, releaseRequest } = useStore();
   const request = state.requests.find((r) => r.id === id);
 
-  if (!request) {
-    return (
-      <>
-        <div className="mobileOnly">
-          <Screen>
-            <ScreenHeader title="Request" />
-            <ScreenContent>
-              <p>This request no longer exists.</p>
-            </ScreenContent>
-          </Screen>
-        </div>
-        <div className="desktopOnly">
-          <DesktopPanel title="Request">
-            <p>This request no longer exists.</p>
-          </DesktopPanel>
-        </div>
-      </>
-    );
-  }
+  if (!request) return <OrderDetail orderId={id} />;
 
   const isOwn = request.requesterId === CURRENT_USER.id;
   const isMyDelivery = request.courierId === CURRENT_USER.id;
 
   const body = (
     <>
-      {justPosted && (
-        <div
-          className="card"
-          style={{
-            background: vars.color.successSurface,
-            borderColor: vars.color.successBorder,
-            color: vars.color.success,
-            fontSize: vars.text.md,
-            fontWeight: vars.weight.semibold,
-          }}
-        >
-          Posted — this is now visible to other students in the feed.
-        </div>
-      )}
-
       <Badge status={request.status} />
       <NavRow label="Title" value={request.title} />
       <NavRow label="Description" value={request.description || "—"} />
       <NavRow label="Drop-off" value={request.dropoff} />
       <NavRow label="Credits" value={`${request.credits} credits`} />
 
-      {isOwn && request.status === "open" && (
+      {isOwn && request.status === "OPEN" && (
         <div style={{ display: "flex", gap: vars.space[2] }}>
           <Button variant="outline" onClick={() => router.push(`/request/${request.id}/edit`)}>
             Edit
@@ -77,7 +43,7 @@ function RequestDetail({ id }: { id: string }) {
         </div>
       )}
 
-      {isOwn && (request.status === "in_transit" || request.status === "accepted") && (
+      {isOwn && (request.status === "PICKED_UP" || request.status === "ACCEPTED") && (
         <>
           <p style={{ fontSize: vars.text.md, color: vars.color.textMuted }}>
             {request.courierName} is on it.
@@ -89,7 +55,7 @@ function RequestDetail({ id }: { id: string }) {
         </>
       )}
 
-      {!isOwn && request.status === "open" && (
+      {!isOwn && request.status === "OPEN" && (
         <>
           <PersonRow name={request.requesterName} location={request.dropoff} />
           <Button full onClick={() => acceptRequest(request.id)}>
@@ -98,7 +64,7 @@ function RequestDetail({ id }: { id: string }) {
         </>
       )}
 
-      {!isOwn && request.status === "in_transit" && isMyDelivery && (
+      {!isOwn && request.status === "PICKED_UP" && isMyDelivery && (
         <>
           <p style={{ fontSize: vars.text.md, fontWeight: vars.weight.semibold }}>You have picked this up!</p>
           <PersonRow name={request.requesterName} location={request.dropoff} />
@@ -111,10 +77,10 @@ function RequestDetail({ id }: { id: string }) {
         </>
       )}
 
-      {request.status === "complete" && (
+      {request.status === "COMPLETED" && (
         <p style={{ fontSize: vars.text.md, color: vars.color.textSubtle }}>This errand is complete.</p>
       )}
-      {request.status === "cancelled" && (
+      {request.status === "CANCELLED" && (
         <p style={{ fontSize: vars.text.md, color: vars.color.textSubtle }}>This request was cancelled.</p>
       )}
     </>
@@ -137,9 +103,5 @@ function RequestDetail({ id }: { id: string }) {
 
 export default function RequestDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  return (
-    <Suspense fallback={null}>
-      <RequestDetail id={id} />
-    </Suspense>
-  );
+  return <RequestDetail id={id} />;
 }

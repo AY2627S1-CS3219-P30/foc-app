@@ -17,7 +17,7 @@ import {
 } from "./mock-data";
 import { CURRENT_USER, type ErrandRequest, type LedgerEntry, type Supplier } from "./types";
 
-/** Errand and wallet state, still mock data until WEB-01+. Sessions live in auth.tsx. */
+/** Errand and wallet state, still mock data until WEB-02/03. Sessions live in auth.tsx. */
 type State = {
   isMenuOpen: boolean;
   requests: ErrandRequest[];
@@ -37,7 +37,6 @@ type NewRequestInput = {
 
 type Action =
   | { type: "SET_MENU_OPEN"; open: boolean }
-  | { type: "CREATE_REQUEST"; id: string; input: NewRequestInput }
   | { type: "EDIT_REQUEST"; id: string; input: NewRequestInput }
   | { type: "ACCEPT_REQUEST"; id: string }
   | { type: "COMPLETE_REQUEST"; id: string }
@@ -66,41 +65,9 @@ function reducer(state: State, action: Action): State {
     case "SET_MENU_OPEN":
       return { ...state, isMenuOpen: action.open };
 
-    case "CREATE_REQUEST": {
-      const { input } = action;
-      const request: ErrandRequest = {
-        id: action.id,
-        title: input.title,
-        supplier: input.supplier,
-        dropoff: input.dropoff,
-        description: input.description,
-        credits: input.credits,
-        status: "open",
-        requesterId: CURRENT_USER.id,
-        requesterName: CURRENT_USER.name,
-        expiryLabel: "Expires in 60 min",
-        createdAt: Date.now(),
-      };
-      const ledgerEntry: LedgerEntry = {
-        id: makeId("l"),
-        type: "reserved",
-        label: "Credits reserved",
-        detail: input.title,
-        amount: -input.credits,
-        createdAt: Date.now(),
-      };
-      return {
-        ...state,
-        requests: [request, ...state.requests],
-        ledger: [ledgerEntry, ...state.ledger],
-        balance: state.balance - input.credits,
-        reserved: state.reserved + input.credits,
-      };
-    }
-
     case "EDIT_REQUEST": {
       const existing = state.requests.find((r) => r.id === action.id);
-      if (!existing || existing.requesterId !== CURRENT_USER.id || existing.status !== "open") {
+      if (!existing || existing.requesterId !== CURRENT_USER.id || existing.status !== "OPEN") {
         return state;
       }
       const creditDelta = action.input.credits - existing.credits;
@@ -116,14 +83,14 @@ function reducer(state: State, action: Action): State {
 
     case "ACCEPT_REQUEST": {
       const existing = state.requests.find((r) => r.id === action.id);
-      if (!existing || existing.status !== "open" || existing.requesterId === CURRENT_USER.id) {
+      if (!existing || existing.status !== "OPEN" || existing.requesterId === CURRENT_USER.id) {
         return state;
       }
       return {
         ...state,
         requests: state.requests.map((r) =>
           r.id === action.id
-            ? { ...r, status: "in_transit", courierId: CURRENT_USER.id, courierName: CURRENT_USER.name }
+            ? { ...r, status: "PICKED_UP", courierId: CURRENT_USER.id, courierName: CURRENT_USER.name }
             : r
         ),
       };
@@ -131,7 +98,7 @@ function reducer(state: State, action: Action): State {
 
     case "COMPLETE_REQUEST": {
       const existing = state.requests.find((r) => r.id === action.id);
-      if (!existing || existing.status !== "in_transit" || existing.courierId !== CURRENT_USER.id) {
+      if (!existing || existing.status !== "PICKED_UP" || existing.courierId !== CURRENT_USER.id) {
         return state;
       }
       const ledgerEntry: LedgerEntry = {
@@ -145,7 +112,7 @@ function reducer(state: State, action: Action): State {
       return {
         ...state,
         requests: state.requests.map((r) =>
-          r.id === action.id ? { ...r, status: "complete" } : r
+          r.id === action.id ? { ...r, status: "COMPLETED" } : r
         ),
         ledger: [ledgerEntry, ...state.ledger],
         balance: state.balance + existing.credits,
@@ -154,7 +121,7 @@ function reducer(state: State, action: Action): State {
 
     case "CANCEL_REQUEST": {
       const existing = state.requests.find((r) => r.id === action.id);
-      const cancellable = existing?.status === "open" || existing?.status === "in_transit";
+      const cancellable = existing?.status === "OPEN" || existing?.status === "PICKED_UP";
       if (!existing || existing.requesterId !== CURRENT_USER.id || !cancellable) {
         return state;
       }
@@ -169,7 +136,7 @@ function reducer(state: State, action: Action): State {
       return {
         ...state,
         requests: state.requests.map((r) =>
-          r.id === action.id ? { ...r, status: "cancelled" } : r
+          r.id === action.id ? { ...r, status: "CANCELLED" } : r
         ),
         ledger: [ledgerEntry, ...state.ledger],
         balance: state.balance + existing.credits,
@@ -182,14 +149,14 @@ function reducer(state: State, action: Action): State {
       // open for someone else to accept. No credits move: the courier
       // was never paid, and the requester's reservation is untouched.
       const existing = state.requests.find((r) => r.id === action.id);
-      if (!existing || existing.status !== "in_transit" || existing.courierId !== CURRENT_USER.id) {
+      if (!existing || existing.status !== "PICKED_UP" || existing.courierId !== CURRENT_USER.id) {
         return state;
       }
       return {
         ...state,
         requests: state.requests.map((r) =>
           r.id === action.id
-            ? { ...r, status: "open", courierId: undefined, courierName: undefined }
+            ? { ...r, status: "OPEN", courierId: undefined, courierName: undefined }
             : r
         ),
       };
@@ -203,7 +170,6 @@ function reducer(state: State, action: Action): State {
 type Store = {
   state: State;
   setMenuOpen: (open: boolean) => void;
-  createRequest: (input: NewRequestInput) => string;
   editRequest: (id: string, input: NewRequestInput) => void;
   acceptRequest: (id: string) => void;
   completeRequest: (id: string) => void;
@@ -217,11 +183,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
   const setMenuOpen = useCallback((open: boolean) => dispatch({ type: "SET_MENU_OPEN", open }), []);
-  const createRequest = useCallback((input: NewRequestInput) => {
-    const id = makeId("r");
-    dispatch({ type: "CREATE_REQUEST", id, input });
-    return id;
-  }, []);
   const editRequest = useCallback(
     (id: string, input: NewRequestInput) => dispatch({ type: "EDIT_REQUEST", id, input }),
     []
@@ -235,7 +196,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     () => ({
       state,
       setMenuOpen,
-      createRequest,
       editRequest,
       acceptRequest,
       completeRequest,
@@ -245,7 +205,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [
       state,
       setMenuOpen,
-      createRequest,
       editRequest,
       acceptRequest,
       completeRequest,

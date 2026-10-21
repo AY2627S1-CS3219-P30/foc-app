@@ -1,9 +1,4 @@
-export type RequestStatus =
-  | "open"
-  | "accepted"
-  | "in_transit"
-  | "complete"
-  | "cancelled";
+import type { OrderStatus } from "./order-api";
 
 export type ErrandRequest = {
   id: string;
@@ -12,7 +7,7 @@ export type ErrandRequest = {
   dropoff: string;
   description: string;
   credits: number;
-  status: RequestStatus;
+  status: OrderStatus;
   requesterId: string;
   requesterName: string;
   courierId?: string;

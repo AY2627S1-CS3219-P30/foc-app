@@ -7,11 +7,16 @@ Object.assign(globalThis, { window, document: window.document, IS_REACT_ACT_ENVI
 const { act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 
-const auth = { authed: <T,>(call: (token: string) => Promise<T>) => call('test-token') };
+const auth = {
+  authed: <T,>(call: (token: string) => Promise<T>) => call('test-token'),
+  user: { id: 'me' },
+};
 const pushed: string[] = [];
 let search = '';
 mock.module('../src/lib/auth', () => ({ useAuth: () => auth }));
-mock.module('../src/lib/store', () => ({ useStore: () => ({ createRequest: () => 'r1' }) }));
+mock.module('../src/components/ResponsiveShell', () => ({
+  ResponsiveShell: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
 mock.module('next/navigation', () => ({
   useRouter: () => ({ push: (href: string) => pushed.push(href) }),
   useSearchParams: () => new URLSearchParams(search),

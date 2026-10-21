@@ -12,6 +12,7 @@ import type {
 } from "./generated/credit-service";
 import type { components as OrderComponents, paths as OrderPaths } from "./generated/order-service";
 import type { components as UserComponents, paths as UserPaths } from "./generated/user-service";
+import { CREDIT_SERVICE_URL, ORDER_SERVICE_URL } from "./order-api";
 import { NOT_CONFIGURED_MESSAGE, USER_SERVICE_URL } from "./user-api";
 
 type UserSchemas = UserComponents["schemas"];
@@ -49,15 +50,6 @@ export type CreditAuditAlert = CreditSchemas["CreditAuditAlert"];
 export type OrderCreditTrace = CreditSchemas["OrderCreditTrace"];
 /** ADM-04: the Credit Service's alerts about administrators (BULK_WALLET_READS). */
 export type WalletReadAlert = CreditSchemas["AdminActivityAlert"];
-
-export const ORDER_SERVICE_URL = serviceUrl(
-  process.env.NEXT_PUBLIC_ORDER_SERVICE_URL,
-  "http://localhost:3003",
-);
-export const CREDIT_SERVICE_URL = serviceUrl(
-  process.env.NEXT_PUBLIC_CREDIT_SERVICE_URL,
-  "http://localhost:3004",
-);
 
 /** The platform dashboard (PLT-04), beside the Compose stack. */
 export const GRAFANA_URL = serviceUrl(process.env.NEXT_PUBLIC_GRAFANA_URL, "http://localhost:3005");

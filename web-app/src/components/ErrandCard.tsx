@@ -33,7 +33,7 @@ export function ErrandCard({
           <strong>{request.credits}</strong>
           <span>credits</span>
         </div>
-        {onAccept && request.status === "open" && (
+        {onAccept && request.status === "OPEN" && (
           <Button
             variant="accent"
             onClick={(e) => {

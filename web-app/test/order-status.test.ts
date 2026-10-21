@@ -1,0 +1,58 @@
+import { describe, expect, it } from "bun:test";
+import { readFile } from "node:fs/promises";
+import { ORDER_STATUS, rejectionMessage } from "../src/lib/order-status";
+
+/** The `Order.status` union as generated from the contract, so a new state fails here. */
+const generated = await readFile(
+  new URL("../src/lib/generated/order-service.ts", import.meta.url),
+  "utf8",
+);
+const statuses = [...generated.match(/status: ("PENDING_CREDIT"[^;]*);/)![1]!.matchAll(/"(\w+)"/g)].map(
+  (m) => m[1],
+);
+
+describe("ORDER_STATUS", () => {
+  it("covers exactly the twelve contract states", () => {
+    expect(statuses).toHaveLength(12);
+    expect(Object.keys(ORDER_STATUS).sort()).toEqual([...statuses].sort());
+  });
+
+  it("explains every state in a sentence, the pending ones included", () => {
+    for (const { label, explanation } of Object.values(ORDER_STATUS)) {
+      expect(label.length).toBeGreaterThan(0);
+      expect(explanation).toMatch(/^[A-Z].+\.$/);
+    }
+    expect(ORDER_STATUS.PENDING_CREDIT.label).toBe("Waiting for credits");
+    expect(ORDER_STATUS.COMPLETION_PENDING_CREDIT.label).toBe("Paying the courier");
+    expect(ORDER_STATUS.RELEASE_PENDING_CREDIT.label).toBe("Returning credits");
+  });
+});
+
+describe("rejectionMessage", () => {
+  it("uses the available balance the Credit Service reported", () => {
+    expect(rejectionMessage({ reward: 5, rejection: { reason: "INSUFFICIENT_CREDITS", available: 3 } })).toBe(
+      "You had 3 available for a 5-credit reward. Post it again with a reward of 3 or less, or earn more by delivering errands.",
+    );
+  });
+
+  it("points a student with no credits to courier work", () => {
+    expect(
+      rejectionMessage({ reward: 2, rejection: { reason: "INSUFFICIENT_CREDITS", available: 0 } }),
+    ).toContain("Delivering errands as a courier is how you earn credits.");
+    expect(rejectionMessage({ reward: 2, rejection: { reason: "INSUFFICIENT_CREDITS" } })).toStartWith(
+      "You didn't have enough credits for a 2-credit reward.",
+    );
+  });
+
+  it("explains the other reasons, and an unknown one", () => {
+    expect(rejectionMessage({ reward: 9, rejection: { reason: "AMOUNT_OUT_OF_RANGE" } })).toContain(
+      "between 1 and 5 credits",
+    );
+    expect(rejectionMessage({ reward: 1, rejection: { reason: "CONFLICTING_REQUEST" } })).toContain(
+      "Post the request again",
+    );
+    expect(rejectionMessage({ reward: 1, rejection: { reason: "SOMETHING_NEW" } })).toContain(
+      "couldn't reserve the reward",
+    );
+  });
+});
