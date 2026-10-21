@@ -237,7 +237,10 @@ Cancelling moves the order to `RELEASE_PENDING_CREDIT` with reason `cancelled`. 
 the courier: before the acceptance deadline the order reopens with its deadline unchanged, and
 after it the order moves to `RELEASE_PENDING_CREDIT` with reason `expired`. Every move into
 `RELEASE_PENDING_CREDIT` writes exactly one `order.release-requested` in the same transaction.
-`PICKED_UP` and later states refuse cancellation.
+`PICKED_UP` and later states refuse cancellation. While the release is pending, the private view
+returns the reason as `releaseReason` (`CANCELLED` or `EXPIRED`), the status the errand will end in.
+A release caused by a suspension or an administrator's decision reads `CANCELLED`, as its final
+status will, so the field says nothing that status does not.
 
 The **lifecycle scheduler** owns every timer. It runs once as soon as the service is ready and then
 every `LIFECYCLE_SWEEP_INTERVAL_MS` (at most 60 s, enforced at boot). An `OPEN` order past its

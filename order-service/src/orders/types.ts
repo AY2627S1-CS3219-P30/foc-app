@@ -99,6 +99,8 @@ export interface OrderView {
   nonDeliveryReportAt?: string;
   /** From then a delivered errand confirms itself; set once the courier records delivery. */
   autoConfirmAt?: string;
+  /** Whether the credits being returned end the errand as cancelled or expired. */
+  releaseReason?: 'CANCELLED' | 'EXPIRED';
   rejection?: { reason: string; available?: number };
 }
 

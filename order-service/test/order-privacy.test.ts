@@ -104,6 +104,9 @@ async function checkPrivacy(
     if (full) {
       expect(surfaces.detail.status, where).toBe(200);
       expect(surfaces.detail.body.deliveryInstructions, where).toBe(SECRET.instructions);
+      expect(surfaces.detail.body.releaseReason, where).toBe(
+        state === 'RELEASE_PENDING_CREDIT' ? order!.releaseReason : undefined,
+      );
       expect(surfaces.private.status, where).toBe(200);
       expect(surfaces.history.status, where).toBe(200);
       expect(surfaces.history.body.entries.length, where).toBeGreaterThan(0);
@@ -116,6 +119,7 @@ async function checkPrivacy(
     expect(surfaces.private.status, where).toBe(expected);
     expect(surfaces.history.status, where).toBe(expected);
     expect(surfaces.receipt.status, where).toBe(expected);
+    expect(surfaces.detail.body, where).not.toHaveProperty('releaseReason');
     for (const [surface, response] of Object.entries(surfaces)) {
       expect(leaks(response.body, forbidden), `${where} ${surface}`).toEqual([]);
     }

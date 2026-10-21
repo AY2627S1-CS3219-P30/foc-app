@@ -39,6 +39,8 @@ const scheduler = (t: TestApp, pickupTimeoutMs = 30 * MINUTE) =>
     creditWaitTimeoutMs: 5 * MINUTE,
     intervalMs: 10_000,
   });
+const getAs = (t: TestApp, auth: string) =>
+  http(t).get(`/orders/${SEEDED_ORDER}`).set('Authorization', auth).expect(200);
 const releaseRequest = { orderId: SEEDED_ORDER, requesterId: REQUESTER, amount: SEEDED_REWARD };
 
 describe('cancellation, withdrawal and expiry (ORD-05)', () => {
@@ -48,7 +50,11 @@ describe('cancellation, withdrawal and expiry (ORD-05)', () => {
   it('lets the requester cancel an OPEN order and finalises CANCELLED on the release, once', async () => {
     t = await createTestApp();
     const cancelled = await post(t, 'cancel', asRequester, 2).expect(200);
-    expect(cancelled.body).toMatchObject({ status: 'RELEASE_PENDING_CREDIT', version: 3 });
+    expect(cancelled.body).toMatchObject({
+      status: 'RELEASE_PENDING_CREDIT',
+      version: 3,
+      releaseReason: 'CANCELLED',
+    });
     expect(await t.orders.findById(SEEDED_ORDER)).toMatchObject({ releaseReason: 'CANCELLED' });
     expect(await outboxOf(t, EVENTS.CREDIT_RELEASE_REQUESTED)).toEqual([releaseRequest]);
 
@@ -75,6 +81,7 @@ describe('cancellation, withdrawal and expiry (ORD-05)', () => {
     const closed = await t.orders.findById(SEEDED_ORDER);
     expect(closed).toMatchObject({ status: 'CANCELLED', creditTransactionId: transactionId });
     expect(closed!.releasedAt).not.toBeNull();
+    expect((await getAs(t, asRequester)).body).not.toHaveProperty('releaseReason');
     expect((await footprint(t)).history).toBe(pending.history + 1);
     await expect(
       deliver(t, RELEASE_RESULTS_QUEUE, released({ transactionId: randomUUID() })),
@@ -132,6 +139,8 @@ describe('cancellation, withdrawal and expiry (ORD-05)', () => {
     await backdate(t, 'acceptance_deadline_at', 1_000);
     const withdrawn = await post(t, 'withdraw', asStranger, 3).expect(200);
     expect(withdrawn.body).toMatchObject({ status: 'RELEASE_PENDING_CREDIT' });
+    expect(withdrawn.body).not.toHaveProperty('releaseReason'); // no longer the courier
+    expect((await getAs(t, asRequester)).body).toMatchObject({ releaseReason: 'EXPIRED' });
     expect(await t.orders.findById(SEEDED_ORDER)).toMatchObject({
       releaseReason: 'EXPIRED',
       courierId: null,
@@ -140,6 +149,7 @@ describe('cancellation, withdrawal and expiry (ORD-05)', () => {
     expect(await outboxOf(t, EVENTS.CREDIT_RELEASE_REQUESTED)).toEqual([releaseRequest]);
     await deliver(t, RELEASE_RESULTS_QUEUE, released());
     expect(await t.orders.findById(SEEDED_ORDER)).toMatchObject({ status: 'EXPIRED' });
+    expect((await getAs(t, asRequester)).body).not.toHaveProperty('releaseReason');
   });
 
   it('holds RELEASE_PENDING_CREDIT against every participant, administrator and timer action', async () => {

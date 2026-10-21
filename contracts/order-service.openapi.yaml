@@ -753,6 +753,12 @@ components:
             Private, and only while `DELIVERED`: delivery plus the auto-confirmation period. From
             then the errand is confirmed automatically unless the requester has confirmed or
             reported it.
+        releaseReason:
+          type: string
+          enum: [CANCELLED, EXPIRED]
+          description: |
+            Private, and only while `RELEASE_PENDING_CREDIT`: the status the errand ends in once the
+            Credit Service confirms the credits are returned.
         rejection:
           type: object
           required: [reason]
