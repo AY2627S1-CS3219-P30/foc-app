@@ -88,6 +88,9 @@ export function projectOrder(
           ...(order.status === 'DELIVERED' && order.autoConfirmAt
             ? { autoConfirmAt: order.autoConfirmAt }
             : {}),
+          ...(order.status === 'RELEASE_PENDING_CREDIT' && order.releaseReason
+            ? { releaseReason: order.releaseReason }
+            : {}),
         }
       : {}),
     ...(order.status === 'REJECTED' && canReadPrivate && order.rejectionReason
@@ -129,8 +132,8 @@ export class OrdersService {
     @Inject(SupplierClient) private readonly suppliers: SupplierClient,
   ) {}
 
-  async listOpen(): Promise<OpenOrderSummary[]> {
-    return this.orders.listOpen();
+  async listOpen(callerId: string): Promise<OpenOrderSummary[]> {
+    return this.orders.listOpen(callerId);
   }
 
   /** The caller's own errands, each in their private projection, with `truncated` past the cap. */

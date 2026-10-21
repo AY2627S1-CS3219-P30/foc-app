@@ -173,13 +173,13 @@ The transactional inbox and business-state check make 100 duplicate replies one 
 below); creation never rejects it merely because the timer passes. `created_at`, status, and the existing
 `orders_status_created_idx` provide the durable discovery boundary that recovery will consume.
 
-`GET /orders` returns at most 100 unexpired `OPEN` errands ordered by acceptance deadline. Its
-structured item summary omits item notes, exact delivery instructions, participant IDs, and every
-pending or rejected order. `GET /orders/:id` gives that same public projection to an unrelated
-student. A caller can explicitly request `?view=private`; only the requester, assigned courier, or
-the administrator named in `referred_admin_id` receives it, and every other caller receives `403`.
-The scheduler sets and clears `referred_admin_id` for disputes (see *Administrator referral and
-decision*).
+`GET /orders` returns at most 100 unexpired `OPEN` errands ordered by acceptance deadline, leaving
+out the caller's own (they are in `GET /orders/mine`). Its structured item summary omits item notes,
+exact delivery instructions, participant IDs, and every pending or rejected order. `GET /orders/:id`
+gives that same public projection to an unrelated student. A caller can explicitly request
+`?view=private`; only the requester, assigned courier, or the administrator named in
+`referred_admin_id` receives it, and every other caller receives `403`. The scheduler sets and
+clears `referred_admin_id` for disputes (see *Administrator referral and decision*).
 
 `GET /orders/mine` returns `{ items, truncated }`: the caller's errands in any status, as requester
 or current courier, each in its private projection with `myRole` (`REQUESTER` or `COURIER`). It is
@@ -233,11 +233,14 @@ participants and the referred administrator. Database triggers make `order_recei
 
 `POST /orders/:id/cancel` (requester, `OPEN` or `ACCEPTED`) and `POST /orders/:id/withdraw`
 (assigned courier, `ACCEPTED`) take `{ "expectedVersion" }` and use the same transition path.
-Cancelling moves the order to `RELEASE_PENDING_CREDIT` with reason `cancelled`. A withdrawal removes
+Cancelling moves the order to `RELEASE_PENDING_CREDIT` with reason `CANCELLED`. A withdrawal removes
 the courier: before the acceptance deadline the order reopens with its deadline unchanged, and
-after it the order moves to `RELEASE_PENDING_CREDIT` with reason `expired`. Every move into
+after it the order moves to `RELEASE_PENDING_CREDIT` with reason `EXPIRED`. Every move into
 `RELEASE_PENDING_CREDIT` writes exactly one `order.release-requested` in the same transaction.
-`PICKED_UP` and later states refuse cancellation.
+`PICKED_UP` and later states refuse cancellation. While the release is pending, a participant's view
+returns the reason as `releaseReason`, the status the errand will end in.
+A release caused by a suspension or an administrator's decision reads `CANCELLED`, as its final
+status will, so the field says nothing that status does not.
 
 The **lifecycle scheduler** owns every timer. It runs once as soon as the service is ready and then
 every `LIFECYCLE_SWEEP_INTERVAL_MS` (at most 60 s, enforced at boot). An `OPEN` order past its
@@ -305,7 +308,7 @@ the scheduler refers it to an administrator (above).
 Recording pickup saves `non_delivery_report_at` (pickup plus `DELIVERY_PERIOD_MS`), and recording
 delivery saves `auto_confirm_at` (delivery plus `AUTO_CONFIRM_MS`), in the same update as the move
 (ADR 0006). Both are set and checked against the database clock, which the scheduler also uses, so
-a report and a timer agree on whether a deadline has passed. The private view returns each one,
+a report and a timer agree on whether a deadline has passed. A participant's view returns each one,
 as `nonDeliveryReportAt` while `PICKED_UP` and `autoConfirmAt` while `DELIVERED`, so the requester
 can see when they may report and when silence counts as confirmation. A check constraint refuses a
 picked-up or delivered errand without its deadline, so code that leaves one out fails loudly instead

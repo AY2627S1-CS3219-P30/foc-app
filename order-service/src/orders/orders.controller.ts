@@ -29,8 +29,8 @@ export class OrdersController {
 
   @Get()
   @Authenticated()
-  list() {
-    return this.orders.listOpen();
+  list(@CurrentUser() caller: AuthContext) {
+    return this.orders.listOpen(caller.userId);
   }
 
   // Declared before ':id', which would otherwise refuse "mine" as an invalid order ID.
