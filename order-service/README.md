@@ -175,11 +175,11 @@ below); creation never rejects it merely because the timer passes. `created_at`,
 
 `GET /orders` returns at most 100 unexpired `OPEN` errands ordered by acceptance deadline, leaving
 out the caller's own (they are in `GET /orders/mine`). Its structured item summary omits item notes,
-exact delivery instructions, participant IDs, and every pending or rejected order. `GET /orders/:id` gives that same public projection to an unrelated
-student. A caller can explicitly request `?view=private`; only the requester, assigned courier, or
-the administrator named in `referred_admin_id` receives it, and every other caller receives `403`.
-The scheduler sets and clears `referred_admin_id` for disputes (see *Administrator referral and
-decision*).
+exact delivery instructions, participant IDs, and every pending or rejected order. `GET /orders/:id`
+gives that same public projection to an unrelated student. A caller can explicitly request
+`?view=private`; only the requester, assigned courier, or the administrator named in
+`referred_admin_id` receives it, and every other caller receives `403`. The scheduler sets and
+clears `referred_admin_id` for disputes (see *Administrator referral and decision*).
 
 `GET /orders/mine` returns `{ items, truncated }`: the caller's errands in any status, as requester
 or current courier, each in its private projection with `myRole` (`REQUESTER` or `COURIER`). It is
