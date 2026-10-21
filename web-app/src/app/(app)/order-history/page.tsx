@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import { AppBar } from "@/components/AppBar";
 import { DesktopShell } from "@/components/DesktopShell";
 import { ErrandCard, ErrandGrid } from "@/components/ErrandCard";
+import { FormAlert } from "@/components/FormField";
 import { Screen, ScreenContent } from "@/components/Screen";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { ApiError } from "@/lib/api-client";
@@ -66,16 +67,21 @@ export default function OrderHistoryPage() {
     ) : (
       <LoadingState label="Loading your errands…" />
     )
-  ) : mine.items.length === 0 ? (
-    <EmptyState title="No errands yet">Errands you request or deliver will show up here.</EmptyState>
   ) : (
     <>
-      <Section title="Active" orders={mine.items.filter((o) => !isFinal(o.status))} />
-      <Section title="Past" orders={mine.items.filter((o) => isFinal(o.status))} />
-      {mine.truncated && (
-        <p style={{ fontSize: vars.text.sm, color: vars.color.textSubtle }}>
-          Showing your 100 most recent errands.
-        </p>
+      <FormAlert>{problem ? `Could not refresh your errands. ${problem}` : null}</FormAlert>
+      {mine.items.length === 0 ? (
+        <EmptyState title="No errands yet">Errands you request or deliver will show up here.</EmptyState>
+      ) : (
+        <>
+          <Section title="Active" orders={mine.items.filter((o) => !isFinal(o.status))} />
+          <Section title="Past" orders={mine.items.filter((o) => isFinal(o.status))} />
+          {mine.truncated && (
+            <p style={{ fontSize: vars.text.sm, color: vars.color.textSubtle }}>
+              Showing your 100 most recent errands.
+            </p>
+          )}
+        </>
       )}
     </>
   );

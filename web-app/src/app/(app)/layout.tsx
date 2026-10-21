@@ -49,8 +49,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
+  const showCredits = pathname !== "/suppliers" && !pathname.startsWith("/admin");
   return (
-    <CreditsProvider>
+    <CreditsProvider enabled={showCredits}>
       {children}
       <Menu />
     </CreditsProvider>

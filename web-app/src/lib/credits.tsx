@@ -21,11 +21,18 @@ const CreditsContext = createContext<Credits | null>(null);
  * on the server (reservations, releases, payouts), so it is read again on a timer and on return. It
  * is advice, so a failed read keeps the last balance rather than hiding it.
  */
-export function CreditsProvider({ children }: { children: ReactNode }) {
+export function CreditsProvider({
+  children,
+  enabled = true,
+}: {
+  children: ReactNode;
+  enabled?: boolean;
+}) {
   const { authed } = useAuth();
   const [available, setAvailable] = useState<number | null>(null);
   const read = useCallback(
     async (signal: AbortSignal) => {
+      if (!enabled) return null;
       try {
         const wallet = await authed((token) => getMyWallet(token, signal));
         if (!signal.aborted) setAvailable(wallet.available);
@@ -34,7 +41,7 @@ export function CreditsProvider({ children }: { children: ReactNode }) {
       }
       return CREDITS_POLL_MS;
     },
-    [authed],
+    [authed, enabled],
   );
   const refresh = usePoll(read);
   const value = useMemo(() => ({ available, refresh }), [available, refresh]);

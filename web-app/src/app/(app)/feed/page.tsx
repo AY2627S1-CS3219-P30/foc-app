@@ -115,7 +115,7 @@ export default function FeedPage() {
     ) : (
       <>
         <FormAlert tone="info" takeFocus>{notice}</FormAlert>
-        {problem && <FormAlert>Could not refresh the list. {problem}</FormAlert>}
+        <FormAlert>{problem ? `Could not refresh the list. ${problem}` : null}</FormAlert>
         {cards.length === 0 ? (
           <EmptyState title="No open errands right now">Check back soon.</EmptyState>
         ) : (

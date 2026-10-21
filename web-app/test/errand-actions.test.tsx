@@ -21,6 +21,7 @@ mock.module('../src/components/DesktopShell', () => ({
   DesktopShell: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 const { default: FeedPage } = await import('../src/app/(app)/feed/page');
+const { default: OrderHistoryPage } = await import('../src/app/(app)/order-history/page');
 const { OrderDetail } = await import('../src/app/(app)/request/[id]/OrderDetail');
 const { StoreProvider } = await import('../src/lib/store');
 const { CreditsProvider } = await import('../src/lib/credits');
@@ -95,6 +96,14 @@ function fakeOrderService() {
     serverAhead: 0,
     wallet: (): Response => json(200, { available: 5 }),
     walletReads: 0,
+    feed: (): Response =>
+      json(
+        200,
+        service.open
+          .map((o) => ({ ...o, timeRemainingSeconds: (Date.parse(o.acceptanceDeadlineAt) - Date.now()) / 1000 }))
+          .filter((o) => o.timeRemainingSeconds > 0),
+      ),
+    history: (): Response => json(200, { items: [], truncated: false }),
     stamp: (o: Order): Order => ({ ...o, serverTime: new Date(Date.now() + service.serverAhead).toISOString() }),
     answer: (): Response => json(200, service.stamp({ ...service.current, version: 4 })),
     read: (): Response => json(200, service.stamp(service.reads.shift() ?? service.current)),
@@ -105,13 +114,8 @@ function fakeOrderService() {
         service.commands.push(command);
         return service.answer();
       }
-      if (pathname === '/orders')
-        return json(
-          200,
-          service.open
-            .map((o) => ({ ...o, timeRemainingSeconds: (Date.parse(o.acceptanceDeadlineAt) - Date.now()) / 1000 }))
-            .filter((o) => o.timeRemainingSeconds > 0),
-        );
+      if (pathname === '/orders') return service.feed();
+      if (pathname === '/orders/mine') return service.history();
       if (pathname === '/wallets/me') {
         service.walletReads++;
         return service.wallet();
@@ -180,7 +184,11 @@ const flush = async () => {
   for (let i = 0; i < 6; i++) await act(() => new Promise((resolve) => realTimers.setTimeout(resolve, 0)));
 };
 
-async function render(element: React.ReactElement, service: ReturnType<typeof fakeOrderService>) {
+async function render(
+  element: React.ReactElement,
+  service: ReturnType<typeof fakeOrderService>,
+  creditsEnabled = true,
+) {
   globalThis.fetch = ((request: Request) => service.fetch(request)) as typeof fetch;
   const container = window.document.createElement('div');
   window.document.body.replaceChildren(container);
@@ -189,7 +197,7 @@ async function render(element: React.ReactElement, service: ReturnType<typeof fa
   await act(() =>
     root.render(
       <StoreProvider>
-        <CreditsProvider>{element}</CreditsProvider>
+        <CreditsProvider enabled={creditsEnabled}>{element}</CreditsProvider>
       </StoreProvider>,
     ),
   );
@@ -214,6 +222,19 @@ async function confirmAction(container: HTMLElement, label: string, confirmLabel
 }
 
 describe('feed', () => {
+  it('announces a failed background refresh in the existing alert', async () => {
+    const service = fakeOrderService();
+    const container = await render(<FeedPage />, service);
+    const alert = container.querySelector('[role="alert"]')!;
+    expect(alert.textContent).toBe('');
+
+    service.feed = () => failure(503, 'INTERNAL');
+    await act(async () => window.dispatchEvent(new window.Event('online')));
+    await flush();
+    expect(container.querySelector('[role="alert"]')).toBe(alert);
+    expect(alert.textContent).toContain('Could not refresh the list.');
+  });
+
   it('counts down from the time the server gave and removes the card at zero', async () => {
     const clock = fakeClock();
     const service = fakeOrderService();
@@ -305,6 +326,22 @@ describe('feed', () => {
     const container = await render(<FeedPage />, fakeOrderService());
     window.happyDOM.setURL('http://localhost/');
     expect(container.textContent).toContain('You withdrew from the errand.');
+  });
+});
+
+describe('history', () => {
+  it('shows a failed refresh alongside the last loaded list', async () => {
+    const service = fakeOrderService();
+    const container = await render(<OrderHistoryPage />, service);
+    const alert = container.querySelector('[role="alert"]')!;
+    expect(container.textContent).toContain('No errands yet');
+
+    service.history = () => failure(503, 'INTERNAL');
+    await act(async () => window.dispatchEvent(new window.Event('online')));
+    await flush();
+    expect(container.querySelector('[role="alert"]')).toBe(alert);
+    expect(alert.textContent).toContain('Could not refresh your errands.');
+    expect(container.textContent).toContain('No errands yet');
   });
 });
 
@@ -543,6 +580,26 @@ describe('requester', () => {
 describe('credits', () => {
   const pills = (container: HTMLElement) => container.textContent?.match(/\d+ credits/g);
 
+  it('does not read the wallet on a screen without a credit pill', async () => {
+    const service = fakeOrderService();
+    await render(<TopBar showCreditPill={false} />, service, false);
+    expect(service.walletReads).toBe(0);
+  });
+
+  it('refreshes the balance when the first order read is already open', async () => {
+    const service = fakeOrderService();
+    service.wallet = () => json(200, { available: service.walletReads === 1 ? 5 : 2 });
+    const container = await render(
+      <>
+        <TopBar />
+        <OrderDetail orderId={ORDER_ID} />
+      </>,
+      service,
+    );
+    expect(service.walletReads).toBe(2);
+    expect(pills(container)).toContain('2 credits');
+  });
+
   it('reads the balance once for every top bar, and keeps it when a read fails', async () => {
     const clock = fakeClock();
     const service = fakeOrderService();
@@ -581,11 +638,11 @@ describe('credits', () => {
     service.wallet = () => json(200, { available: 8 });
     await confirmAction(container, 'Cancel errand', 'Cancel errand');
     expect(container.textContent).toContain('5 credits');
-    expect(service.walletReads).toBe(1);
+    expect(service.walletReads).toBe(2);
 
     service.current = order({ status: 'CANCELLED', releaseReason: 'CANCELLED', version: 5 });
     await clock.advance(1_000);
     expect(container.textContent).toContain('8 credits');
-    expect(service.walletReads).toBe(2);
+    expect(service.walletReads).toBe(3);
   });
 });

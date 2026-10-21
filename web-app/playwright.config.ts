@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 
 /**
  * End-to-end checks for the account journey (USR-05) against the real stack: `docker compose up`
@@ -9,9 +10,8 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const at = (width: number, height: number) => ({ ...devices["Desktop Chrome"], viewport: { width, height } });
 
-// Set once here and inherited by global setup and every worker, so specs can share accounts across
-// projects and retries.
-process.env.E2E_RUN ??= String(Date.now());
+// The runner makes a fresh ID per invocation; workers reload this config and keep its inherited ID.
+if (process.env.TEST_WORKER_INDEX === undefined) process.env.E2E_RUN = randomUUID();
 
 export default defineConfig({
   testDir: "./e2e",

@@ -17,7 +17,7 @@ import { draftFrom, itemsLabel, saveDraft } from "@/lib/composer";
 import { useCredits } from "@/lib/credits";
 import type { Order } from "@/lib/order-api";
 import { actionDeadline, actionsFor, roleIn, type OrderAction, type Role } from "@/lib/order-actions";
-import { rejectionMessage, statusWording, waitsOnCredit } from "@/lib/order-status";
+import { isFinal, rejectionMessage, statusWording, waitsOnCredit } from "@/lib/order-status";
 import { useNowAfter } from "@/lib/use-now";
 import { useOrder } from "@/lib/use-order";
 import { useOrderAction } from "@/lib/use-order-action";
@@ -172,7 +172,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [acted, setActed] = useState(0);
   const { refresh: refreshCredits } = useCredits();
-  const wasWaitingForCredits = useRef(false);
+  const wasWaitingForCredits = useRef<boolean | null>(null);
   const orderStatus = order?.status;
   const role = order ? roleIn(order, user?.id) : null;
   const deadline = order ? actionDeadline(order, role) : null;
@@ -199,7 +199,9 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   useEffect(() => {
     if (!orderStatus) return;
     const waiting = waitsOnCredit(orderStatus);
-    if (wasWaitingForCredits.current && !waiting) refreshCredits();
+    const firstSettledRead = wasWaitingForCredits.current === null && !isFinal(orderStatus);
+    if (!waiting && (wasWaitingForCredits.current === true || firstSettledRead))
+      refreshCredits();
     wasWaitingForCredits.current = waiting;
   }, [orderStatus, refreshCredits]);
   useUrlFlag("replayed", () => setReplayed(true));
