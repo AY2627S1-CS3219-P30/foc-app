@@ -41,12 +41,19 @@ const LEADS: Record<PreferredMode, string> = {
   COURIER: "/feed",
 };
 
+const LABELS: Record<PreferredMode, Record<string, string>> = {
+  REQUESTER: { "/feed": "Your requests" },
+  COURIER: {},
+};
+
 /**
- * Puts the current mode's leading screen first. Presentation only — both modes see every screen,
- * because every active student may both request and deliver (US-FR2.1.1).
+ * Names screens for the current mode and puts its leading screen first. Presentation only — both
+ * modes see every screen, because every active student may both request and deliver (US-FR2.1.1).
  */
-export function orderForMode<T extends { href: string }>(items: T[], mode?: PreferredMode): T[] {
+export function navForMode<T extends NavItem>(items: T[], mode?: PreferredMode): T[] {
   if (!mode) return items;
-  const lead = items.find((i) => i.href === LEADS[mode]);
-  return lead ? [lead, ...items.filter((i) => i !== lead)] : items;
+  const labels = LABELS[mode];
+  const named = items.map((i) => (labels[i.href] ? { ...i, label: labels[i.href] } : i));
+  const lead = named.find((i) => i.href === LEADS[mode]);
+  return lead ? [lead, ...named.filter((i) => i !== lead)] : named;
 }
