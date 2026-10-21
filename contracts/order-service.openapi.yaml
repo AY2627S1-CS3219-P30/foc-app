@@ -74,7 +74,7 @@ paths:
     get:
       operationId: listOpenOrders
       summary: Discover currently acceptable errands.
-      description: Returns only unexpired OPEN orders and never exposes delivery instructions or participant IDs.
+      description: Returns only unexpired OPEN orders, leaves out the caller's own errands, and never exposes delivery instructions or participant IDs.
       responses:
         '200':
           description: Privacy-safe open-order summaries ordered by acceptance deadline.
