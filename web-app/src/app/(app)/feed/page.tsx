@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ActionDialog } from "@/components/ActionDialog";
 import { AppBar } from "@/components/AppBar";
@@ -15,12 +15,13 @@ import { useAuth } from "@/lib/auth";
 import { STUDENT_NAV } from "@/lib/nav";
 import { listOpenOrders, type OpenOrder } from "@/lib/order-api";
 import { ORDER_ACTIONS } from "@/lib/order-actions";
-import { useClock } from "@/lib/use-now";
-import { useOnReturn } from "@/lib/use-on-return";
+import { useNowAfter } from "@/lib/use-now";
 import { useOrderAction } from "@/lib/use-order-action";
+import { usePoll } from "@/lib/use-poll";
 import { vars } from "@/styles/tokens";
 
 const FEED_POLL_MS = 30_000;
+const MINUTE_MS = 60_000;
 
 /** `expiresAt` counts from the server's `timeRemainingSeconds`, so a wrong device clock can't skew it. */
 type Listing = OpenOrder & { expiresAt: number };
@@ -30,49 +31,44 @@ function useFeed() {
   const { authed } = useAuth();
   const [listings, setListings] = useState<Listing[] | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const [revision, setRevision] = useState(0);
-  const reload = useCallback(() => setRevision((r) => r + 1), []);
-  useOnReturn(reload);
-
-  useEffect(() => {
-    let live = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    async function read() {
-      if (document.visibilityState === "hidden") return;
+  const read = useCallback(
+    async (signal: AbortSignal) => {
       try {
         const open = await authed(listOpenOrders);
-        if (!live) return;
+        if (signal.aborted) return null;
         const readAt = Date.now();
         setListings(open.map((o) => ({ ...o, expiresAt: readAt + o.timeRemainingSeconds * 1000 })));
         setProblem(null);
       } catch (err) {
-        if (!live) return;
+        if (signal.aborted) return null;
         setProblem(err instanceof ApiError ? err.message : "Something went wrong.");
       }
-      timer = setTimeout(read, FEED_POLL_MS);
-    }
-
-    void read();
-    return () => {
-      live = false;
-      clearTimeout(timer);
-    };
-  }, [authed, revision]);
-
+      return FEED_POLL_MS;
+    },
+    [authed],
+  );
+  const reload = usePoll(read);
   return { listings, problem, reload };
 }
 
 function timeLeft(ms: number) {
-  const minutes = Math.ceil(ms / 60_000);
+  const minutes = Math.ceil(ms / MINUTE_MS);
   return minutes <= 1 ? "Under a minute left" : `${minutes} min left`;
+}
+
+/** The next moment a card's time left ticks down a minute, or it expires. */
+function nextChange(listings: Listing[] | null, now: number): number | null {
+  const changes = (listings ?? [])
+    .filter((l) => l.expiresAt > now)
+    .map((l) => l.expiresAt - (Math.ceil((l.expiresAt - now) / MINUTE_MS) - 1) * MINUTE_MS);
+  return changes.length > 0 ? Math.min(...changes) : null;
 }
 
 export default function FeedPage() {
   const router = useRouter();
   const { listings, problem, reload } = useFeed();
   const [notice, setNotice] = useState<string | null>(null);
-  const now = useClock(1000);
+  const now = useNowAfter((time) => nextChange(listings, time));
   const accept = useOrderAction({
     onDone: (order) => router.push(`/request/${order.orderId}`),
     onStale: (message) => {

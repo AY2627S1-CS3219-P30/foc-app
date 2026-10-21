@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ApiError } from "./api-client";
 import { useAuth } from "./auth";
 import { getOrder, type Order } from "./order-api";
 import { isFinal } from "./order-status";
-import { useOnReturn } from "./use-on-return";
+import { usePoll } from "./use-poll";
 
 /** Waits between reads while the Credit Service has the errand: backing off, then every 15 seconds. */
 const CREDIT_POLL_MS = [1_000, 2_000, 4_000, 8_000, 15_000];
@@ -17,61 +17,55 @@ const STILL_WAITING_MS = 30_000;
 const awaitingCredit = (status: Order["status"]) => status.endsWith("PENDING_CREDIT");
 
 /**
- * Reads the order, and keeps reading until it is final while the tab is visible: quickly while
- * the Credit Service has it, slower otherwise. Coming back to the tab or back online reads it at
- * once. A 4xx, or an error that is not an {@link ApiError} (a bug, not the network), stops.
+ * Reads the order, and keeps reading until it is final: quickly while the Credit Service has it,
+ * slower otherwise. A 4xx, or an error that is not an {@link ApiError} (a bug, not the network), stops.
  */
 export function useOrder(orderId: string) {
   const { authed } = useAuth();
   const [order, setOrder] = useState<Order | null>(null);
   const [problem, setProblem] = useState<ApiError | null>(null);
   const [stillWaiting, setStillWaiting] = useState(false);
-  const [revision, setRevision] = useState(0);
   const since = useRef<number | null>(null);
+  const creditReads = useRef(0);
 
-  /** Shows `latest` (a command's answer) at once, then reads again on the faster schedule. */
-  const refresh = useCallback((latest?: Order) => {
-    if (latest) setOrder(latest);
-    setRevision((r) => r + 1);
-  }, []);
-  useOnReturn(refresh);
-
-  useEffect(() => {
-    since.current ??= Date.now();
-    let attempt = 0;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let live = true;
-
-    async function read() {
-      if (document.visibilityState === "hidden") return;
-      let delay = ACTIVE_POLL_MS;
+  const read = useCallback(
+    async (signal: AbortSignal) => {
+      since.current ??= Date.now();
       try {
         const next = await authed((token) => getOrder(token, orderId));
-        if (!live) return;
+        if (signal.aborted) return null;
         setOrder(next);
         setProblem(null);
-        if (isFinal(next.status)) return;
-        if (awaitingCredit(next.status))
-          delay = CREDIT_POLL_MS[Math.min(attempt++, CREDIT_POLL_MS.length - 1)];
         setStillWaiting(
-          next.status === "PENDING_CREDIT" && Date.now() - since.current! >= STILL_WAITING_MS,
+          next.status === "PENDING_CREDIT" && Date.now() - since.current >= STILL_WAITING_MS,
         );
+        if (isFinal(next.status)) return null;
+        if (!awaitingCredit(next.status)) {
+          creditReads.current = 0;
+          return ACTIVE_POLL_MS;
+        }
+        return CREDIT_POLL_MS[Math.min(creditReads.current++, CREDIT_POLL_MS.length - 1)];
       } catch (err) {
-        if (!live) return;
+        if (signal.aborted) return null;
         const problem =
           err instanceof ApiError ? err : new ApiError(0, "UNEXPECTED", "Something went wrong.");
         setProblem(problem);
-        if (problem.code === "UNEXPECTED" || (problem.status >= 400 && problem.status < 500)) return;
+        const stop = problem.code === "UNEXPECTED" || (problem.status >= 400 && problem.status < 500);
+        return stop ? null : ACTIVE_POLL_MS;
       }
-      timer = setTimeout(read, delay);
-    }
+    },
+    [authed, orderId],
+  );
+  const readNow = usePoll(read);
 
-    void read();
-    return () => {
-      live = false;
-      clearTimeout(timer);
-    };
-  }, [authed, orderId, revision]);
+  /** Shows `latest` (a command's answer) at once, then reads again. */
+  const refresh = useCallback(
+    (latest?: Order) => {
+      if (latest) setOrder(latest);
+      readNow();
+    },
+    [readNow],
+  );
 
   return { order, problem, stillWaiting, refresh };
 }

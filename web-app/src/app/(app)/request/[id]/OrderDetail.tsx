@@ -150,7 +150,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const [notice, setNotice] = useState<string | null>(null);
   const role = order ? roleIn(order, user?.id) : null;
   const deadline = order ? actionDeadline(order, role) : null;
-  const now = useNowAfter(deadline);
+  const now = useNowAfter(() => deadline);
   const act = useOrderAction({
     onDone: (next) => {
       setNotice(null);

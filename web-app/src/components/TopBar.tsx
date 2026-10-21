@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import { getMyWallet } from "@/lib/order-api";
-import { useOnReturn } from "@/lib/use-on-return";
+import { usePoll } from "@/lib/use-poll";
 import { ModeSwitch } from "./ModeSwitch";
 import styles from "./TopBar.module.css";
 
@@ -17,31 +17,20 @@ const CREDITS_POLL_MS = 30_000;
 function useAvailableCredits(enabled: boolean) {
   const { authed } = useAuth();
   const [available, setAvailable] = useState<number | null>(null);
-  const [revision, setRevision] = useState(0);
-  useOnReturn(() => setRevision((r) => r + 1));
-
-  useEffect(() => {
-    if (!enabled) return;
-    let live = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    async function read() {
-      if (document.visibilityState === "hidden") return;
+  const read = useCallback(
+    async (signal: AbortSignal) => {
+      if (!enabled) return null;
       try {
         const wallet = await authed(getMyWallet);
-        if (live) setAvailable(wallet.available);
+        if (!signal.aborted) setAvailable(wallet.available);
       } catch {
-        if (live) setAvailable(null);
+        if (!signal.aborted) setAvailable(null);
       }
-      if (live) timer = setTimeout(read, CREDITS_POLL_MS);
-    }
-
-    void read();
-    return () => {
-      live = false;
-      clearTimeout(timer);
-    };
-  }, [authed, enabled, revision]);
+      return CREDITS_POLL_MS;
+    },
+    [authed, enabled],
+  );
+  usePoll(read);
   return available;
 }
 

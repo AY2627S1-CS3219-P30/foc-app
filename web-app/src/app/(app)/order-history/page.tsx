@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { AppBar } from "@/components/AppBar";
 import { DesktopShell } from "@/components/DesktopShell";
 import { ErrandCard } from "@/components/ErrandCard";
@@ -11,8 +11,11 @@ import { useAuth } from "@/lib/auth";
 import { STUDENT_NAV } from "@/lib/nav";
 import { listMyOrders, type MyOrder } from "@/lib/order-api";
 import { isFinal } from "@/lib/order-status";
-import { useOnReturn } from "@/lib/use-on-return";
+import { usePoll } from "@/lib/use-poll";
 import { vars } from "@/styles/tokens";
+
+/** Only while some errand is still active: past ones no longer change. */
+const HISTORY_POLL_MS = 30_000;
 
 const ROLE_LABEL: Record<MyOrder["myRole"], string> = {
   REQUESTER: "You requested",
@@ -43,26 +46,23 @@ export default function OrderHistoryPage() {
   const { authed } = useAuth();
   const [mine, setMine] = useState<{ items: MyOrder[]; truncated: boolean } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const [revision, setRevision] = useState(0);
-  const reload = useCallback(() => setRevision((r) => r + 1), []);
-  useOnReturn(reload);
-
-  useEffect(() => {
-    let live = true;
-    authed(listMyOrders).then(
-      (next) => {
-        if (!live) return;
+  const read = useCallback(
+    async (signal: AbortSignal) => {
+      try {
+        const next = await authed(listMyOrders);
+        if (signal.aborted) return null;
         setMine(next);
         setProblem(null);
-      },
-      (err: unknown) => {
-        if (live) setProblem(err instanceof ApiError ? err.message : "Something went wrong.");
-      },
-    );
-    return () => {
-      live = false;
-    };
-  }, [authed, revision]);
+        return next.items.some((o) => !isFinal(o.status)) ? HISTORY_POLL_MS : null;
+      } catch (err) {
+        if (signal.aborted) return null;
+        setProblem(err instanceof ApiError ? err.message : "Something went wrong.");
+        return HISTORY_POLL_MS;
+      }
+    },
+    [authed],
+  );
+  const reload = usePoll(read);
 
   const content = !mine ? (
     problem ? (
