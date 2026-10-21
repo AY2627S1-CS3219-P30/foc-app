@@ -711,18 +711,20 @@ export interface components {
                 previousStatus: string | null;
                 newStatus: string;
                 /**
-                 * @description The transition's action. To anyone but the referred administrator, a change a
-                 *     participant's suspension caused shows as `SYSTEM_OUTCOME`, with a null `actorId`
-                 *     and `reason`, so it does not reveal the suspension.
+                 * @description The transition's action. To anyone but the referred administrator, every change
+                 *     the system made (a timer, a referral or a suspension) shows as `SYSTEM_OUTCOME`,
+                 *     with a null `actorId` and `reason`, so the history does not say what caused it.
+                 *     So does the Credit Service's cancellation for a suspended requester. The statuses
+                 *     are always the real ones, so a change only a suspension makes can be inferred.
                  */
                 action: string;
                 actorType: string;
                 actorId: string | null;
                 /**
-                 * @description An administrator's reason for a decision; on `ADMIN_ASSIGNED` and
-                 *     `ADMIN_UNASSIGNED`, the user ID of the administrator referred or cleared; or, to
-                 *     the referred administrator only, `requester suspended` or `courier suspended` on a
-                 *     change a suspension caused. Otherwise null.
+                 * @description An administrator's reason for a decision; or, to the referred administrator only,
+                 *     the user ID of the administrator referred or cleared on `ADMIN_ASSIGNED` and
+                 *     `ADMIN_UNASSIGNED`, and `requester suspended` or `courier suspended` on a change a
+                 *     suspension caused. Otherwise null.
                  */
                 reason: string | null;
                 version: number;

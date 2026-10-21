@@ -362,9 +362,26 @@ Credit Service is not changed. No suspension moves credits except the requester'
 
 Every outcome's history row gives its reason, `requester suspended` or `courier suspended`,
 including the two below that happen later: the scheduler's referral and the cancellation when the
-reservation arrives. Only the referred administrator reads that row as written. To the other
-participant it shows as `SYSTEM_OUTCOME`, with no actor or reason, so the history does not say that
-someone was suspended.
+reservation arrives. Only the referred administrator reads that row as written.
+
+What the history shows the other participant was decided in #260 (2026-10-21). It never names a
+suspension or who was suspended: to anyone but the referred administrator, every change the system
+makes shows as `SYSTEM_OUTCOME`, with no actor or reason, whether a timer, a referral or a
+suspension made it. So does the Credit Service's cancellation for a suspended requester. An errand
+reopened by the system, for example, reads the same in the history whether the courier's pickup
+time ran out or the courier was suspended. The statuses are always the real ones, though, since
+hiding them would make the history false, so a participant can still work out a suspension from
+these changes:
+
+- **`ACCEPTED` to `RELEASE_PENDING_CREDIT` with the courier still on the errand.** Only the
+  requester's suspension does this. A pickup timeout past the acceptance deadline makes the same
+  change but removes the courier. So the courier can tell that the requester was suspended.
+- **`PICKED_UP` to `DISPUTED` by the system.** Only a suspension of the courier or of the requester
+  does this; otherwise the requester reports non-delivery themselves. Each knows whether they were
+  suspended, so they can tell that the other was.
+- **A reopened errand's acceptance deadline moving later.** This is not in the history, but a
+  courier's suspension gives the requester back the time the courier held the errand and a pickup
+  timeout does not, so a requester who compares the deadline can tell.
 
 - **While the errand waits for its reservation.** A requester suspended while their errand is in
   `PENDING_CREDIT` is caught when Credit's reservation arrives: the reply handler asks the User
