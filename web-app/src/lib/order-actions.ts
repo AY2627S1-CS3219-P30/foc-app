@@ -150,8 +150,8 @@ export function actionsFor(order: Order, role: Role, now: number): OrderAction[]
 
 const TOOK_EFFECT: Record<Command, (order: Order, role: Role) => boolean> = {
   accept: (_, role) => role === "COURIER",
-  pickup: (order) => order.status === "PICKED_UP",
-  deliver: (order) => order.status === "DELIVERED",
+  pickup: (order, role) => role === "COURIER" && order.status === "PICKED_UP",
+  deliver: (order, role) => role === "COURIER" && order.status === "DELIVERED",
   withdraw: (_, role) => role !== "COURIER",
   cancel: (order) => order.status === "CANCELLED" || order.releaseReason === "CANCELLED",
   confirmReceipt: (order) =>

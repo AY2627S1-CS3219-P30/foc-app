@@ -27,7 +27,7 @@ export function CreditsProvider({ children }: { children: ReactNode }) {
   const read = useCallback(
     async (signal: AbortSignal) => {
       try {
-        const wallet = await authed(getMyWallet);
+        const wallet = await authed((token) => getMyWallet(token, signal));
         if (!signal.aborted) setAvailable(wallet.available);
       } catch {
         // Keep the last balance: one failed read says nothing about it.

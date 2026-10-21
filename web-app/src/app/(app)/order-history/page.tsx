@@ -43,7 +43,7 @@ export default function OrderHistoryPage() {
   const read = useCallback(
     async (signal: AbortSignal) => {
       try {
-        const next = await authed(listMyOrders);
+        const next = await authed((token) => listMyOrders(token, signal));
         if (signal.aborted) return null;
         setMine(next);
         setProblem(null);

@@ -31,10 +31,13 @@ export function useOrder(orderId: string) {
   const [problem, setProblem] = useState<ApiError | null>(null);
   const [stillWaiting, setStillWaiting] = useState(false);
   const status = useRef<OrderStatus | null>(null);
+  const version = useRef(-1);
   const since = useRef(0);
   const attempt = useRef(0);
 
   const show = useCallback((next: Order) => {
+    if (next.version < version.current) return;
+    version.current = next.version;
     setOrder(next);
     setSkew(Date.now() - Date.parse(next.serverTime));
     setStillWaiting(
@@ -59,7 +62,7 @@ export function useOrder(orderId: string) {
     async (signal: AbortSignal) => {
       if (status.current && isFinal(status.current)) return null;
       try {
-        const next = await authed((token) => getOrder(token, orderId));
+        const next = await authed((token) => getOrder(token, orderId, signal));
         if (signal.aborted) return null;
         show(next);
         setProblem(null);

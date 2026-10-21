@@ -42,19 +42,23 @@ export async function createOrder(token: string, body: CreateOrder, idempotencyK
   return { order, replayed: (await call).response.status === 200 };
 }
 
-export const getOrder = (token: string, orderId: string) =>
+export const getOrder = (token: string, orderId: string, signal?: AbortSignal) =>
   unwrap(
-    orderApi.GET("/orders/{orderId}", { params: { path: { orderId } }, headers: bearer(token) }),
+    orderApi.GET("/orders/{orderId}", {
+      params: { path: { orderId } },
+      headers: bearer(token),
+      signal,
+    }),
   );
 
-export const getMyWallet = (token: string) =>
-  unwrap(creditApi.GET("/wallets/me", { headers: bearer(token) }));
+export const getMyWallet = (token: string, signal?: AbortSignal) =>
+  unwrap(creditApi.GET("/wallets/me", { headers: bearer(token), signal }));
 
-export const listOpenOrders = (token: string) =>
-  unwrap(orderApi.GET("/orders", { headers: bearer(token) }));
+export const listOpenOrders = (token: string, signal?: AbortSignal) =>
+  unwrap(orderApi.GET("/orders", { headers: bearer(token), signal }));
 
-export const listMyOrders = (token: string) =>
-  unwrap(orderApi.GET("/orders/mine", { headers: bearer(token) }));
+export const listMyOrders = (token: string, signal?: AbortSignal) =>
+  unwrap(orderApi.GET("/orders/mine", { headers: bearer(token), signal }));
 
 const COMMAND_PATHS = {
   accept: "/orders/{orderId}/accept",

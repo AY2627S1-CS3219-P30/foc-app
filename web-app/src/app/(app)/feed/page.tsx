@@ -12,14 +12,13 @@ import { Screen, ScreenContent } from "@/components/Screen";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth";
-import { useCredits } from "@/lib/credits";
 import { STUDENT_NAV } from "@/lib/nav";
 import { listOpenOrders, type OpenOrder } from "@/lib/order-api";
 import { ORDER_ACTIONS } from "@/lib/order-actions";
 import { useNowAfter } from "@/lib/use-now";
 import { useOrderAction } from "@/lib/use-order-action";
 import { usePoll } from "@/lib/use-poll";
-import { useQueryParam } from "@/lib/use-query-param";
+import { useUrlFlag } from "@/lib/use-query-param";
 
 const FEED_POLL_MS = 30_000;
 const MINUTE_MS = 60_000;
@@ -36,7 +35,7 @@ function useFeed() {
   const read = useCallback(
     async (signal: AbortSignal) => {
       try {
-        const open = await authed(listOpenOrders);
+        const open = await authed((token) => listOpenOrders(token, signal));
         if (signal.aborted) return null;
         const readAt = Date.now();
         setListings(open.map((o) => ({ ...o, expiresAt: readAt + o.timeRemainingSeconds * 1000 })));
@@ -69,13 +68,12 @@ function nextChange(listings: Listing[] | null, now: number): number | null {
 export default function FeedPage() {
   const router = useRouter();
   const { listings, problem, reload } = useFeed();
-  const withdrawn = useQueryParam("withdrawn") === "1";
   const [notice, setNotice] = useState<string | null>(null);
+  const showWithdrawn = useCallback(() => setNotice(WITHDRAWN), []);
+  useUrlFlag("withdrawn", showWithdrawn);
   const now = useNowAfter((time) => nextChange(listings, time));
-  const { refresh: refreshCredits } = useCredits();
   const accept = useOrderAction({
     onDone: (order) => {
-      refreshCredits();
       router.push(`/request/${order.orderId}`);
     },
     onStale: (message) => {
@@ -116,7 +114,7 @@ export default function FeedPage() {
       )
     ) : (
       <>
-        <FormAlert tone="info" takeFocus>{notice ?? (withdrawn && WITHDRAWN)}</FormAlert>
+        <FormAlert tone="info" takeFocus>{notice}</FormAlert>
         {problem && <FormAlert>Could not refresh the list. {problem}</FormAlert>}
         {cards.length === 0 ? (
           <EmptyState title="No open errands right now">Check back soon.</EmptyState>

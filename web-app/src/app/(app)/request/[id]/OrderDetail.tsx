@@ -17,11 +17,11 @@ import { draftFrom, itemsLabel, saveDraft } from "@/lib/composer";
 import { useCredits } from "@/lib/credits";
 import type { Order } from "@/lib/order-api";
 import { actionDeadline, actionsFor, roleIn, type OrderAction, type Role } from "@/lib/order-actions";
-import { rejectionMessage, statusWording } from "@/lib/order-status";
+import { rejectionMessage, statusWording, waitsOnCredit } from "@/lib/order-status";
 import { useNowAfter } from "@/lib/use-now";
 import { useOrder } from "@/lib/use-order";
 import { useOrderAction } from "@/lib/use-order-action";
-import { useQueryParam } from "@/lib/use-query-param";
+import { useUrlFlag } from "@/lib/use-query-param";
 import { vars } from "@/styles/tokens";
 
 /** `at` on the server's clock, shown as this device's clock will read then. */
@@ -172,6 +172,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [acted, setActed] = useState(0);
   const { refresh: refreshCredits } = useCredits();
+  const wasWaitingForCredits = useRef(false);
   const role = order ? roleIn(order, user?.id) : null;
   const deadline = order ? actionDeadline(order, role) : null;
   // `now` is on the server's clock, like the deadlines: this device's may be wrong.
@@ -186,7 +187,6 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       setNotice(null);
       setActed((n) => n + 1);
       refresh(next);
-      refreshCredits();
     },
     onStale: (message) => {
       setNotice(message);
@@ -194,16 +194,14 @@ export function OrderDetail({ orderId }: { orderId: string }) {
     },
   });
   const title = order?.supplier.name ?? "Request";
-  const fromUrl = useQueryParam("replayed") === "1";
   const [replayed, setReplayed] = useState(false);
-  if (fromUrl && !replayed) setReplayed(true);
-
   useEffect(() => {
-    if (!replayed) return;
-    const url = new URL(window.location.href);
-    url.searchParams.delete("replayed");
-    window.history.replaceState(null, "", url.href);
-  }, [replayed]);
+    if (!order) return;
+    const waiting = waitsOnCredit(order.status);
+    if (wasWaitingForCredits.current && !waiting) refreshCredits();
+    wasWaitingForCredits.current = waiting;
+  }, [order?.status, refreshCredits]);
+  useUrlFlag("replayed", () => setReplayed(true));
 
   const body = order ? (
     <StatusBody
