@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Window } from "happy-dom";
 import type { MyOrder } from "../src/lib/order-api";
+import { isFinal } from "../src/lib/order-status";
 
 const window = new Window({ url: "http://localhost:3000/order-history" });
 Object.assign(globalThis, { window, document: window.document, IS_REACT_ACT_ENVIRONMENT: true });
@@ -63,7 +64,17 @@ function serve(items: MyOrder[], truncated = false) {
   globalThis.fetch = (async (request: Request) => {
     reads++;
     requested.push(request.url);
-    return json({ items, truncated });
+    const query = new URL(request.url).searchParams;
+    const role = query.get("role");
+    const active = query.get("active");
+    return json({
+      items: items.filter((order) => {
+        const matchesRole = !role || order.myRole === role;
+        const matchesActive = active === null || (active === "true") === !isFinal(order.status);
+        return matchesRole && matchesActive;
+      }),
+      truncated,
+    });
   }) as unknown as typeof fetch;
 }
 
@@ -142,19 +153,26 @@ describe("order history (WEB-03)", () => {
     expect(past).not.toContain("Supplier open");
   });
 
-  it("shows only the selected role's errands", async () => {
-    serve([errand("mine", "OPEN"), errand("delivery", "ACCEPTED", { myRole: "COURIER" })]);
+  it("keeps active own requests visible in courier mode", async () => {
+    serve([
+      errand("mine", "DELIVERED"),
+      errand("past-request", "COMPLETED"),
+      errand("delivery", "ACCEPTED", { myRole: "COURIER" }),
+    ]);
     await render();
     expect(container.textContent).toContain("Supplier mine");
     expect(container.textContent).not.toContain("Supplier delivery");
-    expect(requested.at(-1)).toContain("/orders/mine?role=REQUESTER");
+    expect(requested.some((url) => url.includes("/orders/mine?role=REQUESTER"))).toBe(true);
 
     auth.user.profile.preferredMode = "COURIER";
     await act(async () => root.render(<StoreProvider><OrderHistoryPage /></StoreProvider>));
     await settle();
     expect(container.textContent).toContain("Supplier delivery");
-    expect(container.textContent).not.toContain("Supplier mine");
-    expect(requested.at(-1)).toContain("/orders/mine?role=COURIER");
+    expect(section("Your active requests")?.textContent).toContain("Supplier mine");
+    expect(section("Active deliveries")?.textContent).toContain("Supplier delivery");
+    expect(container.textContent).not.toContain("Supplier past-request");
+    expect(requested.some((url) => url.includes("/orders/mine?role=COURIER"))).toBe(true);
+    expect(requested.some((url) => url.includes("/orders/mine?role=REQUESTER&active=true"))).toBe(true);
   });
 
   it("links to the receipt from completed errands only", async () => {

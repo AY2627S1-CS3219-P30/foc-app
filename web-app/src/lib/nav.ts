@@ -35,14 +35,21 @@ export function withAdminEntry<T extends NavItem>(
   return [...items, ADMIN_ENTRY];
 }
 
+const LEADS: Record<PreferredMode, string> = {
+  REQUESTER: "/order-history",
+  COURIER: "/feed",
+};
+
 const LABELS: Record<PreferredMode, Record<string, string>> = {
-  REQUESTER: { "/feed": "Open requests" },
+  REQUESTER: { "/feed": "Your requests" },
   COURIER: {},
 };
 
-/** Names the current mode's screens; both modes still allow requesting and delivering. */
+/** Keeps the current mode's leading screen first and names its feed. */
 export function navForMode<T extends NavItem>(items: T[], mode?: PreferredMode): T[] {
   if (!mode) return items;
   const labels = LABELS[mode];
-  return items.map((i) => (labels[i.href] ? { ...i, label: labels[i.href] } : i));
+  const named = items.map((i) => (labels[i.href] ? { ...i, label: labels[i.href] } : i));
+  const lead = named.find((i) => i.href === LEADS[mode]);
+  return lead ? [lead, ...named.filter((i) => i !== lead)] : named;
 }

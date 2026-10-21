@@ -345,16 +345,12 @@ describe('requester open requests', () => {
     const service = fakeOrderService();
     service.open = [listing(OTHER_ID, 'Their cafe')];
     service.history = () => json(200, {
-      items: [
-        { ...order(), myRole: 'REQUESTER' },
-        { ...order({ orderId: OTHER_ID, status: 'ACCEPTED' }), myRole: 'COURIER' },
-        { ...order({ orderId: 'past', status: 'COMPLETED' }), myRole: 'REQUESTER' },
-      ],
+      items: [{ ...order(), myRole: 'REQUESTER' }],
       truncated: false,
     });
 
     const container = await render(<FeedPage />, service);
-    expect(container.textContent).toContain('Open requests');
+    expect(container.textContent).toContain('Your requests');
     expect(container.textContent).toContain('Kopi Corner');
     expect(container.textContent).not.toContain('Their cafe');
     expect(service.queries).toContain('/orders/mine?role=REQUESTER&active=true');
@@ -362,6 +358,13 @@ describe('requester open requests', () => {
     expect(container.querySelector('a[href="/request/past"]')).toBeNull();
     expect(buttons(container, 'Accept')).toEqual([]);
     expect(container.querySelector('button[aria-label="New request"]')).not.toBeNull();
+  });
+
+  it('shows a withdrawal notice immediately in requester mode', async () => {
+    window.happyDOM.setURL('http://localhost/feed?withdrawn=1');
+    const container = await render(<FeedPage />, fakeOrderService());
+    window.happyDOM.setURL('http://localhost/');
+    expect(container.textContent).toContain('You withdrew from the errand.');
   });
 });
 

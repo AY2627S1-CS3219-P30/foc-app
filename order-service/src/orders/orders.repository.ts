@@ -21,6 +21,7 @@ import type {
   SupplierSnapshot,
   OrderItem,
 } from './types.js';
+import { TERMINAL_ORDER_STATUSES } from './types.js';
 import type { CreateOrderInput } from './validation.js';
 
 type StoredOrder = Row & {
@@ -195,10 +196,10 @@ export class OrdersRepository {
         WHERE (($3::text = 'REQUESTER' AND requester_id = $1)
             OR ($3::text = 'COURIER' AND courier_id = $1)
             OR ($3::text IS NULL AND (requester_id = $1 OR courier_id = $1)))
-          AND ($4::boolean IS NULL OR (status NOT IN ('REJECTED', 'COMPLETED', 'CANCELLED', 'EXPIRED')) = $4)
+          AND ($4::boolean IS NULL OR (status <> ALL($5::text[])) = $4)
         ORDER BY updated_at DESC, order_id
         LIMIT $2`,
-      [userId, limit, filter.role ?? null, filter.active ?? null],
+      [userId, limit, filter.role ?? null, filter.active ?? null, [...TERMINAL_ORDER_STATUSES]],
     );
     return result.rows.map(mapOrder);
   }

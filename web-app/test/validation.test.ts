@@ -108,15 +108,15 @@ describe("navForMode", () => {
     { href: "/order-history", label: "Order history" },
   ];
 
-  it("keeps every screen in the same order", () => {
-    expect(navForMode(items, "REQUESTER").map((i) => i.href)).toEqual(["/feed", "/suppliers", "/order-history"]);
+  it("puts each mode's leading screen first", () => {
+    expect(navForMode(items, "REQUESTER").map((i) => i.href)).toEqual(["/order-history", "/feed", "/suppliers"]);
     expect(navForMode(items, "COURIER").map((i) => i.href)).toEqual(["/feed", "/suppliers", "/order-history"]);
     expect(navForMode(items)).toBe(items);
   });
 
-  it("calls the feed 'Open requests' for requesters only", () => {
+  it("calls the feed 'Your requests' for requesters only", () => {
     const feedLabel = (mode: "REQUESTER" | "COURIER") => navForMode(items, mode).find((i) => i.href === "/feed")?.label;
-    expect(feedLabel("REQUESTER")).toBe("Open requests");
+    expect(feedLabel("REQUESTER")).toBe("Your requests");
     expect(feedLabel("COURIER")).toBe("Request feed");
   });
 });

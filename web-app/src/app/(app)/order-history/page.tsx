@@ -13,15 +13,13 @@ import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth";
 import { STUDENT_NAV } from "@/lib/nav";
 import { listMyOrders, type MyOrder } from "@/lib/order-api";
-import { isFinal, statusWording, waitsOnCredit } from "@/lib/order-status";
+import { isFinal, PENDING_POLL_MS, statusWording, waitsOnCredit } from "@/lib/order-status";
 import type { PreferredMode } from "@/lib/user-api";
 import { usePoll } from "@/lib/use-poll";
 import { vars } from "@/styles/tokens";
 
 /** Only while some errand is still active: past ones no longer change. */
 const HISTORY_POLL_MS = 30_000;
-/** While the Credit Service moves some errand's credits, which takes seconds. */
-const PENDING_POLL_MS = 5_000;
 
 function nextRead(items: MyOrder[]) {
   if (items.some((o) => waitsOnCredit(o.status))) return PENDING_POLL_MS;
@@ -80,18 +78,34 @@ export default function OrderHistoryPage() {
     mode: PreferredMode;
     items: MyOrder[];
     truncated: boolean;
+    activeRequests: MyOrder[];
+    requestsTruncated: boolean;
   } | null>(null);
   const [failure, setFailure] = useState<{ mode: PreferredMode; message: string } | null>(null);
   const read = useCallback(
     async (signal: AbortSignal) => {
       if (!mode) return null;
       try {
-        const next = await authed((token) => listMyOrders(token, { role: mode }, signal));
+        const [next, requests] = await authed((token) =>
+          Promise.all([
+            listMyOrders(token, { role: mode }, signal),
+            mode === "COURIER"
+              ? listMyOrders(token, { role: "REQUESTER", active: true }, signal)
+              : Promise.resolve(null),
+          ]),
+        );
         if (signal.aborted) return null;
-        const items = next.items.filter((order) => order.myRole === mode);
-        setHistory({ mode, items, truncated: next.truncated });
+        const items = next.items;
+        const activeRequests = requests?.items ?? [];
+        setHistory({
+          mode,
+          items,
+          truncated: next.truncated,
+          activeRequests,
+          requestsTruncated: requests?.truncated ?? false,
+        });
         setFailure(null);
-        return nextRead(items);
+        return nextRead([...items, ...activeRequests]);
       } catch (err) {
         if (signal.aborted) return null;
         setFailure({ mode, message: err instanceof ApiError ? err.message : "Something went wrong." });
@@ -119,7 +133,7 @@ export default function OrderHistoryPage() {
           Showing the last loaded history. {problem}
         </ErrorState>
       )}
-      {mine.items.length === 0 ? (
+      {mine.items.length === 0 && mine.activeRequests.length === 0 ? (
         <EmptyState title="No errands yet">
           {mode === "REQUESTER"
             ? "Requests you place will show up here."
@@ -127,8 +141,14 @@ export default function OrderHistoryPage() {
         </EmptyState>
       ) : (
         <>
-          <Section title="Active" orders={mine.items.filter((o) => !isFinal(o.status))} />
-          <Section title="Past" orders={mine.items.filter((o) => isFinal(o.status))} />
+          {mode === "COURIER" && <Section title="Your active requests" orders={mine.activeRequests} />}
+          <Section title={mode === "COURIER" ? "Active deliveries" : "Active"} orders={mine.items.filter((o) => !isFinal(o.status))} />
+          <Section title={mode === "COURIER" ? "Past deliveries" : "Past"} orders={mine.items.filter((o) => isFinal(o.status))} />
+          {mine.requestsTruncated && (
+            <p style={{ fontSize: vars.text.sm, color: vars.color.textSubtle }}>
+              Showing your 100 most recently updated active requests.
+            </p>
+          )}
           {mine.truncated && (
             <p style={{ fontSize: vars.text.sm, color: vars.color.textSubtle }}>
               Showing your 100 most recent errands.

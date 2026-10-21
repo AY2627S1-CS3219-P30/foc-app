@@ -15,7 +15,7 @@ import { useAuth } from "@/lib/auth";
 import { STUDENT_NAV } from "@/lib/nav";
 import { listMyOrders, listOpenOrders, type MyOrder, type OpenOrder } from "@/lib/order-api";
 import { ORDER_ACTIONS } from "@/lib/order-actions";
-import { isFinal, statusWording, waitsOnCredit } from "@/lib/order-status";
+import { PENDING_POLL_MS, statusWording, waitsOnCredit } from "@/lib/order-status";
 import { useNowAfter } from "@/lib/use-now";
 import { useOrderAction } from "@/lib/use-order-action";
 import { usePoll } from "@/lib/use-poll";
@@ -42,10 +42,10 @@ function useFeed(mode: PreferredMode | undefined) {
         if (mode === "REQUESTER") {
           const mine = await authed((token) => listMyOrders(token, { role: mode, active: true }, signal));
           if (signal.aborted) return null;
-          const items = mine.items.filter((o) => o.myRole === mode && !isFinal(o.status));
+          const items = mine.items;
           setResult({ mode, items, truncated: mine.truncated });
           setFailure(null);
-          return items.some((o) => waitsOnCredit(o.status)) ? 5_000 : FEED_POLL_MS;
+          return items.some((o) => waitsOnCredit(o.status)) ? PENDING_POLL_MS : FEED_POLL_MS;
         }
         const open = await authed((token) => listOpenOrders(token, signal));
         if (signal.aborted) return null;
@@ -132,7 +132,7 @@ export default function FeedPage() {
     />
   ));
   const cards = mode === "REQUESTER" ? requesterCards : courierCards;
-  const title = mode === "REQUESTER" ? "Open requests" : "Open errands";
+  const title = mode === "REQUESTER" ? "Your requests" : "Open errands";
 
   const content =
     result === null ? (
@@ -145,7 +145,7 @@ export default function FeedPage() {
       )
     ) : (
       <>
-        <FormAlert tone="info" takeFocus>{mode === "COURIER" ? notice : null}</FormAlert>
+        <FormAlert tone="info" takeFocus>{notice}</FormAlert>
         <FormAlert>{problem ? `Could not refresh the list. ${problem}` : null}</FormAlert>
         {cards.length === 0 ? (
           <EmptyState title={mode === "REQUESTER" ? "No open requests" : "No open errands right now"}>
@@ -167,7 +167,7 @@ export default function FeedPage() {
       <div className="mobileOnly">
         <Screen>
           <AppBar
-            title={mode === "REQUESTER" ? "Open requests" : "Feed"}
+            title={mode === "REQUESTER" ? "Your requests" : "Feed"}
             onPlusClick={mode === "REQUESTER" ? () => router.push("/request/new") : undefined}
           />
           <ScreenContent>{content}</ScreenContent>
