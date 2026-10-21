@@ -132,7 +132,7 @@ export default function FeedPage() {
     />
   ));
   const cards = mode === "REQUESTER" ? requesterCards : courierCards;
-  const title = mode === "REQUESTER" ? "Your requests" : "Open errands";
+  const title = mode === "REQUESTER" ? "Active requests" : "Open errands";
 
   const content =
     result === null ? (
@@ -167,7 +167,7 @@ export default function FeedPage() {
       <div className="mobileOnly">
         <Screen>
           <AppBar
-            title={mode === "REQUESTER" ? "Your requests" : "Feed"}
+            title={mode === "REQUESTER" ? "Active requests" : "Feed"}
             onPlusClick={mode === "REQUESTER" ? () => router.push("/request/new") : undefined}
           />
           <ScreenContent>{content}</ScreenContent>
