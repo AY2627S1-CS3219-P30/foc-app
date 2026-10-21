@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { ORDER, ORDER_URL, errandEmail, firstSupplier, signIn, visible } from "./request-helpers";
+import { ORDER, ORDER_URL, USER, errandEmail, firstSupplier, signIn, visible } from "./request-helpers";
 
 /**
  * WEB-02, WEB-03 and WEB-05 end to end, once per breakpoint, against the real stack: two couriers race
@@ -43,10 +43,10 @@ test("errand journey: a lost acceptance race, fulfilment, and the requester conf
     })
     .toBe("OPEN");
 
-  await test.step("the requester's own errand is not in their feed", async () => {
+  await test.step("the requester sees their own open errand without an Accept action", async () => {
     await page.goto("/feed");
-    await expect(visible(page, "Loading open errands…")).toHaveCount(0);
-    await expect(card(page, item)).toHaveCount(0);
+    await expect(card(page, item)).toBeVisible();
+    await expect(card(page, item).getByRole("button", { name: "Accept" })).toHaveCount(0);
   });
 
   await test.step("both couriers see the card; the second to confirm loses and its card goes", async () => {
@@ -121,7 +121,12 @@ async function student(browser: Browser, like: Page, email: string): Promise<Pag
     baseURL: test.info().project.use.baseURL,
     viewport: like.viewportSize(),
   });
-  await signIn(context.request, email);
+  const token = await signIn(context.request, email);
+  const mode = await context.request.patch(`${USER}/users/me`, {
+    headers: { authorization: `Bearer ${token}` },
+    data: { preferredMode: "COURIER" },
+  });
+  expect(mode.ok(), await mode.text()).toBe(true);
   return context.newPage();
 }
 

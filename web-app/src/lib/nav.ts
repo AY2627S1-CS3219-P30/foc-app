@@ -35,25 +35,14 @@ export function withAdminEntry<T extends NavItem>(
   return [...items, ADMIN_ENTRY];
 }
 
-/** The screen each mode leads with: requesters track their errands, couriers look for new ones. */
-const LEADS: Record<PreferredMode, string> = {
-  REQUESTER: "/order-history",
-  COURIER: "/feed",
-};
-
 const LABELS: Record<PreferredMode, Record<string, string>> = {
-  REQUESTER: { "/feed": "Your requests" },
+  REQUESTER: { "/feed": "Open requests" },
   COURIER: {},
 };
 
-/**
- * Names screens for the current mode and puts its leading screen first. Presentation only — both
- * modes see every screen, because every active student may both request and deliver (US-FR2.1.1).
- */
+/** Names the current mode's screens; both modes still allow requesting and delivering. */
 export function navForMode<T extends NavItem>(items: T[], mode?: PreferredMode): T[] {
   if (!mode) return items;
   const labels = LABELS[mode];
-  const named = items.map((i) => (labels[i.href] ? { ...i, label: labels[i.href] } : i));
-  const lead = named.find((i) => i.href === LEADS[mode]);
-  return lead ? [lead, ...named.filter((i) => i !== lead)] : named;
+  return items.map((i) => (labels[i.href] ? { ...i, label: labels[i.href] } : i));
 }

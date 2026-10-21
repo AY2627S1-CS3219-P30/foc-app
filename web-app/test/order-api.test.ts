@@ -63,9 +63,11 @@ it("reads an order from the Order Service and the wallet from the Credit Service
 it("lists open errands and the caller's own", async () => {
   await listOpenOrders("access-token");
   await listMyOrders("access-token");
+  await listMyOrders("access-token", { role: "REQUESTER", active: true });
   expect(requests.splice(0).map((r) => r.url)).toEqual([
     "http://localhost:3003/orders",
     "http://localhost:3003/orders/mine",
+    "http://localhost:3003/orders/mine?role=REQUESTER&active=true",
   ]);
 });
 

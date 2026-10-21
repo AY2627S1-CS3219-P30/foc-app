@@ -29,7 +29,8 @@ export interface paths {
          * @description Errands the caller requested or is the current courier of, in any status, most recently
          *     changed first, at most 100 (no paging yet); `truncated` is true when more were left out. Each
          *     carries the caller's private projection and `myRole`. A courier who withdrew or timed out no
-         *     longer holds the errand and does not see it.
+         *     longer holds the errand and does not see it. Filter by `role` before the limit; `active=true`
+         *     includes only errands that have not reached a final status.
          */
         get: operations["listMyOrders"];
         put?: never;
@@ -1129,7 +1130,10 @@ export interface operations {
     };
     listMyOrders: {
         parameters: {
-            query?: never;
+            query?: {
+                role?: "REQUESTER" | "COURIER";
+                active?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;

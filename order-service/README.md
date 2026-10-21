@@ -186,7 +186,8 @@ or current courier, each in its private projection with `myRole` (`REQUESTER` or
 ordered by most recent change, at most 100, with no paging yet; `truncated` is true when older
 errands were left out. A courier who withdrew or timed out is no longer on the errand, so it drops
 out of their list. This is also "a courier's assigned orders" (D3 Part 1.3): the items whose
-`myRole` is `COURIER`.
+`myRole` is `COURIER`. Optional `role=REQUESTER|COURIER` and `active=true|false` query parameters
+filter before the 100-item limit. Active excludes rejected, completed, cancelled and expired orders.
 
 `GET /admin/orders` is an administrator's view of one account (ORD-15): `?requesterId=` lists the
 errands that student posted, in any status, `?courierId=` the ones they currently hold as courier,

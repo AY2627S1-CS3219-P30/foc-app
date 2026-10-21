@@ -96,6 +96,7 @@ function fakeOrderService() {
     serverAhead: 0,
     wallet: (): Response => json(200, { available: 5 }),
     walletReads: 0,
+    queries: [] as string[],
     feed: (): Response =>
       json(
         200,
@@ -108,7 +109,8 @@ function fakeOrderService() {
     answer: (): Response => json(200, service.stamp({ ...service.current, version: 4 })),
     read: (): Response => json(200, service.stamp(service.reads.shift() ?? service.current)),
     async fetch(request: Request): Promise<Response> {
-      const { pathname } = new URL(request.url);
+      const { pathname, search } = new URL(request.url);
+      if (request.method === 'GET') service.queries.push(`${pathname}${search}`);
       if (request.method === 'POST') {
         const command = { path: pathname, body: await request.json() };
         service.commands.push(command);
@@ -170,7 +172,10 @@ const realTimers = {
 };
 let mounted: { unmount: () => void } | null = null;
 
-beforeEach(() => router.push.mockClear());
+beforeEach(() => {
+  router.push.mockClear();
+  auth.user.profile.preferredMode = 'REQUESTER';
+});
 
 afterEach(async () => {
   if (mounted) await act(() => mounted!.unmount());
@@ -222,11 +227,17 @@ async function confirmAction(container: HTMLElement, label: string, confirmLabel
 }
 
 describe('feed', () => {
+  beforeEach(() => {
+    auth.user.profile.preferredMode = 'COURIER';
+  });
+
   it('announces a failed background refresh in the existing alert', async () => {
     const service = fakeOrderService();
     const container = await render(<FeedPage />, service);
     const alert = container.querySelector('[role="alert"]')!;
     expect(alert.textContent).toBe('');
+    expect(service.queries).toContain('/orders');
+    expect(service.queries.some((query) => query.startsWith('/orders/mine'))).toBe(false);
 
     service.feed = () => failure(503, 'INTERNAL');
     await act(async () => window.dispatchEvent(new window.Event('online')));
@@ -326,6 +337,31 @@ describe('feed', () => {
     const container = await render(<FeedPage />, fakeOrderService());
     window.happyDOM.setURL('http://localhost/');
     expect(container.textContent).toContain('You withdrew from the errand.');
+  });
+});
+
+describe('requester open requests', () => {
+  it('shows only the requester’s active orders and never offers Accept', async () => {
+    const service = fakeOrderService();
+    service.open = [listing(OTHER_ID, 'Their cafe')];
+    service.history = () => json(200, {
+      items: [
+        { ...order(), myRole: 'REQUESTER' },
+        { ...order({ orderId: OTHER_ID, status: 'ACCEPTED' }), myRole: 'COURIER' },
+        { ...order({ orderId: 'past', status: 'COMPLETED' }), myRole: 'REQUESTER' },
+      ],
+      truncated: false,
+    });
+
+    const container = await render(<FeedPage />, service);
+    expect(container.textContent).toContain('Open requests');
+    expect(container.textContent).toContain('Kopi Corner');
+    expect(container.textContent).not.toContain('Their cafe');
+    expect(service.queries).toContain('/orders/mine?role=REQUESTER&active=true');
+    expect(service.queries).not.toContain('/orders');
+    expect(container.querySelector('a[href="/request/past"]')).toBeNull();
+    expect(buttons(container, 'Accept')).toEqual([]);
+    expect(container.querySelector('button[aria-label="New request"]')).not.toBeNull();
   });
 });
 

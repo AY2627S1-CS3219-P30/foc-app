@@ -10,7 +10,12 @@ import {
 import { RESOLVE_ACTIONS, SUSPENSION_EFFECTS, type OrderAction } from './order-state-machine.js';
 import { SupplierClient } from './supplier.client.js';
 import type { OpenOrderSummary, OrderReceipt, OrderRow, OrderStatus, OrderView } from './types.js';
-import type { AccountErrandsQuery, CreateOrderInput, ResolveOrderInput } from './validation.js';
+import type {
+  AccountErrandsQuery,
+  CreateOrderInput,
+  MyOrdersQuery,
+  ResolveOrderInput,
+} from './validation.js';
 
 const MY_ERRANDS_LIMIT = 100;
 const SUSPENSION_REASONS = new Set(
@@ -146,12 +151,15 @@ export class OrdersService {
   }
 
   /** The caller's own errands, each in their private projection, with `truncated` past the cap. */
-  async listMine(caller: AuthContext): Promise<{
+  async listMine(
+    caller: AuthContext,
+    query: MyOrdersQuery = {},
+  ): Promise<{
     items: Array<OrderView & { myRole: 'REQUESTER' | 'COURIER' }>;
     truncated: boolean;
   }> {
     // One extra row tells us whether the cap cut the list off.
-    const orders = await this.orders.listMine(caller.userId, MY_ERRANDS_LIMIT + 1);
+    const orders = await this.orders.listMine(caller.userId, MY_ERRANDS_LIMIT + 1, query);
     return {
       items: orders.slice(0, MY_ERRANDS_LIMIT).flatMap((order) => {
         const view = projectOrder(order, caller);

@@ -13,12 +13,15 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth";
 import { STUDENT_NAV } from "@/lib/nav";
-import { listOpenOrders, type OpenOrder } from "@/lib/order-api";
+import { listMyOrders, listOpenOrders, type MyOrder, type OpenOrder } from "@/lib/order-api";
 import { ORDER_ACTIONS } from "@/lib/order-actions";
+import { isFinal, statusWording, waitsOnCredit } from "@/lib/order-status";
 import { useNowAfter } from "@/lib/use-now";
 import { useOrderAction } from "@/lib/use-order-action";
 import { usePoll } from "@/lib/use-poll";
 import { useUrlFlag } from "@/lib/use-query-param";
+import type { PreferredMode } from "@/lib/user-api";
+import { vars } from "@/styles/tokens";
 
 const FEED_POLL_MS = 30_000;
 const MINUTE_MS = 60_000;
@@ -26,30 +29,46 @@ const WITHDRAWN = "You withdrew from the errand. Another courier can take it, un
 
 /** `expiresAt` counts from the server's `timeRemainingSeconds`, so a wrong device clock can't skew it. */
 type Listing = OpenOrder & { expiresAt: number };
+type FeedItems = { mode: "REQUESTER"; items: MyOrder[]; truncated: boolean } | { mode: "COURIER"; items: Listing[] };
 
-/** Open errands; the Order Service already leaves out the student's own. */
-function useFeed() {
+function useFeed(mode: PreferredMode | undefined) {
   const { authed } = useAuth();
-  const [listings, setListings] = useState<Listing[] | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
+  const [result, setResult] = useState<FeedItems | null>(null);
+  const [failure, setFailure] = useState<{ mode: PreferredMode; message: string } | null>(null);
   const read = useCallback(
     async (signal: AbortSignal) => {
+      if (!mode) return null;
       try {
+        if (mode === "REQUESTER") {
+          const mine = await authed((token) => listMyOrders(token, { role: mode, active: true }, signal));
+          if (signal.aborted) return null;
+          const items = mine.items.filter((o) => o.myRole === mode && !isFinal(o.status));
+          setResult({ mode, items, truncated: mine.truncated });
+          setFailure(null);
+          return items.some((o) => waitsOnCredit(o.status)) ? 5_000 : FEED_POLL_MS;
+        }
         const open = await authed((token) => listOpenOrders(token, signal));
         if (signal.aborted) return null;
         const readAt = Date.now();
-        setListings(open.map((o) => ({ ...o, expiresAt: readAt + o.timeRemainingSeconds * 1000 })));
-        setProblem(null);
+        setResult({
+          mode,
+          items: open.map((o) => ({ ...o, expiresAt: readAt + o.timeRemainingSeconds * 1000 })),
+        });
+        setFailure(null);
       } catch (err) {
         if (signal.aborted) return null;
-        setProblem(err instanceof ApiError ? err.message : "Something went wrong.");
+        setFailure({ mode, message: err instanceof ApiError ? err.message : "Something went wrong." });
       }
       return FEED_POLL_MS;
     },
-    [authed],
+    [authed, mode],
   );
   const reload = usePoll(read);
-  return { listings, problem, reload };
+  return {
+    result: result?.mode === mode ? result : null,
+    problem: failure && failure.mode === mode ? failure.message : null,
+    reload,
+  };
 }
 
 function timeLeft(ms: number) {
@@ -67,10 +86,13 @@ function nextChange(listings: Listing[] | null, now: number): number | null {
 
 export default function FeedPage() {
   const router = useRouter();
-  const { listings, problem, reload } = useFeed();
+  const { user } = useAuth();
+  const mode = user?.profile.preferredMode;
+  const { result, problem, reload } = useFeed(mode);
   const [notice, setNotice] = useState<string | null>(null);
   const showWithdrawn = useCallback(() => setNotice(WITHDRAWN), []);
   useUrlFlag("withdrawn", showWithdrawn);
+  const listings = result?.mode === "COURIER" ? result.items : null;
   const now = useNowAfter((time) => nextChange(listings, time));
   const accept = useOrderAction({
     onDone: (order) => {
@@ -82,8 +104,7 @@ export default function FeedPage() {
     },
   });
 
-  const live = listings?.filter((l) => l.expiresAt > now) ?? [];
-  const cards = live.map((l) => (
+  const courierCards = (listings?.filter((l) => l.expiresAt > now) ?? []).map((l) => (
     <ErrandCard
       key={l.orderId}
       errand={{ ...l, items: l.itemSummary }}
@@ -102,24 +123,41 @@ export default function FeedPage() {
       }
     />
   ));
+  const requesterCards = (result?.mode === "REQUESTER" ? result.items : []).map((order) => (
+    <ErrandCard
+      key={order.orderId}
+      errand={order}
+      role="REQUESTER"
+      details={<p>{statusWording(order, "REQUESTER").explanation}</p>}
+    />
+  ));
+  const cards = mode === "REQUESTER" ? requesterCards : courierCards;
+  const title = mode === "REQUESTER" ? "Open requests" : "Open errands";
 
   const content =
-    listings === null ? (
+    result === null ? (
       problem ? (
-        <ErrorState title="Could not load open errands" onRetry={reload}>
+        <ErrorState title={`Could not load ${title.toLowerCase()}`} onRetry={reload}>
           {problem}
         </ErrorState>
       ) : (
-        <LoadingState label="Loading open errands…" />
+        <LoadingState label={`Loading ${title.toLowerCase()}…`} />
       )
     ) : (
       <>
-        <FormAlert tone="info" takeFocus>{notice}</FormAlert>
+        <FormAlert tone="info" takeFocus>{mode === "COURIER" ? notice : null}</FormAlert>
         <FormAlert>{problem ? `Could not refresh the list. ${problem}` : null}</FormAlert>
         {cards.length === 0 ? (
-          <EmptyState title="No open errands right now">Check back soon.</EmptyState>
+          <EmptyState title={mode === "REQUESTER" ? "No open requests" : "No open errands right now"}>
+            {mode === "REQUESTER" ? "Create a request to get started." : "Check back soon."}
+          </EmptyState>
         ) : (
           <ErrandGrid>{cards}</ErrandGrid>
+        )}
+        {result.mode === "REQUESTER" && result.truncated && (
+          <p style={{ fontSize: vars.text.sm, color: vars.color.textSubtle }}>
+            Showing your 100 most recently updated open requests.
+          </p>
         )}
       </>
     );
@@ -128,7 +166,10 @@ export default function FeedPage() {
     <>
       <div className="mobileOnly">
         <Screen>
-          <AppBar title="Feed" onPlusClick={() => router.push("/request/new")} />
+          <AppBar
+            title={mode === "REQUESTER" ? "Open requests" : "Feed"}
+            onPlusClick={mode === "REQUESTER" ? () => router.push("/request/new") : undefined}
+          />
           <ScreenContent>{content}</ScreenContent>
         </Screen>
       </div>
@@ -137,8 +178,10 @@ export default function FeedPage() {
         <DesktopShell
           navItems={STUDENT_NAV}
           activeHref="/feed"
-          heading="Open errands"
-          actions={<Button onClick={() => router.push("/request/new")}>New request</Button>}
+          heading={title}
+          actions={
+            mode === "REQUESTER" && <Button onClick={() => router.push("/request/new")}>New request</Button>
+          }
         >
           {content}
         </DesktopShell>

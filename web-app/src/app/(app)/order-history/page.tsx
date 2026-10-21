@@ -14,6 +14,7 @@ import { useAuth } from "@/lib/auth";
 import { STUDENT_NAV } from "@/lib/nav";
 import { listMyOrders, type MyOrder } from "@/lib/order-api";
 import { isFinal, statusWording, waitsOnCredit } from "@/lib/order-status";
+import type { PreferredMode } from "@/lib/user-api";
 import { usePoll } from "@/lib/use-poll";
 import { vars } from "@/styles/tokens";
 
@@ -73,26 +74,35 @@ function Section({ title, orders }: { title: string; orders: MyOrder[] }) {
 }
 
 export default function OrderHistoryPage() {
-  const { authed } = useAuth();
-  const [mine, setMine] = useState<{ items: MyOrder[]; truncated: boolean } | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
+  const { authed, user } = useAuth();
+  const mode = user?.profile.preferredMode;
+  const [history, setHistory] = useState<{
+    mode: PreferredMode;
+    items: MyOrder[];
+    truncated: boolean;
+  } | null>(null);
+  const [failure, setFailure] = useState<{ mode: PreferredMode; message: string } | null>(null);
   const read = useCallback(
     async (signal: AbortSignal) => {
+      if (!mode) return null;
       try {
-        const next = await authed((token) => listMyOrders(token, signal));
+        const next = await authed((token) => listMyOrders(token, { role: mode }, signal));
         if (signal.aborted) return null;
-        setMine(next);
-        setProblem(null);
-        return nextRead(next.items);
+        const items = next.items.filter((order) => order.myRole === mode);
+        setHistory({ mode, items, truncated: next.truncated });
+        setFailure(null);
+        return nextRead(items);
       } catch (err) {
         if (signal.aborted) return null;
-        setProblem(err instanceof ApiError ? err.message : "Something went wrong.");
+        setFailure({ mode, message: err instanceof ApiError ? err.message : "Something went wrong." });
         return HISTORY_POLL_MS;
       }
     },
-    [authed],
+    [authed, mode],
   );
   const reload = usePoll(read);
+  const mine = history?.mode === mode ? history : null;
+  const problem = failure && failure.mode === mode ? failure.message : null;
 
   const content = !mine ? (
     problem ? (
@@ -110,7 +120,11 @@ export default function OrderHistoryPage() {
         </ErrorState>
       )}
       {mine.items.length === 0 ? (
-        <EmptyState title="No errands yet">Errands you request or deliver will show up here.</EmptyState>
+        <EmptyState title="No errands yet">
+          {mode === "REQUESTER"
+            ? "Requests you place will show up here."
+            : "Errands you deliver will show up here."}
+        </EmptyState>
       ) : (
         <>
           <Section title="Active" orders={mine.items.filter((o) => !isFinal(o.status))} />

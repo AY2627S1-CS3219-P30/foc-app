@@ -9,10 +9,13 @@ const { createRoot } = await import("react-dom/client");
 
 const auth = {
   authed: <T,>(call: (token: string) => Promise<T>) => call("test-token"),
-  user: { id: "me" },
+  user: { id: "me", profile: { preferredMode: "REQUESTER" as "REQUESTER" | "COURIER" } },
 };
 mock.module("../src/lib/auth", () => ({ useAuth: () => auth }));
-mock.module("next/navigation", () => ({ useRouter: () => ({ push: () => {}, back: () => {} }) }));
+mock.module("next/navigation", () => ({
+  useRouter: () => ({ push: () => {}, back: () => {} }),
+  useSearchParams: () => new URLSearchParams(),
+}));
 mock.module("../src/components/DesktopShell", () => ({
   DesktopShell: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -52,12 +55,14 @@ const json = (body: unknown) =>
 const realFetch = globalThis.fetch;
 const realSetTimeout = globalThis.setTimeout;
 let reads = 0;
+let requested: string[] = [];
 /** Delays of a second or more that the page asked for. They never fire: the test reads on demand. */
 let scheduled: number[] = [];
 
 function serve(items: MyOrder[], truncated = false) {
-  globalThis.fetch = (async () => {
+  globalThis.fetch = (async (request: Request) => {
     reads++;
+    requested.push(request.url);
     return json({ items, truncated });
   }) as unknown as typeof fetch;
 }
@@ -65,7 +70,9 @@ function serve(items: MyOrder[], truncated = false) {
 let container: HTMLElement;
 let root: ReturnType<typeof createRoot>;
 beforeEach(() => {
+  auth.user.profile.preferredMode = "REQUESTER";
   reads = 0;
+  requested = [];
   scheduled = [];
   globalThis.setTimeout = ((run: () => void, ms = 0) => {
     if (ms < 1000) return realSetTimeout(run, ms);
@@ -111,7 +118,7 @@ describe("order history (WEB-03)", () => {
     serve([
       errand("open", "OPEN"),
       errand("expiring", "RELEASE_PENDING_CREDIT", { releaseReason: "EXPIRED" }),
-      errand("done", "COMPLETED", { myRole: "COURIER", updatedAt: "2026-10-20T10:00:00Z" }),
+      errand("done", "COMPLETED", { updatedAt: "2026-10-20T10:00:00Z" }),
       errand("cancelled", "CANCELLED"),
     ]);
     await render();
@@ -128,11 +135,26 @@ describe("order history (WEB-03)", () => {
 
     const past = section("Past")!.textContent!;
     expect(past).toContain("Supplier done");
-    expect(past).toContain("You were the courier");
-    expect(past).toContain("The reward has been transferred to you.");
+    expect(past).toContain("You requested");
+    expect(past).toContain("The reward has been transferred to the courier.");
     expect(past).toContain("ended");
     expect(past).toContain("Supplier cancelled");
     expect(past).not.toContain("Supplier open");
+  });
+
+  it("shows only the selected role's errands", async () => {
+    serve([errand("mine", "OPEN"), errand("delivery", "ACCEPTED", { myRole: "COURIER" })]);
+    await render();
+    expect(container.textContent).toContain("Supplier mine");
+    expect(container.textContent).not.toContain("Supplier delivery");
+    expect(requested.at(-1)).toContain("/orders/mine?role=REQUESTER");
+
+    auth.user.profile.preferredMode = "COURIER";
+    await act(async () => root.render(<StoreProvider><OrderHistoryPage /></StoreProvider>));
+    await settle();
+    expect(container.textContent).toContain("Supplier delivery");
+    expect(container.textContent).not.toContain("Supplier mine");
+    expect(requested.at(-1)).toContain("/orders/mine?role=COURIER");
   });
 
   it("links to the receipt from completed errands only", async () => {

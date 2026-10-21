@@ -13,7 +13,10 @@ const auth = {
   user: { id: "me" },
 };
 mock.module("../src/lib/auth", () => ({ useAuth: () => auth }));
-mock.module("next/navigation", () => ({ useRouter: () => ({ push: () => {}, back: () => {} }) }));
+mock.module("next/navigation", () => ({
+  useRouter: () => ({ push: () => {}, back: () => {} }),
+  useSearchParams: () => new URLSearchParams(),
+}));
 mock.module("../src/components/ResponsiveShell", () => ({
   ResponsiveShell: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));

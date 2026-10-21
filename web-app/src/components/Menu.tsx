@@ -10,7 +10,7 @@ import styles from "./Menu.module.css";
 
 const ITEMS = [
   { href: "/feed", label: "Request feed" },
-  { href: "/order-history", label: "Track your requests" },
+  { href: "/order-history", label: "Order history" },
   { href: "/wallet", label: "Wallet" },
   { href: "/suppliers", label: "Suppliers" },
   { href: "/profile", label: "Profile" },
