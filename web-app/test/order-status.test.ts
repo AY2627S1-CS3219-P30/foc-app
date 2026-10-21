@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { readFile } from "node:fs/promises";
-import { ORDER_STATUS, rejectionMessage } from "../src/lib/order-status";
+import { ORDER_STATUS, isFinal, rejectionMessage, waitsOnCredit } from "../src/lib/order-status";
 
 /** The `Order.status` union as generated from the contract, so a new state fails here. */
 const generated = await readFile(
@@ -25,6 +25,35 @@ describe("ORDER_STATUS", () => {
     expect(ORDER_STATUS.PENDING_CREDIT.label).toBe("Waiting for credits");
     expect(ORDER_STATUS.COMPLETION_PENDING_CREDIT.label).toBe("Paying the courier");
     expect(ORDER_STATUS.RELEASE_PENDING_CREDIT.label).toBe("Returning credits");
+  });
+
+  it("has slow copy for every state that waits on the Credit Service, and no other", () => {
+    for (const [status, { slow }] of Object.entries(ORDER_STATUS)) {
+      if (waitsOnCredit(status as keyof typeof ORDER_STATUS))
+        expect(slow).toMatch(/^This is taking longer than usual\..+come back\.$/);
+      else expect(slow).toBeUndefined();
+    }
+  });
+});
+
+describe("isFinal", () => {
+  it("is true only for the states no transition leaves", () => {
+    expect(statuses.filter((s) => isFinal(s as keyof typeof ORDER_STATUS)).sort()).toEqual([
+      "CANCELLED",
+      "COMPLETED",
+      "EXPIRED",
+      "REJECTED",
+    ]);
+  });
+});
+
+describe("waitsOnCredit", () => {
+  it("is true only for the states the Credit Service moves the order out of", () => {
+    expect(statuses.filter((s) => waitsOnCredit(s as keyof typeof ORDER_STATUS)).sort()).toEqual([
+      "COMPLETION_PENDING_CREDIT",
+      "PENDING_CREDIT",
+      "RELEASE_PENDING_CREDIT",
+    ]);
   });
 });
 

@@ -167,6 +167,11 @@ describe("draftFrom", () => {
     expect(draftFrom(rejected(3, 0)).reward).toBe(1);
     expect(draftFrom(rejected(9)).reward).toBe(5);
   });
+
+  it("copies an expired order at its own reward, which was returned", () => {
+    const expired = { ...rejected(4), status: "EXPIRED", rejection: undefined } as Order;
+    expect(draftFrom(expired)).toMatchObject({ supplierId: SUPPLIER, deliveryZone: "PGP House 7", reward: 4 });
+  });
 });
 
 describe("itemsError", () => {

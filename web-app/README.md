@@ -130,10 +130,35 @@ wallet still read the in-memory mock store (`src/lib/store.tsx`) until WEB-02 an
   in flight. `422 INVALID_SUPPLIER` shows SUP-04's message and goes back to the picker;
   `422 VALIDATION_FAILED` (or a `400` with details) marks the fields; a `503` or network failure
   offers "Try again" with the same key. The draft is cleared once the server returns the order.
-- **Result**: `/request/{orderId}` reads `GET /orders/{orderId}`, polling while it is
-  `PENDING_CREDIT` (1, 2, 4, 8, then every 15 seconds), and says it is taking longer than usual after
-  30 seconds. `OPEN` shows the deadline from `acceptanceDeadlineAt`; `REJECTED` shows what to do for
-  its reason, using `rejection.available` when present.
+- **Result**: `/request/{orderId}` reads `GET /orders/{orderId}` with `useOrder`
+  (`src/lib/use-order.ts`) until the errand is `REJECTED`, `COMPLETED`, `CANCELLED` or `EXPIRED`:
+  1, 2, 4, 8, then every 15 seconds in the `*_PENDING_CREDIT` states, every 30 seconds otherwise. A
+  hidden tab pauses; showing it again or coming back online reads at once, even after an error
+  stopped polling. In a settled state, polling also pauses after 10 minutes without a change until
+  the tab is shown or back online. It says any `*_PENDING_CREDIT` state is taking longer than usual
+  30 seconds after the order's `updatedAt`. `OPEN` shows the deadline from `acceptanceDeadlineAt`;
+  `REJECTED` shows what to do for its reason, using `rejection.available` when present. `REJECTED`
+  and `EXPIRED` offer "Post a new request", a copy under a new key.
+
+#### Recovery (WEB-04)
+
+Every retry below sends the draft's key again, and the Order Service answers a repeated key with the
+order it already made, so none of them can create a second errand. Posting anything under a new key
+always takes a click the student can see.
+
+- **Lost response** (the server made the order, the page never heard): the review offers "Try
+  again" and keeps the draft. The retry gets `200` with the same order, and the order page says "This
+  request was already posted". So does a second tab posting the same draft.
+- **Offline**: the send fails as a network error and offers "Try again"; the `online` event retries
+  by itself, with the same key.
+- **`IDEMPOTENCY_KEY_REUSED`** (the details changed after a lost response): the first body sent
+  under the key is kept as `sentBody` and replayed, which finds the original errand. The review says
+  the changes weren't applied and moves them to a new key, posted only if the student asks.
+- **Reload**: the draft, key and `sentBody` are in `sessionStorage`, so Post replays the same key. It
+  stays enabled when the balance no longer covers the reward, since the lost post may hold it.
+
+`e2e/reconnect-journey.e2e.ts` runs each case and checks through the API that it made one order and
+reserved its reward once.
 
 Every state's label and plain-language explanation is in `src/lib/order-status.ts`, typed from the
 generated contract so all twelve are covered.

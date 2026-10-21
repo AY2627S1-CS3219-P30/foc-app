@@ -30,14 +30,15 @@ const creditApi = createApiClient<CreditPaths>(CREDIT_SERVICE_URL, {
 });
 
 /** `201` creates a `PENDING_CREDIT` order; `200` replays the one this key already created. */
-export const createOrder = (token: string, body: CreateOrder, idempotencyKey: string) =>
-  unwrap(
-    orderApi.POST("/orders", {
-      params: { header: { "Idempotency-Key": idempotencyKey } },
-      body,
-      headers: bearer(token),
-    }),
-  );
+export async function createOrder(token: string, body: CreateOrder, idempotencyKey: string) {
+  const call = orderApi.POST("/orders", {
+    params: { header: { "Idempotency-Key": idempotencyKey } },
+    body,
+    headers: bearer(token),
+  });
+  const order = await unwrap(call);
+  return { order, replayed: (await call).response.status === 200 };
+}
 
 export const getOrder = (token: string, orderId: string) =>
   unwrap(

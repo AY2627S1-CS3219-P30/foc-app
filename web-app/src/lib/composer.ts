@@ -68,7 +68,7 @@ export function resumeDraft(userId: string, supplierId: string): Draft {
   };
 }
 
-/** A new draft, with its own key, copying a rejected order at a reward the wallet covered. */
+/** A new draft, with its own key, copying a rejected or expired order at a reward the wallet covered. */
 export function draftFrom(order: Order): Draft {
   const reward = Math.min(order.reward, order.rejection?.available ?? order.reward, REWARD_MAX);
   return {
