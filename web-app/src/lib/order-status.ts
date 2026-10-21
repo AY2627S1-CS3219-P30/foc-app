@@ -54,6 +54,11 @@ export const ORDER_STATUS: Record<OrderStatus, { label: string; explanation: str
   },
 };
 
+const FINAL = new Set<OrderStatus>(["REJECTED", "COMPLETED", "CANCELLED", "EXPIRED"]);
+
+/** No transition leaves these states, so there is nothing more to read. */
+export const isFinal = (status: OrderStatus) => FINAL.has(status);
+
 /** What to do about a `REJECTED` order, for each reason the Credit Service gives. */
 export function rejectionMessage(order: Pick<Order, "reward" | "rejection">): string {
   const available = order.rejection?.available;

@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
@@ -9,66 +8,14 @@ import { NavRow } from "@/components/NavRow";
 import { Screen, ScreenContent } from "@/components/Screen";
 import { ScreenHeader } from "@/components/ScreenHeader";
 import { ErrorState, LoadingState } from "@/components/States";
-import { ApiError } from "@/lib/api-client";
+import type { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth";
 import { draftFrom, itemsLabel, saveDraft } from "@/lib/composer";
-import { getOrder, type Order } from "@/lib/order-api";
+import type { Order } from "@/lib/order-api";
 import { ORDER_STATUS, rejectionMessage } from "@/lib/order-status";
+import { useOrder } from "@/lib/use-order";
+import { useQueryParam } from "@/lib/use-query-param";
 import { vars } from "@/styles/tokens";
-
-/** Waits between reads while credits are reserved: backing off, then every 15 seconds. */
-const POLL_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000];
-/** After this long in `PENDING_CREDIT`, say it is slower than usual. */
-const STILL_WAITING_MS = 30_000;
-
-/**
- * Reads the order, and keeps reading while it waits for credits and the tab is visible. A 4xx or an
- * error that is not an {@link ApiError} (a bug, not the network) stops; anything else retries.
- */
-function useOrder(orderId: string) {
-  const { authed } = useAuth();
-  const [order, setOrder] = useState<Order | null>(null);
-  const [problem, setProblem] = useState<ApiError | null>(null);
-  const [stillWaiting, setStillWaiting] = useState(false);
-
-  useEffect(() => {
-    const started = Date.now();
-    let attempt = 0;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let live = true;
-
-    async function read() {
-      if (document.visibilityState === "hidden") {
-        document.addEventListener("visibilitychange", read, { once: true });
-        return;
-      }
-      try {
-        const next = await authed((token) => getOrder(token, orderId));
-        if (!live) return;
-        setOrder(next);
-        setProblem(null);
-        if (next.status !== "PENDING_CREDIT") return;
-      } catch (err) {
-        if (!live) return;
-        const problem =
-          err instanceof ApiError ? err : new ApiError(0, "UNEXPECTED", "Something went wrong.");
-        setProblem(problem);
-        if (problem.code === "UNEXPECTED" || (problem.status >= 400 && problem.status < 500)) return;
-      }
-      setStillWaiting(Date.now() - started >= STILL_WAITING_MS);
-      timer = setTimeout(read, POLL_DELAYS_MS[Math.min(attempt++, POLL_DELAYS_MS.length - 1)]);
-    }
-
-    void read();
-    return () => {
-      live = false;
-      clearTimeout(timer);
-      document.removeEventListener("visibilitychange", read);
-    };
-  }, [authed, orderId]);
-
-  return { order, problem, stillWaiting };
-}
 
 const deadline = (at: string) =>
   new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -84,6 +31,7 @@ function StatusBody({
 }) {
   const router = useRouter();
   const { user } = useAuth();
+  const replayed = useQueryParam("replayed") === "1";
   const muted = { fontSize: vars.text.md, color: vars.color.textMuted };
 
   return (
@@ -92,6 +40,11 @@ function StatusBody({
         <Badge status={order.status} />
       </div>
       <div role="status" style={{ display: "flex", flexDirection: "column", gap: vars.space[2] }}>
+        {replayed && (
+          <p style={{ ...muted, fontWeight: vars.weight.semibold }}>
+            This request was already posted, so it wasn&apos;t posted again.
+          </p>
+        )}
         <p style={muted}>{ORDER_STATUS[order.status].explanation}</p>
         {order.status === "PENDING_CREDIT" && stillWaiting && (
           <p style={muted}>
@@ -117,7 +70,7 @@ function StatusBody({
         <NavRow label="Delivery instructions" value={order.deliveryInstructions} />
       )}
       <NavRow label="Reward" value={`${order.reward} credits`} />
-      {order.status === "REJECTED" && (
+      {(order.status === "REJECTED" || order.status === "EXPIRED") && (
         <Button
           full
           onClick={() => {

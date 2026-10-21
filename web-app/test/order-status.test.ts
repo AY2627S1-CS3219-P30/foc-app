@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { readFile } from "node:fs/promises";
-import { ORDER_STATUS, rejectionMessage } from "../src/lib/order-status";
+import { ORDER_STATUS, isFinal, rejectionMessage } from "../src/lib/order-status";
 
 /** The `Order.status` union as generated from the contract, so a new state fails here. */
 const generated = await readFile(
@@ -25,6 +25,17 @@ describe("ORDER_STATUS", () => {
     expect(ORDER_STATUS.PENDING_CREDIT.label).toBe("Waiting for credits");
     expect(ORDER_STATUS.COMPLETION_PENDING_CREDIT.label).toBe("Paying the courier");
     expect(ORDER_STATUS.RELEASE_PENDING_CREDIT.label).toBe("Returning credits");
+  });
+});
+
+describe("isFinal", () => {
+  it("is true only for the states no transition leaves", () => {
+    expect(statuses.filter((s) => isFinal(s as keyof typeof ORDER_STATUS)).sort()).toEqual([
+      "CANCELLED",
+      "COMPLETED",
+      "EXPIRED",
+      "REJECTED",
+    ]);
   });
 });
 

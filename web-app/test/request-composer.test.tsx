@@ -95,7 +95,8 @@ function fakeServices({ available = 10 } = {}) {
   const services = {
     posts: [] as Post[],
     answer: (): Promise<Response> | Response => json(201, order()),
-    reads: [] as Order[],
+    reads: [] as (Order | Response)[],
+    gets: 0,
     async fetch(request: Request): Promise<Response> {
       const { pathname } = new URL(request.url);
       if (pathname === `/suppliers/${SUPPLIER_ID}`) return json(200, supplier);
@@ -105,7 +106,11 @@ function fakeServices({ available = 10 } = {}) {
         services.posts.push({ key: request.headers.get('idempotency-key'), body: await request.json() });
         return services.answer();
       }
-      if (pathname === `/orders/${ORDER_ID}`) return json(200, services.reads.shift() ?? order());
+      if (pathname === `/orders/${ORDER_ID}`) {
+        services.gets++;
+        const next = services.reads.shift() ?? order();
+        return next instanceof Response ? next : json(200, next);
+      }
       return failure(404, 'NOT_FOUND', 'Not found.');
     },
   };
@@ -207,7 +212,19 @@ describe('review and submit', () => {
     await act(async () => button(container, 'Try again').click());
     await flush();
     expect(services.posts.map((p) => p.key)).toEqual(['draft-key', 'draft-key']);
-    expect(router.replace).toHaveBeenCalledWith(`/request/${ORDER_ID}`);
+    expect(router.replace).toHaveBeenCalledWith(`/request/${ORDER_ID}?replayed=1`);
+  });
+
+  it('says the request was already posted when the first send replays it', async () => {
+    const services = fakeServices();
+    services.answer = () => json(200, order());
+    const container = await render(<ReviewPage />, services);
+
+    await act(async () => button(container, 'Post request').click());
+    await flush();
+    expect(services.posts).toHaveLength(1);
+    expect(router.replace).toHaveBeenCalledWith(`/request/${ORDER_ID}?replayed=1`);
+    expect(savedDraft()).toBeNull();
   });
 
   it('finds the errand an earlier version posted when its response was lost and the details changed', async () => {
@@ -389,6 +406,17 @@ describe('details', () => {
     expect(router.push).not.toHaveBeenCalled();
   });
 
+  it('focuses the items, described by their error, when that is the only error', async () => {
+    saveDraft({ ...DRAFT, items: [] });
+    const container = await render(<DetailsPage />, fakeServices());
+    await act(async () => button(container, 'Review request').click());
+    const items = container.querySelector('fieldset')!;
+    expect(window.document.activeElement?.tagName).toBe('FIELDSET');
+    expect(container.querySelector(`#${items.getAttribute('aria-describedby')}`)?.textContent).toBe(
+      'Add at least one item.',
+    );
+  });
+
   it('keeps each error on its own item when an earlier item is removed', async () => {
     saveDraft({
       ...DRAFT,
@@ -407,24 +435,41 @@ describe('details', () => {
 describe('order status', () => {
   /** Timers from 1 s up are queued until `advance`; `Date.now` moves with them. */
   function fakeClock() {
-    const pending: { at: number; run: () => void }[] = [];
+    const pending = new Map<number, { at: number; run: () => void }>();
     let now = Date.parse('2026-10-20T01:00:00.000Z');
+    let id = 0;
     setSystemTime(new Date(now));
     globalThis.setTimeout = ((run: () => void, ms = 0) => {
       if (ms < 1000) return realTimers.setTimeout(run, ms);
-      pending.push({ at: now + ms, run });
-      return pending.length;
+      pending.set(++id, { at: now + ms, run });
+      return id;
     }) as typeof setTimeout;
-    globalThis.clearTimeout = (() => {}) as typeof clearTimeout;
+    globalThis.clearTimeout = ((timer: number) => {
+      if (!pending.delete(timer)) realTimers.clearTimeout(timer);
+    }) as typeof clearTimeout;
     return {
       async advance(ms: number) {
         now += ms;
         setSystemTime(new Date(now));
-        for (const timer of pending.splice(0).filter((t) => t.at <= now)) await act(async () => timer.run());
+        for (const [key, timer] of pending)
+          if (timer.at <= now) {
+            pending.delete(key);
+            await act(async () => timer.run());
+          }
         await flush();
       },
     };
   }
+
+  const setVisibility = async (state: 'visible' | 'hidden') => {
+    Object.defineProperty(window.document, 'visibilityState', { value: state, configurable: true });
+    await act(async () => window.document.dispatchEvent(new window.Event('visibilitychange')));
+    await flush();
+  };
+  afterEach(() => {
+    delete (window.document as { visibilityState?: string }).visibilityState;
+    window.happyDOM.setURL('about:blank');
+  });
 
   it('shows the pending state in words, then the deadline once open', async () => {
     const clock = fakeClock();
@@ -461,6 +506,78 @@ describe('order status', () => {
     expect(container.textContent).toContain(
       'You had 1 available for a 3-credit reward. Post it again with a reward of 1 or less',
     );
+  });
+
+  it('keeps reading an open errand every 30 seconds until it reaches a final state', async () => {
+    const clock = fakeClock();
+    const services = fakeServices();
+    services.reads = [order({ status: 'OPEN', acceptanceDeadlineAt: '2026-10-20T02:00:00.000Z' })];
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, services);
+    expect(container.textContent).toContain('Open until');
+
+    services.reads = [order({ status: 'EXPIRED' })];
+    await clock.advance(29_000);
+    expect(services.gets).toBe(1);
+    await clock.advance(1_000);
+    expect(container.textContent).toContain('Expired');
+
+    await clock.advance(60_000);
+    await act(async () => window.dispatchEvent(new window.Event('online')));
+    await setVisibility('visible');
+    expect(services.gets).toBe(2);
+  });
+
+  it('pauses while the tab is hidden and reads as soon as it is shown again', async () => {
+    const clock = fakeClock();
+    const services = fakeServices();
+    services.reads = [order({ status: 'OPEN', acceptanceDeadlineAt: '2026-10-20T02:00:00.000Z' })];
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, services);
+
+    await setVisibility('hidden');
+    await clock.advance(60_000);
+    expect(services.gets).toBe(1);
+
+    services.reads = [order({ status: 'ACCEPTED' })];
+    await setVisibility('visible');
+    expect(services.gets).toBe(2);
+    expect(container.textContent).toContain('A courier has accepted the errand');
+    expect(container.textContent).not.toContain('Post a new request');
+  });
+
+  it('reads again on reconnecting, even after an error stopped polling', async () => {
+    const clock = fakeClock();
+    const services = fakeServices();
+    services.reads = [failure(429, 'RATE_LIMITED', 'Too many requests.')];
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, services);
+    expect(container.textContent).toContain('Could not load this request');
+    await clock.advance(60_000);
+    expect(services.gets).toBe(1);
+
+    services.reads = [order({ status: 'OPEN', acceptanceDeadlineAt: '2026-10-20T02:00:00.000Z' })];
+    await act(async () => window.dispatchEvent(new window.Event('online')));
+    await flush();
+    expect(services.gets).toBe(2);
+    expect(container.textContent).toContain('Open until');
+    expect(container.textContent).not.toContain('Could not');
+  });
+
+  it('offers an expired errand as a new request under a new key', async () => {
+    const services = fakeServices();
+    services.reads = [order({ status: 'EXPIRED' })];
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, services);
+
+    await act(async () => button(container, 'Post a new request').click());
+    const draft = savedDraft();
+    expect(draft).toMatchObject({ supplierId: SUPPLIER_ID, deliveryZone: 'PGP House 7', reward: 3 });
+    expect(draft.idempotencyKey).toBeString();
+    expect(draft.sentBody).toBeUndefined();
+    expect(router.push).toHaveBeenCalledWith(`/request/new/details?supplierId=${SUPPLIER_ID}`);
+  });
+
+  it('says when the request was already posted', async () => {
+    window.happyDOM.setURL(`http://localhost/request/${ORDER_ID}?replayed=1`);
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, fakeServices());
+    expect(container.textContent).toContain('This request was already posted');
   });
 
   it('stops on an error that is not an API failure instead of loading forever', async () => {
