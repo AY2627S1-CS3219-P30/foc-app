@@ -11,16 +11,11 @@ export const ORDER_URL = /\/request\/[0-9a-f-]{36}$/;
 /** Screens render a phone and a desktop tree; CSS shows one. */
 export const visible = (page: Page, text: string | RegExp) => page.getByText(text).filter({ visible: true });
 
-export async function signIn(page: Page, email: string) {
-  await page.goto("/login");
-  await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
-  await page.getByRole("textbox", { name: "NUS email", exact: true }).fill(email);
-  await page.getByRole("textbox", { name: "Password", exact: true }).fill(PASSWORD);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/feed$/);
-}
-
-/** Registers, activates through the dev mailbox and signs in; waits for the wallet to be issued. */
+/**
+ * Registers (unless already registered), activates through the dev mailbox and signs in; waits for
+ * the wallet to be issued. Given a page's `request`, it signs that page in too: they share the
+ * refresh cookie, so the page's first load picks up the session without a second login.
+ */
 export async function activeStudent(
   request: APIRequestContext,
   email: string,
@@ -29,7 +24,7 @@ export async function activeStudent(
   const registered = await request.post(`${USER}/auth/register`, {
     data: { email, password: PASSWORD, displayName },
   });
-  expect(registered.ok(), await registered.text()).toBe(true);
+  expect(registered.ok() || registered.status() === 409, await registered.text()).toBe(true);
   const mail = await (await request.get(`${USER}/dev/mailbox`, { params: { to: email } })).json();
   expect((await request.post(`${USER}/auth/activate`, { data: { token: mail.token } })).ok()).toBe(true);
   const login = await request.post(`${USER}/auth/login`, { data: { email, password: PASSWORD } });

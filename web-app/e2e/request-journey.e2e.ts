@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
-import { CREDIT, ORDER, ORDER_URL, activeStudent, firstSupplier, signIn, visible } from "./stack";
+import { CREDIT, ORDER, ORDER_URL, activeStudent, firstSupplier, visible } from "./stack";
 
 /**
  * WEB-01 end to end, once per breakpoint, against the real stack (nothing mocked):
@@ -18,7 +18,7 @@ test("request journey: post, wait for credits, open; then an insufficient-credit
   request,
 }, testInfo) => {
   const email = `e2e-request-${testInfo.project.name}-${Date.now()}@u.nus.edu`;
-  const token = await activeStudent(request, email);
+  const token = await activeStudent(page.request, email);
   const supplier = await firstSupplier(request, token);
   const auth = { authorization: `Bearer ${token}` };
   const wallet = async () =>
@@ -26,8 +26,6 @@ test("request journey: post, wait for credits, open; then an insufficient-credit
       available: number;
       reserved: number;
     };
-
-  await test.step("sign in", () => signIn(page, email));
 
   await test.step("post: PENDING_CREDIT, then open, with exactly the reward reserved", async () => {
     await compose(page, { supplier: supplier.name, item: "Kopi O", reward: 5 });

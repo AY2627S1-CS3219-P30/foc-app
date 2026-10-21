@@ -9,10 +9,14 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const at = (width: number, height: number) => ({ ...devices["Desktop Chrome"], viewport: { width, height } });
 
+// Set once here and inherited by every worker, so specs can share accounts across projects and retries.
+process.env.E2E_RUN ??= String(Date.now());
+
 export default defineConfig({
   testDir: "./e2e",
   testMatch: "**/*.e2e.ts",
-  // Each project registers its own account; one at a time keeps well inside the sign-up rate limit.
+  // One at a time, so projects never race to register a shared account. The User Service limits
+  // sign-ups and logins per IP, whatever the worker count; staying inside them is up to the specs.
   workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

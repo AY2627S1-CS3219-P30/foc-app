@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { ORDER, ORDER_URL, activeStudent, firstSupplier, signIn, visible } from "./stack";
+import { ORDER, ORDER_URL, activeStudent, firstSupplier, visible } from "./stack";
 
 /**
  * WEB-02 and WEB-05 end to end, once per breakpoint, against the real stack: two couriers race to
@@ -16,10 +16,11 @@ test("errand journey: a lost acceptance race, fulfilment, and the requester conf
   request,
 }, testInfo) => {
   const stamp = `${testInfo.project.name}-${Date.now()}`;
-  const email = (who: string) => `e2e-errand-${who}-${stamp}@u.nus.edu`;
-  const token = await activeStudent(request, email("requester"));
-  await activeStudent(request, email("winner"), "E2E Winner");
-  await activeStudent(request, email("loser"), "E2E Loser");
+  // One set of accounts for every project and retry in the run (see playwright.config.ts).
+  const email = (who: string) => `e2e-errand-${who}-${process.env.E2E_RUN}@u.nus.edu`;
+  const token = await activeStudent(page.request, email("requester"));
+  const winner = await student(browser, page, email("winner"), "E2E Winner");
+  const loser = await student(browser, page, email("loser"), "E2E Loser");
   const supplier = await firstSupplier(request, token);
   const item = `Race ${stamp}`;
   const auth = { authorization: `Bearer ${token}` };
@@ -31,7 +32,7 @@ test("errand journey: a lost acceptance race, fulfilment, and the requester conf
       items: [{ name: item, quantity: 1 }],
       deliveryZone: "PGP House 7",
       deliveryInstructions: INSTRUCTIONS,
-      reward: 2,
+      reward: 1,
     },
   });
   expect(created.status()).toBe(201);
@@ -41,10 +42,6 @@ test("errand journey: a lost acceptance race, fulfilment, and the requester conf
       timeout: 30_000,
     })
     .toBe("OPEN");
-
-  await signIn(page, email("requester"));
-  const winner = await student(browser, page, email("winner"));
-  const loser = await student(browser, page, email("loser"));
 
   await test.step("the requester's own errand is not in their feed", async () => {
     await page.goto("/feed");
@@ -79,17 +76,18 @@ test("errand journey: a lost acceptance race, fulfilment, and the requester conf
     await act(page, "Confirm receipt", "Confirm receipt");
     await expect(badge(page, "Complete")).toBeVisible({ timeout: 30_000 });
   });
+
+  await Promise.all([winner, loser].map((courier) => courier.context().close()));
 });
 
 /** Another signed-in student, in a browser context of their own at the same width. */
-async function student(browser: Browser, like: Page, email: string): Promise<Page> {
+async function student(browser: Browser, like: Page, email: string, displayName: string): Promise<Page> {
   const context = await browser.newContext({
     baseURL: test.info().project.use.baseURL,
     viewport: like.viewportSize(),
   });
-  const page = await context.newPage();
-  await signIn(page, email);
-  return page;
+  await activeStudent(context.request, email, displayName);
+  return context.newPage();
 }
 
 const badge = (page: Page, label: string) =>
