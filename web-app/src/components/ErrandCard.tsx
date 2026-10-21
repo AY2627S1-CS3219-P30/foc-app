@@ -1,52 +1,48 @@
-"use client";
-
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import type { ReactNode } from "react";
+import type { Order } from "@/lib/order-api";
 import { Badge } from "./Badge";
-import { Button } from "./Button";
-import type { ErrandRequest } from "@/lib/types";
 import styles from "./ErrandCard.module.css";
 
+type Errand = Pick<Order, "orderId" | "supplier" | "deliveryZone" | "reward" | "status"> & {
+  items: { name: string; quantity: number }[];
+};
+
+const summary = (items: Errand["items"]) => items.map((i) => `${i.quantity} × ${i.name}`).join(", ");
+
+/**
+ * One errand in a list. The card is a link to the errand; `action` sits beside it, not inside,
+ * since a button nested in a link is invalid and unreachable for some assistive technology.
+ */
 export function ErrandCard({
-  request,
-  onAccept,
+  errand,
+  meta,
+  action,
 }: {
-  request: ErrandRequest;
-  onAccept?: (id: string) => void;
+  errand: Errand;
+  meta?: ReactNode;
+  action?: ReactNode;
 }) {
-  const router = useRouter();
   return (
-    // A real <Link>, not a <div onClick>, so the card is reachable and
-    // activatable by keyboard and announced correctly by screen readers.
-    <Link href={`/request/${request.id}`} className={`card ${styles.card}`}>
-      <div className={styles.meta}>
-        <Badge status={request.status} />
-        <span className={styles.expiry}>{request.expiryLabel}</span>
-      </div>
-      <div className={styles.route}>
-        <p className={styles.title}>{request.title}</p>
-        <p className={styles.dropoff}>{request.dropoff}</p>
-        <p className={styles.requester}>Posted by {request.requesterName}</p>
-      </div>
+    <div className={`card ${styles.card}`}>
+      <Link href={`/request/${errand.orderId}`} className={styles.link}>
+        <div className={styles.meta}>
+          <Badge status={errand.status} />
+          {meta && <span className={styles.when}>{meta}</span>}
+        </div>
+        <div className={styles.body}>
+          <p className={styles.title}>{errand.supplier.name}</p>
+          <p className={styles.items}>{summary(errand.items)}</p>
+          <p className={styles.zone}>To {errand.deliveryZone}</p>
+        </div>
+      </Link>
       <div className={styles.action}>
         <div className={styles.reward}>
-          <strong>{request.credits}</strong>
-          <span>credits</span>
+          <strong>{errand.reward}</strong>
+          <span>{errand.reward === 1 ? "credit" : "credits"}</span>
         </div>
-        {onAccept && request.status === "OPEN" && (
-          <Button
-            variant="accent"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onAccept(request.id);
-              router.push(`/request/${request.id}`);
-            }}
-          >
-            Accept
-          </Button>
-        )}
+        {action}
       </div>
-    </Link>
+    </div>
   );
 }

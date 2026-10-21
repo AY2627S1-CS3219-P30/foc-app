@@ -18,6 +18,8 @@ export type Order = components["schemas"]["Order"];
 export type OrderStatus = Order["status"];
 export type OrderItem = components["schemas"]["OrderItem"];
 export type CreateOrder = components["schemas"]["CreateOrder"];
+export type OpenOrder = components["schemas"]["OpenOrderSummary"];
+export type MyOrder = components["schemas"]["MyOrders"]["items"][number];
 export type Wallet = CreditComponents["schemas"]["Wallet"];
 
 const orderApi = createApiClient<paths>(ORDER_SERVICE_URL, {
@@ -46,3 +48,36 @@ export const getOrder = (token: string, orderId: string) =>
 
 export const getMyWallet = (token: string) =>
   unwrap(creditApi.GET("/wallets/me", { headers: bearer(token) }));
+
+export const listOpenOrders = (token: string) =>
+  unwrap(orderApi.GET("/orders", { headers: bearer(token) }));
+
+export const listMyOrders = (token: string) =>
+  unwrap(orderApi.GET("/orders/mine", { headers: bearer(token) }));
+
+const COMMAND_PATHS = {
+  accept: "/orders/{orderId}/accept",
+  pickup: "/orders/{orderId}/pickup",
+  deliver: "/orders/{orderId}/deliver",
+  withdraw: "/orders/{orderId}/withdraw",
+  cancel: "/orders/{orderId}/cancel",
+  confirmReceipt: "/orders/{orderId}/confirm-receipt",
+  reportNonDelivery: "/orders/{orderId}/report-non-delivery",
+  reportNonReceipt: "/orders/{orderId}/report-non-receipt",
+} as const;
+
+export type Command = keyof typeof COMMAND_PATHS;
+
+/** Every command is sent with the version the caller last saw, so a stale view is refused with `409`. */
+export const sendCommand = (
+  token: string,
+  command: Command,
+  { orderId, version }: Pick<Order, "orderId" | "version">,
+) =>
+  unwrap(
+    orderApi.POST(COMMAND_PATHS[command], {
+      params: { path: { orderId } },
+      body: { expectedVersion: version },
+      headers: bearer(token),
+    }),
+  );

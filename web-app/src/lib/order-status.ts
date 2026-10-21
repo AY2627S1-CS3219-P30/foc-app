@@ -1,5 +1,6 @@
 import { REWARD_MAX, REWARD_MIN } from "./composer";
 import type { Order, OrderStatus } from "./order-api";
+import type { Role } from "./order-actions";
 
 /** Labels are the ones order-service/README.md's state table gives the web app. */
 export const ORDER_STATUS: Record<OrderStatus, { label: string; explanation: string }> = {
@@ -53,6 +54,27 @@ export const ORDER_STATUS: Record<OrderStatus, { label: string; explanation: str
     explanation: "No courier kept the errand before its deadline, so the reward has been returned to you.",
   },
 };
+
+/** Where the requester's wording above would mislead the courier. */
+const FOR_COURIER: Partial<Record<OrderStatus, string>> = {
+  ACCEPTED: "The errand is yours. Collect the items from the pickup point, then record pickup.",
+  PICKED_UP: "You have the items. Take them to the delivery zone, then record delivery.",
+  DELIVERED:
+    "You've recorded delivery. The requester confirms receipt, or it's confirmed automatically.",
+  COMPLETION_PENDING_CREDIT:
+    "Delivery is accepted. The Credit Service is transferring the reward to you.",
+  RELEASE_PENDING_CREDIT: "The errand is ending without payment.",
+  COMPLETED: "The reward has been transferred to you.",
+  CANCELLED: "The errand ended without payment.",
+};
+
+export const explanation = (status: OrderStatus, role: Role) =>
+  (role === "COURIER" && FOR_COURIER[status]) || ORDER_STATUS[status].explanation;
+
+const FINAL: ReadonlySet<OrderStatus> = new Set(["REJECTED", "COMPLETED", "CANCELLED", "EXPIRED"]);
+
+/** A final errand never changes again. */
+export const isFinal = (status: OrderStatus) => FINAL.has(status);
 
 /** What to do about a `REJECTED` order, for each reason the Credit Service gives. */
 export function rejectionMessage(order: Pick<Order, "reward" | "rejection">): string {
