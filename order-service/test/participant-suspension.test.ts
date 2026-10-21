@@ -442,6 +442,12 @@ describe('participant suspension (ORD-06)', () => {
         actorId: null,
         reason: null,
       });
+      // The same reason a cancellation gives, so the order says no more than its history.
+      const { body } = await http(t)
+        .get(`/orders/${SEEDED_ORDER}`)
+        .set('Authorization', asStranger)
+        .expect(200);
+      expect(body.releaseReason).toBe('CANCELLED');
     });
 
     it("shows the requester a pickup timeout and the courier's suspension the same way", async () => {

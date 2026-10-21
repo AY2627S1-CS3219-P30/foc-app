@@ -1,4 +1,4 @@
-import type { OrderStatus } from './types.js';
+import type { OrderStatus, ReleaseReason } from './types.js';
 
 export const ORDER_ACTIONS = [
   'CREDIT_RESERVED',
@@ -73,12 +73,12 @@ export interface TransitionContext {
   autoConfirmationPeriodPassed?: boolean;
   requesterSuspended?: boolean;
   reasonProvided?: boolean;
-  releaseReason?: 'CANCELLED' | 'EXPIRED';
+  releaseReason?: ReleaseReason;
 }
 
 export interface TransitionDecision {
   to: OrderStatus;
-  releaseReason?: 'CANCELLED' | 'EXPIRED';
+  releaseReason?: ReleaseReason;
   emitted: readonly string[];
 }
 

@@ -1,5 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { asAdmin, asStudent, createTestApp, http, issue, type TestApp } from './helpers/app.js';
+import type { LedgerItem } from '../src/credits/types.js';
+import {
+  asAdmin,
+  asOther,
+  asStudent,
+  createTestApp,
+  http,
+  issue,
+  type TestApp,
+} from './helpers/app.js';
 
 describe('wallet ledger API (CRD-05)', () => {
   let testApp: TestApp;
@@ -71,5 +80,88 @@ describe('wallet ledger API (CRD-05)', () => {
       resource: 'LEDGER',
       correlation_id: 'admin-ledger-read',
     });
+  });
+});
+
+describe('ledger total change', () => {
+  let testApp: TestApp;
+
+  const reserve = (orderId: string) =>
+    testApp.db.transaction((tx) =>
+      testApp.credits.reserve(tx, {
+        orderId,
+        requesterId: 'student-1',
+        amount: 3,
+        correlationId: `corr-${orderId}`,
+        causationId: `reserve-${orderId}`,
+      }),
+    );
+
+  async function ledger(authorization: string): Promise<LedgerItem[]> {
+    const items: LedgerItem[] = [];
+    let cursor: string | null = null;
+    do {
+      const query: string = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
+      const page = await http(testApp)
+        .get(`/wallets/me/ledger?limit=2${query}`)
+        .set('Authorization', authorization)
+        .expect(200);
+      items.push(...page.body.items);
+      cursor = page.body.nextCursor;
+    } while (cursor);
+    return items;
+  }
+
+  beforeAll(async () => {
+    testApp = await createTestApp();
+    await issue(testApp, 'student-1');
+    await issue(testApp, 'student-2');
+    await reserve('order-1');
+    await testApp.db.transaction((tx) =>
+      testApp.credits.release(tx, {
+        orderId: 'order-1',
+        requesterId: 'student-1',
+        amount: 3,
+        correlationId: 'corr-order-1',
+        causationId: 'release-order-1',
+      }),
+    );
+    await reserve('order-2');
+    await testApp.db.transaction((tx) =>
+      testApp.credits.transfer(tx, {
+        orderId: 'order-2',
+        requesterId: 'student-1',
+        courierId: 'student-2',
+        amount: 3,
+        correlationId: 'corr-order-2',
+        causationId: 'transfer-order-2',
+      }),
+    );
+  });
+
+  afterAll(async () => testApp.close());
+
+  it('signs each row by how it moved the wallet total', async () => {
+    const requester = await ledger(asStudent);
+    expect(requester.map(({ type, totalChange }) => [type, totalChange])).toEqual([
+      ['TRANSFER', -3],
+      ['RESERVE', 0],
+      ['RELEASE', 0],
+      ['RESERVE', 0],
+      ['ISSUE', 10],
+    ]);
+    const courier = await ledger(asOther);
+    expect(courier.map(({ type, totalChange }) => [type, totalChange])).toEqual([
+      ['TRANSFER', 3],
+      ['ISSUE', 10],
+    ]);
+  });
+
+  it('matches the difference in resultingTotal across page boundaries', async () => {
+    for (const items of [await ledger(asStudent), await ledger(asOther)]) {
+      items.forEach((item, n) => {
+        expect(item.totalChange).toBe(item.resultingTotal - (items[n + 1]?.resultingTotal ?? 0));
+      });
+    }
   });
 });

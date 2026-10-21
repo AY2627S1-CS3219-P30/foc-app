@@ -91,6 +91,9 @@ export function projectOrder(
           ...(order.status === 'DELIVERED' && order.autoConfirmAt
             ? { autoConfirmAt: order.autoConfirmAt }
             : {}),
+          ...(order.status === 'RELEASE_PENDING_CREDIT' && order.releaseReason
+            ? { releaseReason: order.releaseReason }
+            : {}),
         }
       : {}),
     ...(order.status === 'REJECTED' && canReadPrivate && order.rejectionReason

@@ -17,6 +17,9 @@ export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
 export const TERMINAL_ORDER_STATUSES = ['REJECTED', 'COMPLETED', 'CANCELLED', 'EXPIRED'] as const;
 
+/** The status an errand ends in once its credits are returned. */
+export type ReleaseReason = Extract<OrderStatus, 'CANCELLED' | 'EXPIRED'>;
+
 export interface OrderItem {
   name: string;
   quantity: number;
@@ -43,7 +46,7 @@ export interface OrderRow {
   deliveryInstructions: string;
   reward: number;
   status: OrderStatus;
-  releaseReason: 'CANCELLED' | 'EXPIRED' | null;
+  releaseReason: ReleaseReason | null;
   rejectionReason: string | null;
   availableAtRejection: number | null;
   version: number;
@@ -99,6 +102,8 @@ export interface OrderView {
   nonDeliveryReportAt?: string;
   /** From then a delivered errand confirms itself; set once the courier records delivery. */
   autoConfirmAt?: string;
+  /** Whether the credits being returned end the errand as cancelled or expired. */
+  releaseReason?: ReleaseReason;
   rejection?: { reason: string; available?: number };
 }
 
