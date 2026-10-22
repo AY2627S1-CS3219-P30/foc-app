@@ -41,7 +41,7 @@ const LEADS: Record<PreferredMode, string> = {
 };
 
 const LABELS: Record<PreferredMode, Record<string, string>> = {
-  REQUESTER: { "/feed": "Your requests" },
+  REQUESTER: { "/feed": "Active requests" },
   COURIER: {},
 };
 
