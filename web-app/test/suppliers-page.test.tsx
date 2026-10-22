@@ -14,8 +14,19 @@ const auth = {
   user: { roles: ['ADMIN'] },
 };
 mock.module('../src/lib/auth', () => ({ useAuth: () => auth }));
+/** The navigation the page last gave its shell. */
+let shellNav: Array<{ href: string; label: string }> = [];
 mock.module('../src/components/ResponsiveShell', () => ({
-  ResponsiveShell: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  ResponsiveShell: ({
+    children,
+    navItems,
+  }: {
+    children: React.ReactNode;
+    navItems: Array<{ href: string; label: string }>;
+  }) => {
+    shellNav = navItems;
+    return <>{children}</>;
+  },
 }));
 const { default: SuppliersPage } = await import('../src/app/(app)/suppliers/page');
 
@@ -47,6 +58,7 @@ type Call = {
   path: string;
   query: URLSearchParams;
   ifMatch: string | null;
+  idempotencyKey: string | null;
   authorization: string | null;
   body?: unknown;
 };
@@ -64,6 +76,8 @@ const failure = (status: number, code: string, message: string, details?: unknow
 function fakeService(count: number) {
   const suppliers = Array.from({ length: count }, (_, i) => makeSupplier(i + 1));
   const calls: Call[] = [];
+  /** Creates by Idempotency-Key, as the service keeps them: a replay must send the same body. */
+  const created = new Map<string, { body: string; supplier: Supplier }>();
   const service = {
     suppliers,
     calls,
@@ -78,6 +92,7 @@ function fakeService(count: number) {
         path: url.pathname,
         query: url.searchParams,
         ifMatch: request.headers.get('if-match'),
+        idempotencyKey: request.headers.get('idempotency-key'),
         authorization: request.headers.get('authorization'),
         ...(text && { body: JSON.parse(text) }),
       };
@@ -98,6 +113,20 @@ function fakeService(count: number) {
             imageUrl,
           }));
         return json(200, { items, page, pageSize, total: suppliers.length });
+      }
+      if (call.method === 'POST' && call.path === '/suppliers') {
+        const body = JSON.stringify(call.body);
+        const replay = call.idempotencyKey ? created.get(call.idempotencyKey) : undefined;
+        if (replay && replay.body !== body)
+          return failure(422, 'IDEMPOTENCY_KEY_REUSED', 'This key was used for another supplier.');
+        if (replay) return json(200, replay.supplier);
+        const supplier = {
+          ...makeSupplier(suppliers.length + 100),
+          ...(call.body as object),
+        } as Supplier;
+        suppliers.push(supplier);
+        if (call.idempotencyKey) created.set(call.idempotencyKey, { body, supplier });
+        return json(201, supplier);
       }
       const index = suppliers.findIndex((s) => call.path === `/suppliers/${s.supplierId}`);
       if (index < 0) return failure(404, 'NOT_FOUND', 'Supplier not found.');
@@ -466,6 +495,83 @@ describe('supplier page: admin writes', () => {
     expect(describedBy(name)).toContain('Name is too long.');
     expect(describedBy(floor)).toContain('Enter a floor.');
     expect(form(container).textContent).toContain('Check the highlighted fields.');
+  });
+
+  it('adds a supplier with POST and an Idempotency-Key, then reloads the list', async () => {
+    const service = fakeService(1);
+    const container = await renderPage(service);
+
+    await click(button(container, 'Add supplier'));
+    await setValue(control<HTMLInputElement>(form(container), 'Name'), 'New Stall');
+    await submit(form(container));
+
+    const posts = service.writes('POST');
+    expect(posts).toHaveLength(1);
+    expect(posts[0]!.path).toBe('/suppliers');
+    expect(posts[0]!.idempotencyKey).toMatch(/^[0-9a-f-]{36}$/);
+    expect((posts[0]!.body as { name: string }).name).toBe('New Stall');
+    expect(form(container)).toBeNull();
+    expect(service.lists()).toHaveLength(2);
+  });
+
+  it('sends the same key when the same values are saved again after a failed answer', async () => {
+    const service = fakeService(1);
+    let fail = true;
+    service.override = (call) => {
+      if (call.method !== 'POST' || !fail) return undefined;
+      fail = false;
+      return failure(503, 'UNAVAILABLE', 'Try again shortly.');
+    };
+    const container = await renderPage(service);
+
+    await click(button(container, 'Add supplier'));
+    await setValue(control<HTMLInputElement>(form(container), 'Name'), 'New Stall');
+    await submit(form(container));
+    expect(form(container)).not.toBeNull();
+    await submit(form(container));
+
+    const keys = service.writes('POST').map((c) => c.idempotencyKey);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(keys[1]).toBe(keys[0]!);
+    expect(form(container)).toBeNull();
+  });
+
+  it('uses a new key once the values change, and for the next supplier', async () => {
+    const service = fakeService(1);
+    let reject = true;
+    service.override = (call) => {
+      if (call.method !== 'POST' || !reject) return undefined;
+      reject = false;
+      return failure(422, 'VALIDATION_FAILED', 'Check the highlighted fields.', [
+        { field: 'name', code: 'TOO_LONG', message: 'Name is too long.' },
+      ]);
+    };
+    const container = await renderPage(service);
+
+    await click(button(container, 'Add supplier'));
+    await setValue(control<HTMLInputElement>(form(container), 'Name'), 'A very long name');
+    await submit(form(container));
+    await setValue(control<HTMLInputElement>(form(container), 'Name'), 'Short');
+    await submit(form(container));
+    expect(form(container)).toBeNull();
+
+    await click(button(container, 'Add supplier'));
+    await setValue(control<HTMLInputElement>(form(container), 'Name'), 'Another');
+    await submit(form(container));
+
+    const keys = service.writes('POST').map((c) => c.idempotencyKey);
+    expect(keys).toHaveLength(3);
+    expect(new Set(keys).size).toBe(3);
+    expect(service.writes('POST').every((c) => c.idempotencyKey)).toBe(true);
+  });
+
+  it('gives an admin the console navigation, with Suppliers in it once', async () => {
+    await renderPage(fakeService(1));
+    expect(shellNav.filter((item) => item.href === '/suppliers')).toEqual([
+      { href: '/suppliers', label: 'Suppliers' },
+    ]);
+    expect(shellNav.some((item) => item.href === '/admin')).toBe(true);
   });
 });
 

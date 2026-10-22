@@ -61,6 +61,13 @@ export default function SuppliersPage() {
   const formHeading = useRef<HTMLHeadingElement>(null);
   const resultsCount = useRef<HTMLParagraphElement>(null);
   const formDirty = useRef(false);
+  /**
+   * The Idempotency-Key of the open "Add supplier" form and the values it was sent with. Saving the
+   * same values again (after an answer that never arrived) replays the first create instead of
+   * making a second supplier; changed values, or a new form, need a new key, because the service
+   * refuses a key reused with a different body.
+   */
+  const createKey = useRef<{ key: string; body: string } | null>(null);
   const opener = useRef<HTMLElement | null>(null);
   const focusReturn = useRef<FocusReturn | null>(null);
   const editingKey = editing === 'new' ? 'new' : (editing?.supplierId ?? null);
@@ -101,6 +108,7 @@ export default function SuppliersPage() {
     if (key !== editingKey) {
       if (editing && formDirty.current && !window.confirm('Discard your changes?')) return;
       formDirty.current = false;
+      createKey.current = null;
       setEditing(target);
     } else revealForm(formHeading.current);
     opener.current = from;
@@ -115,7 +123,15 @@ export default function SuppliersPage() {
     };
     opener.current = null;
     formDirty.current = false;
+    createKey.current = null;
     setEditing(null);
+  };
+
+  /** The key for creating `body`: the open form's, unless its values have changed since. */
+  const keyFor = (body: SupplierInput) => {
+    const sent = JSON.stringify(body);
+    if (createKey.current?.body !== sent) createKey.current = { key: crypto.randomUUID(), body: sent };
+    return createKey.current.key;
   };
 
   useEffect(() => {
@@ -181,7 +197,13 @@ export default function SuppliersPage() {
                 body,
               }),
             )
-          : unwrap(supplierApi.POST('/suppliers', { headers: bearer(token), body })),
+          : unwrap(
+              supplierApi.POST('/suppliers', {
+                params: { header: { 'Idempotency-Key': keyFor(body) } },
+                headers: bearer(token),
+                body,
+              }),
+            ),
       );
     } catch (cause) {
       if (!(cause instanceof ApiError && cause.status === 412 && editing && editing !== 'new'))
@@ -265,7 +287,7 @@ export default function SuppliersPage() {
   return (
     <ResponsiveShell
       title="Campus suppliers"
-      navItems={admin ? [...ADMIN_NAV, { href: '/suppliers', label: 'Suppliers' }] : STUDENT_NAV}
+      navItems={admin ? ADMIN_NAV : STUDENT_NAV}
       activeHref="/suppliers"
       showCreditPill={false}
     >
