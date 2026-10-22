@@ -1,0 +1,33 @@
+# The published images (NTH-04, #164): every application container, named as CI pushes it to
+# the GitHub Container Registry. Use it with compose.yaml, which still says how each is built
+# and run:
+#
+#   FOC_IMAGE_TAG=sha-<commit> docker compose -f compose.yaml -f compose.images.yaml pull
+#   FOC_IMAGE_TAG=sha-<commit> docker compose -f compose.yaml -f compose.images.yaml up -d --no-build
+#
+# FOC_IMAGE_TAG is `sha-` and the full commit hash of any commit merged to main, or `main` for
+# the latest (the default). Starting the previous release's tag is a rollback (PLT-09, #284).
+# CI builds and pushes with this same file (`docker buildx bake`), so the published images get
+# compose.yaml's build arguments and nothing else.
+#
+# A service and its migrate container run one image, as they are built from one Dockerfile.
+
+services:
+  user-service-migrate:
+    image: ghcr.io/ay2627s1-cs3219-p30/foc-user-service:${FOC_IMAGE_TAG:-main}
+  user-service:
+    image: ghcr.io/ay2627s1-cs3219-p30/foc-user-service:${FOC_IMAGE_TAG:-main}
+  supplier-service-migrate:
+    image: ghcr.io/ay2627s1-cs3219-p30/foc-supplier-service:${FOC_IMAGE_TAG:-main}
+  supplier-service:
+    image: ghcr.io/ay2627s1-cs3219-p30/foc-supplier-service:${FOC_IMAGE_TAG:-main}
+  order-service-migrate:
+    image: ghcr.io/ay2627s1-cs3219-p30/foc-order-service:${FOC_IMAGE_TAG:-main}
+  order-service:
+    image: ghcr.io/ay2627s1-cs3219-p30/foc-order-service:${FOC_IMAGE_TAG:-main}
+  credit-service-migrate:
+    image: ghcr.io/ay2627s1-cs3219-p30/foc-credit-service:${FOC_IMAGE_TAG:-main}
+  credit-service:
+    image: ghcr.io/ay2627s1-cs3219-p30/foc-credit-service:${FOC_IMAGE_TAG:-main}
+  web-app:
+    image: ghcr.io/ay2627s1-cs3219-p30/foc-web-app:${FOC_IMAGE_TAG:-main}

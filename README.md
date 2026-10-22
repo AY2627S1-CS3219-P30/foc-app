@@ -879,6 +879,37 @@ npm run test:contract        # contract compatibility + provider checks
 Every test suite, its naming convention and the variables that switch on the real-PostgreSQL and
 RabbitMQ suites are described in [docs/testing.md](docs/testing.md).
 
+### Published images
+
+A push to `main` that passes every check publishes the five application images to the GitHub
+Container Registry (NTH-04, [#164](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/164)):
+`ghcr.io/ay2627s1-cs3219-p30/foc-user-service`, `-supplier-service`, `-order-service`,
+`-credit-service` and `-web-app`. Each is tagged `sha-<commit>` with the full commit hash, and the
+latest is also `main`. Pull requests build the images but never push them.
+
+[`compose.images.yaml`](compose.images.yaml) names them for Compose. With it, a stack starts from
+the published images instead of building:
+
+```bash
+FOC_IMAGE_TAG=sha-<commit> docker compose -f compose.yaml -f compose.images.yaml pull
+FOC_IMAGE_TAG=sha-<commit> docker compose -f compose.yaml -f compose.images.yaml up -d --no-build
+```
+
+`FOC_IMAGE_TAG` defaults to `main`. Starting an earlier commit's tag is how a release is rolled back
+(PLT-09, [#284](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/284)). CI pushes with the
+same file through `docker buildx bake`, so a published image has exactly `compose.yaml`'s build
+arguments; the web app's are its `localhost` service URLs, so it is an image for this local stack.
+
+- **Every merged commit is published.** A push to `main` is never cancelled by the next one; only a
+  pull request's superseded run is.
+- **Only the publish job may write to the registry.** It alone has `packages: write`, and it runs
+  only after the `CI` job passed on a push to `main`.
+- **Fast after the first.** It reads and writes the per-service layer cache that the image builds
+  use, from `main`, which every later run, pull requests included, can read.
+- **If `pull` says `denied`,** the package is still private: an organisation owner makes it public
+  under the package's settings, or you sign in first with
+  `docker login ghcr.io -u <github-user>` and a token that has `read:packages`.
+
 ## Repository Structure
 
 This repository follows a **one-service-per-folder** structure: each
