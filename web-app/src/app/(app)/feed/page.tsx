@@ -148,7 +148,7 @@ export default function FeedPage() {
         <FormAlert tone="info" takeFocus>{notice}</FormAlert>
         <FormAlert>{problem ? `Could not refresh the list. ${problem}` : null}</FormAlert>
         {cards.length === 0 ? (
-          <EmptyState title={mode === "REQUESTER" ? "No open requests" : "No open errands right now"}>
+          <EmptyState title={mode === "REQUESTER" ? "No active requests" : "No open errands right now"}>
             {mode === "REQUESTER" ? "Create a request to get started." : "Check back soon."}
           </EmptyState>
         ) : (
@@ -156,7 +156,7 @@ export default function FeedPage() {
         )}
         {result.mode === "REQUESTER" && result.truncated && (
           <p style={{ fontSize: vars.text.sm, color: vars.color.textSubtle }}>
-            Showing your 100 most recently updated open requests.
+            Showing your 100 most recently updated active requests.
           </p>
         )}
       </>
@@ -167,7 +167,7 @@ export default function FeedPage() {
       <div className="mobileOnly">
         <Screen>
           <AppBar
-            title={mode === "REQUESTER" ? "Active requests" : "Feed"}
+            title={mode === "REQUESTER" ? title : "Feed"}
             onPlusClick={mode === "REQUESTER" ? () => router.push("/request/new") : undefined}
           />
           <ScreenContent>{content}</ScreenContent>
