@@ -36,6 +36,11 @@ export type CreditWait = OrderSchemas["CreditWaitList"]["items"][number];
 export type AccountErrand = OrderSchemas["Order"];
 export type AccountErrandPage = OrderSchemas["AccountOrderPage"];
 export type OrderStatus = AccountErrand["status"];
+/** ORD-11: a dispute referred to the caller (`assignedToMe`, with private details) or to no one yet. */
+export type ReferredDispute = OrderSchemas["ReferredOrders"]["items"][number];
+export type DisputeDecision = OrderSchemas["DisputeDecisions"]["items"][number];
+export type DisputeOutcome = OrderSchemas["ResolveDispute"]["outcome"];
+export type ResolveDispute = OrderSchemas["ResolveDispute"];
 export type ReconciliationAttempt = OrderSchemas["ReconciliationAttempts"]["items"][number];
 export type Wallet = CreditSchemas["Wallet"];
 export type LedgerItem = CreditSchemas["LedgerItem"];
@@ -184,6 +189,32 @@ export function createAdminApi({
     /** ORD-15: one account's errands, newest first. Students are refused by the Order Service. */
     accountErrands: (token: string, query: AccountErrandQuery) =>
       unwrap(orders.GET("/admin/orders", { params: { query }, headers: bearer(token) })),
+    /** ORD-11: disputes referred to the caller, in full, and those referred to no one yet. */
+    referredDisputes: (token: string) =>
+      unwrap(orders.GET("/admin/orders/referred", { headers: bearer(token) })),
+    /** The most recent dispute decisions, newest first. */
+    disputeDecisions: (token: string) =>
+      unwrap(orders.GET("/admin/orders/decisions", { headers: bearer(token) })),
+    /**
+     * One errand's private view. The Order Service gives it only to the administrator the dispute
+     * is referred to; anyone else gets 403.
+     */
+    errand: (token: string, orderId: string) =>
+      unwrap(
+        orders.GET("/orders/{orderId}", {
+          params: { path: { orderId }, query: { view: "private" } },
+          headers: bearer(token),
+        }),
+      ),
+    /** The referred administrator decides, with a reason, at the version they read. */
+    resolveDispute: (token: string, orderId: string, decision: ResolveDispute) =>
+      unwrap(
+        orders.POST("/admin/orders/{orderId}/resolve", {
+          params: order(orderId),
+          body: decision,
+          headers: bearer(token),
+        }),
+      ),
     creditWaits: (token: string) =>
       unwrap(orders.GET("/admin/orders/pending-credit", { headers: bearer(token) })),
     reconciliation: (token: string) =>

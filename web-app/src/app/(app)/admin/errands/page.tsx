@@ -6,6 +6,7 @@ import { formatDuration, formatWhen, RECONCILIATION_ACTIONS } from "@/lib/admin-
 import { AdminShell, Loaded, Section, Tag, TraceLink, UserLink } from "../_components/ui";
 import { useAdminData } from "../_components/use-admin-data";
 import styles from "../_components/admin.module.css";
+import { Disputes, RecentDecisions } from "./Disputes";
 
 export default function ErrandsPage() {
   const waits = useAdminData("errands:waits", (t) => adminApi.creditWaits(t));
@@ -13,6 +14,8 @@ export default function ErrandsPage() {
 
   return (
     <AdminShell active="/admin/errands" heading="Errands needing attention">
+      <Disputes />
+
       <Section
         title="Waiting on credits too long"
         description="Errands still waiting for the Credit Service to reserve the reward after the limit (5 minutes by default), oldest first. Listing one does not reject it: it still opens if the reservation arrives."
@@ -124,15 +127,7 @@ export default function ErrandsPage() {
         </Loaded>
       </Section>
 
-      <Section
-        title="Referred to an administrator"
-        description="Disputed errands that the Order Service hands to an administrator to decide."
-      >
-        <p className={styles.muted}>
-          Arrives with ORD-11 (#171): referred errands will be listed here to decide, with a reason,
-          by an administrator who is neither the requester nor the courier.
-        </p>
-      </Section>
+      <RecentDecisions />
     </AdminShell>
   );
 }

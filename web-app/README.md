@@ -344,7 +344,7 @@ refuses a student with `403` on its own.
 | Role requests | `GET /admin/role-requests`, approve, reject |
 | Audit trail | `GET /admin/audit-records`, by administrator, account, action and dates |
 | Admin activity | `GET /admin/alerts`, `GET /admin/reads` |
-| Errands | `GET /admin/orders/pending-credit`, `GET /admin/orders/reconciliation-attempts`; referrals arrive with ORD-11 (#171) |
+| Errands | Disputes: `GET /admin/orders/referred`, and `GET /admin/orders/decisions` for the latest decisions. One dispute (`/admin/errands/{orderId}`): `GET /orders/{orderId}?view=private`, which only the referred administrator is given, and `POST /admin/orders/{orderId}/resolve` with a reason (ORD-11, #271). Also `GET /admin/orders/pending-credit` and `GET /admin/orders/reconciliation-attempts` |
 | Wallets | `GET /admin/wallets/{userId}` and its ledger (Credit Service; read-only, every read recorded) |
 | Operations | Placeholder until PLT-05 (#154) |
 

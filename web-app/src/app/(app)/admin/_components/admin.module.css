@@ -224,6 +224,16 @@
   overflow-wrap: anywhere;
 }
 
+/* A short list inside a fact, such as an errand's items. */
+.plainList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
