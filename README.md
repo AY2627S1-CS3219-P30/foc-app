@@ -829,9 +829,9 @@ than nothing.
 | ----------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `Detect changes`  | always                                          | Works out what is affected                                                                                              |
 | `Lint and format` | any Node code changed                           | `eslint`, `prettier --check`, the contract compatibility check, and a vulnerability scan of the production dependencies |
-| `Shared packages` | any Node code changed                           | Build and test every shared package, with real RabbitMQ and PostgreSQL                                                  |
-| `<service>`       | that service or shared code changed             | Typecheck, test, build its image, and scan the image for vulnerabilities                                                |
-| `web-app`         | `web-app/**` changed                            | `bun install`, lint, test, build; then build its image and scan it                                                      |
+| `Shared packages` | any Node code changed                           | Build and test every shared package, with real RabbitMQ and PostgreSQL, and report their coverage                       |
+| `<service>`       | that service or shared code changed             | Typecheck, test and report coverage, build its image, and scan the image for vulnerabilities                            |
+| `web-app`         | `web-app/**` changed                            | `bun install`, lint, test with coverage, build; then build its image and scan it                                        |
 | `Compose smoke`   | container wiring changed, or any push to `main` | Brings the whole stack up and runs the smoke checks                                                                     |
 | **`CI`**          | **always**                                      | The gate — fails if anything above failed                                                                               |
 
@@ -843,7 +843,7 @@ never arrive, and the PR would be blocked forever. The `CI` job always runs and
 fails if any job it depends on failed, so it is the only check that needs to be
 required on `main`.
 
-### Vulnerabilities, owners and what `main` requires
+### Vulnerabilities, coverage, owners and what `main` requires
 
 - **A critical vulnerability with a fix fails the pull request** (NTH-04,
   [#164](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/164); PL-NFR4.1.2), as a failed
@@ -858,6 +858,11 @@ required on `main`.
 - **What `main` requires.** Branch protection requires the `CI` check, on a branch up to date with
   `main`, and refuses force pushes. It does not require an approval: a review by one person other
   than the author is the team's rule (each ticket's Definition of Done), and `CODEOWNERS` requests it.
+- **Coverage is reported, not gated** (PL-NFR4.1.1). Each service's and shared package's tests run
+  with `--coverage` in CI, and [`scripts-coverage-summary.sh`](scripts-coverage-summary.sh) puts
+  their lines, branches and functions in the job's summary; the web app's table is in its log. No
+  package has a threshold. To see a service's locally:
+  `npm test -w @foc/order-service -- --coverage`.
 - **Pinned tools.** Bun in CI is the version the web app's image builds with (1.4.2), and a test
   fails if the two differ.
 
@@ -897,6 +902,37 @@ npm run test:contract        # contract compatibility + provider checks
 
 Every test suite, its naming convention and the variables that switch on the real-PostgreSQL and
 RabbitMQ suites are described in [docs/testing.md](docs/testing.md).
+
+### Published images
+
+A push to `main` that passes every check publishes the five application images to the GitHub
+Container Registry (NTH-04, [#164](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/164)):
+`ghcr.io/ay2627s1-cs3219-p30/foc-user-service`, `-supplier-service`, `-order-service`,
+`-credit-service` and `-web-app`. Each is tagged `sha-<commit>` with the full commit hash, and the
+latest is also `main`. Pull requests build the images but never push them.
+
+[`compose.images.yaml`](compose.images.yaml) names them for Compose. With it, a stack starts from
+the published images instead of building:
+
+```bash
+FOC_IMAGE_TAG=sha-<commit> docker compose -f compose.yaml -f compose.images.yaml pull
+FOC_IMAGE_TAG=sha-<commit> docker compose -f compose.yaml -f compose.images.yaml up -d --no-build
+```
+
+`FOC_IMAGE_TAG` defaults to `main`. Starting an earlier commit's tag is how a release is rolled back
+(PLT-09, [#284](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/284)). CI pushes with the
+same file through `docker buildx bake`, so a published image has exactly `compose.yaml`'s build
+arguments; the web app's are its `localhost` service URLs, so it is an image for this local stack.
+
+- **Every merged commit is published.** A push to `main` is never cancelled by the next one; only a
+  pull request's superseded run is.
+- **Only the publish job may write to the registry.** It alone has `packages: write`, and it runs
+  only after the `CI` job passed on a push to `main`.
+- **Fast after the first.** It reads and writes the per-service layer cache that the image builds
+  use, from `main`, which every later run, pull requests included, can read.
+- **If `pull` says `denied`,** the package is still private: an organisation owner makes it public
+  under the package's settings, or you sign in first with
+  `docker login ghcr.io -u <github-user>` and a token that has `read:packages`.
 
 ## Repository Structure
 

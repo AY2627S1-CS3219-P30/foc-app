@@ -12,7 +12,7 @@ set -euo pipefail
 # of these fans out to all four. test-harness/ holds every service's shared test
 # fixtures and contract checks, so it fans out too; it is never in an image.
 # system-tests/ runs the real service code together, so it fans out the same way.
-SHARED_RE='^(platform/|test-harness/|system-tests/|package\.json|package-lock\.json|tsconfig\.base\.json|eslint\.config\.mjs|\.prettierrc|\.prettierignore|\.github/workflows/ci\.yml|\.nvmrc|scripts-scan-vulnerabilities\.sh)'
+SHARED_RE='^(platform/|test-harness/|system-tests/|package\.json|package-lock\.json|tsconfig\.base\.json|eslint\.config\.mjs|\.prettierrc|\.prettierignore|\.github/workflows/ci\.yml|\.nvmrc|scripts-scan-vulnerabilities\.sh|scripts-coverage-summary\.sh)'
 SERVICE_RE='^(user|supplier|order|credit)-service/'
 # Wiring between containers, as opposed to code inside one. `.env.example`
 # belongs here because the smoke job builds `.env` from it.

@@ -41,6 +41,16 @@ describe('the vulnerability scan (PL-NFR4.1.2)', () => {
   });
 });
 
+describe('test coverage (PL-NFR4.1.1)', () => {
+  it('is reported for each service, each shared package and the web app, without a threshold', () => {
+    expect(runs('service')).toContain('npm test -w @foc/${{ matrix.service }} -- --coverage');
+    expect(runs('packages')).toContain('npm test -w "$pkg" -- --coverage');
+    expect(runs('web-app')).toContain('bun test --coverage');
+    expect(runs('service')).toContain('./scripts-coverage-summary.sh');
+    expect(runs('packages')).toContain('./scripts-coverage-summary.sh');
+  });
+});
+
 describe('tool versions', () => {
   it('pins Bun in CI to the version the web app’s image builds with', () => {
     const image = read('web-app/Dockerfile').match(/^FROM oven\/bun:(\d+\.\d+\.\d+)/m)![1];
