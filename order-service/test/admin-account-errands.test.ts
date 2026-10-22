@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   asAdmin,
+  asBystander,
   asRequester,
   asStranger,
   createTestApp,
@@ -92,20 +93,84 @@ describe("an administrator's view of one account's errands", () => {
     ]);
   });
 
-  it('refuses students, anonymous callers and a query naming no account', async () => {
+  it('refuses students, anonymous callers and an invalid query', async () => {
     t = await createTestApp();
     await list(`requesterId=${REQUESTER}`, asRequester).expect(403);
     await list(`requesterId=${REQUESTER}`, asStranger).expect(403);
+    await list('', asRequester).expect(403);
     await http(t).get(`/admin/orders?requesterId=${REQUESTER}`).expect(401);
     for (const query of [
-      '',
       'requesterId=',
       `requesterId=${REQUESTER}&pageSize=101`,
       `requesterId=${REQUESTER}&page=0`,
-      `requesterId=${REQUESTER}&status=OPEN`,
+      'status=',
+      'status=NOPE',
+      'status=OPEN,',
+      'sort=oldest',
     ]) {
       const refused = await list(query);
       expect([refused.status, refused.body.error.code]).toEqual([422, 'VALIDATION_FAILED']);
     }
+  });
+});
+
+/** ADM-06 (#279): the same endpoint with no account named lists every errand, live and past. */
+describe('an administrator listing every errand', () => {
+  let t: TestApp | undefined;
+  afterEach(async () => t?.close());
+
+  const list = (query: string) =>
+    http(t!).get(`/admin/orders?${query}`).set('Authorization', asAdmin);
+  const ids = (body: { items: Array<{ orderId: string }> }) =>
+    body.items.map((item) => item.orderId);
+
+  it('lists every account’s errands when no account is named, newest first, public fields only', async () => {
+    t = await createTestApp();
+    const mine = await createPending(t);
+    const theirs = await createPending(t, asBystander);
+
+    const { body } = await list('').expect(200);
+
+    expect(body).toMatchObject({ page: 1, pageSize: 20, total: 3 });
+    expect(ids(body)).toEqual([theirs, mine, SEEDED_ORDER]);
+    for (const item of body.items) {
+      for (const field of ['requesterId', 'courierId', 'deliveryInstructions']) {
+        expect(item).not.toHaveProperty(field);
+      }
+    }
+    expect(JSON.stringify(body.items)).not.toContain(SECRET.instructions);
+  });
+
+  it('filters by one or more statuses, on its own or with an account', async () => {
+    t = await createTestApp();
+    const pending = await createPending(t);
+    const rejected = await createPending(t, asBystander);
+    await reservationReply(t, rejected, true, 'bystander-student');
+
+    const open = await list('status=OPEN').expect(200);
+    expect(open.body).toMatchObject({ total: 1 });
+    expect(ids(open.body)).toEqual([SEEDED_ORDER]);
+
+    const waitingOrRejected = await list('status=PENDING_CREDIT,REJECTED').expect(200);
+    expect(waitingOrRejected.body).toMatchObject({ total: 2 });
+    expect(ids(waitingOrRejected.body)).toEqual([rejected, pending]);
+
+    const oneAccount = await list(`requesterId=${REQUESTER}&status=PENDING_CREDIT,OPEN`).expect(
+      200,
+    );
+    expect(ids(oneAccount.body)).toEqual([pending, SEEDED_ORDER]);
+  });
+
+  it('pages through every errand', async () => {
+    t = await createTestApp();
+    const older = await createPending(t);
+    const newer = await createPending(t, asBystander);
+
+    const first = await list('pageSize=2').expect(200);
+    const second = await list('pageSize=2&page=2').expect(200);
+
+    expect(ids(first.body)).toEqual([newer, older]);
+    expect(second.body).toMatchObject({ page: 2, pageSize: 2, total: 3 });
+    expect(ids(second.body)).toEqual([SEEDED_ORDER]);
   });
 });

@@ -216,6 +216,25 @@ describe("one account's errands (ORD-15)", () => {
   });
 });
 
+describe("every errand (ADM-06)", () => {
+  const page = { page: 1, pageSize: 20, total: 0, items: [] };
+
+  it("asks for every errand when no status is given, naming no account", async () => {
+    const { client, seen } = api(() => json(200, page));
+    expect(await client.errands("t1", { page: 2, pageSize: 20 })).toEqual(page as never);
+    const url = new URL(seen[0].url);
+    expect(`${url.origin}${url.pathname}`).toBe("http://order.test/admin/orders");
+    expect([...url.searchParams.keys()].sort()).toEqual(["page", "pageSize"]);
+    expect(seen[0].headers.get("authorization")).toBe("Bearer t1");
+  });
+
+  it("sends several statuses as one comma-separated value", async () => {
+    const { client, seen } = api(() => json(200, page));
+    await client.errands("t1", { status: ["OPEN", "ACCEPTED"] });
+    expect(new URL(seen[0].url).searchParams.getAll("status")).toEqual(["OPEN,ACCEPTED"]);
+  });
+});
+
 describe("disputes referred to an administrator (#271)", () => {
   const orderId = "0198a1c2-0000-7000-8000-00000000d001";
 

@@ -390,16 +390,23 @@ paths:
   /admin/orders:
     get:
       operationId: listAccountOrders
-      summary: An administrator's view of one account's errands (ORD-15).
+      summary: An administrator's view of errands, one account's or all of them (ORD-15, ADM-06).
       description: |
         The errands one account requested (`requesterId`), currently holds as courier
-        (`courierId`), or both when both are given, in any status, newest first. Public fields only:
-        no participant IDs, delivery instructions or item notes, even for an errand referred to the
+        (`courierId`), or both when both are given; every errand when neither is given (ADM-06).
+        `status` narrows either to one or more statuses. Newest first. Public fields only: no
+        participant IDs, delivery instructions or item notes, even for an errand referred to the
         caller, whose private details are read through `GET /orders/{orderId}`. A courier who
         withdrew or timed out no longer holds the errand. Administrators only.
       parameters:
         - { name: requesterId, in: query, schema: { type: string, minLength: 1, maxLength: 200 } }
         - { name: courierId, in: query, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - name: status
+          in: query
+          description: |
+            One or more errand statuses, comma-separated, such as `DISPUTED` or `OPEN,ACCEPTED`.
+            Each must be a value of `Order.status`; an unknown or empty one is refused.
+          schema: { type: string, minLength: 1, maxLength: 400 }
         - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
         - {
             name: pageSize,
@@ -1233,7 +1240,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     AccountQueryInvalid:
-      description: Neither requesterId nor courierId given, an unknown parameter, or a page out of range.
+      description: An unknown parameter or status, an empty account or status, or a page out of range.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }

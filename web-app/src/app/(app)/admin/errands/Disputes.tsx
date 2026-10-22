@@ -4,9 +4,20 @@ import Link from "next/link";
 import { Button } from "@/components/Button";
 import { adminApi } from "@/lib/admin-api";
 import { DISPUTE_OUTCOMES, disputeCause, formatWhen, shortId } from "@/lib/admin-labels";
-import { Loaded, Section, Tag, TraceLink, UserLink } from "../_components/ui";
-import { useAdminData } from "../_components/use-admin-data";
+import { Loaded, Section, Stat, Tag, TraceLink, UserLink } from "../_components/ui";
+import { figure, useAdminData } from "../_components/use-admin-data";
 import styles from "../_components/admin.module.css";
+
+/**
+ * ADM-06 (#279): how many errands are disputed right now, whoever they are referred to. One count
+ * from the Order Service; a dash when it does not answer.
+ */
+export function DisputesWaitingStat() {
+  const disputed = useAdminData("overview:disputed", (t) =>
+    adminApi.errands(t, { status: ["DISPUTED"], pageSize: 1 }),
+  );
+  return <Stat href="/admin/errands" label="Disputes waiting" value={figure(disputed, (d) => d.total)} />;
+}
 
 /**
  * ORD-11 (#271): disputes referred to this administrator, which they open and decide, and disputes

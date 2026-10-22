@@ -1,5 +1,6 @@
 import { ApiException } from '@foc/platform';
 import { z } from 'zod';
+import { ORDER_STATUSES } from './types.js';
 
 const item = z
   .object({
@@ -121,28 +122,36 @@ export function parseIdempotencyKey(value: string | undefined): string {
   return value;
 }
 
-const accountErrandsSchema = z
+/** `status=OPEN,ACCEPTED`: one or more statuses, comma-separated, each one the API knows. */
+const statusListSchema = z
+  .string()
+  .transform((value) => value.split(','))
+  .pipe(z.array(z.enum(ORDER_STATUSES)).min(1))
+  .transform((statuses) => [...new Set(statuses)]);
+
+/**
+ * An administrator's errand list: one account's (ORD-15) when `requesterId` or `courierId` is
+ * given, every errand otherwise (ADM-06), narrowed to `status` when given.
+ */
+const adminOrdersSchema = z
   .object({
     requesterId: z.string().trim().min(1).max(200).optional(),
     courierId: z.string().trim().min(1).max(200).optional(),
+    status: statusListSchema.optional(),
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(20),
   })
-  .strict()
-  .refine((query) => query.requesterId !== undefined || query.courierId !== undefined, {
-    message: 'Give requesterId, courierId or both.',
-    path: ['requesterId'],
-  });
+  .strict();
 
-export type AccountErrandsQuery = z.infer<typeof accountErrandsSchema>;
+export type AdminOrdersQuery = z.infer<typeof adminOrdersSchema>;
 
-export function parseAccountErrandsQuery(value: unknown): AccountErrandsQuery {
-  const result = accountErrandsSchema.safeParse(value);
+export function parseAdminOrdersQuery(value: unknown): AdminOrdersQuery {
+  const result = adminOrdersSchema.safeParse(value);
   if (result.success) return result.data;
   throw new ApiException(
     422,
     'VALIDATION_FAILED',
-    'The account query is invalid.',
+    'The errand query is invalid.',
     result.error.issues.map((issue) => ({
       field: issue.path.join('.') || 'query',
       code: issue.code,

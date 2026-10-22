@@ -58,6 +58,13 @@ export const ORDER_STATUSES: Record<OrderStatus, string> = {
   EXPIRED: "Expired",
 };
 
+/** Every status, in lifecycle order. */
+export const ORDER_STATUS_ORDER = Object.keys(ORDER_STATUSES) as OrderStatus[];
+/** The statuses an errand never leaves. */
+export const FINISHED_STATUSES: OrderStatus[] = ["REJECTED", "COMPLETED", "CANCELLED", "EXPIRED"];
+/** Every status an errand can still move on from. */
+export const LIVE_STATUSES = ORDER_STATUS_ORDER.filter((s) => !FINISHED_STATUSES.includes(s));
+
 /** Why an errand was disputed: the action that moved it to DISPUTED (ORD-06, ORD-10). */
 const DISPUTE_CAUSES: Record<string, string> = {
   REPORT_NON_RECEIPT: "The requester reported it never arrived, after the courier recorded delivery",

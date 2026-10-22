@@ -1,11 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { adminApi, type AccountErrandPage, type AccountErrandQuery } from "@/lib/admin-api";
-import { formatWhen, ORDER_STATUSES, ORDER_TONES } from "@/lib/admin-labels";
-import { Loaded, Pager, Section, Tag, TraceLink } from "../../_components/ui";
+import { adminApi, type AccountErrandQuery } from "@/lib/admin-api";
+import { ErrandTable } from "../../_components/ErrandTable";
+import { Loaded, Pager, Section } from "../../_components/ui";
 import { useAdminData } from "../../_components/use-admin-data";
-import styles from "../../_components/admin.module.css";
 
 const PAGE_SIZE = 10;
 
@@ -89,43 +88,5 @@ function ErrandList({
         )}
       </Loaded>
     </Section>
-  );
-}
-
-function ErrandTable({ page, caption }: { page: AccountErrandPage; caption: string }) {
-  return (
-    <div className={styles.tableWrap}>
-      <table className={styles.table}>
-        <caption className="srOnly">{caption}</caption>
-        <thead>
-          <tr>
-            <th scope="col">Errand</th>
-            <th scope="col">Status</th>
-            <th scope="col">Supplier</th>
-            <th scope="col" className={styles.number}>
-              Reward
-            </th>
-            <th scope="col">Posted</th>
-            <th scope="col">Last change</th>
-          </tr>
-        </thead>
-        <tbody>
-          {page.items.map((e) => (
-            <tr key={e.orderId}>
-              <td>
-                <TraceLink orderId={e.orderId} />
-              </td>
-              <td>
-                <Tag tone={ORDER_TONES[e.status]}>{ORDER_STATUSES[e.status]}</Tag>
-              </td>
-              <td>{e.supplier.name}</td>
-              <td className={styles.number}>{e.reward}</td>
-              <td className={styles.nowrap}>{formatWhen(e.createdAt)}</td>
-              <td className={styles.nowrap}>{formatWhen(e.updatedAt)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   );
 }

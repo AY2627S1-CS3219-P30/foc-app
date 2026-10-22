@@ -295,10 +295,11 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * An administrator's view of one account's errands (ORD-15).
+         * An administrator's view of errands, one account's or all of them (ORD-15, ADM-06).
          * @description The errands one account requested (`requesterId`), currently holds as courier
-         *     (`courierId`), or both when both are given, in any status, newest first. Public fields only:
-         *     no participant IDs, delivery instructions or item notes, even for an errand referred to the
+         *     (`courierId`), or both when both are given; every errand when neither is given (ADM-06).
+         *     `status` narrows either to one or more statuses. Newest first. Public fields only: no
+         *     participant IDs, delivery instructions or item notes, even for an errand referred to the
          *     caller, whose private details are read through `GET /orders/{orderId}`. A courier who
          *     withdrew or timed out no longer holds the errand. Administrators only.
          */
@@ -990,7 +991,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
-        /** @description Neither requesterId nor courierId given, an unknown parameter, or a page out of range. */
+        /** @description An unknown parameter or status, an empty account or status, or a page out of range. */
         AccountQueryInvalid: {
             headers: {
                 [name: string]: unknown;
@@ -1528,6 +1529,11 @@ export interface operations {
             query?: {
                 requesterId?: string;
                 courierId?: string;
+                /**
+                 * @description One or more errand statuses, comma-separated, such as `DISPUTED` or `OPEN,ACCEPTED`.
+                 *     Each must be a value of `Order.status`; an unknown or empty one is refused.
+                 */
+                status?: string;
                 page?: number;
                 pageSize?: number;
             };

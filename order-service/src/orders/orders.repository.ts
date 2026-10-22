@@ -204,14 +204,18 @@ export class OrdersRepository {
     return result.rows.map(mapOrder);
   }
 
-  /** One account's errands, as requester, current courier or both filters at once, newest first. */
-  async listByAccount(
-    filter: { requesterId?: string; courierId?: string },
+  /**
+   * Errands newest first: one account's, as requester, current courier or both filters at once, or
+   * every errand when neither is given; `status` narrows either to those statuses.
+   */
+  async listForAdmin(
+    filter: { requesterId?: string; courierId?: string; status?: OrderStatus[] },
     page: number,
     pageSize: number,
   ): Promise<{ rows: OrderRow[]; total: number }> {
-    const where = `($1::text IS NULL OR requester_id = $1) AND ($2::text IS NULL OR courier_id = $2)`;
-    const params = [filter.requesterId ?? null, filter.courierId ?? null];
+    const where = `($1::text IS NULL OR requester_id = $1) AND ($2::text IS NULL OR courier_id = $2)
+      AND ($3::text[] IS NULL OR status = ANY($3::text[]))`;
+    const params = [filter.requesterId ?? null, filter.courierId ?? null, filter.status ?? null];
     const [count, rows] = await Promise.all([
       this.db.query<{ total: number } & Row>(
         `SELECT count(*)::int AS total FROM orders WHERE ${where}`,
@@ -220,7 +224,7 @@ export class OrdersRepository {
       this.db.query<StoredOrder>(
         `SELECT ${ORDER_COLUMNS} FROM orders WHERE ${where}
           ORDER BY created_at DESC, order_id DESC
-          LIMIT $3 OFFSET $4`,
+          LIMIT $4 OFFSET $5`,
         [...params, pageSize, (page - 1) * pageSize],
       ),
     ]);

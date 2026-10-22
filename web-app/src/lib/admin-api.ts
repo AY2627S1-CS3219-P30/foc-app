@@ -81,6 +81,8 @@ export type ReadsQuery = Paging & { actorId?: string; targetUserId?: string };
 /** One account's errands: those it requested, those it holds as courier, or both. One is required. */
 export type AccountErrandQuery = Paging &
   ({ requesterId: string; courierId?: string } | { courierId: string; requesterId?: string });
+/** Every errand, or only those in `status` (ADM-06). */
+export type ErrandQuery = Paging & { status?: OrderStatus[] };
 
 /** The ledger page size the console asks for. */
 export const LEDGER_PAGE = 20;
@@ -189,6 +191,14 @@ export function createAdminApi({
     /** ORD-15: one account's errands, newest first. Students are refused by the Order Service. */
     accountErrands: (token: string, query: AccountErrandQuery) =>
       unwrap(orders.GET("/admin/orders", { params: { query }, headers: bearer(token) })),
+    /** ADM-06: every errand, live and past, newest first; `status` narrows it to those statuses. */
+    errands: (token: string, { status, ...paging }: ErrandQuery) =>
+      unwrap(
+        orders.GET("/admin/orders", {
+          params: { query: { ...paging, ...(status?.length ? { status: status.join(",") } : {}) } },
+          headers: bearer(token),
+        }),
+      ),
     /** ORD-11: disputes referred to the caller, in full, and those referred to no one yet. */
     referredDisputes: (token: string) =>
       unwrap(orders.GET("/admin/orders/referred", { headers: bearer(token) })),
