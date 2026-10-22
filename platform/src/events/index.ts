@@ -85,6 +85,7 @@ export {
   type OutboxRowValues,
   type OutboxRelayStats,
 } from './outbox.js';
+export { DEFAULT_EVENT_RETENTION, pruneEventTables, type EventRetention } from './retention.js';
 export {
   DEAD_LETTERS,
   DEAD_LETTERS_TABLE_SQL,

@@ -813,7 +813,37 @@ set -a; . ./.env; set +a   # the stack's addresses and logins, from your .env
 TEST_POSTGRES_URL=$HOST_POSTGRES_URL npm test -w @foc/platform
 ```
 
-Not done yet: published outbox rows and old inbox rows are never pruned.
+**Pruning** (PLT-12, [#287](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/287)). The relay
+also keeps both tables from growing for ever: on its first poll and then hourly, it deletes, in
+batches of 1,000, published outbox rows more than 30 days old and inbox rows more than 30 days old
+(`pruneEventTables` in [`retention.ts`](platform/src/events/retention.ts)). It never deletes an
+unpublished row, however old, nor an inbox row whose event still waits as a dead letter, which an
+operator may redrive at any time. Thirty days is far longer than any copy of an event can take to
+arrive; it is also how far back the admin console's errand trace sees an errand's events. A failed
+prune is logged (`pruning the event tables failed; will retry`) and never stops publishing;
+`foc_event_rows_pruned_total{table}` counts what went. Pass `retention` or `pruneIntervalMs` to the
+relay to change either.
+
+## What is kept about a person, and for how long
+
+FoC stores what its features need and keeps it for the life of the deployment: there is no account
+deletion (an administrator suspends an account instead), and history that settles credits or
+disputes is append-only by design ([ADR 0007](docs/adr/0007-credit-invariant-and-double-entry-ledger.md),
+[ADR 0008](docs/adr/0008-controlling-administrators.md)).
+
+| Where                         | About a person                                                                                                       | Kept                                                                        | Who can read it                                                                                                               |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| User Service (`foc_user`)     | NUS email, password hash (Argon2id), display name, faculty, avatar, contact preference, mode, roles, status          | for the life of the account                                                 | the person; administrators, each opening of an account recorded                                                               |
+|                               | Sign-in sessions (a hash of the refresh token), activation tokens (hashed)                                           | until they expire; expired rows are not yet removed                         | nobody through the API                                                                                                        |
+|                               | The audit trail: who suspended, reactivated or changed whose role, and why                                           | for ever (append-only)                                                      | administrators                                                                                                                |
+| Order Service (`foc_order`)   | Errands: requester and courier ids, items and notes, delivery zone and instructions, status history, dispute reasons | for ever                                                                    | the requester and courier; an administrator only once a dispute is referred to them (ADR 0008); others see public fields only |
+| Credit Service (`foc_credit`) | Wallet balances and the ledger, by user id                                                                           | for ever (append-only)                                                      | the person; administrators, every read recorded                                                                               |
+| Events (each service)         | Ids (user, errand) in event payloads; no email or name                                                               | outbox 30 days once published, inbox 30 days (above); dead letters for ever | operators, in the Operations tab                                                                                              |
+| Logs                          | User and correlation ids; never an email, password or token (redacted)                                               | as long as Docker keeps the container's log                                 | whoever runs the stack                                                                                                        |
+| Supplier Service, metrics     | Nothing about a person                                                                                               | —                                                                           | —                                                                                                                             |
+
+Personal data never leaves the stack: no service calls a third party, and no secret or personal
+value is written to an image ([Secrets](#secrets)).
 
 ## Continuous integration
 
