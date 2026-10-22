@@ -168,7 +168,7 @@ describe("order history (WEB-03)", () => {
     await act(async () => root.render(<StoreProvider><OrderHistoryPage /></StoreProvider>));
     await settle();
     expect(container.textContent).toContain("Supplier delivery");
-    expect(section("Your active requests")?.textContent).toContain("Supplier mine");
+    expect(section("Requests you placed")?.textContent).toContain("Supplier mine");
     expect(section("Active deliveries")?.textContent).toContain("Supplier delivery");
     expect(container.textContent).not.toContain("Supplier past-request");
     expect(requested.some((url) => url.includes("/orders/mine?role=COURIER"))).toBe(true);

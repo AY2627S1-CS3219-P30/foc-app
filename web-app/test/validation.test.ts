@@ -114,9 +114,9 @@ describe("navForMode", () => {
     expect(navForMode(items)).toBe(items);
   });
 
-  it("calls the feed 'Your requests' for requesters only", () => {
+  it("calls the feed 'Active requests' for requesters only", () => {
     const feedLabel = (mode: "REQUESTER" | "COURIER") => navForMode(items, mode).find((i) => i.href === "/feed")?.label;
-    expect(feedLabel("REQUESTER")).toBe("Your requests");
+    expect(feedLabel("REQUESTER")).toBe("Active requests");
     expect(feedLabel("COURIER")).toBe("Request feed");
   });
 });

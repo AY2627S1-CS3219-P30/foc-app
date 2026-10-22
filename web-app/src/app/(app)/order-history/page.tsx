@@ -141,12 +141,12 @@ export default function OrderHistoryPage() {
         </EmptyState>
       ) : (
         <>
-          {mode === "COURIER" && <Section title="Your active requests" orders={mine.activeRequests} />}
+          {mode === "COURIER" && <Section title="Requests you placed" orders={mine.activeRequests} />}
           <Section title={mode === "COURIER" ? "Active deliveries" : "Active"} orders={mine.items.filter((o) => !isFinal(o.status))} />
           <Section title={mode === "COURIER" ? "Past deliveries" : "Past"} orders={mine.items.filter((o) => isFinal(o.status))} />
           {mine.requestsTruncated && (
             <p style={{ fontSize: vars.text.sm, color: vars.color.textSubtle }}>
-              Showing your 100 most recently updated active requests.
+              Showing the 100 most recently updated requests you placed.
             </p>
           )}
           {mine.truncated && (

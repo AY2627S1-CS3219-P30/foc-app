@@ -350,7 +350,7 @@ describe('requester open requests', () => {
     });
 
     const container = await render(<FeedPage />, service);
-    expect(container.textContent).toContain('Your requests');
+    expect(container.textContent).toContain('Active requests');
     expect(container.textContent).toContain('Kopi Corner');
     expect(container.textContent).not.toContain('Their cafe');
     expect(service.queries).toContain('/orders/mine?role=REQUESTER&active=true');
