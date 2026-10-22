@@ -132,10 +132,12 @@ describe("the disputes on the Errands page (#271)", () => {
     expect(disputes).toBeDefined();
     const rows = [...disputes.querySelectorAll("tbody tr")];
     expect(rows).toHaveLength(2);
-    expect(rows[0].textContent).toContain("The requester reported it never arrived");
+    expect(rows[0].textContent).toContain(
+      "The requester reported it never arrived, after the courier recorded delivery",
+    );
     expect(rows[0].textContent).toContain("You");
     expect(rows[0].querySelector(`a[href="/admin/errands/${MINE}"]`)).not.toBeNull();
-    expect(rows[1].textContent).toContain("The delivery period passed");
+    expect(rows[1].textContent).toContain("The delivery period passed while the requester was suspended");
     expect(rows[1].textContent).toContain("No one yet");
     expect(rows[1].querySelector(`a[href="/admin/errands/${UNREFERRED}"]`)).toBeNull();
   });
@@ -174,6 +176,8 @@ describe("one dispute, opened by an administrator (#271)", () => {
         decided = request.clone().json();
         return json(200, { ...privateErrand, status: "COMPLETION_PENDING_CREDIT", version: 7 });
       }
+      // As the service does: once decided, it is no longer a dispute to list.
+      if (url.pathname === "/admin/orders/referred" && decided) return json(200, { items: [] });
     });
     await open(MINE);
 
@@ -193,6 +197,48 @@ describe("one dispute, opened by an administrator (#271)", () => {
       expectedVersion: 6,
     });
     expect(container.textContent).toContain("Decided for the courier");
+    expect(container.textContent).toContain("The requester reported it never arrived");
+  });
+
+  it("shows where the errand stands now when a decision is refused as stale (409)", async () => {
+    let reads = 0;
+    serve((url) => {
+      if (url.pathname === `/orders/${MINE}`) {
+        reads += 1;
+        // Read once as disputed; by the second read another tab has decided it.
+        return json(200, reads === 1 ? privateErrand : { ...privateErrand, status: "RELEASE_PENDING_CREDIT", version: 7 });
+      }
+      if (url.pathname === `/admin/orders/${MINE}/resolve`)
+        return json(409, { error: { code: "STALE_VERSION", message: "The errand has changed." } });
+    });
+    await open(MINE);
+
+    await act(async () => button("Decide for the courier")!.click());
+    const reason = container.querySelector("textarea")!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!;
+      setter.call(reason, "Handover photo");
+      reason.dispatchEvent(new window.Event("input", { bubbles: true }) as unknown as Event);
+    });
+    await act(async () => (container.querySelector("dialog form") as HTMLFormElement).requestSubmit());
+    await settle();
+
+    expect(reads).toBe(2);
+    expect(container.querySelector("dialog[open]")).toBeNull();
+    expect(container.textContent).toContain("changed since you opened it");
+    expect(container.textContent).toContain("Returning credits");
+    expect(button("Decide for the courier")).toBeUndefined();
+  });
+
+  it("offers no decision to an administrator who took part in the errand", async () => {
+    serve((url) => {
+      if (url.pathname === `/orders/${MINE}`) return json(200, { ...privateErrand, requesterId: ME });
+    });
+    await open(MINE);
+
+    expect(container.textContent).toContain("You took part in this errand");
+    expect(button("Decide for the courier")).toBeUndefined();
+    expect(button("Decide for the requester")).toBeUndefined();
   });
 
   it("shows another administrator no private details and no way to decide", async () => {
@@ -203,6 +249,7 @@ describe("one dispute, opened by an administrator (#271)", () => {
     await open(MINE);
 
     const text = container.textContent!;
+    expect(text).toContain("You can't read this errand's private details");
     expect(text).toContain("referred to another administrator");
     expect(text).not.toContain("Leave it at the lobby counter");
     expect(button("Decide for the courier")).toBeUndefined();

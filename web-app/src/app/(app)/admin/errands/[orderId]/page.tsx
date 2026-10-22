@@ -6,6 +6,7 @@ import { Button } from "@/components/Button";
 import { FormAlert } from "@/components/FormField";
 import { ErrorState, LoadingState } from "@/components/States";
 import { adminApi, type AccountErrand, type DisputeOutcome } from "@/lib/admin-api";
+import { ApiError } from "@/lib/api-client";
 import {
   DISPUTE_OUTCOMES,
   disputeCause,
@@ -33,19 +34,23 @@ const DECIDED: Record<DisputeOutcome, string> = {
 /**
  * ORD-11 (#271): one dispute, as the administrator it is referred to reads and decides it. The
  * private view (participants, delivery instructions, item notes) comes from the Order Service only
- * for that administrator; anyone else is refused there, and this page says so instead.
+ * for that administrator and the errand's own participants; anyone else is refused there, and this
+ * page says so instead.
  */
 function Dispute({ orderId }: { orderId: string }) {
-  const { authed } = useAuth();
+  const { authed, user: me } = useAuth();
   const errand = useAdminData(`dispute:${orderId}`, (t) => adminApi.errand(t, orderId));
   const referrals = useAdminData("errands:disputes", (t) => adminApi.referredDisputes(t));
   const [latest, setLatest] = useState<AccountErrand | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [changed, setChanged] = useState<string | null>(null);
   const [action, setAction] = useState<PendingAction | null>(null);
 
   const shown = latest ?? errand.data;
   const cause = referrals.data?.items.find((e) => e.orderId === orderId)?.referredBy;
   const notMine = errand.error?.status === 403;
+  // A participant who is also an administrator reads it as a participant, but may not decide it.
+  const tookPart = !!me && (shown?.requesterId === me.id || shown?.courierId === me.id);
 
   const decide = (outcome: DisputeOutcome) => {
     if (!shown) return;
@@ -59,13 +64,30 @@ function Dispute({ orderId }: { orderId: string }) {
       ),
       confirmLabel: outcome === "COURIER" ? "Decide for the courier" : "Decide for the requester",
       run: async (reason) => {
-        const decided = await authed((t) =>
-          adminApi.resolveDispute(t, orderId, { outcome, reason, expectedVersion: shown.version }),
-        );
+        let decided: AccountErrand;
+        try {
+          decided = await authed((t) =>
+            adminApi.resolveDispute(t, orderId, { outcome, reason, expectedVersion: shown.version }),
+          );
+        } catch (err) {
+          // Decided in another tab, or referred to someone else since this page was read: show where
+          // it stands now instead of retrying against the version on screen.
+          if (err instanceof ApiError && (err.status === 409 || err.code === "NOT_REFERRED_ADMIN")) {
+            setAction(null);
+            setLatest(null);
+            setNotice(null);
+            setChanged(
+              "This dispute changed since you opened it, so your decision was not recorded. This is where it stands now.",
+            );
+            errand.reload();
+            return;
+          }
+          throw err;
+        }
         setAction(null);
         setLatest(decided);
+        setChanged(null);
         setNotice(DECIDED[outcome]);
-        referrals.reload();
       },
     });
   };
@@ -81,12 +103,13 @@ function Dispute({ orderId }: { orderId: string }) {
       }
     >
       <FormAlert tone="success">{notice}</FormAlert>
+      <FormAlert tone="info">{changed}</FormAlert>
       {notMine ? (
-        <Section title="Not referred to you">
+        <Section title="You can't read this errand's private details">
           <p className={styles.muted}>
-            This dispute is referred to another administrator, or to no one yet. Only the
-            administrator it is referred to can read its private details (who took part, the
-            delivery instructions, the item notes) and decide it.
+            Only its requester, its courier and, for a dispute, the administrator it is referred to
+            can read who took part, the delivery instructions and the item notes. If this is a
+            dispute, it is referred to another administrator or to no one yet.
           </p>
           <div className={styles.actions}>
             <TraceLink orderId={orderId} />
@@ -130,7 +153,7 @@ function Dispute({ orderId }: { orderId: string }) {
               <dt>Delivery zone</dt>
               <dd>{shown.deliveryZone}</dd>
               <dt>Delivery instructions</dt>
-              <dd>{shown.deliveryInstructions ?? "None given"}</dd>
+              <dd>{shown.deliveryInstructions}</dd>
               <dt>Requester</dt>
               <dd>
                 <UserLink id={shown.requesterId ?? null} />
@@ -140,7 +163,7 @@ function Dispute({ orderId }: { orderId: string }) {
                 <UserLink id={shown.courierId ?? null} />
               </dd>
               <dt>Reward</dt>
-              <dd>{shown.reward} credits</dd>
+              <dd>{shown.reward}</dd>
               <dt>Posted</dt>
               <dd>{formatWhen(shown.createdAt)}</dd>
               <dt>Last change</dt>
@@ -156,7 +179,12 @@ function Dispute({ orderId }: { orderId: string }) {
             title="Decision"
             description="Read the history first: who reported what, and when. The decision is final."
           >
-            {shown.status === "DISPUTED" ? (
+            {shown.status === "DISPUTED" && tookPart ? (
+              <p className={styles.muted}>
+                You took part in this errand, so you can&apos;t decide it: the Order Service refuses a
+                conflict of interest. It goes to an administrator who didn&apos;t.
+              </p>
+            ) : shown.status === "DISPUTED" ? (
               <div className={styles.actions}>
                 <Button onClick={() => decide("COURIER")}>Decide for the courier</Button>
                 <Button variant="outline" onClick={() => decide("REQUESTER")}>

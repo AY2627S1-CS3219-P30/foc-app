@@ -60,9 +60,10 @@ export const ORDER_STATUSES: Record<OrderStatus, string> = {
 
 /** Why an errand was disputed: the action that moved it to DISPUTED (ORD-06, ORD-10). */
 const DISPUTE_CAUSES: Record<string, string> = {
-  REPORT_NON_RECEIPT: "The requester reported it never arrived",
+  REPORT_NON_RECEIPT: "The requester reported it never arrived, after the courier recorded delivery",
   REPORT_NON_DELIVERY: "The requester reported it was not delivered in time",
-  DELIVERY_PERIOD_PASSED: "The delivery period passed",
+  // The system reports for a requester who can't: it fires only while they are suspended.
+  DELIVERY_PERIOD_PASSED: "The delivery period passed while the requester was suspended",
   COURIER_SUSPENDED: "The courier was suspended",
 };
 /** A cause this build does not know is shown as its code. */
