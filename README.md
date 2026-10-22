@@ -438,8 +438,9 @@ the Dockerfiles, so two builds of one commit use the same bytes.
 | `prom/prometheus:v3.13.4`          | metrics and alert rules            | The Prometheus project                                    | Apache 2.0              |
 | `grafana/grafana-oss:12.4.3`       | the dashboard                      | Grafana Labs                                              | AGPL 3.0                |
 
-One more is run as a tool, not as part of the stack: `ghcr.io/gitleaks/gitleaks:v8.30.0`
-(the Gitleaks project, MIT), by `./scripts-scan-secrets.sh`.
+Two more are run as tools, not as part of the stack: `ghcr.io/gitleaks/gitleaks:v8.30.0`
+(the Gitleaks project, MIT), by `./scripts-scan-secrets.sh`, and `aquasec/trivy:0.58.1` (Aqua
+Security, Apache 2.0), by `./scripts-scan-vulnerabilities.sh`.
 
 The Alpine Linux base of the first four carries its own packages under their
 own licences. To update an image, change its version and its digest together;
@@ -824,15 +825,15 @@ to all four, because it can break any of them. So does any path the filter does
 not recognise, such as a new package: it fails closed, running everything rather
 than nothing.
 
-| Job               | Runs when                                       | What it does                                                           |
-| ----------------- | ----------------------------------------------- | ---------------------------------------------------------------------- |
-| `Detect changes`  | always                                          | Works out what is affected                                             |
-| `Lint and format` | any Node code changed                           | `eslint`, `prettier --check`, and the contract compatibility check     |
-| `Shared packages` | any Node code changed                           | Build and test every shared package, with real RabbitMQ and PostgreSQL |
-| `<service>`       | that service or shared code changed             | Typecheck, test, and build its image                                   |
-| `web-app`         | `web-app/**` changed                            | `bun install`, lint, build                                             |
-| `Compose smoke`   | container wiring changed, or any push to `main` | Brings the whole stack up and runs the smoke checks                    |
-| **`CI`**          | **always**                                      | The gate — fails if anything above failed                              |
+| Job               | Runs when                                       | What it does                                                                                                            |
+| ----------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `Detect changes`  | always                                          | Works out what is affected                                                                                              |
+| `Lint and format` | any Node code changed                           | `eslint`, `prettier --check`, the contract compatibility check, and a vulnerability scan of the production dependencies |
+| `Shared packages` | any Node code changed                           | Build and test every shared package, with real RabbitMQ and PostgreSQL                                                  |
+| `<service>`       | that service or shared code changed             | Typecheck, test, build its image, and scan the image for vulnerabilities                                                |
+| `web-app`         | `web-app/**` changed                            | `bun install`, lint, test, build; then build its image and scan it                                                      |
+| `Compose smoke`   | container wiring changed, or any push to `main` | Brings the whole stack up and runs the smoke checks                                                                     |
+| **`CI`**          | **always**                                      | The gate — fails if anything above failed                                                                               |
 
 ### Why there is a separate `CI` job
 
@@ -841,6 +842,24 @@ required, a documentation-only PR would skip them, the required checks would
 never arrive, and the PR would be blocked forever. The `CI` job always runs and
 fails if any job it depends on failed, so it is the only check that needs to be
 required on `main`.
+
+### Vulnerabilities, owners and what `main` requires
+
+- **A critical vulnerability with a fix fails the pull request** (NTH-04,
+  [#164](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/164); PL-NFR4.1.2), as a failed
+  test does. [`scripts-scan-vulnerabilities.sh`](scripts-scan-vulnerabilities.sh) runs Trivy,
+  pinned like every other image, over `package-lock.json`'s production dependencies and over each
+  image a change builds. It lists every HIGH and CRITICAL finding that has a fixed version and fails
+  on a CRITICAL one; HIGH ones are listed, not gated, and one with no fix yet is left out. The web
+  app's dependencies are scanned in its image, as this Trivy does not read `bun.lock`. To run it:
+  `./scripts-scan-vulnerabilities.sh --lockfile`, or `--image <name>` for an image you have built.
+- **Code owners.** [`.github/CODEOWNERS`](.github/CODEOWNERS) asks each service's owner, and the
+  owner of the web app, the console, the contracts and the pipeline, to review a change to theirs.
+- **What `main` requires.** Branch protection requires the `CI` check, on a branch up to date with
+  `main`, and refuses force pushes. It does not require an approval: a review by one person other
+  than the author is the team's rule (each ticket's Definition of Done), and `CODEOWNERS` requests it.
+- **Pinned tools.** Bun in CI is the version the web app's image builds with (1.4.2), and a test
+  fails if the two differ.
 
 ### Checking the path filter without pushing
 
