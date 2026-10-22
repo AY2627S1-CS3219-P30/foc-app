@@ -1,6 +1,6 @@
 # ADR 0005 — HTTP and event error contract
 
-- **Status:** Proposed; implementation basis; amended 2026-10-20 (see [Amendment](#amendment--doc-04-2026-10-20))
+- **Status:** Proposed; implementation basis; amended 2026-10-20 and 2026-10-22 (see [Amendment](#amendment--doc-04-2026-10-20))
 - **Date:** 2026-10-01
 - **Deciders:** Group 30; approvals tracked in [the ADR index](README.md)
 - **Ticket:** [FND-02 #183](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/183)
@@ -54,13 +54,34 @@ Raised by Zhang Yuan on [#238](https://github.com/AY2627S1-CS3219-P30/foc-app/is
 table and the services disagreed. The services were left as they are and the table changed:
 
 - **403 and 503** allow a documented domain code, as 400, 404 and 409 already did. The services use
-  them: Order's `SELF_ACCEPTANCE_FORBIDDEN`, `ACTION_FORBIDDEN`, `CONFLICT_OF_INTEREST` and
-  `SUPPLIER_SERVICE_UNAVAILABLE`, User's `ACCOUNT_SUSPENDED` and `PASSWORD_CHANGE_REQUIRED`, and the
-  403 codes [ADR 0008](0008-controlling-administrators.md) names.
+  them, for example Order's `SELF_ACCEPTANCE_FORBIDDEN`, `ACTION_FORBIDDEN`,
+  `PRIVATE_ORDER_FORBIDDEN`, `NOT_REFERRED_ADMIN`, `CONFLICT_OF_INTEREST`,
+  `SUPPLIER_SERVICE_UNAVAILABLE` and `SUPPLIER_CONTRACT_INVALID`, and User's `ACCOUNT_SUSPENDED`,
+  `ACCOUNT_NOT_ACTIVATED`, `PASSWORD_CHANGE_REQUIRED` and `CSRF_REJECTED`. These are examples; each
+  service's contract in `contracts/` lists all of its codes.
 - **An `Idempotency-Key` reused with a different request** is a malformed request (`422
   IDEMPOTENCY_KEY_REUSED`), not a conflict: the same key with the same request replays the first
-  answer, so there is nothing to conflict with. Moving `POST /orders` to 409 would have been a
-  breaking contract change for no gain.
+  answer, so there is nothing to conflict with. The Order Service (`POST /orders`) and the Supplier
+  Service (creating a supplier) both answer 422, so moving to 409 would have been a breaking contract
+  change in two services for no gain.
+
+### Known exception: four User Service refusals answer 409
+
+Raised by Zhang Yuan on [#254](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/254). These
+four refusals are about who may act, which the table puts under 403, but the User Service answers
+them with 409, and its contract documents 409:
+
+| Code | Refuses |
+| --- | --- |
+| `SELF_APPROVAL_FORBIDDEN` | approving your own role request |
+| `CONFLICT_OF_INTEREST` | deciding a role request about yourself |
+| `SELF_DEMOTION_FORBIDDEN` | removing your own administrator role |
+| `SELF_SUSPENSION_FORBIDDEN` | suspending yourself |
+
+The Order Service answers its `CONFLICT_OF_INTEREST` (deciding a dispute you took part in) with 403,
+so until [USR-11 #290](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/290) moves the four to
+403, one code has two statuses. A client must match on the code, not the status, and must never
+retry one of these as if it were a state conflict.
 
 ## Revisit if
 
