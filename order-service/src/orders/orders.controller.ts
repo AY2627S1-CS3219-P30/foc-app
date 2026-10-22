@@ -20,6 +20,7 @@ import {
   parseAcceptOrder,
   parseCreateOrder,
   parseIdempotencyKey,
+  parseMyOrdersQuery,
   parseOrderId,
 } from './validation.js';
 
@@ -29,15 +30,15 @@ export class OrdersController {
 
   @Get()
   @Authenticated()
-  list() {
-    return this.orders.listOpen();
+  list(@CurrentUser() caller: AuthContext) {
+    return this.orders.listOpen(caller.userId);
   }
 
   // Declared before ':id', which would otherwise refuse "mine" as an invalid order ID.
   @Get('mine')
   @Authenticated()
-  listMine(@CurrentUser() caller: AuthContext) {
-    return this.orders.listMine(caller);
+  listMine(@Query() query: unknown, @CurrentUser() caller: AuthContext) {
+    return this.orders.listMine(caller, parseMyOrdersQuery(query));
   }
 
   @Get(':id')

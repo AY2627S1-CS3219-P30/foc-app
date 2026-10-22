@@ -100,6 +100,38 @@ describe('my errands', () => {
       .expect(200);
   });
 
+  it('filters by role and active status', async () => {
+    t = await createTestApp();
+    const theirs = await createPending(t, asStranger);
+    await reservationReply(t, theirs, false, COURIER);
+    await http(t)
+      .post(`/orders/${theirs}/accept`)
+      .set('Authorization', asRequester)
+      .send({ expectedVersion: 2 })
+      .expect(201);
+    const rejected = await createPending(t);
+    await reservationReply(t, rejected, true);
+
+    const get = (query: string) =>
+      http(t!).get(`/orders/mine${query}`).set('Authorization', asRequester).expect(200);
+    expect(
+      (await get('?role=REQUESTER&active=true')).body.items.map(
+        (o: { orderId: string }) => o.orderId,
+      ),
+    ).toEqual([SEEDED_ORDER]);
+    expect(
+      (await get('?role=REQUESTER&active=false')).body.items.map(
+        (o: { orderId: string }) => o.orderId,
+      ),
+    ).toEqual([rejected]);
+    expect(
+      (await get('?role=COURIER&active=true')).body.items.map(
+        (o: { orderId: string }) => o.orderId,
+      ),
+    ).toEqual([theirs]);
+    await http(t).get('/orders/mine?role=OTHER').set('Authorization', asRequester).expect(422);
+  });
+
   it('shows an unrelated student nothing', async () => {
     t = await createTestApp();
     await advance(t, 'ACCEPTED');

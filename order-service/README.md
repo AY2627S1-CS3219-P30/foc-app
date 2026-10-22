@@ -16,7 +16,7 @@
 | CANCELLED | The reward has been returned to the requester after a cancellation or a dispute resolved for the requester. | Yes | Cancelled |
 | EXPIRED | The reward has been returned to the requester because the acceptance deadline passed without a courier keeping the order. | Yes | Expired |
 
-The web app's mock data has only five statuses today (`open`, `accepted`, `in_transit`, `complete`, `cancelled`); the other seven arrive when it is wired to this service.
+The web app takes these labels, with a plain-language explanation of each state, from `web-app/src/lib/order-status.ts`.
 
 # Transition Table
 **Guard** is what must also be true, beyond the order being in the From state and the actor being allowed. If a guard fails, the order does not change and the caller is refused. Every student and administrator action also needs an active account: a suspended caller is refused before any guard is checked. A reply from the Credit Service is acted on only if it names the same order and amount the request did.
@@ -173,20 +173,21 @@ The transactional inbox and business-state check make 100 duplicate replies one 
 below); creation never rejects it merely because the timer passes. `created_at`, status, and the existing
 `orders_status_created_idx` provide the durable discovery boundary that recovery will consume.
 
-`GET /orders` returns at most 100 unexpired `OPEN` errands ordered by acceptance deadline. Its
-structured item summary omits item notes, exact delivery instructions, participant IDs, and every
-pending or rejected order. `GET /orders/:id` gives that same public projection to an unrelated
-student. A caller can explicitly request `?view=private`; only the requester, assigned courier, or
-the administrator named in `referred_admin_id` receives it, and every other caller receives `403`.
-The scheduler sets and clears `referred_admin_id` for disputes (see *Administrator referral and
-decision*).
+`GET /orders` returns at most 100 unexpired `OPEN` errands ordered by acceptance deadline, leaving
+out the caller's own (they are in `GET /orders/mine`). Its structured item summary omits item notes,
+exact delivery instructions, participant IDs, and every pending or rejected order. `GET /orders/:id`
+gives that same public projection to an unrelated student. A caller can explicitly request
+`?view=private`; only the requester, assigned courier, or the administrator named in
+`referred_admin_id` receives it, and every other caller receives `403`. The scheduler sets and
+clears `referred_admin_id` for disputes (see *Administrator referral and decision*).
 
 `GET /orders/mine` returns `{ items, truncated }`: the caller's errands in any status, as requester
 or current courier, each in its private projection with `myRole` (`REQUESTER` or `COURIER`). It is
 ordered by most recent change, at most 100, with no paging yet; `truncated` is true when older
 errands were left out. A courier who withdrew or timed out is no longer on the errand, so it drops
 out of their list. This is also "a courier's assigned orders" (D3 Part 1.3): the items whose
-`myRole` is `COURIER`.
+`myRole` is `COURIER`. Optional `role=REQUESTER|COURIER` and `active=true|false` query parameters
+filter before the 100-item limit. Active excludes rejected, completed, cancelled and expired orders.
 
 `GET /admin/orders` is an administrator's view of one account (ORD-15): `?requesterId=` lists the
 errands that student posted, in any status, `?courierId=` the ones they currently hold as courier,
@@ -233,11 +234,14 @@ participants and the referred administrator. Database triggers make `order_recei
 
 `POST /orders/:id/cancel` (requester, `OPEN` or `ACCEPTED`) and `POST /orders/:id/withdraw`
 (assigned courier, `ACCEPTED`) take `{ "expectedVersion" }` and use the same transition path.
-Cancelling moves the order to `RELEASE_PENDING_CREDIT` with reason `cancelled`. A withdrawal removes
+Cancelling moves the order to `RELEASE_PENDING_CREDIT` with reason `CANCELLED`. A withdrawal removes
 the courier: before the acceptance deadline the order reopens with its deadline unchanged, and
-after it the order moves to `RELEASE_PENDING_CREDIT` with reason `expired`. Every move into
+after it the order moves to `RELEASE_PENDING_CREDIT` with reason `EXPIRED`. Every move into
 `RELEASE_PENDING_CREDIT` writes exactly one `order.release-requested` in the same transaction.
-`PICKED_UP` and later states refuse cancellation.
+`PICKED_UP` and later states refuse cancellation. While the release is pending, a participant's view
+returns the reason as `releaseReason`, the status the errand will end in.
+A release caused by a suspension or an administrator's decision reads `CANCELLED`, as its final
+status will, so the field says nothing that status does not.
 
 The **lifecycle scheduler** owns every timer. It runs once as soon as the service is ready and then
 every `LIFECYCLE_SWEEP_INTERVAL_MS` (at most 60 s, enforced at boot). An `OPEN` order past its
@@ -305,7 +309,7 @@ the scheduler refers it to an administrator (above).
 Recording pickup saves `non_delivery_report_at` (pickup plus `DELIVERY_PERIOD_MS`), and recording
 delivery saves `auto_confirm_at` (delivery plus `AUTO_CONFIRM_MS`), in the same update as the move
 (ADR 0006). Both are set and checked against the database clock, which the scheduler also uses, so
-a report and a timer agree on whether a deadline has passed. The private view returns each one,
+a report and a timer agree on whether a deadline has passed. A participant's view returns each one,
 as `nonDeliveryReportAt` while `PICKED_UP` and `autoConfirmAt` while `DELIVERED`, so the requester
 can see when they may report and when silence counts as confirmation. A check constraint refuses a
 picked-up or delivered errand without its deadline, so code that leaves one out fails loudly instead
@@ -362,9 +366,8 @@ Credit Service is not changed. No suspension moves credits except the requester'
 
 Every outcome's history row gives its reason, `requester suspended` or `courier suspended`,
 including the two below that happen later: the scheduler's referral and the cancellation when the
-reservation arrives. Only the referred administrator reads that row as written. To the other
-participant it shows as `SYSTEM_OUTCOME`, with no actor or reason, so the history does not say that
-someone was suspended.
+reservation arrives. Only the referred administrator reads that row as written; what everyone else
+sees is at the end of this section.
 
 - **While the errand waits for its reservation.** A requester suspended while their errand is in
   `PENDING_CREDIT` is caught when Credit's reservation arrives: the reply handler asks the User
@@ -398,6 +401,29 @@ someone was suspended.
   the handler has run. That errand stays `ACCEPTED` until the pickup timeout, then reopens, or
   expires if its acceptance deadline has passed, returning the credits. The suspended courier is
   refused once the cache expires, so they cannot record pickup and are never paid.
+
+What the history shows everyone but the referred administrator was decided in #260 (2026-10-21). It
+never names a suspension or who was suspended. Every change the system makes shows as
+`SYSTEM_OUTCOME` by the system, with no actor or reason, whether a timer, a referral or a suspension
+made it, and so does the Credit Service's cancellation for a suspended requester. An
+administrator's decision always shows as made, whatever its reason says. So an errand reopened by
+the system has the same action, actor and reason whether the courier's pickup time ran out or the
+courier was suspended. The statuses and times are always the real ones, though, since hiding them
+would make the history false, and a suspension can still be worked out from these:
+
+- **`ACCEPTED` to `RELEASE_PENDING_CREDIT` with the courier still on the errand.** Only the
+  requester's suspension does this. A pickup timeout past the acceptance deadline makes the same
+  change but removes the courier. So the courier can tell that the requester was suspended.
+- **`PICKED_UP` to `DISPUTED` by the system.** Only a suspension of the courier or of the requester
+  does this; otherwise the requester reports non-delivery themselves. Each knows whether they were
+  suspended, so they can tell that the other was.
+- **A reopen too soon to be a pickup timeout.** A pickup timeout reopens an errand only once
+  `PICKUP_TIMEOUT_MS` has passed since it was accepted, while a courier's suspension can reopen it
+  at any time. A requester who sees it reopened sooner can tell that the courier was suspended.
+- **A reopened errand's acceptance deadline moving later.** This is not in the history. A courier's
+  suspension gives the requester back the time the courier held the errand, and a pickup timeout
+  does not. The deadline is public, so anyone who sees the errand can notice it move, but only the
+  requester knows who the courier was; anyone else learns only that some courier was suspended.
 
 ### Recovery and privacy verification (ORD-09)
 

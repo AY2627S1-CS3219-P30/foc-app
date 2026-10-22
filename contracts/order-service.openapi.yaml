@@ -33,7 +33,15 @@ paths:
         Errands the caller requested or is the current courier of, in any status, most recently
         changed first, at most 100 (no paging yet); `truncated` is true when more were left out. Each
         carries the caller's private projection and `myRole`. A courier who withdrew or timed out no
-        longer holds the errand and does not see it.
+        longer holds the errand and does not see it. Filter by `role` before the limit; `active=true`
+        includes only errands that have not reached a final status.
+      parameters:
+        - in: query
+          name: role
+          schema: { type: string, enum: [REQUESTER, COURIER] }
+        - in: query
+          name: active
+          schema: { type: boolean }
       responses:
         '200':
           description: The caller's errands.
@@ -74,7 +82,7 @@ paths:
     get:
       operationId: listOpenOrders
       summary: Discover currently acceptable errands.
-      description: Returns only unexpired OPEN orders and never exposes delivery instructions or participant IDs.
+      description: Returns only unexpired OPEN orders, leaves out the caller's own errands, and never exposes delivery instructions or participant IDs.
       responses:
         '200':
           description: Privacy-safe open-order summaries ordered by acceptance deadline.
@@ -709,6 +717,7 @@ components:
         - acceptanceDeadlineAt
         - createdAt
         - updatedAt
+        - serverTime
       properties:
         orderId: { type: string, format: uuid }
         supplier: { $ref: '#/components/schemas/SupplierSnapshot' }
@@ -737,6 +746,12 @@ components:
         acceptanceDeadlineAt: { type: [string, 'null'], format: date-time }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+        serverTime:
+          type: string
+          format: date-time
+          description: |
+            The server's clock when it answered. A client measures the deadlines against it, not
+            against its own clock, which may be wrong.
         requesterId: { type: string }
         courierId: { type: string }
         deliveryInstructions: { type: string }
@@ -753,6 +768,12 @@ components:
             Private, and only while `DELIVERED`: delivery plus the auto-confirmation period. From
             then the errand is confirmed automatically unless the requester has confirmed or
             reported it.
+        releaseReason:
+          type: string
+          enum: [CANCELLED, EXPIRED]
+          description: |
+            Private, and only while `RELEASE_PENDING_CREDIT`: the status the errand ends in once the
+            Credit Service confirms the credits are returned.
         rejection:
           type: object
           required: [reason]
@@ -878,18 +899,21 @@ components:
               action:
                 type: string
                 description: |
-                  The transition's action. To anyone but the referred administrator, a change a
-                  participant's suspension caused shows as `SYSTEM_OUTCOME`, with a null `actorId`
-                  and `reason`, so it does not reveal the suspension.
+                  The transition's action. To anyone but the referred administrator, every change
+                  the system made (a timer, a referral or a suspension) shows as `SYSTEM_OUTCOME`,
+                  with `actorType` `SYSTEM` and a null `actorId` and `reason`, so the history does
+                  not say what caused it. So does the Credit Service's cancellation for a suspended
+                  requester. The statuses and times are always the real ones, so a change only a
+                  suspension makes can be inferred.
               actorType: { type: string }
               actorId: { type: [string, 'null'] }
               reason:
                 type: [string, 'null']
                 description: |
-                  An administrator's reason for a decision; on `ADMIN_ASSIGNED` and
-                  `ADMIN_UNASSIGNED`, the user ID of the administrator referred or cleared; or, to
-                  the referred administrator only, `requester suspended` or `courier suspended` on a
-                  change a suspension caused. Otherwise null.
+                  An administrator's reason for a decision; or, to the referred administrator only,
+                  the user ID of the administrator referred or cleared on `ADMIN_ASSIGNED` and
+                  `ADMIN_UNASSIGNED`, and `requester suspended` or `courier suspended` on a change a
+                  suspension caused. Otherwise null.
               version: { type: integer, minimum: 1 }
               occurredAt: { type: string, format: date-time }
     ResolveDispute:

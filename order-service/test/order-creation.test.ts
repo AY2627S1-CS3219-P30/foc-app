@@ -68,7 +68,7 @@ describe('asynchronous order creation (ORD-02)', () => {
     const first = await post(t, 'repeat-1').expect(201);
     for (let replay = 0; replay < 100; replay++) {
       const repeated = await post(t, 'repeat-1').expect(200);
-      expect(repeated.body).toEqual(first.body);
+      expect(repeated.body).toEqual({ ...first.body, serverTime: expect.any(String) });
     }
     expect(supplierFetch).toHaveBeenCalledTimes(1);
     const count = await t.db.query<{ count: number } & Record<string, unknown>>(

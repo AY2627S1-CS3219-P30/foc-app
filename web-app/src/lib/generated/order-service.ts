@@ -29,7 +29,8 @@ export interface paths {
          * @description Errands the caller requested or is the current courier of, in any status, most recently
          *     changed first, at most 100 (no paging yet); `truncated` is true when more were left out. Each
          *     carries the caller's private projection and `myRole`. A courier who withdrew or timed out no
-         *     longer holds the errand and does not see it.
+         *     longer holds the errand and does not see it. Filter by `role` before the limit; `active=true`
+         *     includes only errands that have not reached a final status.
          */
         get: operations["listMyOrders"];
         put?: never;
@@ -72,7 +73,7 @@ export interface paths {
         };
         /**
          * Discover currently acceptable errands.
-         * @description Returns only unexpired OPEN orders and never exposes delivery instructions or participant IDs.
+         * @description Returns only unexpired OPEN orders, leaves out the caller's own errands, and never exposes delivery instructions or participant IDs.
          */
         get: operations["listOpenOrders"];
         put?: never;
@@ -614,6 +615,12 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+            /**
+             * Format: date-time
+             * @description The server's clock when it answered. A client measures the deadlines against it, not
+             *     against its own clock, which may be wrong.
+             */
+            serverTime: string;
             requesterId?: string;
             courierId?: string;
             deliveryInstructions?: string;
@@ -630,6 +637,12 @@ export interface components {
              *     reported it.
              */
             autoConfirmAt?: string;
+            /**
+             * @description Private, and only while `RELEASE_PENDING_CREDIT`: the status the errand ends in once the
+             *     Credit Service confirms the credits are returned.
+             * @enum {string}
+             */
+            releaseReason?: "CANCELLED" | "EXPIRED";
             rejection?: {
                 reason: string;
                 available?: number;
@@ -711,18 +724,21 @@ export interface components {
                 previousStatus: string | null;
                 newStatus: string;
                 /**
-                 * @description The transition's action. To anyone but the referred administrator, a change a
-                 *     participant's suspension caused shows as `SYSTEM_OUTCOME`, with a null `actorId`
-                 *     and `reason`, so it does not reveal the suspension.
+                 * @description The transition's action. To anyone but the referred administrator, every change
+                 *     the system made (a timer, a referral or a suspension) shows as `SYSTEM_OUTCOME`,
+                 *     with `actorType` `SYSTEM` and a null `actorId` and `reason`, so the history does
+                 *     not say what caused it. So does the Credit Service's cancellation for a suspended
+                 *     requester. The statuses and times are always the real ones, so a change only a
+                 *     suspension makes can be inferred.
                  */
                 action: string;
                 actorType: string;
                 actorId: string | null;
                 /**
-                 * @description An administrator's reason for a decision; on `ADMIN_ASSIGNED` and
-                 *     `ADMIN_UNASSIGNED`, the user ID of the administrator referred or cleared; or, to
-                 *     the referred administrator only, `requester suspended` or `courier suspended` on a
-                 *     change a suspension caused. Otherwise null.
+                 * @description An administrator's reason for a decision; or, to the referred administrator only,
+                 *     the user ID of the administrator referred or cleared on `ADMIN_ASSIGNED` and
+                 *     `ADMIN_UNASSIGNED`, and `requester suspended` or `courier suspended` on a change a
+                 *     suspension caused. Otherwise null.
                  */
                 reason: string | null;
                 version: number;
@@ -1114,7 +1130,10 @@ export interface operations {
     };
     listMyOrders: {
         parameters: {
-            query?: never;
+            query?: {
+                role?: "REQUESTER" | "COURIER";
+                active?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;

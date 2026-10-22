@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { useAuth } from "@/lib/auth";
-import { orderForMode, withAdminEntry } from "@/lib/nav";
+import { navForMode, withAdminEntry } from "@/lib/nav";
 import { useStore } from "@/lib/store";
 import { ModeSwitch } from "./ModeSwitch";
 import styles from "./Menu.module.css";
 
 const ITEMS = [
   { href: "/feed", label: "Request feed" },
-  { href: "/order-history", label: "Track your requests" },
+  { href: "/order-history", label: "Order history" },
   { href: "/wallet", label: "Wallet" },
   { href: "/suppliers", label: "Suppliers" },
   { href: "/profile", label: "Profile" },
@@ -74,7 +74,7 @@ export function Menu() {
         <div className={styles.mode}>
           <ModeSwitch />
         </div>
-        {orderForMode(withAdminEntry(ITEMS, user?.roles), user?.profile.preferredMode).map((item) => (
+        {navForMode(withAdminEntry(ITEMS, user?.roles), user?.profile.preferredMode).map((item) => (
           <Link
             key={item.href}
             href={item.href}

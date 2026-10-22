@@ -17,9 +17,11 @@ import type {
   OrderReceipt,
   OrderRow,
   OrderStatus,
+  ReleaseReason,
   SupplierSnapshot,
   OrderItem,
 } from './types.js';
+import { TERMINAL_ORDER_STATUSES } from './types.js';
 import type { CreateOrderInput } from './validation.js';
 
 type StoredOrder = Row & {
@@ -33,7 +35,7 @@ type StoredOrder = Row & {
   delivery_instructions: string;
   reward: number;
   status: OrderStatus;
-  release_reason: 'CANCELLED' | 'EXPIRED' | null;
+  release_reason: ReleaseReason | null;
   rejection_reason: string | null;
   available_at_rejection: number | null;
   version: number;
@@ -153,14 +155,14 @@ export class OrdersRepository {
     return result.rows[0] ? mapOrder(result.rows[0]) : undefined;
   }
 
-  async listOpen(now = new Date()): Promise<OpenOrderSummary[]> {
+  async listOpen(callerId: string, now = new Date()): Promise<OpenOrderSummary[]> {
     const result = await this.db.query<StoredOrder>(
       `SELECT ${ORDER_COLUMNS}
          FROM orders
-        WHERE status = 'OPEN' AND acceptance_deadline_at > $1
+        WHERE status = 'OPEN' AND acceptance_deadline_at > $1 AND requester_id <> $2
         ORDER BY acceptance_deadline_at, created_at, order_id
         LIMIT 100`,
-      [now.toISOString()],
+      [now.toISOString(), callerId],
     );
     return result.rows.map((stored) => {
       const order = mapOrder(stored);
@@ -182,15 +184,22 @@ export class OrdersRepository {
     });
   }
 
-  /** Errands the user requested or is the current courier of, most recently changed first. */
-  async listMine(userId: string, limit = 100): Promise<OrderRow[]> {
+  /** The user's errands, optionally limited to one role or active states. */
+  async listMine(
+    userId: string,
+    limit = 100,
+    filter: { role?: 'REQUESTER' | 'COURIER'; active?: boolean } = {},
+  ): Promise<OrderRow[]> {
     const result = await this.db.query<StoredOrder>(
       `SELECT ${ORDER_COLUMNS}
          FROM orders
-        WHERE requester_id = $1 OR courier_id = $1
+        WHERE (($3::text = 'REQUESTER' AND requester_id = $1)
+            OR ($3::text = 'COURIER' AND courier_id = $1)
+            OR ($3::text IS NULL AND (requester_id = $1 OR courier_id = $1)))
+          AND ($4::boolean IS NULL OR (status <> ALL($5::text[])) = $4)
         ORDER BY updated_at DESC, order_id
         LIMIT $2`,
-      [userId, limit],
+      [userId, limit, filter.role ?? null, filter.active ?? null, [...TERMINAL_ORDER_STATUSES]],
     );
     return result.rows.map(mapOrder);
   }

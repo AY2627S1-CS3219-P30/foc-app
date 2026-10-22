@@ -215,3 +215,35 @@ describe("one account's errands (ORD-15)", () => {
     expect((err as ApiError).status).toBe(403);
   });
 });
+
+describe("disputes referred to an administrator (#271)", () => {
+  const orderId = "0198a1c2-0000-7000-8000-00000000d001";
+
+  it("lists the caller's referrals and the unreferred disputes", async () => {
+    const { client, seen } = api(() => json(200, { items: [] }));
+    expect(await client.referredDisputes("t1")).toEqual({ items: [] } as never);
+    expect(seen[0].method).toBe("GET");
+    expect(seen[0].url).toBe("http://order.test/admin/orders/referred");
+    expect(seen[0].headers.get("authorization")).toBe("Bearer t1");
+  });
+
+  it("reads one errand's private view, which only its referred administrator is given", async () => {
+    const { client, seen } = api(() => json(200, {}));
+    await client.errand("t1", orderId);
+    expect(seen[0].url).toBe(`http://order.test/orders/${orderId}?view=private`);
+  });
+
+  it("decides a dispute with the outcome, the reason and the version it was read at", async () => {
+    const { client, seen } = api(() => json(200, {}));
+    await client.resolveDispute("t1", orderId, { outcome: "COURIER", reason: "Photo of the handover", expectedVersion: 6 });
+    expect(seen[0].method).toBe("POST");
+    expect(seen[0].url).toBe(`http://order.test/admin/orders/${orderId}/resolve`);
+    expect(await seen[0].json()).toEqual({ outcome: "COURIER", reason: "Photo of the handover", expectedVersion: 6 });
+  });
+
+  it("lists the most recent decisions", async () => {
+    const { client, seen } = api(() => json(200, { items: [] }));
+    await client.disputeDecisions("t1");
+    expect(seen[0].url).toBe("http://order.test/admin/orders/decisions");
+  });
+});

@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useEffectEvent, useSyncExternalStore } from "react";
 
 const noSubscribe = () => () => {};
 
@@ -15,4 +15,20 @@ export function useQueryParam(name: string): string | null | undefined {
     () => new URLSearchParams(window.location.search).get(name),
     () => undefined,
   );
+}
+
+/**
+ * A one-off `?name=1` another page left for this one: `onFound` runs once, and the flag is taken out
+ * of the URL so Back or reload don't raise it again.
+ */
+export function useUrlFlag(name: string, onFound: () => void) {
+  const found = useQueryParam(name) === "1";
+  const take = useEffectEvent(onFound);
+  useEffect(() => {
+    if (!found) return;
+    take();
+    const url = new URL(window.location.href);
+    url.searchParams.delete(name);
+    window.history.replaceState(null, "", url.href);
+  }, [found, name]);
 }

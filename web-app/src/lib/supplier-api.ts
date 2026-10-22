@@ -9,6 +9,7 @@ export const SUPPLIER_SERVICE_URL = serviceUrl(
 export type Supplier = components['schemas']['Supplier'];
 export type SupplierType = components['schemas']['SupplierType'];
 export type SupplierPage = components['schemas']['SupplierPage'];
+export type SupplierSummary = components['schemas']['SupplierListItem'];
 export type SupplierInput = components['schemas']['SupplierInput'];
 export type SupplierQuery = NonNullable<operations['listSuppliers']['parameters']['query']>;
 
