@@ -14,8 +14,9 @@ self.addEventListener("activate", (event) => {
 });
 
 // Network-first, falling back to cache (and finally to the login shell)
-// so a page you've already visited still loads offline. There's no API
-// to fall back to here — all app data is in-memory and seeded on load.
+// so a page you've already visited still loads offline. Only this origin's
+// pages and assets are cached: the services' API calls go to other origins
+// and are never answered from here, so data is never served stale.
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
   const url = new URL(event.request.url);
