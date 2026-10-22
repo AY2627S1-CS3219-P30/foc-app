@@ -17,6 +17,7 @@ TST-01 #145). Each service fills the suites with its own cases.
 | Stack checks            | `scripts-*.sh` (see below)                    | Docker (Compose), `.env` | each script, with `--up` for a stack of its own          |
 | End-to-end (browser)    | Owned by TST-02 (#160)                        | the Compose stack        | Playwright journeys, in #160                             |
 | Load and report         | `system-tests/scripts/conservation-report.ts` | Docker (Compose)         | `npm run report:conservation` (not run in CI)           |
+| Load and latency        | `load/*.js` (k6), run by `scripts-load.sh`    | Docker (Compose)         | `./scripts-load.sh` (not run in CI; `--quick` to check it) |
 
 Suites that need a real server skip themselves when their variable is unset, so `npm test` passes on
 a clean clone with nothing running. CI sets every variable, so nothing is skipped there.

@@ -44,9 +44,28 @@ export interface AuthRateLimiters {
 
 export const RATE_LIMITERS = Symbol('RATE_LIMITERS');
 
-export const defaultRateLimiters = (): AuthRateLimiters => ({
-  loginPerEmail: new RateLimiter(10, 15 * 60_000),
-  loginPerIp: new RateLimiter(50, 15 * 60_000),
-  registerPerIp: new RateLimiter(20, 60 * 60_000),
+/**
+ * How many sign-ins (per 15 minutes) and sign-ups (per hour) one address or account may make. The
+ * defaults are the agreed policy. Configuration may raise them for one purpose: the load test
+ * (TST-03), whose 100 virtual users all sign in from one machine.
+ */
+export interface AuthRateLimits {
+  loginPerIp: number;
+  loginPerEmail: number;
+  registerPerIp: number;
+}
+
+export const DEFAULT_AUTH_LIMITS: AuthRateLimits = {
+  loginPerIp: 50,
+  loginPerEmail: 10,
+  registerPerIp: 20,
+};
+
+export const createRateLimiters = (
+  limits: AuthRateLimits = DEFAULT_AUTH_LIMITS,
+): AuthRateLimiters => ({
+  loginPerEmail: new RateLimiter(limits.loginPerEmail, 15 * 60_000),
+  loginPerIp: new RateLimiter(limits.loginPerIp, 15 * 60_000),
+  registerPerIp: new RateLimiter(limits.registerPerIp, 60 * 60_000),
   stepUpPerUser: new RateLimiter(10, 15 * 60_000),
 });

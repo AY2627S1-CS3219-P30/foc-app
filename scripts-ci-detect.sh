@@ -24,6 +24,9 @@ DEPLOY_CONFIG_RE='^(compose(\.dev)?\.yaml|postgres-init\.sh|rabbitmq-init\.sh|sc
 # (web-app/test/suppliers.integration.test.tsx) runs against the real Supplier
 # Service whenever either side, or anything shared or stack-wide, changes.
 SUPPLIER_STACK_RE='^(supplier-service/|web-app/src/app/\(app\)/suppliers/|web-app/src/lib/supplier-|web-app/src/components/SupplierCard|web-app/test/suppliers\.integration\.test\.tsx)'
+# The load test (TST-03): not run in CI, but test-harness/test/load-harness.test.ts reads it, so a
+# change to it runs the Node job, without fanning out to every service.
+LOAD_RE='^(load/|scripts-load\.sh|compose\.load\.yaml)'
 # Paths that cannot affect a build, a test or a container.
 IGNORED_RE='^docs/|\.md$|^\.github/|^LICENSE$|^\.gitignore$|^\.(vscode|idea|claude)/'
 
@@ -31,7 +34,7 @@ IGNORED_RE='^docs/|\.md$|^\.github/|^LICENSE$|^\.gitignore$|^\.(vscode|idea|clau
 # new package such as auth-client/, seed data, a contract — is treated as
 # shared and runs everything, rather than nothing. Otherwise a whole new package
 # could merge with no job ever running its tests.
-KNOWN_RE="$SHARED_RE|$SERVICE_RE|^web-app/|$STACK_RE|$IGNORED_RE"
+KNOWN_RE="$SHARED_RE|$SERVICE_RE|^web-app/|$STACK_RE|$LOAD_RE|$IGNORED_RE"
 
 detect() {
   local changed="$1" force_stack="${2:-false}"
@@ -64,7 +67,7 @@ detect() {
   # The web app's API types are generated from contracts/, and its tests check they are current.
   matches '^(web-app|contracts)/' && echo 'web=true' || echo 'web=false'
 
-  if [[ "$shared" == "true" ]] || matches "$SERVICE_RE" || matches "$DEPLOY_CONFIG_RE"; then
+  if [[ "$shared" == "true" ]] || matches "$SERVICE_RE" || matches "$DEPLOY_CONFIG_RE" || matches "$LOAD_RE"; then
     echo 'node=true'
   else
     echo 'node=false'
@@ -162,6 +165,9 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "supplier unit test -> no supplier stack" "web-app/test/suppliers-page.test.tsx" 'supplier_stack=false'
   check "order service -> no supplier stack"    "order-service/src/y.ts" 'supplier_stack=false'
   check "docs only -> no supplier stack"        "docs/EXECUTION-PLAN.md" 'supplier_stack=false'
+  check "load test -> node runs its tests"      "load/user.js" 'node=true'
+  check "load test -> no services"              "scripts-load.sh" 'services=[]'
+  check "load override -> stack skipped"        "compose.load.yaml" 'stack=false'
 
   echo
   [[ $FAILURES -eq 0 ]] && echo "All detection checks passed." || {
