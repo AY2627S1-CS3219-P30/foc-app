@@ -17,6 +17,8 @@ export const ADMIN_NAV: NavItem[] = [
   { href: "/admin/audit", label: "Audit trail" },
   { href: "/admin/activity", label: "Admin activity" },
   { href: "/admin/errands", label: "Errands" },
+  // Supplier management is the supplier list itself, with Add, Edit and Delete for administrators.
+  { href: "/suppliers", label: "Suppliers" },
   { href: "/admin/wallets", label: "Wallets" },
   { href: "/admin/operations", label: "Operations" },
 ];
