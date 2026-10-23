@@ -44,10 +44,12 @@ wait_for() { # seconds wanted command...
 }
 
 # Signs up and activates a student through the dev mailbox, logs them in, and
-# waits for their 10-credit wallet. Sets STUDENT_ID and STUDENT_TOKEN.
+# waits for their 10-credit wallet. Sets STUDENT_ID and STUDENT_TOKEN. Each gets a
+# password of its own, unless SIGNUP_PASSWORD gives one for all (the load test signs
+# its students in again, so it must know theirs).
 signup() { # label [no-wallet]
-  local email="demo-$1-$RUN@$EMAIL_DOMAIN" password token
-  password=$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')
+  local email="demo-$1-$RUN@$EMAIL_DOMAIN" password="${SIGNUP_PASSWORD:-}" token
+  [[ -n "$password" ]] || password=$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')
   local registered
   registered=$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://localhost:${USER_PORT}/auth/register" -H 'content-type: application/json' \
     -d "{\"email\":\"$email\",\"password\":\"$password\",\"displayName\":\"Demo $1\"}" 2>/dev/null) || true
