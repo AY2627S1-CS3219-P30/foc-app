@@ -46,8 +46,8 @@ What each nice-to-have is, and how the work on it is shared, is in
   [ADR 0009](docs/adr/0009-messaging-rabbitmq-events-and-ordering.md)).
 - **It can be watched and run anywhere Docker runs.** Prometheus and Grafana show latency, queues
   and alerts ([Observability](#observability)); one `docker compose up` starts all of it
-  ([Containers](#containers-secrets-networks-and-restarts)), and CI runs the whole stack on every pull
-  request ([Continuous integration](#continuous-integration)).
+  ([Containers](#containers-secrets-networks-and-restarts)), and CI runs the whole stack on every push
+  to `main` and on a pull request that touches it ([Continuous integration](#continuous-integration)).
 
 Every design decision and its reasons are in the [decision records](docs/adr/README.md).
 

@@ -366,7 +366,8 @@ address: inlined at build time, with `http://localhost:3003` and `:3004` as the 
 ## Deployment
 
 [`.github/workflows/deploy-web-app.yml`](../.github/workflows/deploy-web-app.yml) is meant to deploy the
-web app to Vercel on a push to `main` that touches `web-app/**`. It does not at present: its runs fail
+web app to Vercel on a push to `main` that touches `web-app/**` or the workflow itself, or when run by
+hand. It does not at present: its runs fail
 (an invalid token), and no hosted back end exists for a deployed web app to call. Whether it is fixed
 or removed, and the D4 demo's deployment mode, are decided in
 [PLT-11 #286](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/286). Until then the web app runs

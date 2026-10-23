@@ -992,7 +992,7 @@ Testing is part of each task's Definition of Done. A feature is not "backend com
 - **Trade-offs:** Another container, but simplifies browser security and service exposure.
 - **As built (22 Oct):** no gateway yet. The browser calls each service directly, and each service
   authenticates the caller itself (ADR 0004). The thin edge is PLT-10 (#285), after the D4 gap fixes,
-  with its own decision record (ADR 0010).
+  with its own decision record to come (ADR 0010, in #285).
 
 #### Live updates
 - **Alternatives considered:** Polling only; WebSocket everywhere; SSE status + WS chat

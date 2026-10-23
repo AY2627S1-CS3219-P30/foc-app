@@ -19,7 +19,7 @@ owner, one consumer owner, and Dev 3 or Dev 4 review; within v1, changes are add
 
 Implemented means the service answers as its file says: each has a provider test
 (`<service>/test/provider.contract.test.ts`), and CI fails a change that breaks a contract against
-`main` (`npm run test:contract`).
+the branch's merge base (locally: `npm run test:contract`, against `origin/main`).
 
 `events.schema.json` is generated from `platform/src/events/catalogue.ts` by `npm run
 contracts:events`; do not edit it by hand. CI fails a pull request that changes any file here
@@ -115,9 +115,9 @@ Asked of Jonus and Patrick while the first drafts were written; each is now answ
    ([PLT-10 #285](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/285)) puts everything on one
    origin.
 3. **JWT signing and key distribution.** Settled: EdDSA (Ed25519), with the public keys at
-   `GET /.well-known/jwks.json`, now in the spec. `auth-client` caches them for ten minutes and
-   fetches again when a token names a key it does not have
-   ([ADR 0004](../docs/adr/0004-authentication-and-trust.md)).
+   `GET /.well-known/jwks.json`, now in the spec
+   ([ADR 0004](../docs/adr/0004-authentication-and-trust.md)). How services cache the keys and pick
+   up a new one is in [auth-client: Key rotation](../auth-client/README.md#key-rotation).
 4. **The OpenAPI to types generator.** Settled: `openapi-typescript` and `openapi-fetch`
    (`web-app/scripts/generate.ts`); the web app's tests fail if the generated types fall behind a
    contract.

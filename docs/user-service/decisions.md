@@ -90,9 +90,10 @@ are is the Order Service's call (`order-service/README.md`).
 
 ## 3. API contract
 
-### C1. Contract lives in `contracts/`, not `packages/contracts` — 🟡
+### C1. Contract lives in `contracts/`, not `packages/contracts` — ✅ (settled 22 Oct)
 The FND-03 ticket text says `packages/contracts`; the execution plan (§3.1, §8.1) and the root README use a flat layout.
 - **Chosen:** follow the plan. **Trade-off:** it contradicts a ticket body, so Jonus should confirm; it is a `git mv` if not.
+- **Settled:** Jonus confirmed it: `contracts/` stays at the root (§8).
 
 ### C2. The contract is a proposal until the consumers sign off — ✅ (settled 22 Oct)
 FND-03 asked for a workshop with Patrick. There is no evidence it happened, so the cross-service
@@ -100,7 +101,7 @@ conventions (error envelope, pagination, auth header, IDs, timestamps, event env
 proposal in `contracts/README.md` for review in #176.
 - **Trade-off:** faster to review than a meeting, but nothing is frozen until Jonus and Patrick approve.
 - **Settled:** every contract is implemented and checked: each service has a provider test, and CI
-  fails a change that breaks a contract against `main` (`contracts/README.md`).
+  fails a change that breaks a contract against the branch's merge base (`contracts/README.md`).
 
 ### C3. Events follow the submitted backlog — 🟡
 `UserActivated`, `UserSuspended`, `UserReactivated` — not the plan's `UserActivated` + `UserStatusChanged` (§3.2).
@@ -176,8 +177,7 @@ Claims: `sub`, `sid`, `iss`, `jti`, `iat`, `exp`. Services learn role and status
 - **Dev convenience:** outside production, if `JWT_PRIVATE_KEY` is unset a throwaway key is generated,
   so no key is ever committed. Every restart then invalidates access tokens; refresh sessions survive.
   In production the key is required. ~~❓ JWKS caching and key distribution to other services is an open question~~ — settled:
-  `auth-client` fetches the keys from `GET /.well-known/jwks.json`, caches them for ten minutes, and
-  fetches again when a token names a key it does not have.
+  see [auth-client: Key rotation](../../auth-client/README.md#key-rotation).
 
 ### A3. Access token lives in memory; refresh token lives in an `HttpOnly` cookie — ✅
 Cookie: `foc_refresh; HttpOnly; SameSite=Strict; Path=/auth` (`Secure` in production).
@@ -289,8 +289,8 @@ Recorded because they are the honest answer to "what went wrong?" and each has a
 
 **Needs a teammate or mentor**
 - ~~❓ Jonus: review the `platform` changes (O3) and the `compose.yaml` additions; confirm `contracts/` vs `packages/contracts`; decide whether `aggregateVersion` is in the envelope~~ — settled: merged; `contracts/` at the root; no `aggregateVersion` in the envelope, and an event that needs one carries its own (`orderVersion`, ADR 0009).
-- ~~❓ Patrick: is `preferredMode` on the profile the right home for the toggle? Will the gateway or dev proxy keep web and API on one site?~~ — settled: `preferredMode` stays on the profile; the local stack is all `localhost`, one site, and the edge proxy (PLT-10 #285) makes it one origin.
-- ~~❓ Everyone: how do other services get and cache the JWKS, and who owns key rotation?~~ — settled: `auth-client` caches the JWKS for ten minutes and fetches again on an unknown key, which is what a rotation needs; the User Service owns the key (`JWT_PRIVATE_KEY`).
+- ~~❓ Patrick: is `preferredMode` on the profile the right home for the toggle? Will the gateway or dev proxy keep web and API on one site?~~ — settled: see [contracts/README.md, questions 1 and 2](../../contracts/README.md#questions-settled-during-the-build).
+- ~~❓ Everyone: how do other services get and cache the JWKS, and who owns key rotation?~~ — settled: see [auth-client: Key rotation](../../auth-client/README.md#key-rotation).
 
 **Deferred, with an owner**
 - ~~Bootstrap secret stays valid; bootstrap unaudited~~ — fixed in §11 (D1 feedback on USR-03).
