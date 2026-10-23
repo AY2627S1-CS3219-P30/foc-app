@@ -6,9 +6,13 @@
 #   FOC_IMAGE_TAG=sha-<commit> docker compose -f compose.yaml -f compose.images.yaml up -d --no-build
 #
 # FOC_IMAGE_TAG is `sha-` and the full commit hash of any commit merged to main, or `main` for
-# the latest (the default). Starting the previous release's tag is a rollback (PLT-09, #284).
-# CI builds and pushes with this same file (`docker buildx bake`), so the published images get
+# the newest (the default). Starting an earlier commit's tag is a rollback (PLT-09, #284).
+# CI builds with this same file (`docker buildx bake`), so the published images get
 # compose.yaml's build arguments and nothing else.
+#
+# The web app's image is for this local stack only: `next build` inlined localhost URLs on
+# compose.yaml's default ports, and the dev mailbox link. On other ports, build it from your own
+# .env before `up --no-build`: docker compose -f compose.yaml -f compose.images.yaml build web-app
 #
 # A service and its migrate container run one image, as they are built from one Dockerfile.
 

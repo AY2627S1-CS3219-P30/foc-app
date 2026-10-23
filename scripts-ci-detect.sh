@@ -12,8 +12,11 @@ set -euo pipefail
 # of these fans out to all four. test-harness/ holds every service's shared test
 # fixtures and contract checks, so it fans out too; it is never in an image.
 # system-tests/ runs the real service code together, so it fans out the same way.
-SHARED_RE='^(platform/|test-harness/|system-tests/|package\.json|package-lock\.json|tsconfig\.base\.json|eslint\.config\.mjs|\.prettierrc|\.prettierignore|\.github/workflows/ci\.yml|\.nvmrc|scripts-scan-vulnerabilities\.sh|scripts-coverage-summary\.sh)'
+SHARED_RE='^(platform/|test-harness/|system-tests/|package\.json|package-lock\.json|tsconfig\.base\.json|eslint\.config\.mjs|\.prettierrc|\.prettierignore|\.github/workflows/ci\.yml|\.github/actions/|\.nvmrc|scripts-scan-vulnerabilities\.sh|scripts-coverage-summary\.sh)'
 SERVICE_RE='^(user|supplier|order|credit)-service/'
+# What the web-app job reads: the app, the contracts its API types are generated from, and what
+# it builds and scans its image with (the generated .env, compose.yaml, the scan, this workflow).
+WEB_RE='^(web-app/|contracts/|compose\.yaml|\.env\.example|scripts-(init-env|scan-vulnerabilities)\.sh|\.github/workflows/ci\.yml|\.github/actions/)'
 # Wiring between containers, as opposed to code inside one. `.env.example`
 # belongs here because the smoke job builds `.env` from it.
 STACK_RE='^(compose(\.dev)?\.yaml|postgres-init\.sh|rabbitmq-init\.sh|scripts-(smoke|demo-failures|demo-journey|restart-check|scan-secrets|init-env|env|lib|ci-detect)\.sh|platform/|observability/|\.env\.example|\.gitleaks\.toml)|Dockerfile|\.dockerignore'
@@ -61,8 +64,7 @@ detect() {
     )]"
   fi
 
-  # The web app's API types are generated from contracts/, and its tests check they are current.
-  matches '^(web-app|contracts)/' && echo 'web=true' || echo 'web=false'
+  matches "$WEB_RE" && echo 'web=true' || echo 'web=false'
 
   if [[ "$shared" == "true" ]] || matches "$SERVICE_RE" || matches "$DEPLOY_CONFIG_RE"; then
     echo 'node=true'
@@ -131,6 +133,15 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "a Dockerfile -> that service too"      "order-service/Dockerfile" 'services=["order-service"]'
   check "web Dockerfile -> stack and web"       "web-app/Dockerfile" 'web=true'
   check "contract -> web runs"                  "contracts/supplier-service.openapi.yaml" 'web=true'
+  # The web-app job runs these too: it generates .env, bakes its image from compose.yaml and scans it.
+  check "vulnerability scan -> web runs"        "scripts-scan-vulnerabilities.sh" 'web=true'
+  check "env generator -> web runs"             "scripts-init-env.sh" 'web=true'
+  check "env example -> web runs"               ".env.example" 'web=true'
+  check "compose -> web runs"                   "compose.yaml" 'web=true'
+  check "this workflow -> web runs"             ".github/workflows/ci.yml" 'web=true'
+  check "dev override -> web skipped"           "compose.dev.yaml" 'web=false'
+  check "a CI action -> all four"               ".github/actions/trivy-db/action.yml" 'services=["user-service","supplier-service","order-service","credit-service"]'
+  check "a CI action -> web runs"               ".github/actions/trivy-db/action.yml" 'web=true'
   check "two services -> both"                  "$(printf 'user-service/src/a.ts\ncredit-service/src/b.ts')" 'services=["user-service","credit-service"]'
   check "mixed web + service"                   "$(printf 'web-app/x.tsx\norder-service/src/y.ts')" 'services=["order-service"]'
   check "this workflow -> all four"             ".github/workflows/ci.yml" 'services=["user-service","supplier-service","order-service","credit-service"]'

@@ -4,6 +4,9 @@
 #
 # Reviews are a team rule, not enforced by branch protection: main requires the CI check.
 
+# Anything no line below names, a new root file included, so no change goes unreviewed
+*                    @jonushzw
+
 # The four services, each by its owner
 /user-service/       @anselmlong
 /supplier-service/   @pastchum
@@ -38,3 +41,16 @@
 /scripts-*.sh            @jonushzw
 /.env.example            @jonushzw
 /.gitleaks.toml          @jonushzw
+/compose.images.yaml     @jonushzw
+
+# Root configuration every package builds, lints or installs from
+/package.json            @jonushzw
+/package-lock.json       @jonushzw
+/tsconfig.base.json      @jonushzw
+/eslint.config.mjs       @jonushzw
+/.prettierrc             @jonushzw
+/.prettierignore         @jonushzw
+/.nvmrc                  @jonushzw
+
+# The supplier seed data, read by the Supplier Service
+/data/                   @pastchum

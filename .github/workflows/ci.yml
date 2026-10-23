@@ -8,10 +8,12 @@ on:
   workflow_dispatch:
 
 # A new push to the same PR cancels the previous run — nobody reads the results
-# of a superseded commit, and the runner minutes are better spent elsewhere. A
-# push to main is never cancelled: every merged commit is checked and published.
+# of a superseded commit, and the runner minutes are better spent elsewhere. Any
+# other run (a push to main, a manual run) has a group of its own. GitHub keeps
+# one pending run per group and drops the others, so in a shared group a merged
+# commit's run could be dropped while it waited, and that commit never published.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -101,6 +103,7 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run format:check
+      - uses: ./.github/actions/trivy-db
       # NTH-04 (PL-NFR4.1.2): a critical vulnerability with a fix, in a production dependency.
       - name: Scan the production dependencies for vulnerabilities
         run: ./scripts-scan-vulnerabilities.sh --lockfile
@@ -195,6 +198,7 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
+      - uses: ./.github/actions/trivy-db
       # NTH-04 (PL-NFR4.1.2): a critical vulnerability with a fix, anywhere in the image.
       - name: Scan the image for vulnerabilities
         run: ./scripts-scan-vulnerabilities.sh --image foc-${{ matrix.service }}:ci
@@ -281,10 +285,11 @@ jobs:
       # coverage table is in the log (reported, not gated).
       - run: bun test --coverage
       - run: bun run typecheck:contracts
-      - run: bun run build
 
-      # The image, as compose.yaml builds it, so its build arguments are defined once. Bake
-      # reads compose.yaml, which refuses to load without its secrets: generated and thrown away.
+      # The image, as compose.yaml builds it, so its build arguments are defined once. Its
+      # `next build` is the app's build check, Next's typecheck included, so the app is built
+      # once, here, not again on the runner. Bake reads compose.yaml, which refuses to load
+      # without its secrets: generated and thrown away.
       - name: Generate a throwaway .env
         working-directory: .
         run: ./scripts-init-env.sh
@@ -300,6 +305,7 @@ jobs:
             web-app.tags=foc-web-app:ci
             web-app.cache-from=type=gha,scope=web-app
             web-app.cache-to=type=gha,mode=max,scope=web-app
+      - uses: ./.github/actions/trivy-db
       # NTH-04 (PL-NFR4.1.2): a critical vulnerability with a fix, anywhere in the image.
       - name: Scan the image for vulnerabilities
         working-directory: .
@@ -493,11 +499,14 @@ jobs:
   # ---------------------------------------------------------------------------
   # NTH-04 (#164): publish every application image to the GitHub Container
   # Registry, for a push to main that passed every check above. Each is tagged
-  # with its commit (`sha-<commit>`) and as `main`, so any merged commit can be
-  # started again, and rolled back to, from compose.images.yaml (PLT-09, #284).
-  # Built with `docker buildx bake` from compose.yaml and that override, so the
-  # images get exactly compose.yaml's build arguments, and from the same layer
-  # cache the per-service job fills. The only job that may write to the registry.
+  # with its commit (`sha-<commit>`), so a merged commit can be started again,
+  # and rolled back to, from compose.images.yaml (PLT-09, #284); `main` names the
+  # newest. Built with `docker buildx bake` from compose.yaml and that override,
+  # so the images get exactly compose.yaml's build arguments, from the layer
+  # cache the per-service job fills. All five are scanned before any is pushed,
+  # changed in this push or not: a critical vulnerability with a fix, disclosed
+  # since an image was last scanned, stops the publish. The only job that may
+  # write to the registry.
   # ---------------------------------------------------------------------------
   publish:
     name: Publish images
@@ -507,6 +516,10 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      FOC_IMAGE_TAG: sha-${{ github.sha }}
+      REGISTRY: ghcr.io/ay2627s1-cs3219-p30
+      APPLICATIONS: user-service supplier-service order-service credit-service web-app
     steps:
       - uses: actions/checkout@v4
       # compose.yaml refuses to load without its secrets. They are generated here and
@@ -514,15 +527,9 @@ jobs:
       - name: Generate a throwaway .env
         run: ./scripts-init-env.sh
       - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push
+      # Loaded into Docker, not pushed: what reaches the registry is what the scan reads.
+      - name: Build every image
         uses: docker/bake-action@v6
-        env:
-          FOC_IMAGE_TAG: sha-${{ github.sha }}
         with:
           # The checkout, not the Git context: bake must read the .env generated above.
           source: .
@@ -535,15 +542,11 @@ jobs:
             order-service
             credit-service
             web-app
-          push: true
+          load: true
           set: |
             *.labels.org.opencontainers.image.source=https://github.com/${{ github.repository }}
             *.labels.org.opencontainers.image.revision=${{ github.sha }}
-            user-service.tags+=ghcr.io/ay2627s1-cs3219-p30/foc-user-service:main
-            supplier-service.tags+=ghcr.io/ay2627s1-cs3219-p30/foc-supplier-service:main
-            order-service.tags+=ghcr.io/ay2627s1-cs3219-p30/foc-order-service:main
-            credit-service.tags+=ghcr.io/ay2627s1-cs3219-p30/foc-credit-service:main
-            web-app.tags+=ghcr.io/ay2627s1-cs3219-p30/foc-web-app:main
+            web-app.labels.org.opencontainers.image.description=For the local stack only: it calls the services at localhost on compose.yaml's default ports, and links sign-up to the dev mailbox.
             user-service.cache-from=type=gha,scope=user-service
             supplier-service.cache-from=type=gha,scope=supplier-service
             order-service.cache-from=type=gha,scope=order-service
@@ -556,3 +559,31 @@ jobs:
             order-service.cache-to=type=gha,mode=max,scope=order-service
             credit-service.cache-to=type=gha,mode=max,scope=credit-service
             web-app.cache-to=type=gha,mode=max,scope=web-app
+      - uses: ./.github/actions/trivy-db
+      - name: Scan every image for vulnerabilities
+        run: |
+          images=()
+          for application in $APPLICATIONS; do images+=("$REGISTRY/foc-$application:$FOC_IMAGE_TAG"); done
+          ./scripts-scan-vulnerabilities.sh --image "${images[@]}"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push the scanned images
+        run: |
+          for application in $APPLICATIONS; do docker push "$REGISTRY/foc-$application:$FOC_IMAGE_TAG"; done
+      # Runs on main are never dropped or cancelled (see concurrency above), so two can finish
+      # out of order. A run moves `main` only while its commit is still main's newest; when it is
+      # not, the newer commit's run moves it.
+      - name: Point main at this commit, if it is still the newest
+        run: |
+          newest="$(git ls-remote origin refs/heads/main | cut -f1)"
+          if [[ "$newest" != "$GITHUB_SHA" ]]; then
+            echo "main is now at $newest; that commit's run points main at its images."
+            exit 0
+          fi
+          for application in $APPLICATIONS; do
+            docker tag "$REGISTRY/foc-$application:$FOC_IMAGE_TAG" "$REGISTRY/foc-$application:main"
+            docker push "$REGISTRY/foc-$application:main"
+          done
