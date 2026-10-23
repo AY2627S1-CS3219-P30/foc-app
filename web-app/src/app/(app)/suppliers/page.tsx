@@ -8,7 +8,7 @@ import { ResponsiveShell } from '@/components/ResponsiveShell';
 import { Select } from '@/components/Select';
 import { EmptyState, ErrorState, LoadingState } from '@/components/States';
 import { SupplierCard, supplierHeadingId } from '@/components/SupplierCard';
-import { ApiError, bearer, unwrap } from '@/lib/api-client';
+import { ApiError, bearer, newCorrelationId, unwrap } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth';
 import { ADMIN_NAV, STUDENT_NAV } from '@/lib/nav';
 import {
@@ -62,12 +62,15 @@ export default function SuppliersPage() {
   const resultsCount = useRef<HTMLParagraphElement>(null);
   const formDirty = useRef(false);
   /**
-   * The Idempotency-Key of the open "Add supplier" form and the values it was sent with. Saving the
-   * same values again (after an answer that never arrived) replays the first create instead of
-   * making a second supplier; changed values, or a new form, need a new key, because the service
-   * refuses a key reused with a different body.
+   * The Idempotency-Key for adding a supplier. One key lasts until a create is known to have
+   * happened (the service answered, or said the key was already used), so saving again after an
+   * answer that never arrived replays that create rather than making a second supplier, even after
+   * the values are edited or the form is cancelled and opened again. The service keeps a key only
+   * when its create commits, so a save it refused (a field error) leaves the key for the next one.
    */
-  const createKey = useRef<{ key: string; body: string } | null>(null);
+  const createKey = useRef<string | null>(null);
+  /** Counts each form opened or closed, so a save's late answer closes only the form it came from. */
+  const formRun = useRef(0);
   const opener = useRef<HTMLElement | null>(null);
   const focusReturn = useRef<FocusReturn | null>(null);
   const editingKey = editing === 'new' ? 'new' : (editing?.supplierId ?? null);
@@ -108,7 +111,7 @@ export default function SuppliersPage() {
     if (key !== editingKey) {
       if (editing && formDirty.current && !window.confirm('Discard your changes?')) return;
       formDirty.current = false;
-      createKey.current = null;
+      formRun.current += 1;
       setEditing(target);
     } else revealForm(formHeading.current);
     opener.current = from;
@@ -123,15 +126,8 @@ export default function SuppliersPage() {
     };
     opener.current = null;
     formDirty.current = false;
-    createKey.current = null;
+    formRun.current += 1;
     setEditing(null);
-  };
-
-  /** The key for creating `body`: the open form's, unless its values have changed since. */
-  const keyFor = (body: SupplierInput) => {
-    const sent = JSON.stringify(body);
-    if (createKey.current?.body !== sent) createKey.current = { key: crypto.randomUUID(), body: sent };
-    return createKey.current.key;
   };
 
   useEffect(() => {
@@ -184,6 +180,8 @@ export default function SuppliersPage() {
   }, [authed, search, type, building, sort, order, page, revision]);
 
   const save = async (body: SupplierInput) => {
+    const run = formRun.current;
+    const adding = editing === 'new';
     try {
       await authed((token) =>
         editing && editing !== 'new'
@@ -199,13 +197,26 @@ export default function SuppliersPage() {
             )
           : unwrap(
               supplierApi.POST('/suppliers', {
-                params: { header: { 'Idempotency-Key': keyFor(body) } },
+                params: {
+                  header: { 'Idempotency-Key': (createKey.current ??= newCorrelationId()) },
+                },
                 headers: bearer(token),
                 body,
               }),
             ),
       );
     } catch (cause) {
+      if (adding && cause instanceof ApiError && cause.code === 'IDEMPOTENCY_KEY_REUSED') {
+        // An earlier save committed though its answer was lost, and these values differ from it.
+        // Show it in the list; saving again now adds a second supplier, under a new key.
+        createKey.current = null;
+        reload();
+        throw new ApiError(
+          cause.status,
+          cause.code,
+          'Your earlier save went through, though its answer never arrived, so that supplier is already in the list with the values you saved then. Edit it there, or save again to add another supplier.',
+        );
+      }
       if (!(cause instanceof ApiError && cause.status === 412 && editing && editing !== 'new'))
         throw cause;
       // Someone else saved first. Swap in the current version without remounting the form (it is
@@ -247,8 +258,10 @@ export default function SuppliersPage() {
         'This supplier was changed by someone else. Your edits are kept; review and save again to overwrite.',
       );
     }
-    // A new supplier's opener (Add supplier) survives the reload, so focus can go back at once.
-    closeForm(editing !== 'new');
+    if (adding) createKey.current = null;
+    // A new supplier's opener (Add supplier) survives the reload, so focus can go back at once. A
+    // late answer leaves alone a form opened since this save began.
+    if (formRun.current === run) closeForm(!adding);
     reload();
   };
 
@@ -288,6 +301,7 @@ export default function SuppliersPage() {
     <ResponsiveShell
       title="Campus suppliers"
       navItems={admin ? ADMIN_NAV : STUDENT_NAV}
+      logoText={admin ? 'NUQueSt Admin' : undefined}
       activeHref="/suppliers"
       showCreditPill={false}
     >

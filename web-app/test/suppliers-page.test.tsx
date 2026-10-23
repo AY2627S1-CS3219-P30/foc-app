@@ -14,17 +14,21 @@ const auth = {
   user: { roles: ['ADMIN'] },
 };
 mock.module('../src/lib/auth', () => ({ useAuth: () => auth }));
-/** The navigation the page last gave its shell. */
+/** The navigation and logo the page last gave its shell; reset before each test. */
 let shellNav: Array<{ href: string; label: string }> = [];
+let shellLogo: string | undefined;
 mock.module('../src/components/ResponsiveShell', () => ({
   ResponsiveShell: ({
     children,
     navItems,
+    logoText,
   }: {
     children: React.ReactNode;
     navItems: Array<{ href: string; label: string }>;
+    logoText?: string;
   }) => {
     shellNav = navItems;
+    shellLogo = logoText;
     return <>{children}</>;
   },
 }));
@@ -71,7 +75,9 @@ const failure = (status: number, code: string, message: string, details?: unknow
 /**
  * The Supplier Service, in memory, behind `fetch`: the page's real openapi-fetch client and
  * ApiError mapping run against it. Writes follow the service's rules (If-Match must equal the
- * current version, which each write bumps). `override` answers a call before the default handling.
+ * current version, which each write bumps). `hold` delays a call until its promise settles,
+ * `override` answers a call before the default handling, and `lose` drops the answer of a call
+ * the service has already handled, as a timeout or a 503 from a proxy would.
  */
 function fakeService(count: number) {
   const suppliers = Array.from({ length: count }, (_, i) => makeSupplier(i + 1));
@@ -81,7 +87,9 @@ function fakeService(count: number) {
   const service = {
     suppliers,
     calls,
+    hold: undefined as ((call: Call) => Promise<void> | undefined) | undefined,
     override: undefined as ((call: Call) => Response | undefined) | undefined,
+    lose: undefined as ((call: Call) => boolean) | undefined,
     lists: () => calls.filter((c) => c.method === 'GET' && c.path === '/suppliers'),
     writes: (method: string) => calls.filter((c) => c.method === method),
     async fetch(request: Request): Promise<Response> {
@@ -97,9 +105,13 @@ function fakeService(count: number) {
         ...(text && { body: JSON.parse(text) }),
       };
       calls.push(call);
+      await service.hold?.(call);
       const overridden = service.override?.(call);
       if (overridden) return overridden;
-
+      const response = service.handle(call);
+      return service.lose?.(call) ? failure(503, 'UNAVAILABLE', 'Try again shortly.') : response;
+    },
+    handle(call: Call): Response {
       if (call.method === 'GET' && call.path === '/suppliers') {
         const page = Number(call.query.get('page'));
         const pageSize = Number(call.query.get('pageSize'));
@@ -151,6 +163,8 @@ let mounted: { unmount: () => void } | null = null;
 
 beforeEach(() => {
   auth.user = { roles: ['ADMIN'] };
+  shellNav = [];
+  shellLogo = undefined;
 });
 
 afterEach(async () => {
@@ -514,30 +528,80 @@ describe('supplier page: admin writes', () => {
     expect(service.lists()).toHaveLength(2);
   });
 
-  it('sends the same key when the same values are saved again after a failed answer', async () => {
+  /** Drops the answer to the first POST, after the service has created the supplier. */
+  const loseFirstCreate = (service: ReturnType<typeof fakeService>) => {
+    let lost = false;
+    service.lose = (call) => call.method === 'POST' && !lost && (lost = true);
+  };
+  const postKeys = (service: ReturnType<typeof fakeService>) =>
+    service.writes('POST').map((c) => c.idempotencyKey);
+  const names = (container: HTMLElement) =>
+    cards(container).map((c) => c.querySelector('h2')?.textContent);
+
+  it('replays the create when the same values are saved again after a lost answer', async () => {
     const service = fakeService(1);
-    let fail = true;
-    service.override = (call) => {
-      if (call.method !== 'POST' || !fail) return undefined;
-      fail = false;
-      return failure(503, 'UNAVAILABLE', 'Try again shortly.');
-    };
+    loseFirstCreate(service);
     const container = await renderPage(service);
 
     await click(button(container, 'Add supplier'));
     await setValue(control<HTMLInputElement>(form(container), 'Name'), 'New Stall');
     await submit(form(container));
-    expect(form(container)).not.toBeNull();
+    expect(form(container).textContent).toContain('Try again shortly.');
     await submit(form(container));
 
-    const keys = service.writes('POST').map((c) => c.idempotencyKey);
+    const keys = postKeys(service);
     expect(keys).toHaveLength(2);
-    expect(keys[0]).toMatch(/^[0-9a-f-]{36}$/);
     expect(keys[1]).toBe(keys[0]!);
+    expect(service.suppliers).toHaveLength(2);
+    expect(form(container)).toBeNull();
+    expect(names(container)).toEqual(['Supplier 01', 'New Stall']);
+  });
+
+  it('keeps the key after a lost answer when a field is edited, and says it was saved', async () => {
+    const service = fakeService(1);
+    loseFirstCreate(service);
+    const container = await renderPage(service);
+
+    await click(button(container, 'Add supplier'));
+    await setValue(control<HTMLInputElement>(form(container), 'Name'), 'Nw Stall');
+    await submit(form(container));
+    await setValue(control<HTMLInputElement>(form(container), 'Name'), 'New Stall');
+    await submit(form(container));
+
+    const keys = postKeys(service);
+    expect(keys[1]).toBe(keys[0]!);
+    expect(service.suppliers).toHaveLength(2);
+    expect(form(container).textContent).toContain('Your earlier save went through');
+    expect(control<HTMLInputElement>(form(container), 'Name').value).toBe('New Stall');
+    expect(names(container)).toEqual(['Supplier 01', 'Nw Stall']);
+
+    // The admin was told; saving again is a request for another supplier, under a new key.
+    await submit(form(container));
+    expect(postKeys(service)[2]).not.toBe(keys[0]!);
+    expect(service.suppliers).toHaveLength(3);
     expect(form(container)).toBeNull();
   });
 
-  it('uses a new key once the values change, and for the next supplier', async () => {
+  it('keeps the key when the form is cancelled and opened again after a lost answer', async () => {
+    const service = fakeService(1);
+    loseFirstCreate(service);
+    const container = await renderPage(service);
+
+    await click(button(container, 'Add supplier'));
+    await setValue(control<HTMLInputElement>(form(container), 'Name'), 'Nw Stall');
+    await submit(form(container));
+    await click(button(form(container), 'Cancel'));
+    await click(button(container, 'Add supplier'));
+    await setValue(control<HTMLInputElement>(form(container), 'Name'), 'New Stall');
+    await submit(form(container));
+
+    const keys = postKeys(service);
+    expect(keys[1]).toBe(keys[0]!);
+    expect(service.suppliers).toHaveLength(2);
+    expect(form(container).textContent).toContain('Your earlier save went through');
+  });
+
+  it('keeps one key through a field error until the supplier is saved, then makes a new one', async () => {
     const service = fakeService(1);
     let reject = true;
     service.override = (call) => {
@@ -560,10 +624,51 @@ describe('supplier page: admin writes', () => {
     await setValue(control<HTMLInputElement>(form(container), 'Name'), 'Another');
     await submit(form(container));
 
-    const keys = service.writes('POST').map((c) => c.idempotencyKey);
+    const keys = postKeys(service);
     expect(keys).toHaveLength(3);
-    expect(new Set(keys).size).toBe(3);
-    expect(service.writes('POST').every((c) => c.idempotencyKey)).toBe(true);
+    expect(keys[1]).toBe(keys[0]!);
+    expect(keys[2]).not.toBe(keys[0]!);
+    expect(service.suppliers).toHaveLength(3);
+  });
+
+  it('leaves a form opened since alone when a save answers late', async () => {
+    const service = fakeService(1);
+    let answer = () => {};
+    service.hold = (call) =>
+      call.method === 'POST' ? new Promise((resolve) => (answer = resolve)) : undefined;
+    const container = await renderPage(service);
+
+    await click(button(container, 'Add supplier'));
+    await setValue(control<HTMLInputElement>(form(container), 'Name'), 'New Stall');
+    await submit(form(container));
+    await click(button(form(container), 'Cancel'));
+    await click(button(container, 'Edit'));
+    await setValue(control<HTMLInputElement>(form(container), 'Name'), 'Typing');
+    await act(async () => answer());
+    await flush();
+
+    expect(service.suppliers).toHaveLength(2);
+    expect(form(container)).not.toBeNull();
+    expect(control<HTMLInputElement>(form(container), 'Name').value).toBe('Typing');
+    expect(names(container)).toEqual(['Supplier 01', 'New Stall']);
+  });
+
+  it('makes a key without crypto.randomUUID, which plain-HTTP origins lack', async () => {
+    const own = Object.getOwnPropertyDescriptor(crypto, 'randomUUID');
+    Object.defineProperty(crypto, 'randomUUID', { value: undefined, configurable: true });
+    try {
+      const service = fakeService(1);
+      const container = await renderPage(service);
+      await click(button(container, 'Add supplier'));
+      await setValue(control<HTMLInputElement>(form(container), 'Name'), 'New Stall');
+      await submit(form(container));
+
+      expect(postKeys(service)[0]).toMatch(/^[0-9a-f]{32}$/);
+      expect(form(container)).toBeNull();
+    } finally {
+      if (own) Object.defineProperty(crypto, 'randomUUID', own);
+      else delete (crypto as { randomUUID?: unknown }).randomUUID;
+    }
   });
 
   it('gives an admin the console navigation, with Suppliers in it once', async () => {
@@ -572,6 +677,15 @@ describe('supplier page: admin writes', () => {
       { href: '/suppliers', label: 'Suppliers' },
     ]);
     expect(shellNav.some((item) => item.href === '/admin')).toBe(true);
+    expect(shellLogo).toBe('NUQueSt Admin');
+  });
+
+  it('gives a student the student navigation and the default logo', async () => {
+    auth.user = { roles: ['STUDENT'] };
+    await renderPage(fakeService(1));
+    expect(shellNav.some((item) => item.href === '/feed')).toBe(true);
+    expect(shellNav.some((item) => item.href === '/admin')).toBe(false);
+    expect(shellLogo).toBeUndefined();
   });
 });
 
