@@ -11,7 +11,7 @@ import { RESOLVE_ACTIONS, SUSPENSION_EFFECTS, type OrderAction } from './order-s
 import { SupplierClient } from './supplier.client.js';
 import type { OpenOrderSummary, OrderReceipt, OrderRow, OrderStatus, OrderView } from './types.js';
 import type {
-  AccountErrandsQuery,
+  AdminOrdersQuery,
   CreateOrderInput,
   MyOrdersQuery,
   ResolveOrderInput,
@@ -170,11 +170,14 @@ export class OrdersService {
     };
   }
 
-  /** An administrator's view of one account's errands (ORD-15): public fields only, paged. */
-  async listByAccount(query: AccountErrandsQuery) {
-    const { requesterId, courierId, page, pageSize } = query;
-    const { rows, total } = await this.orders.listByAccount(
-      { requesterId, courierId },
+  /**
+   * An administrator's errand list: one account's (ORD-15) or every errand (ADM-06), optionally
+   * narrowed to some statuses. Public fields only, newest first, paged.
+   */
+  async listForAdmin(query: AdminOrdersQuery) {
+    const { requesterId, courierId, status, before, page, pageSize } = query;
+    const { rows, total } = await this.orders.listForAdmin(
+      { requesterId, courierId, status, before },
       page,
       pageSize,
     );
