@@ -106,11 +106,26 @@ describe("an administrator's view of one account's errands", () => {
       'status=',
       'status=NOPE',
       'status=OPEN,',
+      // The contract's limit, though these would dedupe to one status.
+      `status=${'OPEN,'.repeat(100)}OPEN`,
+      'before=not-an-errand',
       'sort=oldest',
     ]) {
       const refused = await list(query);
       expect([refused.status, refused.body.error.code]).toEqual([422, 'VALIDATION_FAILED']);
     }
+  });
+
+  it('says to comma-separate statuses when status is repeated', async () => {
+    t = await createTestApp();
+    const refused = await list('status=OPEN&status=ACCEPTED').expect(422);
+    expect(refused.body.error.details).toEqual([
+      expect.objectContaining({
+        field: 'status',
+        message:
+          'Give the statuses in one status parameter, comma-separated: status=OPEN,ACCEPTED.',
+      }),
+    ]);
   });
 });
 
@@ -172,5 +187,53 @@ describe('an administrator listing every errand', () => {
     expect(ids(first.body)).toEqual([newer, older]);
     expect(second.body).toMatchObject({ page: 2, pageSize: 2, total: 3 });
     expect(ids(second.body)).toEqual([SEEDED_ORDER]);
+  });
+
+  it('pages on from an errand with before, so an errand posted since repeats nothing', async () => {
+    t = await createTestApp();
+    const older = await createPending(t);
+    const newer = await createPending(t, asBystander);
+    const first = await list('pageSize=2').expect(200);
+    expect(ids(first.body)).toEqual([newer, older]);
+    await createPending(t);
+
+    const next = await list(`pageSize=2&before=${older}`).expect(200);
+
+    // An offset would start this page at `older` again; the errand it ended on stays the bound.
+    expect(next.body).toMatchObject({ page: 1, pageSize: 2, total: 1 });
+    expect(ids(next.body)).toEqual([SEEDED_ORDER]);
+  });
+
+  it('skips nothing when the last errand shown has since left the status filter', async () => {
+    t = await createTestApp();
+    const older = await createPending(t);
+    const newer = await createPending(t, asBystander);
+    const first = await list('status=PENDING_CREDIT&pageSize=1').expect(200);
+    expect(ids(first.body)).toEqual([newer]);
+    await reservationReply(t, newer, true, 'bystander-student');
+
+    const next = await list(`status=PENDING_CREDIT&pageSize=1&before=${newer}`).expect(200);
+
+    expect(ids(next.body)).toEqual([older]);
+  });
+
+  it('lists nothing before an errand that does not exist', async () => {
+    t = await createTestApp();
+    const { body } = await list('before=0198a1c2-0000-7000-8000-000000000000').expect(200);
+    expect(body).toMatchObject({ total: 0, items: [] });
+  });
+
+  it('reads the newest errands from an index rather than sorting the whole table', async () => {
+    t = await createTestApp();
+    const plan = await t.db.transaction(async (tx) => {
+      // On a table this small the planner prefers a scan and sort; take that choice away.
+      await tx.exec('SET LOCAL enable_seqscan = off');
+      const { rows } = await tx.query<{ 'QUERY PLAN': string }>(
+        'EXPLAIN SELECT order_id FROM orders ORDER BY created_at DESC, order_id DESC LIMIT 20',
+      );
+      return rows.map((row) => row['QUERY PLAN']).join('\n');
+    });
+    expect(plan).toContain('orders_created_idx');
+    expect(plan).not.toMatch(/\bSort\b/);
   });
 });

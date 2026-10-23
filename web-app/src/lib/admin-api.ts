@@ -78,11 +78,17 @@ export type AuditQuery = Paging & {
   to?: string;
 };
 export type ReadsQuery = Paging & { actorId?: string; targetUserId?: string };
-/** One account's errands: those it requested, those it holds as courier, or both. One is required. */
-export type AccountErrandQuery = Paging &
-  ({ requesterId: string; courierId?: string } | { courierId: string; requesterId?: string });
-/** Every errand, or only those in `status` (ADM-06). */
-export type ErrandQuery = Paging & { status?: OrderStatus[] };
+/**
+ * The Order Service's admin errand list: one account's, those it requested, holds as courier or
+ * both (ORD-15), or every errand when neither is named (ADM-06); `status` narrows either. `before`
+ * is the last errand a page showed, to page on from it.
+ */
+export type ErrandQuery = Paging & {
+  requesterId?: string;
+  courierId?: string;
+  status?: OrderStatus[];
+  before?: string;
+};
 
 /** The ledger page size the console asks for. */
 export const LEDGER_PAGE = 20;
@@ -188,14 +194,11 @@ export function createAdminApi({
     stepUp: (token: string, password: string) =>
       unwrap(users.POST("/auth/step-up", { body: { password }, headers: bearer(token) })),
 
-    /** ORD-15: one account's errands, newest first. Students are refused by the Order Service. */
-    accountErrands: (token: string, query: AccountErrandQuery) =>
-      unwrap(orders.GET("/admin/orders", { params: { query }, headers: bearer(token) })),
-    /** ADM-06: every errand, live and past, newest first; `status` narrows it to those statuses. */
-    errands: (token: string, { status, ...paging }: ErrandQuery) =>
+    /** Errands newest first (ORD-15, ADM-06). Students are refused by the Order Service. */
+    errands: (token: string, { status, ...rest }: ErrandQuery) =>
       unwrap(
         orders.GET("/admin/orders", {
-          params: { query: { ...paging, ...(status?.length ? { status: status.join(",") } : {}) } },
+          params: { query: { ...rest, ...(status?.length ? { status: status.join(",") } : {}) } },
           headers: bearer(token),
         }),
       ),

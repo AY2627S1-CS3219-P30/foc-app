@@ -81,6 +81,16 @@ async function choose(value: string) {
 }
 
 const rows = () => [...container.querySelectorAll("tbody tr")].map((tr) => tr.textContent ?? "");
+async function click(text: string) {
+  const found = [...container.querySelectorAll("button")].find((b) => b.textContent === text);
+  if (!found) throw new Error(`No "${text}" button`);
+  await act(async () => (found as unknown as HTMLButtonElement).click());
+  await settle();
+}
+const befores = () => seen.map((url) => url.searchParams.get("before"));
+/** A first page of 21 errands showing `shown`, and whatever `after` answers for a later one. */
+const pages = (shown: ReturnType<typeof errand>[], after: () => Response) => (url: URL) =>
+  url.searchParams.has("before") ? after() : json(200, { page: 1, pageSize: 20, total: 21, items: shown });
 
 describe("every errand in the console (ADM-06)", () => {
   it("lists every errand from the Order Service, newest first, with its status and trace", async () => {
@@ -93,7 +103,7 @@ describe("every errand in the console (ADM-06)", () => {
     expect(`${asked.origin}${asked.pathname}`.endsWith("/admin/orders")).toBe(true);
     expect(asked.searchParams.get("status")).toBeNull();
     expect(asked.searchParams.get("requesterId")).toBeNull();
-    expect(asked.searchParams.get("page")).toBe("1");
+    expect(asked.searchParams.get("before")).toBeNull();
 
     expect(rows()).toHaveLength(2);
     expect(rows()[0]).toContain("Disputed");
@@ -123,26 +133,51 @@ describe("every errand in the console (ADM-06)", () => {
 
     await choose("DISPUTED");
     expect(seen.at(-1)!.searchParams.get("status")).toBe("DISPUTED");
-    expect(seen.at(-1)!.searchParams.get("page")).toBe("1");
+    expect(seen.at(-1)!.searchParams.get("before")).toBeNull();
   });
 
-  it("pages through the list", async () => {
-    serve((url) =>
-      json(200, {
-        page: Number(url.searchParams.get("page")),
-        pageSize: 20,
-        total: 25,
-        items: [errand(Number(url.searchParams.get("page")), "OPEN")],
-      }),
+  it("pages on from the last errand shown, not by position, and back", async () => {
+    serve(
+      pages([errand(1, "OPEN"), errand(2, "OPEN")], () =>
+        json(200, { page: 1, pageSize: 20, total: 1, items: [errand(3, "OPEN")] }),
+      ),
     );
     await render(<AllErrands />);
+    expect(container.textContent).toContain("Page 1 of 2");
 
-    const next = [...container.querySelectorAll("button")].find((b) => /next/i.test(b.textContent ?? ""));
-    await act(async () => (next as unknown as HTMLButtonElement).click());
-    await settle();
+    await click("Next");
+    expect(seen.at(-1)!.searchParams.get("before")).toBe(errand(2, "OPEN").orderId);
+    expect(seen.at(-1)!.searchParams.get("page")).toBeNull();
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]).toContain("Supplier 3");
+    expect(container.textContent).toContain("Page 2 of 2");
 
-    expect(seen.at(-1)!.searchParams.get("page")).toBe("2");
-    expect(rows()[0]).toContain("Supplier 2");
+    await click("Previous");
+    expect(seen.at(-1)!.searchParams.get("before")).toBeNull();
+    expect(rows()[0]).toContain("Supplier 1");
+    expect(container.textContent).toContain("Page 1 of 2");
+  });
+
+  it("steps back a page when every errand after the last one shown has left the list", async () => {
+    serve(pages([errand(1, "OPEN")], () => json(200, { page: 1, pageSize: 20, total: 0, items: [] })));
+    await render(<AllErrands />);
+    await click("Next");
+
+    expect(befores()).toEqual([null, errand(1, "OPEN").orderId, null]);
+    expect(rows()[0]).toContain("Supplier 1");
+    expect(container.textContent).not.toContain("No errands");
+  });
+
+  it("starts again from the newest when the filter changes, and Refresh keeps the page", async () => {
+    serve(pages([errand(1, "OPEN")], () => json(200, { page: 1, pageSize: 20, total: 1, items: [errand(2, "OPEN")] })));
+    await render(<AllErrands />);
+    await click("Next");
+    await click("Refresh");
+    expect(befores().slice(1)).toEqual([errand(1, "OPEN").orderId, errand(1, "OPEN").orderId]);
+
+    await choose("DISPUTED");
+    expect(seen.at(-1)!.searchParams.get("before")).toBeNull();
+    expect(seen.at(-1)!.searchParams.get("status")).toBe("DISPUTED");
   });
 
   it("says so when the Order Service does not answer, and offers to try again", async () => {
@@ -157,16 +192,16 @@ describe("every errand in the console (ADM-06)", () => {
 });
 
 describe("the overview's count of disputes waiting (ADM-06)", () => {
-  it("counts every disputed errand and links to the errands page", async () => {
-    serve(() => json(200, { page: 1, pageSize: 1, total: 3, items: [errand(1, "DISPUTED")] }));
+  it("counts the disputes the errands page lists for this administrator, and links there", async () => {
+    // Referred to this administrator, or to no one yet; one referred elsewhere is not listed.
+    serve(() => json(200, { items: [errand(1, "DISPUTED"), errand(2, "DISPUTED")] }));
     await render(<DisputesWaitingStat />);
 
-    expect(seen[0].searchParams.get("status")).toBe("DISPUTED");
-    expect(seen[0].searchParams.get("pageSize")).toBe("1");
+    expect(seen[0].pathname.endsWith("/admin/orders/referred")).toBe(true);
     const stat = container.querySelector("a") as unknown as HTMLAnchorElement;
     expect(stat.getAttribute("href")).toBe("/admin/errands");
     expect(stat.textContent).toContain("Disputes waiting");
-    expect(stat.textContent).toContain("3");
+    expect(stat.textContent).toContain("2");
   });
 
   it("shows a dash, not zero, when the Order Service does not answer", async () => {

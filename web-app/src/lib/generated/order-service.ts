@@ -298,10 +298,12 @@ export interface paths {
          * An administrator's view of errands, one account's or all of them (ORD-15, ADM-06).
          * @description The errands one account requested (`requesterId`), currently holds as courier
          *     (`courierId`), or both when both are given; every errand when neither is given (ADM-06).
-         *     `status` narrows either to one or more statuses. Newest first. Public fields only: no
-         *     participant IDs, delivery instructions or item notes, even for an errand referred to the
-         *     caller, whose private details are read through `GET /orders/{orderId}`. A courier who
-         *     withdrew or timed out no longer holds the errand. Administrators only.
+         *     `status` narrows either to one or more statuses. Newest first; `before` continues from the
+         *     last errand a page showed, and `total` counts what the whole query matches, `before`
+         *     included. Public fields only: no participant IDs, delivery instructions or item notes, even
+         *     for an errand referred to the caller, whose private details are read through
+         *     `GET /orders/{orderId}`. A courier who withdrew or timed out no longer holds the errand.
+         *     Administrators only.
          */
         get: operations["listAccountOrders"];
         put?: never;
@@ -991,7 +993,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
-        /** @description An unknown parameter or status, an empty account or status, or a page out of range. */
+        /** @description An unknown parameter or status, an empty account or status, a status list over 400 characters or repeated, a before that is not an errand ID, or a page out of range. */
         AccountQueryInvalid: {
             headers: {
                 [name: string]: unknown;
@@ -1531,9 +1533,16 @@ export interface operations {
                 courierId?: string;
                 /**
                  * @description One or more errand statuses, comma-separated, such as `DISPUTED` or `OPEN,ACCEPTED`.
-                 *     Each must be a value of `Order.status`; an unknown or empty one is refused.
+                 *     Each must be a value of `Order.status`; an unknown or empty one is refused, and so is
+                 *     a repeated `status` parameter.
                  */
                 status?: string;
+                /**
+                 * @description The `orderId` of the last errand a previous page showed: lists only the errands after
+                 *     it in this order. Unlike `page`, nothing moves when errands are posted since or leave
+                 *     the `status` filter. An errand that does not exist lists nothing.
+                 */
+                before?: string;
                 page?: number;
                 pageSize?: number;
             };

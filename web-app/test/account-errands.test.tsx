@@ -87,8 +87,8 @@ describe("an account's errands on its page (ADM-05)", () => {
 
     const asked = seen.map((r) => new URL(r.url));
     expect(asked.map((u) => `${u.pathname}?${u.searchParams.toString()}`).sort()).toEqual([
-      `/admin/orders?courierId=${ACCOUNT}&page=1&pageSize=10`,
-      `/admin/orders?requesterId=${ACCOUNT}&page=1&pageSize=10`,
+      `/admin/orders?courierId=${ACCOUNT}&pageSize=10`,
+      `/admin/orders?requesterId=${ACCOUNT}&pageSize=10`,
     ]);
     expect(seen.every((r) => r.headers.get("authorization") === "Bearer admin-token")).toBe(true);
 
@@ -125,18 +125,12 @@ describe("the lists as the account and its errands change (ADM-05 review)", () =
     expect(seen.length - before).toBe(2);
   });
 
-  it("steps back to the last page that has errands when a later page comes back empty", async () => {
-    const eleven = Array.from({ length: 10 }, (_, i) => ({ ...errand, orderId: `${ERRAND.slice(0, -2)}${String(i).padStart(2, "0")}` }));
-    let shrunk = false;
+  it("pages on from the last errand shown, and steps back when nothing is left after it", async () => {
+    const ten = Array.from({ length: 10 }, (_, i) => ({ ...errand, orderId: `${ERRAND.slice(0, -2)}${String(i).padStart(2, "0")}` }));
     serve((url) => {
       if (!url.searchParams.has("requesterId")) return page(1, 0, []);
-      const n = Number(url.searchParams.get("page"));
-      // An errand dropped out between showing page 1 and asking for page 2.
-      if (n === 2) {
-        shrunk = true;
-        return page(2, 10, []);
-      }
-      return page(1, shrunk ? 10 : 11, eleven);
+      // The eleventh errand dropped out between showing page 1 and asking for page 2.
+      return url.searchParams.has("before") ? page(1, 0, []) : page(1, 11, ten);
     });
     await render();
 
@@ -147,7 +141,11 @@ describe("the lists as the account and its errands change (ADM-05 review)", () =
     const requested = section("Errands they requested")!;
     expect(requested.textContent).not.toContain("No errands requested");
     expect(requested.textContent).toContain("Cafe+ Robot Cafe");
-    expect(asked().filter((q) => q.has("requesterId")).map((q) => q.get("page"))).toEqual(["1", "2", "1"]);
+    expect(asked().filter((q) => q.has("requesterId")).map((q) => q.get("before"))).toEqual([
+      null,
+      ten.at(-1)!.orderId,
+      null,
+    ]);
   });
 
   it("names each list's pages, so a screen reader does not hear two identical landmarks", async () => {

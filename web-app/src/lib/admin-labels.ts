@@ -8,6 +8,7 @@ import type {
   ReconciliationAttempt,
   RoleRequestStatus,
 } from "./admin-api";
+import { isFinal } from "./order-status";
 
 /** How the console names each audit action. */
 export const AUDIT_ACTIONS: Record<AuditAction, string> = {
@@ -60,10 +61,10 @@ export const ORDER_STATUSES: Record<OrderStatus, string> = {
 
 /** Every status, in lifecycle order. */
 export const ORDER_STATUS_ORDER = Object.keys(ORDER_STATUSES) as OrderStatus[];
-/** The statuses an errand never leaves. */
-export const FINISHED_STATUSES: OrderStatus[] = ["REJECTED", "COMPLETED", "CANCELLED", "EXPIRED"];
+/** The statuses an errand never leaves, in lifecycle order. */
+export const FINISHED_STATUSES = ORDER_STATUS_ORDER.filter(isFinal);
 /** Every status an errand can still move on from. */
-export const LIVE_STATUSES = ORDER_STATUS_ORDER.filter((s) => !FINISHED_STATUSES.includes(s));
+export const LIVE_STATUSES = ORDER_STATUS_ORDER.filter((s) => !isFinal(s));
 
 /** Why an errand was disputed: the action that moved it to DISPUTED (ORD-06, ORD-10). */
 const DISPUTE_CAUSES: Record<string, string> = {

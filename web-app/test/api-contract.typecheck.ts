@@ -20,10 +20,11 @@ export async function checkSupplierContract() {
   api.GET("/suppliers", { params: { query: { sort: "unknown" } } });
 }
 
-// ADM-05: one account's errands must name the account, as requester or as courier.
-export function checkAccountErrandQuery(api: import("../src/lib/admin-api").AdminApi) {
-  api.accountErrands("t", { requesterId: "u", page: 1 });
-  api.accountErrands("t", { courierId: "u" });
-  // @ts-expect-error The Order Service refuses a query that names no account (422).
-  api.accountErrands("t", { page: 1 });
+// ORD-15, ADM-06: one errand list, by account, status or both, or every errand.
+export function checkErrandQuery(api: import("../src/lib/admin-api").AdminApi) {
+  api.errands("t", { requesterId: "u", status: ["OPEN", "ACCEPTED"], pageSize: 10 });
+  api.errands("t", { courierId: "u", before: "0198a1c2-0000-7000-8000-00000000e001" });
+  api.errands("t", {});
+  // @ts-expect-error A status the Order Service does not know is refused at compile time.
+  api.errands("t", { status: ["NOPE"] });
 }

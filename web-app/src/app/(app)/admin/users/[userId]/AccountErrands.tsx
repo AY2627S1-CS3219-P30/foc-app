@@ -1,10 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { adminApi, type AccountErrandQuery } from "@/lib/admin-api";
-import { ErrandTable } from "../../_components/ErrandTable";
-import { Loaded, Pager, Section } from "../../_components/ui";
-import { useAdminData } from "../../_components/use-admin-data";
+import { PagedErrands } from "../../_components/PagedErrands";
+import { Section } from "../../_components/ui";
 
 const PAGE_SIZE = 10;
 
@@ -52,41 +49,17 @@ function ErrandList({
   emptyTitle: string;
   emptyText: string;
 }) {
-  const [page, setPage] = useState(1);
-  const account = role === "requester" ? { requesterId: userId } : { courierId: userId };
-  const query: AccountErrandQuery = { ...account, page, pageSize: PAGE_SIZE };
-  const errands = useAdminData(`account:${userId}:errands:${role}:${page}:${refreshKey}`, (t) =>
-    adminApi.accountErrands(t, query),
-  );
-
-  // Errands can drop out of a list between pages (a courier withdraws, an errand times out), so a
-  // later page can come back empty. Step back to the last page that has any, rather than show the
-  // list as empty with no way back.
-  const lastPage = errands.data ? Math.max(1, Math.ceil(errands.data.total / PAGE_SIZE)) : page;
-  if (!errands.loading && errands.data?.items.length === 0 && page > lastPage) setPage(lastPage);
-
   return (
     <Section title={title} description="Status and times from the Order Service. Open an errand to see its full trace.">
-      <Loaded
-        state={errands}
-        label="errands"
-        isEmpty={(d) => d.total === 0}
+      <PagedErrands
+        filter={role === "requester" ? { requesterId: userId } : { courierId: userId }}
+        pageSize={PAGE_SIZE}
+        refreshKey={refreshKey}
+        caption={`${title}, newest first`}
+        pagerLabel={`${title}: pages`}
         emptyTitle={emptyTitle}
         emptyText={emptyText}
-      >
-        {(d) => (
-          <>
-            <ErrandTable page={d} caption={`${title}, newest first`} />
-            <Pager
-              page={d.page}
-              pageSize={d.pageSize}
-              total={d.total}
-              onPage={setPage}
-              label={`${title}: pages`}
-            />
-          </>
-        )}
-      </Loaded>
+      />
     </Section>
   );
 }

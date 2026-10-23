@@ -175,9 +175,9 @@ export class OrdersService {
    * narrowed to some statuses. Public fields only, newest first, paged.
    */
   async listForAdmin(query: AdminOrdersQuery) {
-    const { requesterId, courierId, status, page, pageSize } = query;
+    const { requesterId, courierId, status, before, page, pageSize } = query;
     const { rows, total } = await this.orders.listForAdmin(
-      { requesterId, courierId, status },
+      { requesterId, courierId, status, before },
       page,
       pageSize,
     );

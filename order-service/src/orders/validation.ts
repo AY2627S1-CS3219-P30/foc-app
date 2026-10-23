@@ -124,20 +124,26 @@ export function parseIdempotencyKey(value: string | undefined): string {
 
 /** `status=OPEN,ACCEPTED`: one or more statuses, comma-separated, each one the API knows. */
 const statusListSchema = z
-  .string()
+  // A repeated `status` arrives as an array; say how to send several instead.
+  .string({
+    error: 'Give the statuses in one status parameter, comma-separated: status=OPEN,ACCEPTED.',
+  })
+  .max(400)
   .transform((value) => value.split(','))
   .pipe(z.array(z.enum(ORDER_STATUSES)).min(1))
   .transform((statuses) => [...new Set(statuses)]);
 
 /**
  * An administrator's errand list: one account's (ORD-15) when `requesterId` or `courierId` is
- * given, every errand otherwise (ADM-06), narrowed to `status` when given.
+ * given, every errand otherwise (ADM-06), narrowed to `status` when given. `before` names the last
+ * errand a previous page showed, and lists only those after it.
  */
 const adminOrdersSchema = z
   .object({
     requesterId: z.string().trim().min(1).max(200).optional(),
     courierId: z.string().trim().min(1).max(200).optional(),
     status: statusListSchema.optional(),
+    before: z.uuid().optional(),
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(20),
   })

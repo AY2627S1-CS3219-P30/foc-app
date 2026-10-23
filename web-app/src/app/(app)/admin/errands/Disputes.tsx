@@ -9,14 +9,14 @@ import { figure, useAdminData } from "../_components/use-admin-data";
 import styles from "../_components/admin.module.css";
 
 /**
- * ADM-06 (#279): how many errands are disputed right now, whoever they are referred to. One count
- * from the Order Service; a dash when it does not answer.
+ * ADM-06 (#279): how many disputes wait for this administrator, counted as the Disputes section it
+ * links to lists them: those referred to them and those referred to no one yet (at most 100, all
+ * that list returns). A dispute referred to another administrator is theirs, so it is not counted.
+ * A dash when the Order Service does not answer.
  */
 export function DisputesWaitingStat() {
-  const disputed = useAdminData("overview:disputed", (t) =>
-    adminApi.errands(t, { status: ["DISPUTED"], pageSize: 1 }),
-  );
-  return <Stat href="/admin/errands" label="Disputes waiting" value={figure(disputed, (d) => d.total)} />;
+  const disputes = useAdminData("overview:disputes", (t) => adminApi.referredDisputes(t));
+  return <Stat href="/admin/errands" label="Disputes waiting" value={figure(disputes, (d) => d.items.length)} />;
 }
 
 /**

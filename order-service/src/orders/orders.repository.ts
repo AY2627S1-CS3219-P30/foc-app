@@ -206,16 +206,25 @@ export class OrdersRepository {
 
   /**
    * Errands newest first: one account's, as requester, current courier or both filters at once, or
-   * every errand when neither is given; `status` narrows either to those statuses.
+   * every errand when neither is given; `status` narrows either to those statuses. `before` keeps
+   * only the errands after that one in this order, wherever it now is: a keyset, so errands posted
+   * since, or ones that leave the filter, move nothing on the next page. An unknown one lists none.
    */
   async listForAdmin(
-    filter: { requesterId?: string; courierId?: string; status?: OrderStatus[] },
+    filter: { requesterId?: string; courierId?: string; status?: OrderStatus[]; before?: string },
     page: number,
     pageSize: number,
   ): Promise<{ rows: OrderRow[]; total: number }> {
     const where = `($1::text IS NULL OR requester_id = $1) AND ($2::text IS NULL OR courier_id = $2)
-      AND ($3::text[] IS NULL OR status = ANY($3::text[]))`;
-    const params = [filter.requesterId ?? null, filter.courierId ?? null, filter.status ?? null];
+      AND ($3::text[] IS NULL OR status = ANY($3::text[]))
+      AND ($4::uuid IS NULL
+        OR (created_at, order_id) < (SELECT created_at, order_id FROM orders WHERE order_id = $4))`;
+    const params = [
+      filter.requesterId ?? null,
+      filter.courierId ?? null,
+      filter.status ?? null,
+      filter.before ?? null,
+    ];
     const [count, rows] = await Promise.all([
       this.db.query<{ total: number } & Row>(
         `SELECT count(*)::int AS total FROM orders WHERE ${where}`,
@@ -224,7 +233,7 @@ export class OrdersRepository {
       this.db.query<StoredOrder>(
         `SELECT ${ORDER_COLUMNS} FROM orders WHERE ${where}
           ORDER BY created_at DESC, order_id DESC
-          LIMIT $4 OFFSET $5`,
+          LIMIT $5 OFFSET $6`,
         [...params, pageSize, (page - 1) * pageSize],
       ),
     ]);

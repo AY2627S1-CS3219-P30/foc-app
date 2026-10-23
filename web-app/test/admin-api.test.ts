@@ -195,7 +195,7 @@ describe("one account's errands (ORD-15)", () => {
 
   it("asks the Order Service for the errands one account requested, with the admin's token", async () => {
     const { client, seen } = api(() => json(200, page));
-    expect(await client.accountErrands("t1", { requesterId: account.id, pageSize: 10 })).toEqual(
+    expect(await client.errands("t1", { requesterId: account.id, pageSize: 10 })).toEqual(
       page as never,
     );
     const url = new URL(seen[0].url);
@@ -210,7 +210,7 @@ describe("one account's errands (ORD-15)", () => {
     const { client } = api(() =>
       json(403, { error: { code: "FORBIDDEN", message: "Administrators only." } }),
     );
-    const err = await client.accountErrands("t1", { courierId: account.id }).catch((e: unknown) => e);
+    const err = await client.errands("t1", { courierId: account.id }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).status).toBe(403);
   });
@@ -232,6 +232,18 @@ describe("every errand (ADM-06)", () => {
     const { client, seen } = api(() => json(200, page));
     await client.errands("t1", { status: ["OPEN", "ACCEPTED"] });
     expect(new URL(seen[0].url).searchParams.getAll("status")).toEqual(["OPEN,ACCEPTED"]);
+  });
+
+  it("narrows one account's errands by status, and pages on from an errand", async () => {
+    const { client, seen } = api(() => json(200, page));
+    const last = "0198a1c2-0000-7000-8000-00000000e009";
+    await client.errands("t1", { courierId: account.id, status: ["ACCEPTED"], before: last, pageSize: 10 });
+    expect(Object.fromEntries(new URL(seen[0].url).searchParams)).toEqual({
+      courierId: account.id,
+      status: "ACCEPTED",
+      before: last,
+      pageSize: "10",
+    });
   });
 });
 
