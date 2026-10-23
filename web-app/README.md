@@ -346,7 +346,7 @@ refuses a student with `403` on its own.
 | Admin activity | `GET /admin/alerts`, `GET /admin/reads` |
 | Errands | Disputes: `GET /admin/orders/referred`, and `GET /admin/orders/decisions` for the latest decisions. One dispute (`/admin/errands/{orderId}`): `GET /orders/{orderId}?view=private`, which only the referred administrator is given, and `POST /admin/orders/{orderId}/resolve` with a reason (ORD-11, #271). Also `GET /admin/orders/pending-credit` and `GET /admin/orders/reconciliation-attempts` |
 | Wallets | `GET /admin/wallets/{userId}` and its ledger (Credit Service; read-only, every read recorded) |
-| Operations | Placeholder until PLT-05 (#154) |
+| Operations | Dead letters on either service: `GET /admin/dead-letters`, one with `GET /admin/dead-letters/{id}`, and `POST /admin/dead-letters/{id}/redrive` with a reason. An errand's trace: `GET /admin/orders/{orderId}/timeline` (Order Service) and `GET /admin/orders/{orderId}/credit` (Credit Service). Operator alerts: `GET /admin/orders/alerts` (PLT-05, #154) |
 
 **Controls on administrators** ([ADR 0008](../docs/adr/0008-controlling-administrators.md)). Every
 write asks for a reason first. Requesting or approving a role change, and suspending an administrator,
@@ -365,5 +365,10 @@ address: inlined at build time, with `http://localhost:3003` and `:3004` as the 
 
 ## Deployment
 
-Pushes to `main` that touch `web-app/**` deploy to Vercel via
-[`.github/workflows/deploy-web-app.yml`](../.github/workflows/deploy-web-app.yml).
+[`.github/workflows/deploy-web-app.yml`](../.github/workflows/deploy-web-app.yml) is meant to deploy the
+web app to Vercel on a push to `main` that touches `web-app/**` or the workflow itself, or when run by
+hand. It does not at present: its runs fail
+(an invalid token), and no hosted back end exists for a deployed web app to call. Whether it is fixed
+or removed, and the D4 demo's deployment mode, are decided in
+[PLT-11 #286](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/286). Until then the web app runs
+in the local stack (`docker compose up`).

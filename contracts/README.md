@@ -9,13 +9,17 @@ owner, one consumer owner, and Dev 3 or Dev 4 review; within v1, changes are add
 
 ## Files
 
-| File                            | Status                    | Owner      |
-| ------------------------------- | ------------------------- | ---------- |
-| `user-service.openapi.yaml`     | Draft 1 — awaiting review | Anselm     |
-| `supplier-service.openapi.yaml` | Draft 1 — awaiting review | Patrick    |
-| `credit-service.openapi.yaml`   | Implemented               | Isaac      |
-| `order-service.openapi.yaml`    | Implemented (ORD-01 read) | Zhang Yuan |
-| `events.schema.json`            | Generated from catalogue  | —          |
+| File                            | Status                   | Owner      |
+| ------------------------------- | ------------------------ | ---------- |
+| `user-service.openapi.yaml`     | Implemented              | Anselm     |
+| `supplier-service.openapi.yaml` | Implemented              | Patrick    |
+| `credit-service.openapi.yaml`   | Implemented              | Isaac      |
+| `order-service.openapi.yaml`    | Implemented              | Zhang Yuan |
+| `events.schema.json`            | Generated from catalogue | —          |
+
+Implemented means the service answers as its file says: each has a provider test
+(`<service>/test/provider.contract.test.ts`), and CI fails a change that breaks a contract against
+the branch's merge base (locally: `npm run test:contract`, against `origin/main`).
 
 `events.schema.json` is generated from `platform/src/events/catalogue.ts` by `npm run
 contracts:events`; do not edit it by hand. CI fails a pull request that changes any file here
@@ -96,15 +100,26 @@ Each balance is `{ available, reserved, total }`, with non-negative whole number
 `order-service`; deployments must pair that check with producer-specific RabbitMQ credentials/ACLs,
 as described in ADR 0004.
 
-## Open questions for Jonus / Patrick
+## Questions settled during the build
 
-0. The platform's `ErrorEnvelopeFilter` derives `code` from the HTTP status only. This spec uses domain codes (`EMAIL_ALREADY_REGISTERED`, `LAST_ADMIN`, …) and structured `details`. USR-01 extends the filter additively so an exception can carry its own `code` and `details`; status-derived codes remain the fallback. Affects every service, so Jonus reviews.
-1. Is `preferredMode` on the profile acceptable for the requester↔courier switch, or should the toggle be client-only?
-2. Access token in memory + refresh in an `HttpOnly` cookie: does the gateway (or `web-app` dev proxy) keep API and web on the same site so `SameSite=Strict` works?
-3. JWT signing: which algorithm and where does the verification key come from for other services (shared secret vs. JWKS endpoint)? Proposed: EdDSA with a JWKS at `GET /.well-known/jwks.json` — not yet in the spec.
-4. Framework and runtime (PLT-01) decide the OpenAPI → types generator. The spec is generator-neutral. The web app
-   uses `openapi-typescript` + `openapi-fetch` (`web-app/scripts/generate.ts`); its tests fail if the generated
-   types fall behind a contract.
-5. `GET /suppliers` is specified with SUP-02's search, filters and `{ items, page, pageSize, total }` page. SUP-01
-   still returns a bare array, so the listing page (SUP-03) needs SUP-02 merged before it runs against the real
-   service.
+Asked of Jonus and Patrick while the first drafts were written; each is now answered in the code.
+
+0. **Domain error codes.** Settled: an `ApiException` carries its own `code` and `details`, and the
+   status-derived code is only the fallback (`platform/src/errors.ts`;
+   [ADR 0005](../docs/adr/0005-error-contract.md)).
+1. **`preferredMode` on the profile.** Settled: it stays on the profile, and the web app's requester
+   and courier switch sets it.
+2. **The same site for a `SameSite=Strict` refresh cookie.** Settled for the local stack: the web app
+   and the APIs are all on `localhost`, which is one site whatever the port. It would not hold for a
+   web app on its own domain (a `*.vercel.app` one, say); the edge proxy
+   ([PLT-10 #285](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/285)) puts everything on one
+   origin.
+3. **JWT signing and key distribution.** Settled: EdDSA (Ed25519), with the public keys at
+   `GET /.well-known/jwks.json`, now in the spec
+   ([ADR 0004](../docs/adr/0004-authentication-and-trust.md)). How services cache the keys and pick
+   up a new one is in [auth-client: Key rotation](../auth-client/README.md#key-rotation).
+4. **The OpenAPI to types generator.** Settled: `openapi-typescript` and `openapi-fetch`
+   (`web-app/scripts/generate.ts`); the web app's tests fail if the generated types fall behind a
+   contract.
+5. **`GET /suppliers` as a page.** Settled: SUP-02 merged, and the listing answers
+   `{ items, page, pageSize, total }`.
