@@ -1,5 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { createRateLimiters, DEFAULT_AUTH_LIMITS } from '../src/auth/rate-limiter.js';
+import {
+  authRateLimits,
+  createRateLimiters,
+  DEFAULT_AUTH_LIMITS,
+} from '../src/auth/rate-limiter.js';
 
 /** How many times a key may act in one window before it is refused. */
 const allowed = (limiter: { hit: (key: string) => { allowed: boolean } }) => {
@@ -29,5 +34,31 @@ describe('sign-in and sign-up limits (US-NFR2)', () => {
     expect(allowed(limiters.registerPerIp)).toBe(150);
     // Password re-entry is not a sign-in: configuration never loosens it.
     expect(allowed(limiters.stepUpPerUser)).toBe(10);
+  });
+
+  const raised = { loginPerIp: 1_000_000, loginPerEmail: 10, registerPerIp: 20 };
+
+  it('lets a stack off production raise them, as the load test’s does', () => {
+    expect(authRateLimits(raised, false)).toEqual(raised);
+  });
+
+  it('refuses to start in production with one raised above the policy', () => {
+    expect(() => authRateLimits(raised, true)).toThrow(/LOGIN_LIMIT_PER_IP is 1000000.*at most 50/);
+  });
+
+  it('lets production tighten them', () => {
+    const tighter = { loginPerIp: 20, loginPerEmail: 5, registerPerIp: 10 };
+    expect(authRateLimits(tighter, true)).toEqual(tighter);
+  });
+
+  it('documents the policy in .env.example as the code has it', () => {
+    const example = readFileSync(new URL('../../.env.example', import.meta.url), 'utf8');
+    const documented = (name: string) =>
+      Number(example.match(new RegExp(`^# ${name}=(\\d+)$`, 'm'))?.[1]);
+    expect({
+      loginPerIp: documented('LOGIN_LIMIT_PER_IP'),
+      loginPerEmail: documented('LOGIN_LIMIT_PER_EMAIL'),
+      registerPerIp: documented('REGISTER_LIMIT_PER_IP'),
+    }).toEqual(DEFAULT_AUTH_LIMITS);
   });
 });

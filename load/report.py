@@ -3,8 +3,9 @@
     python3 load/report.py OUT_DIR REPORT_PATH
 
 OUT_DIR holds k6's user.json, supplier.json and credit.json (see load/lib.js). The rest comes
-from the environment: STUDENTS, SUPPLIERS, WALLETS, USER_READY, SESSION, CREDIT_READY, WALLET,
-STABLE and OTHER_CONTAINERS (how many containers outside the load stack were running). Prints how many targets were missed.
+from the environment: STUDENTS, SUPPLIERS, WALLETS (what the harness counted after seeding),
+USER_READY, SESSION, CREDIT_READY, WALLET, STABLE and OTHER_CONTAINERS (how many containers outside
+the load stack were running). Writes the report, then exits 3 if it says any target was missed.
 """
 
 import json
@@ -38,6 +39,16 @@ def verdict(ok):
     return "Met" if ok else "**Missed**"
 
 
+def commit():
+    """The commit measured, `-dirty` when a tracked file differs from it. Changes to docs, Markdown
+    and .gitignore are left out, as they cannot change a figure."""
+    head = run("git", "rev-parse", "--short", "HEAD")
+    changed = subprocess.run(
+        ["git", "diff", "--quiet", "HEAD", "--", ".", ":(exclude)docs", ":(exclude)*.md", ":(exclude).gitignore"]
+    ).returncode
+    return head if changed == 0 else f"{head}-dirty"
+
+
 rows, missed = [], 0
 for result in runs.values():
     for e in result["endpoints"]:
@@ -59,12 +70,6 @@ missed += (not user_ok) + (not credit_ok) + (not ordering_ok)
 
 cpus, memory = (run("docker", "info", "--format", "{{.NCPU}} {{.MemTotal}}").split() + ["?", "0"])[:2]
 machine = f"{platform.system()} {platform.machine()}; Docker with {cpus} CPUs and {int(memory) / 2**30:.1f} GiB"
-unrecorded = any(e.get("p99") is None for result in runs.values() for e in result["endpoints"])
-note = (
-    "\n\np99 reads n/a where k6 did not keep it: before the harness asked for it, it kept only up to p95."
-    if unrecorded
-    else ""
-)
 count = lambda name: f"{int(env[name]):,}"
 others = int(env.get("OTHER_CONTAINERS", "0"))
 alone = "nothing else ran beside them" if others == 0 else f"{others} other containers were running too"
@@ -74,7 +79,7 @@ date = os.path.basename(report)[len("load-") : -len(".md")]
 text = f"""# Load and latency, {date}
 
 Measured by `./scripts-load.sh` (TST-03, [#166](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/166))
-on a stack of its own, from commit `{run("git", "rev-parse", "--short", "HEAD")}`.
+on a stack of its own, from commit `{commit()}`.
 
 - **Load:** {first["vus"]} concurrent virtual users (k6) in each scenario, for {first["seconds"]} s, each
   pausing {first["thinkS"]} s between requests, as a person does.
@@ -86,7 +91,7 @@ on a stack of its own, from commit `{run("git", "rev-parse", "--short", "HEAD")}
 
 | Requirement | Endpoint | Target (p95) | p95 | p99 | Requests | Failed | Result |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-{chr(10).join(rows)}{note}
+{chr(10).join(rows)}
 
 ## Restarts and ordering
 
@@ -104,3 +109,4 @@ the share of credit steps recorded within five seconds (CS-NFR3.1.1) are ORD-12,
 with open(report, "w") as file:
     file.write(text)
 print(f"Wrote {report}: {missed} target(s) missed.")
+sys.exit(3 if missed else 0)

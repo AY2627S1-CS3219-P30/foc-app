@@ -1,7 +1,9 @@
-import { readFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import yaml from 'js-yaml';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 /**
  * TST-03 (#166) — the load test measures what D1 promised. Its figures are only comparable with the
@@ -55,5 +57,120 @@ describe('the load test (TST-03)', () => {
     ]);
     // The demo stack keeps the policy: compose.yaml never sets them.
     expect(read('compose.yaml')).not.toMatch(/LOGIN_LIMIT|REGISTER_LIMIT/);
+  });
+
+  it('meets a target at the target itself: D1 says "at most"', () => {
+    const lib = read('load/lib.js');
+    expect(lib).toContain('`p(95)<=${p95}`');
+    expect(lib).toContain('p95 <= target');
+    expect(lib).not.toMatch(/p\(95\)<\$|p95 < target/);
+  });
+
+  it('runs k6 as this machine’s user, so it can write its summary into the directory it is given', () => {
+    expect(read('scripts-load.sh')).toMatch(/docker run --rm --user "\$\(id -u\):\$\(id -g\)"/);
+  });
+});
+
+/**
+ * load/report.py, on k6 summaries made up here, in a Git repository of its own: what it writes,
+ * whether it says the run missed a target (exit 3), and the commit it says it measured.
+ */
+describe('the load report', () => {
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+  const temp = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'foc-load-report-'));
+    dirs.push(dir);
+    return dir;
+  };
+
+  const ENDPOINTS = {
+    user: { login: 500, profile: 300 },
+    supplier: { list: 400, search: 400, lookup: 200 },
+    credit: { wallet: 300 },
+  };
+  const MET = {
+    STUDENTS: '100',
+    SUPPLIERS: '1000',
+    WALLETS: '10000',
+    USER_READY: '1.8',
+    SESSION: '200',
+    CREDIT_READY: '1.6',
+    WALLET: '200',
+    STABLE: 'yes',
+    OTHER_CONTAINERS: '0',
+  };
+
+  /** A repository with one commit, and the k6 summaries, each endpoint at `p95` of its target. */
+  function measured(missed: string[] = []) {
+    const repo = temp();
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'pipe' });
+    git('init', '-q');
+    writeFileSync(join(repo, 'harness.sh'), 'echo measure\n');
+    writeFileSync(join(repo, '.gitignore'), 'node_modules/\n');
+    git('add', '.');
+    git('-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-qm', 'harness');
+    const out = temp();
+    for (const [name, targets] of Object.entries(ENDPOINTS)) {
+      const endpoints = Object.entries(targets).map(([endpoint, target]) => ({
+        endpoint,
+        target,
+        p95: target,
+        p99: target + 1,
+        requests: 100,
+        failedRate: 0,
+        ok: !missed.includes(endpoint),
+      }));
+      const summary = { name, vus: 100, seconds: 60, thinkS: 1, endpoints };
+      writeFileSync(join(out, `${name}.json`), JSON.stringify(summary));
+    }
+    const head = git('rev-parse', '--short', 'HEAD').toString().trim();
+    return { repo, out, head };
+  }
+
+  function write(run: ReturnType<typeof measured>, env: Record<string, string> = {}) {
+    const path = join(temp(), 'load-2026-10-23.md');
+    const result = spawnSync('python3', [join(ROOT, 'load/report.py'), run.out, path], {
+      cwd: run.repo,
+      encoding: 'utf8',
+      env: { ...process.env, ...MET, ...env },
+    });
+    let text = '';
+    try {
+      text = readFileSync(path, 'utf8');
+    } catch {
+      // Not written: the test says so through `status`.
+    }
+    return { status: result.status, text, output: result.stdout + result.stderr };
+  }
+
+  it('exits 0 when every target is met', () => {
+    const { status, text } = write(measured());
+    expect(status).toBe(0);
+    expect(text).not.toContain('**Missed**');
+  });
+
+  it('exits 3 when a response time is missed, after writing the report', () => {
+    const { status, text } = write(measured(['login']));
+    expect(status).toBe(3);
+    expect(text).toMatch(/`login` .* \*\*Missed\*\* \|/);
+  });
+
+  it('exits 3 when a restart takes longer than 60 s', () => {
+    const { status, text } = write(measured(), { USER_READY: '75.2' });
+    expect(status).toBe(3);
+    expect(text).toContain('75.2 s');
+  });
+
+  it('names the commit measured, and marks it dirty when the measured files had changes', () => {
+    const run = measured();
+    expect(write(run).text).toContain(`from commit \`${run.head}\``);
+    // A local .gitignore line cannot change a figure, so it does not count.
+    writeFileSync(join(run.repo, '.gitignore'), 'node_modules/\n.agents/\n');
+    expect(write(run).text).toContain(`from commit \`${run.head}\``);
+    writeFileSync(join(run.repo, 'harness.sh'), 'echo measure faster\n');
+    expect(write(run).text).toContain(`from commit \`${run.head}-dirty\``);
   });
 });

@@ -65,7 +65,8 @@ export const authed = (token, endpoint) => ({
 export function thresholds(targets) {
   const out = {};
   for (const [endpoint, p95] of Object.entries(targets)) {
-    out[`http_req_duration{endpoint:${endpoint}}`] = [`p(95)<${p95}`];
+    // D1's targets are "at most": a p95 of exactly the target meets it.
+    out[`http_req_duration{endpoint:${endpoint}}`] = [`p(95)<=${p95}`];
     out[`http_req_failed{endpoint:${endpoint}}`] = ['rate<0.01'];
     out[`http_reqs{endpoint:${endpoint}}`] = ['count>0'];
   }
@@ -86,7 +87,7 @@ export function summarise(name, targets, data) {
       p99: value(duration, 'p(99)'),
       requests: value(`http_reqs{endpoint:${endpoint}}`, 'count') ?? 0,
       failedRate: failed,
-      ok: p95 !== undefined && p95 < target && failed < 0.01,
+      ok: p95 !== undefined && p95 <= target && failed < 0.01,
     };
   });
   const lines = endpoints.map(

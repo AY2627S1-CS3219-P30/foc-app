@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { loadEnv } from '@foc/platform';
+import { DEFAULT_AUTH_LIMITS } from './auth/rate-limiter.js';
 
 const csv = (value: string): string[] =>
   value
@@ -54,11 +55,12 @@ export const env = loadEnv({
   ADMIN_READS_ALERT_PER_HOUR: z.coerce.number().int().min(1).default(50),
   /**
    * Sign-ins per 15 minutes from one address and for one account, and sign-ups per hour from one
-   * address (US-NFR2). The defaults are the policy; only the load test's override raises them.
+   * address (US-NFR2). The defaults are the policy (`DEFAULT_AUTH_LIMITS`). Off production they may
+   * be raised, as the load test's stack does; production refuses a raised one (`authRateLimits`).
    */
-  LOGIN_LIMIT_PER_IP: z.coerce.number().int().min(1).default(50),
-  LOGIN_LIMIT_PER_EMAIL: z.coerce.number().int().min(1).default(10),
-  REGISTER_LIMIT_PER_IP: z.coerce.number().int().min(1).default(20),
+  LOGIN_LIMIT_PER_IP: z.coerce.number().int().min(1).default(DEFAULT_AUTH_LIMITS.loginPerIp),
+  LOGIN_LIMIT_PER_EMAIL: z.coerce.number().int().min(1).default(DEFAULT_AUTH_LIMITS.loginPerEmail),
+  REGISTER_LIMIT_PER_IP: z.coerce.number().int().min(1).default(DEFAULT_AUTH_LIMITS.registerPerIp),
 });
 
 export const SERVICE_NAME = 'user-service';

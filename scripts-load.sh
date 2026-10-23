@@ -10,6 +10,8 @@
 #
 #   ./scripts-load.sh            measure, and write docs/reports/load-<date>.md
 #   ./scripts-load.sh --quick    10 users for 10 s: checks the harness works; writes no report
+#
+# Either exits 1 when a check fails; the full run also when the report says a target was missed.
 #   ./scripts-load.sh --keep     leave the stack up afterwards (tear it down with the command printed)
 #
 # It runs on a Compose project of its own ('foc-load') on ports of its own (13000-13005 and so
@@ -90,14 +92,18 @@ SIGNUP_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')
 export SIGNUP_PASSWORD
 for n in $(seq 1 "$STUDENTS"); do
   signup "load-$n"
-  if [[ $n -eq 1 ]]; then TEMPLATE="$STUDENT_ID" FIRST_TOKEN="$STUDENT_TOKEN"; fi
+  if [[ $n -eq 1 ]]; then TEMPLATE="$STUDENT_ID"; fi
 done
-pass "$STUDENTS students registered, activated and given their wallets"
 
 # The rest of the data, as copies of what the services made: a seeded supplier (cycling through
 # all of them), and the first student's wallet with its issue transaction and ledger lines. Same
-# shape, so every constraint and the double-entry ledger still hold.
+# shape, so every constraint and the double-entry ledger still hold. `sql` prints nothing when a
+# query fails, so each count is checked before the SQL uses it.
 have=$(sql foc_supplier "SELECT count(*) FROM suppliers WHERE active")
+if ! [[ "$have" =~ ^[1-9][0-9]*$ ]]; then
+  fail "no active supplier to copy (counted '${have}'): the Supplier Service's seed did not load"
+  exit 1
+fi
 psql_run foc_supplier <<SQL
 INSERT INTO suppliers (supplier_id, name, type, building, floor, location_description,
                        opening_hours, latitude, longitude, image_url, tags)
@@ -108,9 +114,12 @@ SELECT gen_random_uuid(), left(s.name, 180) || ' ' || g, s.type, s.building, s.f
     SELECT * FROM suppliers WHERE active ORDER BY supplier_id OFFSET (g % $have) LIMIT 1
   ) AS s;
 SQL
-pass "$(sql foc_supplier "SELECT count(*) FROM suppliers WHERE active") active suppliers"
 
 have=$(sql foc_credit "SELECT count(*) FROM wallets")
+if ! [[ "$have" =~ ^[0-9]+$ ]]; then
+  fail "could not count the wallets (got '${have}')"
+  exit 1
+fi
 psql_run foc_credit <<SQL
 BEGIN;
 CREATE TEMP TABLE load_wallets AS
@@ -132,14 +141,32 @@ INSERT INTO ledger_entries (entry_id, transaction_id, entry_no, wallet_user_id, 
    WHERE t.wallet_user_id = '$TEMPLATE' AND t.transaction_type = 'ISSUE';
 COMMIT;
 SQL
-pass "$(sql foc_credit "SELECT count(*) FROM wallets") wallets"
+
+# What was made, counted, rather than what was asked for: these go in the report.
+seeded() { # what count target
+  if [[ "$2" =~ ^[0-9]+$ ]] && ((10#$2 >= $3)); then
+    pass "$2 $1"
+  else
+    fail "$1: ${2:-none counted}, below the $3 wanted"
+  fi
+}
+SEEDED_STUDENTS=$(sql foc_user "SELECT count(*) FROM users WHERE status = 'ACTIVE' AND email LIKE 'demo-load-%-${RUN}@%'")
+seeded "students who can sign in" "$SEEDED_STUDENTS" "$STUDENTS"
+SEEDED_SUPPLIERS=$(sql foc_supplier "SELECT count(*) FROM suppliers WHERE active")
+seeded "active suppliers" "$SEEDED_SUPPLIERS" "$SUPPLIERS"
+# A wallet copied without its issue transaction would break the ledger, so count only whole ones.
+SEEDED_WALLETS=$(sql foc_credit "SELECT count(*) FROM wallets w WHERE EXISTS (
+  SELECT 1 FROM credit_transactions t WHERE t.wallet_user_id = w.user_id AND t.transaction_type = 'ISSUE')")
+seeded "wallets, each with its issue transaction" "$SEEDED_WALLETS" "$WALLETS"
 
 # ---- measure --------------------------------------------------------------------------------
 OUT=$(mktemp -d)
 # Anything else on this machine competes with the stack for its CPUs, so the report says what.
 OTHER_CONTAINERS=$(docker ps --format '{{.Names}}' | grep -vc '^foc-load-' || true)
+# As this machine's user: on Docker Engine a bind mount keeps the host's owner, and k6's own user
+# could not write its summary into the directory mktemp made.
 k6() { # script
-  docker run --rm --add-host=host.docker.internal:host-gateway \
+  docker run --rm --user "$(id -u):$(id -g)" --add-host=host.docker.internal:host-gateway \
     -v "$PWD/load:/load:ro" -v "$OUT:/out" \
     -e USER_URL="http://host.docker.internal:${USER_SERVICE_PORT}" \
     -e SUPPLIER_URL="http://host.docker.internal:${SUPPLIER_SERVICE_PORT}" \
@@ -150,13 +177,23 @@ k6() { # script
 }
 for script in user supplier credit; do
   step "Measuring: $script" "$VUS virtual users for $DURATION_S s per scenario, ${THINK_S} s between requests."
-  # k6 exits 99 when a threshold is missed. That is a result to report, not a failure to stop on.
+  # k6 exits 99 when a threshold is missed: a result for the report, which then fails the run,
+  # not a reason to stop measuring.
   status=0
   k6 "$script" || status=$?
   if [[ $status -ne 0 && $status -ne 99 ]]; then
     fail "k6 did not run $script.js (exit $status)"
   fi
 done
+
+# Student 1 signs in again: a token from seeding is too old by now (they live 15 minutes), and
+# the restart checks below need one from before the restart.
+FIRST_TOKEN=$(curl -fsS -X POST "http://localhost:${USER_PORT}/auth/login" -H 'content-type: application/json' \
+  -H "Origin: http://localhost:${WEB_PORT}" \
+  -d "{\"email\":\"demo-load-1-$RUN@$EMAIL_DOMAIN\",\"password\":\"$SIGNUP_PASSWORD\"}" 2>/dev/null | json 'd["accessToken"]') || true
+if [[ -z "$FIRST_TOKEN" ]]; then
+  fail "student 1 could not sign in again for the ordering and restart checks"
+fi
 
 # SS-NFR2.1.2: the same query, twice, on unchanged data.
 ids() { curl -fsS "http://localhost:${SUPPLIER_PORT}/suppliers?$1" -H "Authorization: Bearer $FIRST_TOKEN" | json '",".join(i["supplierId"] for i in d["items"])'; }
@@ -188,14 +225,24 @@ echo "  user-service ready after ${USER_READY} s (a session from before: $SESSIO
 # ---- report ---------------------------------------------------------------------------------
 if [[ $QUICK -eq 1 ]]; then
   echo
-  echo "Quick run: the harness works. Figures from 10 users are not the D1 targets; no report written."
-  exit 0
+  if [[ $FAILURES -eq 0 ]]; then
+    echo "Quick run: the harness works. Figures from 10 users are not the D1 targets; no report written."
+    exit 0
+  fi
+  echo "Quick run: $FAILURES check(s) failed; see above. No report written."
+  exit 1
 fi
 REPORT="docs/reports/load-$(date +%F).md"
-STUDENTS="$STUDENTS" SUPPLIERS="$SUPPLIERS" WALLETS="$WALLETS" USER_READY="$USER_READY" SESSION="$SESSION" \
-  CREDIT_READY="$CREDIT_READY" WALLET="$WALLET" STABLE="$stable" OTHER_CONTAINERS="$OTHER_CONTAINERS" \
-  python3 load/report.py "$OUT" "$REPORT"
-pass "report written to $REPORT (k6's own results are in $OUT)"
+# report.py exits 3 when the report says a target was missed.
+missed=0
+STUDENTS="$SEEDED_STUDENTS" SUPPLIERS="$SEEDED_SUPPLIERS" WALLETS="$SEEDED_WALLETS" USER_READY="$USER_READY" \
+  SESSION="$SESSION" CREDIT_READY="$CREDIT_READY" WALLET="$WALLET" STABLE="$stable" \
+  OTHER_CONTAINERS="$OTHER_CONTAINERS" python3 load/report.py "$OUT" "$REPORT" || missed=$?
+case $missed in
+  0) pass "report written to $REPORT: every target met (k6's own results are in $OUT)" ;;
+  3) fail "report written to $REPORT: a target was missed, as it says (k6's own results are in $OUT)" ;;
+  *) fail "the report could not be written (exit $missed)" ;;
+esac
 echo
 if [[ $FAILURES -eq 0 ]]; then
   echo "Done. Read $REPORT."
