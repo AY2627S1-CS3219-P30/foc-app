@@ -50,6 +50,13 @@
       "when": 1791458054351,
       "tag": "0006_admin_activity_alerts_append_only",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792727102211,
+      "tag": "0007_event_retention_indexes",
+      "breakpoints": true
     }
   ]
 }

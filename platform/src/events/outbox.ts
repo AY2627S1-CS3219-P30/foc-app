@@ -15,7 +15,6 @@ import { PAYLOAD_SCHEMAS } from './catalogue.js';
 import { UnroutableEventError } from './envelope.js';
 import { EVENT_PUBLISHER } from './events.module.js';
 import type { EventPublisher } from './publisher.js';
-import { DEFAULT_EVENT_RETENTION, pruneEventTables, type EventRetention } from './retention.js';
 
 /**
  * The transactional outbox (EVT-02).
@@ -204,10 +203,6 @@ export interface OutboxRelayOptions {
   publishTimeoutMs?: number;
   /** How often the stats line is logged. Default 60 s. */
   statsIntervalMs?: number;
-  /** PLT-12: how long the event tables keep their rows. Default {@link DEFAULT_EVENT_RETENTION}. */
-  retention?: EventRetention;
-  /** How often they are pruned: on the first tick, then at this interval. Default 1 h. */
-  pruneIntervalMs?: number;
   logger?: Pick<LoggerService, 'log' | 'warn' | 'error'>;
   /** Exports throughput and backlog as Prometheus metrics (PLT-04). */
   metrics?: Metrics;
@@ -253,13 +248,10 @@ export class OutboxRelay implements OnApplicationBootstrap, BeforeApplicationShu
   private readonly maxBackoffMs: number;
   private readonly publishTimeoutMs: number;
   private readonly statsIntervalMs: number;
-  private readonly retention: EventRetention;
-  private readonly pruneIntervalMs: number;
   private readonly metrics?: Metrics;
 
   private readonly counters: OutboxRelayStats = { published: 0, failed: 0 };
   private lastStatsAt = 0;
-  private lastPruneAt = 0;
   private running = false;
   private stopping = false;
   private timer?: NodeJS.Timeout;
@@ -275,8 +267,6 @@ export class OutboxRelay implements OnApplicationBootstrap, BeforeApplicationShu
     this.maxBackoffMs = options.maxBackoffMs ?? 60_000;
     this.publishTimeoutMs = options.publishTimeoutMs ?? 10_000;
     this.statsIntervalMs = options.statsIntervalMs ?? 60_000;
-    this.retention = options.retention ?? DEFAULT_EVENT_RETENTION;
-    this.pruneIntervalMs = options.pruneIntervalMs ?? 60 * 60_000;
     this.metrics = options.metrics;
     if (this.metrics) {
       // Sampled when Prometheus scrapes, so the dashboard sees the backlog as it is now
@@ -348,31 +338,7 @@ export class OutboxRelay implements OnApplicationBootstrap, BeforeApplicationShu
       if (Date.now() - this.lastStatsAt >= this.statsIntervalMs) await this.logStats();
       if (halted || published === 0) break;
     }
-    if (!this.stopping && Date.now() - this.lastPruneAt >= this.pruneIntervalMs) await this.prune();
     return total;
-  }
-
-  /**
-   * PLT-12: deletes published outbox rows and inbox rows past their retention
-   * ({@link pruneEventTables}). A failure is logged and tried again at the next
-   * interval; it never stops the relay publishing.
-   */
-  async prune(): Promise<void> {
-    this.lastPruneAt = Date.now();
-    try {
-      const pruned = await pruneEventTables(this.db, this.retention);
-      this.metrics?.eventRowsPruned.inc({ table: 'outbox_events' }, pruned.outbox);
-      this.metrics?.eventRowsPruned.inc({ table: 'processed_events' }, pruned.inbox);
-      if (pruned.outbox > 0 || pruned.inbox > 0) {
-        this.logger.log({ ...pruned, msg: 'event tables pruned' });
-      }
-    } catch (err) {
-      this.logger.warn({
-        reason: errorMessage(err).slice(0, 500),
-        retryInMs: this.pruneIntervalMs,
-        msg: 'pruning the event tables failed; will retry',
-      });
-    }
   }
 
   /** Samples the backlog, logs the stats line, and returns what it logged. */

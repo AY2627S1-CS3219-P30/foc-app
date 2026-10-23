@@ -6,7 +6,12 @@ import { DEAD_LETTERS_TABLE_SQL } from './dead-letters.js';
 import { createEnvelope } from './envelope.js';
 import { INBOX_TABLE_SQL, withInbox } from './inbox.js';
 import { OUTBOX_TABLE_SQL } from './outbox.js';
-import { DEFAULT_EVENT_RETENTION, pruneEventTables } from './retention.js';
+import {
+  DEFAULT_EVENT_RETENTION,
+  INBOX_RETENTION_INDEX_SQL,
+  OUTBOX_RETENTION_INDEX_SQL,
+  pruneEventTables,
+} from './retention.js';
 
 /** The real table SQL on PGlite (PostgreSQL compiled to WASM), with the tables asked for. */
 async function eventDb(tables: string[]): Promise<Db> {
@@ -117,8 +122,112 @@ describe('pruning the event tables (PLT-12)', () => {
       await inboxRow(40);
     }
 
-    expect(await pruneEventTables(db, DEFAULT_EVENT_RETENTION, 2)).toEqual({ outbox: 5, inbox: 5 });
+    expect(await pruneEventTables(db, DEFAULT_EVENT_RETENTION, { batchSize: 2 })).toEqual({
+      outbox: 5,
+      inbox: 5,
+    });
     expect(await ids('outbox_events', 'id')).toEqual([]);
+  });
+
+  it('takes a fractional number of days, as a short-lived stack might', async () => {
+    db = await eventDb([OUTBOX_TABLE_SQL, INBOX_TABLE_SQL]);
+    await outboxRow(2, 1);
+    await inboxRow(1);
+
+    expect(await pruneEventTables(db, { outboxDays: 0.5, inboxDays: 0.5 })).toEqual({
+      outbox: 1,
+      inbox: 1,
+    });
+  });
+
+  it('stops between batches when asked, as a service shutting down does', async () => {
+    db = await eventDb([OUTBOX_TABLE_SQL, INBOX_TABLE_SQL]);
+    for (let i = 0; i < 3; i++) await outboxRow(40, 35);
+    let batches = 0;
+
+    const pruned = await pruneEventTables(db, DEFAULT_EVENT_RETENTION, {
+      batchSize: 1,
+      shouldStop: () => batches > 0,
+      onDeleted: () => batches++,
+    });
+
+    expect(pruned).toEqual({ outbox: 1, inbox: 0 });
+    expect(await ids('outbox_events', 'id')).toHaveLength(2);
+  });
+
+  it('reports each batch as it goes, so what went is counted when a later statement fails', async () => {
+    const real = await eventDb([OUTBOX_TABLE_SQL, INBOX_TABLE_SQL]);
+    db = real;
+    await outboxRow(40, 35);
+    await inboxRow(40);
+    const failing: Db = {
+      ...real,
+      query: async (sql, params) => {
+        if (sql.includes('DELETE FROM processed_events')) throw new Error('inbox broke');
+        return real.query(sql, params);
+      },
+    };
+    const deleted: Array<[string, number]> = [];
+
+    await expect(
+      pruneEventTables(failing, DEFAULT_EVENT_RETENTION, {
+        onDeleted: (table, rows) => deleted.push([table, rows]),
+      }),
+    ).rejects.toThrow('inbox broke');
+    expect(deleted).toEqual([['outbox_events', 1]]);
+  });
+
+  it('keeps deleting after a short batch, until one deletes nothing', async () => {
+    // A second instance pruning at once (a rolling deploy) holds some rows, so a batch can come
+    // back short with rows past retention still left. Both selects skip what another has locked.
+    const answers = [2, 1, 2, 0];
+    const deletes: string[] = [];
+    const fake: Db = {
+      query: async <T extends Row = Row>(sql: string) => {
+        if (sql.includes('to_regclass')) return { rows: [{ name: 'present' }] as unknown as T[] };
+        deletes.push(sql);
+        const n = sql.includes('outbox_events') ? answers.shift()! : 0;
+        return { rows: [{ n }] as unknown as T[] };
+      },
+      exec: async () => {},
+      transaction: async () => {
+        throw new Error('not used');
+      },
+      close: async () => {},
+    };
+
+    const pruned = await pruneEventTables(fake, DEFAULT_EVENT_RETENTION, { batchSize: 2 });
+
+    expect(pruned.outbox).toBe(5);
+    expect(deletes.filter((sql) => sql.includes('processed_events'))[0]).toContain(
+      'FOR UPDATE SKIP LOCKED',
+    );
+  });
+
+  it('finds what to prune through an index, not by reading every row', async () => {
+    db = await eventDb([
+      OUTBOX_TABLE_SQL,
+      INBOX_TABLE_SQL,
+      OUTBOX_RETENTION_INDEX_SQL,
+      INBOX_RETENTION_INDEX_SQL,
+    ]);
+    const plan = async (sql: string) =>
+      db!.transaction(async (tx) => {
+        // On tables this small the planner prefers a scan; take that choice away.
+        await tx.exec('SET LOCAL enable_seqscan = off');
+        const { rows } = await tx.query<{ 'QUERY PLAN': string } & Row>(`EXPLAIN ${sql}`);
+        return rows.map((row) => row['QUERY PLAN']).join('\n');
+      });
+
+    expect(
+      await plan(`SELECT id FROM outbox_events
+                   WHERE published_at IS NOT NULL AND published_at < now() - 30 * interval '1 day'
+                   LIMIT 1000`),
+    ).toContain('outbox_events_published_idx');
+    expect(
+      await plan(`SELECT consumer, event_id FROM processed_events
+                   WHERE processed_at < now() - 30 * interval '1 day' LIMIT 1000`),
+    ).toContain('processed_events_processed_idx');
   });
 
   it('takes its windows from the caller', async () => {

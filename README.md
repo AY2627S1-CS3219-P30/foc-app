@@ -813,16 +813,21 @@ set -a; . ./.env; set +a   # the stack's addresses and logins, from your .env
 TEST_POSTGRES_URL=$HOST_POSTGRES_URL npm test -w @foc/platform
 ```
 
-**Pruning** (PLT-12, [#287](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/287)). The relay
-also keeps both tables from growing for ever: on its first poll and then hourly, it deletes, in
-batches of 1,000, published outbox rows more than 30 days old and inbox rows more than 30 days old
-(`pruneEventTables` in [`retention.ts`](platform/src/events/retention.ts)). It never deletes an
-unpublished row, however old, nor an inbox row whose event still waits as a dead letter, which an
-operator may redrive at any time. Thirty days is far longer than any copy of an event can take to
-arrive; it is also how far back the admin console's errand trace sees an errand's events. A failed
-prune is logged (`pruning the event tables failed; will retry`) and never stops publishing;
-`foc_event_rows_pruned_total{table}` counts what went. Pass `retention` or `pruneIntervalMs` to the
-relay to change either.
+**Pruning** (PLT-12, [#287](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/287)). Neither
+table grows for ever. Each service with event tables registers an `EventTablePruner`
+([`pruner.ts`](platform/src/events/pruner.ts)), with or without a broker. On a timer of its own,
+right after start and then hourly, it deletes, in batches of 1,000, published outbox rows more than
+30 days old and inbox rows more than 30 days old (`pruneEventTables` in
+[`retention.ts`](platform/src/events/retention.ts)). It never deletes an unpublished row, however
+old, nor an inbox row whose event still waits as a dead letter, which an operator may redrive at
+any time. Thirty days is far longer than any copy of an event can take to arrive; it is also how far
+back the admin console's errand trace sees an errand's events. It runs apart from the relay, so even
+a first prune of a long backlog never holds up a publish, and a service shutting down stops it after
+the batch in hand. It finds its rows through two indexes each service's migrations create
+(`outbox_events_published_idx`, `processed_events_processed_idx`). A failed prune is logged with
+its error (`pruning the event tables failed; will retry`) and tried again an hour later;
+`foc_event_rows_pruned_total{table}` counts what went, batch by batch. Pass `retention` or
+`intervalMs` to `provideEventTablePruner` to change either.
 
 ## What is kept about a person, and for how long
 

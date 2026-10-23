@@ -641,64 +641,23 @@ describe('OutboxRelay metrics (PLT-04)', () => {
   });
 });
 
-describe('OutboxRelay pruning (PLT-12)', () => {
-  /** A row published 35 days ago: past the default 30 days of retention. */
-  const oldPublished = (db: Db) =>
-    db.query(
+describe('OutboxRelay and pruning (PLT-12)', () => {
+  it('leaves pruning to EventTablePruner, so publishing never waits on it', async () => {
+    const db = await outboxDb();
+    const broker = fakeBroker();
+    const relay = new OutboxRelay({ db, publisher: broker.publisher, logger: quietLogger() });
+    await db.query(
       `INSERT INTO outbox_events (id, event_type, aggregate_id, payload, correlation_id, occurred_at, published_at)
        VALUES ($1, 'user.suspended', 'user-old', '{}', 'corr-old', now() - interval '40 days', now() - interval '35 days')`,
       [randomUUID()],
     );
-  const rows = async (db: Db) =>
-    (await db.query<{ n: number } & Row>(`SELECT count(*)::int AS n FROM outbox_events`)).rows[0]!
-      .n;
-
-  it('prunes the event tables on its first tick, then once per pruneIntervalMs, and counts what went', async () => {
-    const db = await outboxDb();
-    const broker = fakeBroker();
-    const metrics = new Metrics('test-service');
-    const relay = new OutboxRelay({
-      db,
-      publisher: broker.publisher,
-      logger: quietLogger(),
-      metrics,
-      pruneIntervalMs: 60_000,
-    });
-    await oldPublished(db);
 
     await relay.tick();
-    expect(await rows(db)).toBe(0);
 
-    await oldPublished(db);
-    await relay.tick();
-    // Not due again for a minute.
-    expect(await rows(db)).toBe(1);
-    expect(await metrics.render()).toMatch(
-      /^foc_event_rows_pruned_total\{[^}]*table="outbox_events"[^}]*\} 1$/m,
+    const { rows } = await db.query<{ n: number } & Row>(
+      `SELECT count(*)::int AS n FROM outbox_events`,
     );
-    await relay.stop();
-    await db.close();
-  });
-
-  it('keeps publishing when pruning fails, and says so', async () => {
-    const db = await outboxDb();
-    const broker = fakeBroker();
-    const logger = quietLogger();
-    // The pruner's first statement fails; the relay's own work does not.
-    const failing: Db = {
-      ...db,
-      query: async (sql, params) => {
-        if (sql.includes('to_regclass')) throw new Error('pruning broke');
-        return db.query(sql, params);
-      },
-    };
-    const relay = new OutboxRelay({ db: failing, publisher: broker.publisher, logger });
-    await commit(db, 'user-1');
-
-    expect(await relay.tick()).toBe(1);
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.objectContaining({ msg: 'pruning the event tables failed; will retry' }),
-    );
+    expect(rows[0]!.n).toBe(1);
     await relay.stop();
     await db.close();
   });

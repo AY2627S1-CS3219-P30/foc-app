@@ -63,7 +63,7 @@ export class Metrics {
   readonly eventsDeferred: Counter<'queue' | 'event_type'>;
   readonly outboxPublished: Counter;
   readonly outboxFailures: Counter;
-  readonly eventRowsPruned: Counter;
+  readonly eventRowsPruned: Counter<'table'>;
   private readonly logger = new Logger(Metrics.name);
 
   constructor(serviceName: string) {
