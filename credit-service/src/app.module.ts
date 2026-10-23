@@ -1,6 +1,11 @@
 import { Module } from '@nestjs/common';
 import { authStatusEvents, AuthModule } from '@foc/auth-client';
-import { EventsModule, PlatformModule, provideOutboxRelay } from '@foc/platform';
+import {
+  EventsModule,
+  PlatformModule,
+  provideEventTablePruner,
+  provideOutboxRelay,
+} from '@foc/platform';
 import { authConfig, env, SERVICE_NAME, SERVICE_VERSION } from './config.js';
 import { CREDIT_ECONOMIC_SUBSCRIPTIONS } from './closed-economy.js';
 import { CreditModule } from './credit.module.js';
@@ -47,16 +52,20 @@ const eventModules = env.RABBITMQ_URL
     CreditModule.forRoot(),
     ...eventModules,
   ],
-  providers: env.RABBITMQ_URL
-    ? [
-        WalletProvisioning,
-        ReservationConsumer,
-        CompletionConsumer,
-        ReleaseConsumer,
-        provideOutboxRelay({ db: RAW_DB }),
-        ...status.providers,
-      ]
-    : [],
+  providers: [
+    // PLT-12: the outbox and inbox are pruned with or without a broker.
+    provideEventTablePruner({ db: RAW_DB }),
+    ...(env.RABBITMQ_URL
+      ? [
+          WalletProvisioning,
+          ReservationConsumer,
+          CompletionConsumer,
+          ReleaseConsumer,
+          provideOutboxRelay({ db: RAW_DB }),
+          ...status.providers,
+        ]
+      : []),
+  ],
 })
 export class AppModule {}
 
