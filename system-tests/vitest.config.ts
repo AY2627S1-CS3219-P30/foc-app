@@ -4,7 +4,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['test/**/*.test.ts'],
-    // Every suite needs real PostgreSQL and skips itself when TEST_POSTGRES_URL is unset.
+    // Every suite but reward-bounds needs real PostgreSQL and skips itself when
+    // TEST_POSTGRES_URL is unset.
     testTimeout: 120_000,
     hookTimeout: 60_000,
     // Both services' modules read their configuration at import time. Nothing here is

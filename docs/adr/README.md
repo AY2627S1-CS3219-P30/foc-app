@@ -22,7 +22,7 @@ review is collected. The author cannot record approval on another team member's 
 
 | Reviewer | Required by | Status | Date |
 | --- | --- | --- | --- |
-| Isaac Chua (`@isaacchua0309`) | #132, #183 | Authored; self-review pending | — |
+| Isaac Chua (`@isaacchua0309`) | #132, #183 | Approved 0002–0009, with the amendments to 0005 and 0006 (#254) and to 0007 (#250) | 2026-10-26 |
 | Zhang Yuan (`@volleyballkickedme`) | #132, #183, #218; Order owner | Approved | 2026-10-19 |
 | Jonus (`@jonushzw`) | #132, #183 | Approved, with the amendments to 0005 and 0006 | 2026-10-20 |
 | Anselm Long (`@anselmlong`) | #183, #218 | Pending | — |

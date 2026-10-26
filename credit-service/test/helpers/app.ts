@@ -15,7 +15,7 @@ import {
 } from '@foc/platform';
 import { CreditModule } from '../../src/credit.module.js';
 import { WALLET_READS_ALERT_PER_HOUR } from '../../src/credits/admin-activity.js';
-import { CreditRepository } from '../../src/credits/credit.repository.js';
+import { CreditRepository, INITIAL_ALLOCATION } from '../../src/credits/credit.repository.js';
 import { DB, RAW_DB } from '../../src/db/db.js';
 import * as schema from '../../src/db/schema.js';
 import { applyMigrations } from './migrate.js';
@@ -70,13 +70,18 @@ export interface TestApp {
 /**
  * `broker`: dead letters park from, and redrive to, this connection (as `EventsModule` would give).
  * `walletReadsAlertPerHour`: the BULK_WALLET_READS threshold, low enough for a test to cross.
+ * `initialAllocation`: what a new wallet is issued, as `INITIAL_CREDIT_ALLOCATION` would set it.
  */
 export async function createTestApp(
-  options: { broker?: BrokerConnection; walletReadsAlertPerHour?: number } = {},
+  options: {
+    broker?: BrokerConnection;
+    walletReadsAlertPerHour?: number;
+    initialAllocation?: number;
+  } = {},
 ): Promise<TestApp> {
   const db = await PgliteDb.create();
   await applyMigrations(db);
-  const builder = Test.createTestingModule({
+  let builder = Test.createTestingModule({
     imports: [
       PlatformModule.forRoot({
         serviceName: 'credit-service',
@@ -103,6 +108,9 @@ export async function createTestApp(
       factory: (metrics: Metrics) => new DeadLetters(db, options.broker, metrics),
       inject: [METRICS],
     });
+  if (options.initialAllocation !== undefined) {
+    builder = builder.overrideProvider(INITIAL_ALLOCATION).useValue(options.initialAllocation);
+  }
   const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication();
   app.useGlobalFilters(new ErrorEnvelopeFilter());
