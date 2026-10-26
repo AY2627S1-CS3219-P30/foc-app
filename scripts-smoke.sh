@@ -180,10 +180,9 @@ done
 # sign-in is reported as that, not as a wallet that never arrived.
 SMOKE_EMAIL="smoke-$(date +%s)-$RANDOM@u.nus.edu"
 SMOKE_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')
-# What a new student is issued: INITIAL_CREDIT_ALLOCATION in .env when it is set, otherwise the
-# default in credit-service/src/credits/types.ts. Set SMOKE_INITIAL_CREDITS when checking a build
-# that changes the default.
-INITIAL_CREDITS="${SMOKE_INITIAL_CREDITS:-${INITIAL_CREDIT_ALLOCATION:-10}}"
+# The expected amount is read from the student's own ledger (its ISSUE entry), not guessed from
+# .env, so the check holds for any INITIAL_CREDIT_ALLOCATION the running service uses. Set
+# SMOKE_INITIAL_CREDITS to also require one exact amount.
 json_field() { python3 -c "import sys,json; print(json.load(sys.stdin).get('$1', ''))" 2>/dev/null || true; }
 # POSTs JSON to the User Service and prints the HTTP status; the body goes to the file named in $3.
 post_json() { # path json body-file [extra curl arguments...]
@@ -225,12 +224,23 @@ else
   for _ in $(seq 1 "$((DEADLINE * 2))"); do
     available=$(curl -fsS "http://localhost:${CREDIT_PORT}/wallets/me" -H "Authorization: Bearer $access_token" \
       2>/dev/null | json_field available) || true
-    [[ "$available" == "$INITIAL_CREDITS" ]] && break
+    [[ -n "$available" ]] && break
     sleep 0.5
   done
-  [[ "$available" == "$INITIAL_CREDITS" ]] &&
-    pass "an activation issues a ${INITIAL_CREDITS}-credit wallet" ||
-    fail "no ${INITIAL_CREDITS}-credit wallet ${DEADLINE}s after activation (last available: '${available:-none}')"
+  issued=$(curl -fsS "http://localhost:${CREDIT_PORT}/wallets/me/ledger" -H "Authorization: Bearer $access_token" \
+    2>/dev/null | python3 -c 'import sys, json; print(next((i["amount"] for i in json.load(sys.stdin)["items"] if i["type"] == "ISSUE"), ""))' \
+    2>/dev/null) || true
+  if [[ -z "$available" ]]; then
+    fail "no wallet ${DEADLINE}s after activation"
+  elif [[ -z "$issued" || "$available" != "$issued" ]]; then
+    fail "the new wallet holds '$available' but its ledger records an issue of '${issued:-nothing}'"
+  elif ((issued < 5 || issued > 50)); then
+    fail "an activation issued $issued credits, outside the allowed 5 to 50"
+  elif [[ -n "${SMOKE_INITIAL_CREDITS:-}" && "$issued" != "$SMOKE_INITIAL_CREDITS" ]]; then
+    fail "an activation issued $issued credits, not the $SMOKE_INITIAL_CREDITS SMOKE_INITIAL_CREDITS asks for"
+  else
+    pass "an activation issues a ${issued}-credit wallet, matching its ledger"
+  fi
 fi
 
 # ---- the web app serves ------------------------------------------------------
