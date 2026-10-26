@@ -1,6 +1,6 @@
 # ADR 0007 — Credit invariant and double-entry ledger
 
-- **Status:** Proposed; implementation basis
+- **Status:** Proposed; implementation basis; amended 2026-10-20 by CRD-09 (see [Amendment](#amendment--crd-09-2026-10-20))
 - **Date:** 2026-10-01
 - **Deciders:** Group 30; approvals tracked in [the ADR index](README.md)
 - **Ticket:** [CRD-00 #132](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/132)
@@ -72,3 +72,20 @@ wallet's linked ledger entries into one immutable activity item with resulting b
 Fractional credits, negative/admin adjustments, expiry, multiple currencies, or external monetary
 value are introduced. Each requires a new ADR and migration rather than weakening these constraints.
 
+## Amendment — CRD-09, 2026-10-20
+
+"Initial issuance is exactly 10" now reads: initial issuance is the configured allocation,
+`INITIAL_CREDIT_ALLOCATION`, a whole number from 5 to 50 that defaults to 10
+([CRD-09 #234](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/234)). The reasoning for 10 and
+the bounds are in the [Credit Service README](../../credit-service/README.md#the-initial-allocation).
+
+Nothing else changes. Each `ISSUE` transaction already records its amount, and conservation is
+stated against issued amounts, so wallets issued under different settings still balance. The
+setting is service-wide and applies at issuance only: there is still no per-student allocation and
+no path that adds credits to an existing wallet, which would be the "negative/admin adjustments"
+this record says need a new ADR.
+
+CRD-09 also adds the invariant that each wallet's `reserved` equals the sum of its open
+reservations (`credit-service/src/credits/invariants.ts`). The equations above do not imply it: a
+credit moved into `reserved` outside any reservation conserves the total and balances every
+transaction, but no release or transfer could ever move it again.
