@@ -180,6 +180,7 @@ Then open <http://localhost:3000>.
 | `./scripts-smoke.sh`                  | Verify the running stack                      |
 | `./scripts-smoke.sh --up`             | Verify a separate copy, then delete it        |
 | `./scripts-demo-failures.sh`          | Force messaging failures on the running stack |
+| `./scripts-demo-credits.sh`           | Walk credits through an errand, with balances |
 | `./scripts-restart-check.sh`          | Restart, recreate and take Postgres away      |
 | `./scripts-demo-journey.sh`           | A student, an errand and its credits, by API  |
 

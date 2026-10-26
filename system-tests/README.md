@@ -19,6 +19,7 @@ its database is mocked.
 - Every ledger transaction balances.
 - Credits held equal credits issued: credits change only at issuance (ADR 0007).
 - Each order has at most one reservation and at most one terminal outcome (transfer or release), never a terminal without a reservation.
+- Each wallet's reserved credits equal the sum of its open reservations: RESERVE transactions whose order has no transfer or release yet (CRD-09; `credit-service/src/credits/invariants.ts`). The checks above do not imply it.
 - Once settled, Order's status and Credit's transactions agree for every order, and none is left waiting on Credit.
 
 A violation fails the test, and so the build.
