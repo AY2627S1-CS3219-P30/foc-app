@@ -262,6 +262,9 @@ services:
       INTERNAL_SERVICE_KEY: ${CREDIT_INTERNAL_KEY:?run ./scripts-init-env.sh}
       # Inbound read-only /internal/** callers: the Order Service's key and no other.
       INTERNAL_SERVICE_KEYS: ${CREDIT_INBOUND_SERVICE_KEYS:?run ./scripts-init-env.sh}
+      # What a new wallet is issued (CS-FR1.1.1). Left empty unless .env sets it, so the service
+      # uses its default: INITIAL_CREDIT_ALLOCATION in credit-service/src/credits/types.ts (10).
+      INITIAL_CREDIT_ALLOCATION: ${INITIAL_CREDIT_ALLOCATION:-}
     ports: ['${CREDIT_SERVICE_PORT:-3004}:3004']
     depends_on:
       <<: *consumer-deps

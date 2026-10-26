@@ -22,6 +22,8 @@ cd "$(dirname "$0")"
 . ./scripts-env.sh
 
 . ./scripts-lib.sh
+# The balances checked below (10/0, 7/3, ...) are for the default allocation of 10 credits.
+REQUIRED_ALLOCATION=10
 
 TEARDOWN=0
 CREDIT_KILLED=0
@@ -100,14 +102,10 @@ step "1. The Credit Service is killed, then an errand is created" \
 signup requester
 REQUESTER_ID=$STUDENT_ID
 REQUESTER_TOKEN=$STUDENT_TOKEN
-supplier=$(curl -fsS "http://localhost:${SUPPLIER_PORT}/suppliers" -H "Authorization: Bearer $REQUESTER_TOKEN" 2>/dev/null |
-  json '(lambda items: items[0].get("id") or items[0].get("supplierId"))(d["items"] if isinstance(d, dict) else d)') || true
+supplier=$(first_supplier "$REQUESTER_TOKEN")
 CREDIT_KILLED=1
 docker compose kill credit-service >/dev/null 2>&1 || true
-ORDER_ID=$(curl -fsS -X POST "http://localhost:${ORDER_PORT}/orders" -H "Authorization: Bearer $REQUESTER_TOKEN" \
-  -H 'content-type: application/json' -H "Idempotency-Key: demo-$RUN" -H "x-correlation-id: demo-errand-$RUN" \
-  -d "{\"supplierId\":\"$supplier\",\"items\":[{\"name\":\"Chicken rice\",\"quantity\":1}],\"deliveryZone\":\"COM2 Lobby\",\"deliveryInstructions\":\"Meet at the security desk\",\"reward\":3}" \
-  2>/dev/null | json 'd["orderId"]') || true
+ORDER_ID=$(post_errand "$REQUESTER_TOKEN" "$supplier" 3 demo-errand)
 if [[ -z "$ORDER_ID" ]]; then
   fail "the errand could not be created while Credit was down"
   docker compose start credit-service >/dev/null 2>&1 || true
@@ -164,8 +162,7 @@ step "3. A second copy of Credit's reply arrives after the errand has moved on" 
   "A courier accepts the errand, then 'credit.reserved' is delivered again under a new event id."
 if [[ -n "${ORDER_ID:-}" ]]; then
   signup courier
-  accepted=$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://localhost:${ORDER_PORT}/orders/$ORDER_ID/accept" \
-    -H "Authorization: Bearer $STUDENT_TOKEN" -H 'content-type: application/json' -d '{"expectedVersion":2}' 2>/dev/null || echo 000)
+  accepted=$(errand_action "$STUDENT_TOKEN" "$ORDER_ID" accept 2)
   [[ "$accepted" == "201" ]] && pass "a courier accepted the errand" || fail "acceptance returned $accepted"
   state=$(errand "$REQUESTER_TOKEN" "$ORDER_ID")
   stale_before=$(metric "$ORDER_PORT" foc_events_stale_total foc.order.reservation-results)
