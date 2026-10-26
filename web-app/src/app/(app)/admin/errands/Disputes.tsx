@@ -4,9 +4,20 @@ import Link from "next/link";
 import { Button } from "@/components/Button";
 import { adminApi } from "@/lib/admin-api";
 import { DISPUTE_OUTCOMES, disputeCause, formatWhen, shortId } from "@/lib/admin-labels";
-import { Loaded, Section, Tag, TraceLink, UserLink } from "../_components/ui";
-import { useAdminData } from "../_components/use-admin-data";
+import { Loaded, Section, Stat, Tag, TraceLink, UserLink } from "../_components/ui";
+import { figure, useAdminData } from "../_components/use-admin-data";
 import styles from "../_components/admin.module.css";
+
+/**
+ * ADM-06 (#279): how many disputes wait for this administrator, counted as the Disputes section it
+ * links to lists them: those referred to them and those referred to no one yet (at most 100, all
+ * that list returns). A dispute referred to another administrator is theirs, so it is not counted.
+ * A dash when the Order Service does not answer.
+ */
+export function DisputesWaitingStat() {
+  const disputes = useAdminData("overview:disputes", (t) => adminApi.referredDisputes(t));
+  return <Stat href="/admin/errands" label="Disputes waiting" value={figure(disputes, (d) => d.items.length)} />;
+}
 
 /**
  * ORD-11 (#271): disputes referred to this administrator, which they open and decide, and disputes

@@ -15,6 +15,7 @@ export function ResponsiveShell({
   navItems,
   activeHref,
   showCreditPill = true,
+  logoText,
   onBack,
   children,
 }: {
@@ -22,6 +23,8 @@ export function ResponsiveShell({
   navItems: NavItem[];
   activeHref: string;
   showCreditPill?: boolean;
+  /** The top bar's logo; the admin console's pages pass its own (`TopBar`'s default otherwise). */
+  logoText?: string;
   onBack?: () => void;
   children: ReactNode;
 }) {
@@ -31,7 +34,7 @@ export function ResponsiveShell({
         <AppBar title={title} onBack={onBack} />
       </div>
       <div className={styles.topBar}>
-        <TopBar showCreditPill={showCreditPill} />
+        <TopBar logoText={logoText} showCreditPill={showCreditPill} />
       </div>
       <div className={styles.body}>
         <div className={styles.sidebar}>

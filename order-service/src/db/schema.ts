@@ -100,6 +100,8 @@ export const orders = pgTable(
       sql`${t.status} <> 'DELIVERED' OR ${t.autoConfirmAt} IS NOT NULL`,
     ),
     index('orders_status_created_idx').on(t.status, t.createdAt),
+    // Every errand, newest first (ADM-06): read backwards, it serves the page and its keyset.
+    index('orders_created_idx').on(t.createdAt, t.orderId),
     index('orders_requester_created_idx').on(t.requesterId, t.createdAt),
     index('orders_courier_created_idx').on(t.courierId, t.createdAt),
     index('orders_referred_admin_created_idx').on(t.referredAdminId, t.createdAt),

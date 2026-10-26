@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { dayRange, describeAlert, formatDuration, isUuid } from "../src/lib/admin-labels";
-import { withAdminEntry, STUDENT_NAV } from "../src/lib/nav";
+import { ADMIN_NAV, withAdminEntry, STUDENT_NAV } from "../src/lib/nav";
 
 const ids = { a: "aaaaaaaa-0000-4000-8000-000000000001", b: "bbbbbbbb-0000-4000-8000-000000000002" };
 const name = (id: unknown) => (id === ids.a ? "ana@u.nus.edu" : id === ids.b ? "ben@u.nus.edu" : "someone");
@@ -80,5 +80,13 @@ describe("the admin console entry", () => {
     const admin = withAdminEntry(STUDENT_NAV, ["STUDENT", "ADMIN"]);
     expect(admin.at(-1)).toEqual({ href: "/admin", label: "Admin console" });
     expect(withAdminEntry(admin, ["ADMIN"])).toHaveLength(admin.length);
+  });
+});
+
+describe("the console navigation (ADM-07)", () => {
+  it("links to supplier management, which lives on /suppliers", () => {
+    expect(ADMIN_NAV.filter((item) => item.href === "/suppliers")).toEqual([
+      { href: "/suppliers", label: "Suppliers" },
+    ]);
   });
 });
