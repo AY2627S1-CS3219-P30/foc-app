@@ -293,17 +293,21 @@ For a change to shared code in `platform/`, every service image is rebuilt:
 
 ## Where the answer to a "why" question is
 
-| Question (D3 part)                                              | Where                                                                                   |
-| --------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| Why PostgreSQL, and one database per service (1.1, 2.1)         | [ADR 0003](../adr/0003-service-boundaries-and-data-ownership.md)                        |
-| The errand states and who may trigger each (1.2)                | `order-service/src/orders/order-state-machine.ts`; the Order Service README             |
-| One courier only; acceptance racing cancellation (1.4)          | `system-tests/test/races.test.ts`; `expectedVersion` on every action                    |
-| Why Order and Credit talk by events (2.4, 3.1)                  | [ADR 0002](../adr/0002-asynchronous-order-credit-saga.md)                               |
-| Why RabbitMQ; events and requests; ordering; repeats (3.1-3.3)  | [ADR 0009](../adr/0009-messaging-rabbitmq-events-and-ordering.md)                       |
-| A change saved but not published (3.3)                          | README, "Publishing with a database write: the outbox and inbox"                        |
-| Who a service believes (1.3, 2.4)                               | [ADR 0004](../adr/0004-authentication-and-trust.md)                                     |
-| Dockerfiles, images, secrets, networks, restarts (4)            | README, "Containers: secrets, networks and restarts"                                    |
-| CI and what it gates on (4.4)                                   | README, "Continuous integration"                                                        |
+| Question (D3 part)                                             | Where                                                                                                                                                            |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Why PostgreSQL, and one database per service (1.1, 2.1)        | [Order schema §1](../order-service/schema.md), [Credit schema §1](../credit-service/schema.md); [ADR 0003](../adr/0003-service-boundaries-and-data-ownership.md) |
+| Credit's tables, constraints and invariants (2.1)              | [Credit schema](../credit-service/schema.md) §2–§3                                                                                                               |
+| Why 10 credits, and how it is configured (2.2)                 | [Credit README, The initial allocation](../../credit-service/README.md#the-initial-allocation)                                                                   |
+| A wallet that is late or never arrives (2.2)                   | [Credit README, When the allocation fails or is delayed](../../credit-service/README.md#when-the-allocation-fails-or-is-delayed)                                 |
+| Balances before and after each operation (2.3)                 | `./scripts-demo-credits.sh`; [Credit README](../../credit-service/README.md#balances-before-and-after)                                                           |
+| The errand states and who may trigger each (1.2)               | `order-service/src/orders/order-state-machine.ts`; the Order Service README                                                                                      |
+| One courier only; acceptance racing cancellation (1.4)         | `system-tests/test/races.test.ts`; `expectedVersion` on every action                                                                                             |
+| Why Order and Credit talk by events (2.4, 3.1)                 | [ADR 0002](../adr/0002-asynchronous-order-credit-saga.md)                                                                                                        |
+| Why RabbitMQ; events and requests; ordering; repeats (3.1-3.3) | [ADR 0009](../adr/0009-messaging-rabbitmq-events-and-ordering.md)                                                                                                |
+| A change saved but not published (3.3)                         | README, "Publishing with a database write: the outbox and inbox"                                                                                                 |
+| Who a service believes (1.3, 2.4)                              | [ADR 0004](../adr/0004-authentication-and-trust.md)                                                                                                              |
+| Dockerfiles, images, secrets, networks, restarts (4)           | README, "Containers: secrets, networks and restarts"                                                                                                             |
+| CI and what it gates on (4.4)                                  | README, "Continuous integration"                                                                                                                                 |
 
 ## If something fails
 

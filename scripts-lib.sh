@@ -44,9 +44,15 @@ wait_for() { # seconds wanted command...
 }
 
 # Signs up and activates a student through the dev mailbox, logs them in, and
-# waits for their 10-credit wallet. Sets STUDENT_ID and STUDENT_TOKEN. Each gets a
-# password of its own, unless SIGNUP_PASSWORD gives one for all (the load test signs
-# its students in again, so it must know theirs).
+# waits for their initial wallet. Sets STUDENT_ID, STUDENT_TOKEN and STUDENT_ISSUED
+# (the credits the service actually issued, read from the wallet's ISSUE row, so
+# nothing guesses the allocation from .env). Each student gets a password of its
+# own, unless SIGNUP_PASSWORD gives one for all (the load test signs its students
+# in again, so it must know theirs).
+#
+# A script whose expected balances assume one allocation sets REQUIRED_ALLOCATION
+# first; signup then stops with a clear message on a stack configured otherwise,
+# instead of every later balance check failing.
 signup() { # label [no-wallet]
   local email="demo-$1-$RUN@$EMAIL_DOMAIN" password="${SIGNUP_PASSWORD:-}" token
   [[ -n "$password" ]] || password=$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')
@@ -79,15 +85,45 @@ signup() { # label [no-wallet]
   # `signup label no-wallet` returns as soon as the student is signed in, for a caller that
   # wants to show the wallet arriving, or that has cut the Credit Service off on purpose.
   [[ "${2:-}" == "no-wallet" ]] && return 0
-  wait_for 30 10 wallet_available "$STUDENT_ID" || {
-    echo "No 10-credit wallet for $email after 30 s (got '${LAST:-nothing}')." >&2
+  wait_for 30 yes wallet_exists "$STUDENT_ID" || {
+    echo "No wallet for $email after 30 s." >&2
     exit 1
   }
+  STUDENT_ISSUED=$(issued "$STUDENT_ID")
+  if [[ -n "${REQUIRED_ALLOCATION:-}" && "$STUDENT_ISSUED" != "$REQUIRED_ALLOCATION" ]]; then
+    echo "This script's balances assume new wallets get $REQUIRED_ALLOCATION credits, but the stack" >&2
+    echo "issued $STUDENT_ISSUED (INITIAL_CREDIT_ALLOCATION). Unset it, or run ./scripts-demo-credits.sh," >&2
+    echo "which works with any allocation." >&2
+    exit 1
+  fi
 }
 
 wallet_available() { sql foc_credit "SELECT available FROM wallets WHERE user_id = '$1'"; }
+wallet_exists() { sql foc_credit "SELECT 'yes' FROM wallets WHERE user_id = '$1'"; }
+# What the service issued this wallet on activation.
+issued() { sql foc_credit "SELECT amount FROM credit_transactions WHERE wallet_user_id = '$1' AND transaction_type = 'ISSUE'"; }
 wallet() { sql foc_credit "SELECT available || '/' || reserved FROM wallets WHERE user_id = '$1'"; }
 errand() { # token order-id  → "STATUS version"
   curl -fsS "http://localhost:${ORDER_PORT}/orders/$2?view=private" -H "Authorization: Bearer $1" 2>/dev/null |
     json '"{} {}".format(d["status"], d["version"])' || true
+}
+
+# The first supplier a student can pick up from.
+first_supplier() { # token
+  curl -fsS "http://localhost:${SUPPLIER_PORT}/suppliers" -H "Authorization: Bearer $1" 2>/dev/null |
+    json '(lambda items: items[0].get("id") or items[0].get("supplierId"))(d["items"] if isinstance(d, dict) else d)' || true
+}
+
+# Posts an errand and prints its id, or nothing if the Order Service refused it.
+post_errand() { # token supplier-id reward key
+  curl -fsS -X POST "http://localhost:${ORDER_PORT}/orders" -H "Authorization: Bearer $1" \
+    -H 'content-type: application/json' -H "Idempotency-Key: $4-$RUN" -H "x-correlation-id: $4-$RUN" \
+    -d "{\"supplierId\":\"$2\",\"items\":[{\"name\":\"Chicken rice\",\"quantity\":1}],\"deliveryZone\":\"COM2 Lobby\",\"deliveryInstructions\":\"Meet at the security desk\",\"reward\":$3}" \
+    2>/dev/null | json 'd["orderId"]' || true
+}
+
+# One lifecycle action on an errand; prints the HTTP status.
+errand_action() { # token order-id action expected-version
+  curl -s -o /dev/null -w '%{http_code}' -X POST "http://localhost:${ORDER_PORT}/orders/$2/$3" \
+    -H "Authorization: Bearer $1" -H 'content-type: application/json' -d "{\"expectedVersion\":$4}" 2>/dev/null || echo 000
 }
