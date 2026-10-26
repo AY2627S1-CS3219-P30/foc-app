@@ -27,15 +27,20 @@ describe('the initial allocation is configuration (CRD-09, CS-FR1.1.1)', () => {
     expect(parse('5')).toMatchObject({ success: true, data: 5 });
     expect(parse('12')).toMatchObject({ success: true, data: 12 });
     expect(parse('50')).toMatchObject({ success: true, data: 50 });
+    expect(parse(' 12 ')).toMatchObject({ success: true, data: 12 });
   });
 
   it.each([
     ['4', 'at least 5'],
     ['0', 'at least 5'],
-    ['-10', 'at least 5'],
     ['51', 'at most 50'],
-    ['10.5', 'whole number'],
-    ['ten', ''],
+    ['-10', 'plain digits'],
+    ['10.5', 'plain digits'],
+    ['ten', 'plain digits'],
+    // Number() would read these as 16 and 10; a typo guard must not.
+    ['0x10', 'plain digits'],
+    ['1e1', 'plain digits'],
+    ['+12', 'plain digits'],
   ])('refuses %s, so the service stops at boot rather than mint the wrong amount', (value, why) => {
     const result = parse(value);
     expect(result.success).toBe(false);

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import {
   EVENTS,
   PredecessorMissingError,
@@ -113,14 +113,18 @@ const balance = (row: { available: number; reserved: number }): ResultingBalance
 /** The credits a new wallet is issued: `INITIAL_CREDIT_ALLOCATION` from `config.ts`. */
 export const INITIAL_ALLOCATION = Symbol('INITIAL_ALLOCATION');
 
-/** Credit's single persistence boundary. Event handlers pass their inbox transaction in. */
+/**
+ * Credit's single persistence boundary. Event handlers pass their inbox transaction in.
+ *
+ * Nest must be given `INITIAL_ALLOCATION` (CreditModule provides it from `config.ts`): a module that
+ * forgets it fails at boot rather than quietly issuing the default. The default applies only when
+ * the class is constructed directly, as the system tests do.
+ */
 @Injectable()
 export class CreditRepository {
   constructor(
     @Inject(RAW_DB) private readonly db: Db,
-    @Optional()
-    @Inject(INITIAL_ALLOCATION)
-    readonly initialAllocation: number = INITIAL_CREDIT_ALLOCATION,
+    @Inject(INITIAL_ALLOCATION) readonly initialAllocation: number = INITIAL_CREDIT_ALLOCATION,
   ) {}
 
   /** Returns true only for the activation that created and funded the wallet. */

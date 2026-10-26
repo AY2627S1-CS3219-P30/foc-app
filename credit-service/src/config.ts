@@ -6,18 +6,25 @@ import { INITIAL_ALLOCATION_BOUNDS, INITIAL_CREDIT_ALLOCATION } from './credits/
 /**
  * CS-FR1.1.1: the credits a new wallet is issued. Unset or empty means the default in
  * `credits/types.ts`: Compose passes the variable through empty when `.env` does not set it.
- * Changing it affects only wallets created afterwards; each issue records its own amount.
+ * Only plain digits are accepted, so `0x10` or `1e1` stops the service instead of being read as a
+ * number. Changing it affects only wallets created afterwards; each issue records its own amount.
  */
 export const initialAllocationSchema = z.preprocess(
   (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
-  z.coerce
-    .number()
-    .int('must be a whole number of credits')
-    .min(
-      INITIAL_ALLOCATION_BOUNDS.min,
-      `must be at least ${INITIAL_ALLOCATION_BOUNDS.min}, the largest reward`,
+  z
+    .string()
+    .trim()
+    .regex(/^\d+$/, 'must be a whole number of credits, in plain digits')
+    .transform(Number)
+    .pipe(
+      z
+        .number()
+        .min(
+          INITIAL_ALLOCATION_BOUNDS.min,
+          `must be at least ${INITIAL_ALLOCATION_BOUNDS.min}, the largest reward`,
+        )
+        .max(INITIAL_ALLOCATION_BOUNDS.max, `must be at most ${INITIAL_ALLOCATION_BOUNDS.max}`),
     )
-    .max(INITIAL_ALLOCATION_BOUNDS.max, `must be at most ${INITIAL_ALLOCATION_BOUNDS.max}`)
     .default(INITIAL_CREDIT_ALLOCATION),
 );
 
