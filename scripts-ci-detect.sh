@@ -19,7 +19,7 @@ SERVICE_RE='^(user|supplier|order|credit)-service/'
 WEB_RE='^(web-app/|contracts/|compose\.yaml|\.env\.example|scripts-(init-env|scan-vulnerabilities)\.sh|\.github/workflows/ci\.yml|\.github/actions/)'
 # Wiring between containers, as opposed to code inside one. `.env.example`
 # belongs here because the smoke job builds `.env` from it.
-STACK_RE='^(compose(\.dev)?\.yaml|postgres-init\.sh|rabbitmq-init\.sh|scripts-(smoke|demo-failures|demo-journey|restart-check|scan-secrets|init-env|env|lib|ci-detect)\.sh|platform/|observability/|\.env\.example|\.gitleaks\.toml)|Dockerfile|\.dockerignore'
+STACK_RE='^(compose(\.dev)?\.yaml|postgres-init\.sh|rabbitmq-init\.sh|scripts-(smoke|demo-failures|demo-journey|demo-credits|restart-check|scan-secrets|init-env|env|lib|ci-detect)\.sh|platform/|observability/|\.env\.example|\.gitleaks\.toml)|Dockerfile|\.dockerignore'
 # The deployment files that test-harness/test/compose-config.test.ts reads (PLT-06): a change to
 # one runs the Node job, where that test lives, without fanning out to every service.
 DEPLOY_CONFIG_RE='^(compose(\.dev)?\.yaml|postgres-init\.sh|rabbitmq-init\.sh|scripts-init-env\.sh|\.env\.example)|Dockerfile|\.dockerignore'
@@ -154,6 +154,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "observability -> stack runs"           "observability/prometheus.yml" 'stack=true'
   check "failure demo -> stack runs"            "scripts-demo-failures.sh" 'stack=true'
   check "failure demo -> no services"           "scripts-demo-failures.sh" 'services=[]'
+  check "credit walkthrough -> stack runs"      "scripts-demo-credits.sh" 'stack=true'
+  check "credit walkthrough -> no services"     "scripts-demo-credits.sh" 'services=[]'
   check "observability -> no services"          "observability/grafana/dashboards/foc-platform.json" 'services=[]'
   check "new package -> all four services"      "auth-client/src/token-verifier.ts" 'services=["user-service","supplier-service","order-service","credit-service"]'
   check "new package -> node runs"              "auth-client/src/token-verifier.ts" 'node=true'
