@@ -7,6 +7,7 @@ import { adminApi } from "@/lib/admin-api";
 import { describeAlert, formatWhen, ALERT_KINDS } from "@/lib/admin-labels";
 import { useAuth } from "@/lib/auth";
 import { useDirectory } from "./_components/Directory";
+import { DisputesWaitingStat } from "./errands/Disputes";
 import { RoleRequestList } from "./_components/RoleRequestList";
 import { AdminShell, Loaded, Section, Stat, Tag } from "./_components/ui";
 import { figure, useAdminData } from "./_components/use-admin-data";
@@ -43,6 +44,7 @@ export default function AdminOverviewPage() {
           value={figure(pending, (d) => d.total)}
         />
         <Stat href="/admin/activity" label="Admin alerts" value={figure(alerts, (d) => d.total)} />
+        <DisputesWaitingStat />
         <Stat
           href="/admin/errands"
           label="Errands waiting on credits"

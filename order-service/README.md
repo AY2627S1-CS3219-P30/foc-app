@@ -189,13 +189,18 @@ out of their list. This is also "a courier's assigned orders" (D3 Part 1.3): the
 `myRole` is `COURIER`. Optional `role=REQUESTER|COURIER` and `active=true|false` query parameters
 filter before the 100-item limit. Active excludes rejected, completed, cancelled and expired orders.
 
-`GET /admin/orders` is an administrator's view of one account (ORD-15): `?requesterId=` lists the
-errands that student posted, in any status, `?courierId=` the ones they currently hold as courier,
-and both together narrow to errands matching both. It is newest first and paged
-(`page`, `pageSize` up to 100, default 20), answering `{ items, page, pageSize, total }`. Each item
+`GET /admin/orders` is an administrator's view of errands. With an account (ORD-15),
+`?requesterId=` lists the errands that student posted, in any status, `?courierId=` the ones they
+currently hold as courier, and both together narrow to errands matching both. With neither, it
+lists every errand, live and past (ADM-06). `?status=` narrows either to one or more statuses,
+comma-separated (`?status=DISPUTED`, `?status=OPEN,ACCEPTED`). It is newest first and paged
+(`page`, `pageSize` up to 100, default 20), answering `{ items, page, pageSize, total }`. The
+console pages with `?before=<orderId>`, the last errand it showed, instead of `page`: a keyset, so
+errands posted since, or ones that leave a status filter, neither repeat nor skip rows; `total`
+then counts the errands from there on. An `(created_at, order_id)` index serves the list. Each item
 is the public projection, without participant IDs, delivery instructions or item notes, even for an
 errand referred to the caller: those are read one errand at a time through `GET /orders/:id`.
-Students get `403`; a query naming neither account gets `422 VALIDATION_FAILED`.
+Students get `403`; an unknown parameter or status gets `422 VALIDATION_FAILED`.
 
 `POST /orders/:id/accept` requires the version observed during discovery. A single conditional
 `UPDATE` checks `OPEN`, that exact version, a live deadline, and that the courier is not the
