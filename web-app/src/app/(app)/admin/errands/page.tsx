@@ -6,6 +6,7 @@ import { formatDuration, formatWhen, RECONCILIATION_ACTIONS } from "@/lib/admin-
 import { AdminShell, Loaded, Section, Tag, TraceLink, UserLink } from "../_components/ui";
 import { useAdminData } from "../_components/use-admin-data";
 import styles from "../_components/admin.module.css";
+import { AllErrands } from "./AllErrands";
 import { Disputes, RecentDecisions } from "./Disputes";
 
 export default function ErrandsPage() {
@@ -13,7 +14,7 @@ export default function ErrandsPage() {
   const attempts = useAdminData("errands:reconciliation", (t) => adminApi.reconciliation(t));
 
   return (
-    <AdminShell active="/admin/errands" heading="Errands needing attention">
+    <AdminShell active="/admin/errands" heading="Errands">
       <Disputes />
 
       <Section
@@ -128,6 +129,8 @@ export default function ErrandsPage() {
       </Section>
 
       <RecentDecisions />
+
+      <AllErrands />
     </AdminShell>
   );
 }
