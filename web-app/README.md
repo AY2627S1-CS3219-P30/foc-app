@@ -241,7 +241,7 @@ holds the React state around them.
 ### Configuration
 
 - `NEXT_PUBLIC_USER_SERVICE_URL` is inlined at **build** time, so set it where the app is built:
-  the Vercel project's environment, or the `web-app` build args in `compose.yaml` (the Dockerfile
+  the `web-app` build args in `compose.yaml` (the Dockerfile
   takes it as an `ARG`; setting it on a running container does nothing). Unset, a development build
   uses `http://localhost:3001`; a production build shows a configuration error on the account
   screens rather than calling localhost. The build itself still succeeds.
@@ -365,5 +365,8 @@ address: inlined at build time, with `http://localhost:3003` and `:3004` as the 
 
 ## Deployment
 
-Pushes to `main` that touch `web-app/**` deploy to Vercel via
-[`.github/workflows/deploy-web-app.yml`](../.github/workflows/deploy-web-app.yml).
+The web app is deployed with the rest of the stack, in local containers (`docker compose up`, see
+the [repository README](../README.md#6-run-the-whole-stack-in-docker)). That is the D4 deployment
+mode. There is no hosted deployment: the Vercel workflow was removed in
+[PLT-11 #286](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/286), because a hosted web app
+had no hosted back end to call, and its `SameSite=Strict` refresh cookie is not sent across sites.
