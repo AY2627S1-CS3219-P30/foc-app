@@ -112,9 +112,17 @@ lines each operation wrote:
 | second errand posted, reward 2       | 5/2       | 13/0    | requester available → requester reserved |
 | second errand cancelled: **release** | 7/0       | 13/0    | requester reserved → requester available |
 
-Balances are `available/reserved`. The two students hold 20 credits between them throughout. The
-script ends by checking, for every wallet on the stack, that credits are conserved, every
-transaction balances, and each wallet's reserved credits are its open reservations. CI runs it.
+Balances are `available/reserved`, shown here for the default allocation; the script expects
+balances relative to what the two wallets were actually issued, so it passes with any allocation.
+The two students hold twice the allocation between them throughout. The script ends by running
+`check-invariants` in the container: the same checks the tests use
+([`src/credits/invariants.ts`](src/credits/invariants.ts)), for every wallet on the stack. CI runs it.
+
+To check a running stack's economy at any time (read-only; exits 1 on any violation):
+
+```bash
+docker compose exec -T credit-service node credit-service/dist/check-invariants.js
+```
 
 ## HTTP API
 

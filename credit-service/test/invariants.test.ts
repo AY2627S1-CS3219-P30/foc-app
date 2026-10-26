@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { reservedBackingViolations } from '../src/credits/invariants.js';
+import {
+  CREDIT_INVARIANTS,
+  creditEconomyViolations,
+  reservedBackingViolations,
+} from '../src/credits/invariants.js';
 import { createTestApp, issue, type TestApp } from './helpers/app.js';
 
 async function reserve(testApp: TestApp, orderId: string, amount: number): Promise<void> {
@@ -14,24 +18,14 @@ async function reserve(testApp: TestApp, orderId: string, amount: number): Promi
   );
 }
 
-/** The other closed-economy checks, as `system-tests/src/invariants.ts` states them. */
+/** Every invariant except the one CRD-09 adds, run exactly as the services' suites run them. */
 async function otherInvariantsHold(testApp: TestApp): Promise<boolean> {
-  const result = await testApp.db.query<{ ok: boolean } & Record<string, unknown>>(
-    `SELECT
-       NOT EXISTS (SELECT 1 FROM wallets WHERE available < 0 OR reserved < 0)
-       AND NOT EXISTS (
-         SELECT 1 FROM ledger_entries GROUP BY transaction_id
-         HAVING coalesce(sum(amount) FILTER (WHERE direction = 'DEBIT'), 0)
-             <> coalesce(sum(amount) FILTER (WHERE direction = 'CREDIT'), 0))
-       AND (SELECT coalesce(sum(available + reserved), 0) FROM wallets)
-         = (SELECT coalesce(sum(amount), 0) FROM credit_transactions WHERE transaction_type = 'ISSUE')
-       AND NOT EXISTS (
-         SELECT 1 FROM credit_transactions WHERE order_id IS NOT NULL GROUP BY order_id
-         HAVING count(*) FILTER (WHERE transaction_type = 'RESERVE') > 1
-             OR count(*) FILTER (WHERE transaction_type IN ('TRANSFER', 'RELEASE')) > 1)
-       AS ok`,
+  const others = Object.values(CREDIT_INVARIANTS).filter(
+    (check) => check !== reservedBackingViolations,
   );
-  return result.rows[0]!.ok;
+  expect(others).toHaveLength(Object.keys(CREDIT_INVARIANTS).length - 1);
+  for (const check of others) if ((await check(testApp.db)).length > 0) return false;
+  return true;
 }
 
 describe("a wallet's reserved credits are its open reservations (CRD-09, D3 Part 2.1)", () => {
@@ -107,6 +101,21 @@ describe("a wallet's reserved credits are its open reservations (CRD-09, D3 Part
     expect(await otherInvariantsHold(testApp)).toBe(true);
     expect(await reservedBackingViolations(testApp.db)).toEqual([
       'wallet student-1 holds 0 reserved but its open reservations total 3',
+    ]);
+  });
+
+  it('is part of the full set the cross-service suite and the live check run', async () => {
+    testApp = await createTestApp();
+    await issue(testApp, 'student-1');
+    await reserve(testApp, 'order-open', 3);
+    expect(await creditEconomyViolations(testApp.db)).toEqual([]);
+
+    await testApp.db.query(
+      `UPDATE wallets SET available = available - 1, reserved = reserved + 1
+        WHERE user_id = 'student-1'`,
+    );
+    expect(await creditEconomyViolations(testApp.db)).toEqual([
+      'wallet student-1 holds 4 reserved but its open reservations total 3',
     ]);
   });
 });

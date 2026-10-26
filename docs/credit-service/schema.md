@@ -176,17 +176,19 @@ recomputing balances.
 ## 3. How the tables stay consistent
 
 The constraints above make most impossible states unwritable. The rest are invariants over many
-rows, checked as SQL after every generated sequence in the cross-service suite
-(`system-tests/src/invariants.ts`) and at the end of the failure demo and the credit walkthrough:
+rows. They are stated once, in `credit-service/src/credits/invariants.ts`, and run after every
+generated sequence in the cross-service suite, by the unit tests, and against the live database by
+`check-invariants` (`docker compose exec -T credit-service node credit-service/dist/check-invariants.js`),
+which the credit walkthrough ends with:
 
-| Invariant                                                                      | Enforced by                                              | Checked by                                    |
-| ------------------------------------------------------------------------------ | -------------------------------------------------------- | --------------------------------------------- |
-| No balance is negative or fractional                                           | `integer` columns, `CHECK (>= 0)`                         | `economyViolations`                           |
-| Every transaction's debits equal its credits                                   | the repository writes entries in pairs                   | `economyViolations`, walkthrough step 4       |
-| All wallets together hold exactly what was issued                              | every non-issue movement is between two wallet accounts  | `economyViolations`, failure demo, walkthrough |
-| One reservation and at most one terminal outcome per order                     | the unique keys above                                    | `economyViolations`                           |
-| A wallet's `reserved` is the sum of its open reservations (RESERVE, no TRANSFER/RELEASE yet) | every change to `reserved` is a RESERVE, TRANSFER or RELEASE for one order | `reservedBackingViolations` (CRD-09), walkthrough step 4 |
-| Order's and Credit's views of each errand agree once nothing is in flight      | the saga (ADR 0002) and reconciliation (CRD-07)          | `agreementViolations`                         |
+| Invariant                                                                                    | Enforced by                                                                | Checked by (`invariants.ts`)                                 |
+| -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| No balance is negative or fractional                                                         | `integer` columns, `CHECK (>= 0)`                                          | `balanceViolations`                                          |
+| Every transaction's debits equal its credits                                                 | the repository writes entries in pairs                                     | `unbalancedTransactionViolations`                            |
+| All wallets together hold exactly what was issued                                            | every non-issue movement is between two wallet accounts                    | `conservationViolations`                                     |
+| One reservation and at most one terminal outcome per order                                   | the unique keys above                                                      | `orderOutcomeViolations`                                     |
+| A wallet's `reserved` is the sum of its open reservations (RESERVE, no TRANSFER/RELEASE yet) | every change to `reserved` is a RESERVE, TRANSFER or RELEASE for one order | `reservedBackingViolations` (CRD-09)                         |
+| Order's and Credit's views of each errand agree once nothing is in flight                    | the saga (ADR 0002) and reconciliation (CRD-07)                            | `agreementViolations` (`system-tests`, needs both databases) |
 
 The fifth is not implied by the others. Moving a credit from `available` to `reserved` outside any
 errand leaves every balance non-negative, every transaction balanced, the total conserved and each
