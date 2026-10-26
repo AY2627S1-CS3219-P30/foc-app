@@ -205,10 +205,12 @@ describe('containers get only what they need (PL-NFR2.1.2)', () => {
       rabbitmq: ['broker', 'local'],
       ...Object.fromEntries(MIGRATIONS.map((name) => [name, ['db']])),
       ...Object.fromEntries(
-        APPLICATION.map((name) => [name, ['broker', 'db', 'public', 'services']]),
+        APPLICATION.map((name) => [name, ['broker', 'db', 'gateway', 'public', 'services']]),
       ),
-      // The browser calls the services; the web app's container calls nothing.
-      'web-app': ['web'],
+      // Reached only through the edge; the web app's container calls nothing.
+      'web-app': ['gateway'],
+      // Its own way out, for the one published port, and the internal network to what it routes to.
+      edge: ['edge', 'gateway'],
       prometheus: ['broker', 'observability', 'services'],
       grafana: ['observability'],
     });
@@ -221,7 +223,7 @@ describe('containers get only what they need (PL-NFR2.1.2)', () => {
       yaml.load(read('compose.yaml')) as { networks: Record<string, { internal?: boolean } | null> }
     ).networks;
     const internal = (name: string) => networks[name]?.internal === true;
-    expect(['db', 'broker', 'services'].filter((name) => !internal(name))).toEqual([]);
+    expect(['db', 'broker', 'services', 'gateway'].filter((name) => !internal(name))).toEqual([]);
     for (const [name, service] of Object.entries(services)) {
       const outward = (service.networks ?? []).filter((network) => !internal(network));
       expect(outward, name).toHaveLength(service.ports?.length ? 1 : 0);
@@ -263,7 +265,7 @@ describe('containers get only what they need (PL-NFR2.1.2)', () => {
   });
 
   it('drops every capability from the application containers and lets none be regained', () => {
-    for (const name of [...APPLICATION, ...MIGRATIONS, 'web-app']) {
+    for (const name of [...APPLICATION, ...MIGRATIONS, 'web-app', 'edge']) {
       expect(services[name]!.cap_drop, name).toEqual(['ALL']);
       expect(services[name]!.security_opt, name).toEqual(['no-new-privileges:true']);
     }
@@ -278,6 +280,89 @@ describe('containers get only what they need (PL-NFR2.1.2)', () => {
   });
 });
 
+/**
+ * PLT-10 (#285, ADR 0010) — one origin for the browser. The edge publishes the only port beyond
+ * this machine and routes `/api/<service>/` to each service and everything else to the web app;
+ * it never routes `/internal`. Read as text here; `scripts-smoke.sh` checks it on a running stack.
+ */
+describe('the edge (PLT-10)', () => {
+  const edge = services.edge!;
+  const nginx = read('edge/nginx.conf');
+  const ROUTES = {
+    user: 'user-service:3001',
+    supplier: 'supplier-service:3002',
+    order: 'order-service:3003',
+    credit: 'credit-service:3004',
+  };
+
+  it('publishes the only port beyond this machine: every other is on 127.0.0.1', () => {
+    expect(edge.ports).toEqual(['${WEB_APP_PORT:-3000}:8080']);
+    for (const [name, service] of Object.entries(services)) {
+      if (name === 'edge') continue;
+      for (const port of service.ports ?? []) expect(port, name).toMatch(/^127\.0\.0\.1:/);
+    }
+  });
+
+  it('is the only way to the web app, whose build calls the services through it', () => {
+    expect(services['web-app']!.ports).toBeUndefined();
+    const args = (services['web-app']!.build as { args: Record<string, string> }).args;
+    expect(args).toMatchObject({
+      NEXT_PUBLIC_USER_SERVICE_URL: '/api/user',
+      NEXT_PUBLIC_SUPPLIER_SERVICE_URL: '/api/supplier',
+      NEXT_PUBLIC_ORDER_SERVICE_URL: '/api/order',
+      NEXT_PUBLIC_CREDIT_SERVICE_URL: '/api/credit',
+    });
+  });
+
+  it('runs unprivileged, read-only, with a health check', () => {
+    expect(edge.image).toMatch(/^nginxinc\/nginx-unprivileged:/);
+    expect(edge.read_only).toBe(true);
+    expect(JSON.stringify(edge.healthcheck)).toContain('/edge/health');
+  });
+
+  it('routes each service under /api/<service>/, and the rest to the web app', () => {
+    for (const [prefix, upstream] of Object.entries(ROUTES)) {
+      const block = nginx.match(new RegExp(`location /api/${prefix}/ \\{([^}]*)\\}`))?.[1];
+      expect(block, prefix).toContain(`set $upstream ${upstream};`);
+      expect(block, prefix).toContain('proxy_pass http://$upstream$api_path;');
+    }
+    expect(nginx).toMatch(/location \/ \{[^}]*set \$upstream web-app:3000;/);
+  });
+
+  it('never routes the internal API or the metrics, however the path is spelled', () => {
+    // Matched on nginx's normalised path, which a regex location checks before the prefixes.
+    expect(nginx).toContain('location ~ ^/api/[a-z]+/(internal|metrics)(/|$) {');
+  });
+
+  it('sets the security headers on every response, and limits writes and request size', () => {
+    for (const header of [
+      'Content-Security-Policy',
+      'X-Frame-Options',
+      'X-Content-Type-Options',
+      'Referrer-Policy',
+    ]) {
+      expect(read('edge/headers.conf')).toMatch(
+        new RegExp(`^add_header ${header} .* always;$`, 'm'),
+      );
+    }
+    expect(nginx).toMatch(/limit_req_zone \$write_client zone=writes:/);
+    expect(nginx).toMatch(/^\s+limit_req zone=writes /m);
+    expect(nginx).toMatch(/^\s+client_max_body_size \d+[km];$/m);
+  });
+
+  it('serves the refresh cookie on the path the browser now sends it to', () => {
+    expect(nginx).toContain('proxy_cookie_path /auth /api/user/auth;');
+  });
+
+  it('tells each service the client’s address in one trusted hop, never the client’s own header', () => {
+    expect(nginx).toContain('proxy_set_header X-Forwarded-For $remote_addr;');
+    for (const name of APPLICATION) {
+      const env = services[name]!.environment as Record<string, unknown>;
+      expect(env.TRUST_PROXY_HOPS, name).toBe(1);
+    }
+  });
+});
+
 describe('reproducible versions (D3 4.2)', () => {
   /** name:exact-version@sha256:digest — a tag alone can be moved to different content. */
   const PINNED = /^[a-z0-9./-]+:v?\d+\.\d+(\.\d+)?[a-z0-9.-]*@sha256:[0-9a-f]{64}$/;
@@ -286,7 +371,7 @@ describe('reproducible versions (D3 4.2)', () => {
     const images = Object.values(services)
       .map((service) => service.image)
       .filter((image): image is string => Boolean(image));
-    expect(images).toHaveLength(4);
+    expect(images).toHaveLength(5);
     for (const image of images) expect(image).toMatch(PINNED);
   });
 

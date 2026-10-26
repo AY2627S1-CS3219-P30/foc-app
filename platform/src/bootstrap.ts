@@ -41,6 +41,9 @@ class InternalRoutesGuard implements CanActivate {
 const internalPortFromEnv = (): number | undefined =>
   process.env.INTERNAL_PORT ? Number(process.env.INTERNAL_PORT) : undefined;
 
+/** `TRUST_PROXY_HOPS` as `loadEnv` validated it; unset trusts no proxy. */
+const trustProxyHopsFromEnv = (): number => Number(process.env.TRUST_PROXY_HOPS ?? 0);
+
 /**
  * Applies the conventions every service shares and starts listening.
  *
@@ -62,12 +65,24 @@ export async function startService(
     corsOrigins: string;
     /** Defaults to `INTERNAL_PORT` from the environment. */
     internalPort?: number;
+    /** Proxies to believe about the client's address. Defaults to `TRUST_PROXY_HOPS`. */
+    trustProxyHops?: number;
   },
 ): Promise<void> {
   const logger = new Logger(options.serviceName);
   const internalPort = options.internalPort ?? internalPortFromEnv();
   if (internalPort !== undefined && internalPort === options.port) {
     throw new Error('INTERNAL_PORT must differ from PORT: it is the port that is not published.');
+  }
+
+  // Behind the edge every request comes from the edge; it forwards the address it saw, so
+  // `req.ip` is the client's and per-address limits count clients (PLT-10, ADR 0010).
+  const trustProxyHops = options.trustProxyHops ?? trustProxyHopsFromEnv();
+  if (trustProxyHops > 0) {
+    (app.getHttpAdapter().getInstance() as { set(name: string, value: unknown): void }).set(
+      'trust proxy',
+      trustProxyHops,
+    );
   }
 
   app.useGlobalFilters(new ErrorEnvelopeFilter());

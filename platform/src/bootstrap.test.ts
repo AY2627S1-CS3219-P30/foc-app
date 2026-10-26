@@ -1,7 +1,8 @@
 import 'reflect-metadata';
 import { createServer } from 'node:net';
 import type { AddressInfo } from 'node:net';
-import { Controller, Get, Module, type INestApplication } from '@nestjs/common';
+import { Controller, Get, Module, Req, type INestApplication } from '@nestjs/common';
+import type { Request } from 'express';
 import { NestFactory } from '@nestjs/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { startService } from './bootstrap.js';
@@ -25,6 +26,11 @@ class PublicController {
   @Get('.well-known/jwks.json')
   keys() {
     return { keys: [] };
+  }
+
+  @Get('whoami')
+  whoami(@Req() req: Request) {
+    return { ip: req.ip };
   }
 }
 
@@ -132,5 +138,36 @@ describe('startService: internal routes on their own port (PL-NFR2.1.2)', () => 
         internalPort: port,
       }),
     ).rejects.toThrow('INTERNAL_PORT must differ from PORT');
+  });
+});
+
+describe('startService: behind the edge (PLT-10)', () => {
+  let app: INestApplication | undefined;
+  afterEach(async () => {
+    await app?.close();
+    app = undefined;
+  });
+
+  async function ipSeen(trustProxyHops: number | undefined, forwardedFor: string) {
+    app = await NestFactory.create(AppModule, { logger: false });
+    await startService(app, {
+      serviceName: 'test-service',
+      port: 0,
+      corsOrigins: 'http://localhost:3000',
+      trustProxyHops,
+    });
+    const { port } = app.getHttpServer().address() as AddressInfo;
+    const response = await fetch(`http://127.0.0.1:${port}/whoami`, {
+      headers: { 'x-forwarded-for': forwardedFor },
+    });
+    return ((await response.json()) as { ip: string }).ip;
+  }
+
+  it('takes the client address the edge forwards, through one trusted hop', async () => {
+    expect(await ipSeen(1, '203.0.113.7')).toBe('203.0.113.7');
+  });
+
+  it('ignores a forwarded address when no proxy is trusted, as a service run alone is', async () => {
+    expect(await ipSeen(undefined, '203.0.113.7')).not.toBe('203.0.113.7');
   });
 });

@@ -136,7 +136,9 @@ docker compose up -d --build
 docker compose ps        # every row should read healthy
 ```
 
-Then open <http://localhost:3000>.
+Then open <http://localhost:3000>. That is the edge
+([ADR 0010](docs/adr/0010-api-edge.md)): the web app and every API on one origin, the APIs under
+`/api/user/`, `/api/supplier/`, `/api/order/` and `/api/credit/`.
 
 | Command                               | What it does                                  |
 | ------------------------------------- | --------------------------------------------- |
@@ -216,6 +218,7 @@ The demo itself, part by part with who presents what, is
 
 | Service            | Port | Owner      | Dev command             |
 | ------------------ | ---- | ---------- | ----------------------- |
+| `edge`             | 3000 | Jonus      | Compose only            |
 | `web-app`          | 3000 | Patrick    | `cd web-app && bun dev` |
 | `user-service`     | 3001 | Anselm     | `npm run dev:user`      |
 | `supplier-service` | 3002 | Patrick    | `npm run dev:supplier`  |
@@ -223,6 +226,10 @@ The demo itself, part by part with who presents what, is
 | `credit-service`   | 3004 | Isaac      | `npm run dev:credit`    |
 | `grafana`          | 3005 | Jonus      | Compose only            |
 | `prometheus`       | 9090 | Jonus      | Compose only            |
+
+In Compose, port 3000 is the edge, which serves the web app and the four APIs on one origin; the
+web app's container has no port of its own. `bun dev` serves the web app on 3000 itself, calling
+the services on their own ports, so run one or the other.
 
 ---
 
@@ -330,26 +337,30 @@ A container joins only the networks of what it depends on (PL-NFR2.1.2):
 | `db`            | Postgres, the four services, the migrate containers | each service's own database            |
 | `broker`        | RabbitMQ, the four services, Prometheus             | events; queue depths for the dashboard |
 | `services`      | the four services, Prometheus                       | service-to-service calls; scraping     |
+| `gateway`       | the edge, the web app, the four services            | the edge's routes to them              |
+| `edge`          | the edge                                            | publishing port 3000                   |
 | `public`        | the four services                                   | publishing ports 3001-3004             |
-| `web`           | the web app                                         | publishing port 3000                   |
 | `local`         | Postgres, RabbitMQ                                  | publishing their ports on `127.0.0.1`  |
 | `observability` | Prometheus, Grafana                                 | the dashboard's queries; their ports   |
 
-The first three are `internal`: containers talk on them, they have no route
+The first four are `internal`: containers talk on them, they have no route
 out, and no port can be published through them. Publishing a port needs an
 ordinary network, and each container has exactly one, because with two Docker
 can publish the port on one and send the replies out of the other. So the web
 app's container cannot open a connection to Postgres, and Grafana cannot reach
 a service.
 
-| From this machine                                             | Reachable on     |
-| ------------------------------------------------------------- | ---------------- |
-| The web app (3000) and each service's public port (3001-3004) | every interface  |
-| Postgres, RabbitMQ and its management UI, Grafana, Prometheus | `127.0.0.1` only |
-| Each service's internal port (4001-4004)                      | not published    |
+| From this machine                                                | Reachable on     |
+| ---------------------------------------------------------------- | ---------------- |
+| The edge (3000): the web app and the four APIs                   | every interface  |
+| Each service's public port (3001-3004), for the scripts          | `127.0.0.1` only |
+| Postgres, RabbitMQ and its management UI, Grafana, Prometheus    | `127.0.0.1` only |
+| The web app's own port, each service's internal port (4001-4004) | not published    |
 
-**External and internal communication.** A browser reaches a service on its
-public port. `/internal/**` (token introspection, Credit's reconciliation
+**External and internal communication.** A browser reaches a service through the
+edge, at `/api/<service>/` on the one origin; the edge never routes `/internal/**`
+or `/metrics`, adds the security headers and limits writes per client address
+([ADR 0010](docs/adr/0010-api-edge.md)). `/internal/**` (token introspection, Credit's reconciliation
 read) is for other services: each service listens on a second port that is not
 published, so only a container that shares a network with it can connect, and
 on the public port an internal route answers `404`, exactly as a route that
@@ -372,8 +383,9 @@ permissions, [`sender.ts`](platform/src/events/sender.ts) the check, and
 [ADR 0004](docs/adr/0004-authentication-and-trust.md) the reasoning.
 
 **Privileges.** Every container's main process is unprivileged. The services,
-their migrate containers and the web app also drop every Linux capability and
-cannot gain one (`no-new-privileges`). The four pre-built images (Postgres,
+their migrate containers, the web app and the edge also drop every Linux
+capability and cannot gain one (`no-new-privileges`); the edge's nginx also runs
+on a read-only file system. The four other pre-built images (Postgres,
 RabbitMQ, Prometheus, Grafana) keep their publishers' defaults: they are not
 given `cap_drop` or `no-new-privileges`, because their entrypoints were not
 tested under them here. RabbitMQ is started as its own user; Postgres starts as
@@ -426,23 +438,24 @@ consumer has ever started stays in the outbox until the consumer's queue exists.
 
 ### Pre-built images
 
-Six images are pulled as published; everything else is built from this
+Seven images are pulled as published; everything else is built from this
 repository. Each is pinned to an exact version and digest, in `compose.yaml` and
 the Dockerfiles, so two builds of one commit use the same bytes.
 
-| Image                              | Used for                           | Published by                                              | Licence of the software |
-| ---------------------------------- | ---------------------------------- | --------------------------------------------------------- | ----------------------- |
-| `node:22.23.3-alpine3.24`          | base of the four services, web app | Docker Official Image, by the Node.js Docker team         | MIT                     |
-| `oven/bun:1.4.2-alpine`            | building the web app               | Oven, the makers of Bun                                   | MIT                     |
-| `postgres:17.11-alpine3.24`        | the database server                | Docker Official Image, by the PostgreSQL Docker community | PostgreSQL Licence      |
-| `rabbitmq:4.3.6-management-alpine` | the message broker                 | Docker Official Image, by the Docker community            | MPL 2.0                 |
-| `prom/prometheus:v3.13.4`          | metrics and alert rules            | The Prometheus project                                    | Apache 2.0              |
-| `grafana/grafana-oss:12.4.3`       | the dashboard                      | Grafana Labs                                              | AGPL 3.0                |
+| Image                                       | Used for                           | Published by                                              | Licence of the software |
+| ------------------------------------------- | ---------------------------------- | --------------------------------------------------------- | ----------------------- |
+| `node:22.23.3-alpine3.24`                   | base of the four services, web app | Docker Official Image, by the Node.js Docker team         | MIT                     |
+| `oven/bun:1.4.2-alpine`                     | building the web app               | Oven, the makers of Bun                                   | MIT                     |
+| `postgres:17.11-alpine3.24`                 | the database server                | Docker Official Image, by the PostgreSQL Docker community | PostgreSQL Licence      |
+| `rabbitmq:4.3.6-management-alpine`          | the message broker                 | Docker Official Image, by the Docker community            | MPL 2.0                 |
+| `prom/prometheus:v3.13.4`                   | metrics and alert rules            | The Prometheus project                                    | Apache 2.0              |
+| `grafana/grafana-oss:12.4.3`                | the dashboard                      | Grafana Labs                                              | AGPL 3.0                |
+| `nginxinc/nginx-unprivileged:1.30.6-alpine` | the edge (ADR 0010)                | NGINX, Inc. (F5)                                          | BSD 2-Clause            |
 
 One more is run as a tool, not as part of the stack: `ghcr.io/gitleaks/gitleaks:v8.30.0`
 (the Gitleaks project, MIT), by `./scripts-scan-secrets.sh`.
 
-The Alpine Linux base of the first four carries its own packages under their
+The Alpine Linux base of the first four, and of the edge, carries its own packages under their
 own licences. To update an image, change its version and its digest together;
 a test fails if either is missing.
 

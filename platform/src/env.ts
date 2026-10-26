@@ -29,6 +29,13 @@ export const baseEnvSchema = z.object({
    */
   CORS_ORIGINS: z.string().min(1).default('http://localhost:3000'),
   /**
+   * How many proxies in front of this service to believe about the client's address (PLT-10).
+   * Compose sets 1, the edge, which overwrites `X-Forwarded-For` with the address it saw, so a
+   * per-address limit counts each client rather than the edge. 0 (alone, as in `npm run dev`)
+   * ignores the header. Only an address: identity is never taken from a proxy (ADR 0004).
+   */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
+  /**
    * Broker connection string. Optional: a service that publishes or consumes
    * nothing yet still boots without it, so this ticket does not break the
    * services that have no workflow of their own until Sprint 2.

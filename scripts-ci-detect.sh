@@ -15,11 +15,11 @@ set -euo pipefail
 SHARED_RE='^(platform/|test-harness/|system-tests/|package\.json|package-lock\.json|tsconfig\.base\.json|eslint\.config\.mjs|\.prettierrc|\.prettierignore|\.github/workflows/ci\.yml|\.nvmrc)'
 SERVICE_RE='^(user|supplier|order|credit)-service/'
 # Wiring between containers, as opposed to code inside one. `.env.example`
-# belongs here because the smoke job builds `.env` from it.
-STACK_RE='^(compose(\.dev)?\.yaml|postgres-init\.sh|rabbitmq-init\.sh|scripts-(smoke|demo-failures|demo-journey|demo-credits|restart-check|scan-secrets|init-env|env|lib|ci-detect)\.sh|platform/|observability/|\.env\.example|\.gitleaks\.toml)|Dockerfile|\.dockerignore'
+# belongs here because the smoke job builds `.env` from it; `edge/` is the edge's config.
+STACK_RE='^(compose(\.dev)?\.yaml|postgres-init\.sh|rabbitmq-init\.sh|scripts-(smoke|demo-failures|demo-journey|demo-credits|restart-check|scan-secrets|init-env|env|lib|ci-detect)\.sh|platform/|observability/|edge/|\.env\.example|\.gitleaks\.toml)|Dockerfile|\.dockerignore'
 # The deployment files that test-harness/test/compose-config.test.ts reads (PLT-06): a change to
 # one runs the Node job, where that test lives, without fanning out to every service.
-DEPLOY_CONFIG_RE='^(compose(\.dev)?\.yaml|postgres-init\.sh|rabbitmq-init\.sh|scripts-init-env\.sh|\.env\.example)|Dockerfile|\.dockerignore'
+DEPLOY_CONFIG_RE='^(compose(\.dev)?\.yaml|postgres-init\.sh|rabbitmq-init\.sh|scripts-init-env\.sh|\.env\.example|edge/)|Dockerfile|\.dockerignore'
 # The supplier page and the service it lists from: their integration test
 # (web-app/test/suppliers.integration.test.tsx) runs against the real Supplier
 # Service whenever either side, or anything shared or stack-wide, changes.
@@ -140,6 +140,9 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "env example -> stack runs"             ".env.example" 'stack=true'
   check "env example -> no services"            ".env.example" 'services=[]'
   check "observability -> stack runs"           "observability/prometheus.yml" 'stack=true'
+  check "edge config -> stack runs"             "edge/nginx.conf" 'stack=true'
+  check "edge config -> node runs its config tests" "edge/headers.conf" 'node=true'
+  check "edge config -> no services"            "edge/nginx.conf" 'services=[]'
   check "failure demo -> stack runs"            "scripts-demo-failures.sh" 'stack=true'
   check "failure demo -> no services"           "scripts-demo-failures.sh" 'services=[]'
   check "credit walkthrough -> stack runs"      "scripts-demo-credits.sh" 'stack=true'
