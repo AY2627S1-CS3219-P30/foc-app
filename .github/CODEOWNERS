@@ -1,0 +1,56 @@
+# Who GitHub asks to review a change, by what it touches (NTH-04, #164). A pull request
+# requests a review from the owners of every file it changes. The last matching line wins,
+# so the more specific lines come after the folders they sit in.
+#
+# Reviews are a team rule, not enforced by branch protection: main requires the CI check.
+
+# Anything no line below names, a new root file included, so no change goes unreviewed
+*                    @jonushzw
+
+# The four services, each by its owner
+/user-service/       @anselmlong
+/supplier-service/   @pastchum
+/order-service/      @volleyballkickedme
+/credit-service/     @isaacchua0309
+
+# The web app, and the admin console inside it
+/web-app/                      @pastchum
+/web-app/src/app/(app)/admin/  @jonushzw
+
+# Contracts: each service's by its owner, the events by the platform and the credit owner
+/contracts/                               @jonushzw
+/contracts/user-service.openapi.yaml      @anselmlong
+/contracts/supplier-service.openapi.yaml  @pastchum
+/contracts/order-service.openapi.yaml     @volleyballkickedme
+/contracts/credit-service.openapi.yaml    @isaacchua0309
+/contracts/events.schema.json             @jonushzw @isaacchua0309
+
+# Shared code and tests
+/platform/       @jonushzw
+/auth-client/    @jonushzw @anselmlong
+/test-harness/   @jonushzw
+/system-tests/   @isaacchua0309 @volleyballkickedme
+
+# The pipeline and the stack
+/.github/                @jonushzw
+/compose.yaml            @jonushzw
+/compose.dev.yaml        @jonushzw
+/observability/          @jonushzw
+/postgres-init.sh        @jonushzw
+/rabbitmq-init.sh        @jonushzw
+/scripts-*.sh            @jonushzw
+/.env.example            @jonushzw
+/.gitleaks.toml          @jonushzw
+/compose.images.yaml     @jonushzw
+
+# Root configuration every package builds, lints or installs from
+/package.json            @jonushzw
+/package-lock.json       @jonushzw
+/tsconfig.base.json      @jonushzw
+/eslint.config.mjs       @jonushzw
+/.prettierrc             @jonushzw
+/.prettierignore         @jonushzw
+/.nvmrc                  @jonushzw
+
+# The supplier seed data, read by the Supplier Service
+/data/                   @pastchum

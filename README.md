@@ -439,8 +439,9 @@ the Dockerfiles, so two builds of one commit use the same bytes.
 | `prom/prometheus:v3.13.4`          | metrics and alert rules            | The Prometheus project                                    | Apache 2.0              |
 | `grafana/grafana-oss:12.4.3`       | the dashboard                      | Grafana Labs                                              | AGPL 3.0                |
 
-One more is run as a tool, not as part of the stack: `ghcr.io/gitleaks/gitleaks:v8.30.0`
-(the Gitleaks project, MIT), by `./scripts-scan-secrets.sh`.
+Two more are run as tools, not as part of the stack: `ghcr.io/gitleaks/gitleaks:v8.30.0`
+(the Gitleaks project, MIT), by `./scripts-scan-secrets.sh`, and `aquasec/trivy:0.58.1` (Aqua
+Security, Apache 2.0), by `./scripts-scan-vulnerabilities.sh`.
 
 The Alpine Linux base of the first four carries its own packages under their
 own licences. To update an image, change its version and its digest together;
@@ -825,15 +826,15 @@ to all four, because it can break any of them. So does any path the filter does
 not recognise, such as a new package: it fails closed, running everything rather
 than nothing.
 
-| Job               | Runs when                                       | What it does                                                           |
-| ----------------- | ----------------------------------------------- | ---------------------------------------------------------------------- |
-| `Detect changes`  | always                                          | Works out what is affected                                             |
-| `Lint and format` | any Node code changed                           | `eslint`, `prettier --check`, and the contract compatibility check     |
-| `Shared packages` | any Node code changed                           | Build and test every shared package, with real RabbitMQ and PostgreSQL |
-| `<service>`       | that service or shared code changed             | Typecheck, test, and build its image                                   |
-| `web-app`         | `web-app/**` changed                            | `bun install`, lint, build                                             |
-| `Compose smoke`   | container wiring changed, or any push to `main` | Brings the whole stack up and runs the smoke checks                    |
-| **`CI`**          | **always**                                      | The gate — fails if anything above failed                              |
+| Job               | Runs when                                                  | What it does                                                                                                            |
+| ----------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `Detect changes`  | always                                                     | Works out what is affected                                                                                              |
+| `Lint and format` | any Node code changed                                      | `eslint`, `prettier --check`, the contract compatibility check, and a vulnerability scan of the production dependencies |
+| `Shared packages` | any Node code changed                                      | Build and test every shared package, with real RabbitMQ and PostgreSQL, and report their coverage                       |
+| `<service>`       | that service or shared code changed                        | Typecheck, test and report coverage, build its image, and scan the image for vulnerabilities                            |
+| `web-app`         | `web-app/**`, a contract, or what builds its image changed | `bun install`, lint, test with coverage; then build its image, which builds the app, and scan it                        |
+| `Compose smoke`   | container wiring changed, or any push to `main`            | Brings the whole stack up and runs the smoke checks                                                                     |
+| **`CI`**          | **always**                                                 | The gate — fails if anything above failed                                                                               |
 
 ### Why there is a separate `CI` job
 
@@ -842,6 +843,34 @@ required, a documentation-only PR would skip them, the required checks would
 never arrive, and the PR would be blocked forever. The `CI` job always runs and
 fails if any job it depends on failed, so it is the only check that needs to be
 required on `main`.
+
+### Vulnerabilities, coverage, owners and what `main` requires
+
+- **A critical vulnerability with a fix fails the pull request** (NTH-04,
+  [#164](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/164); PL-NFR4.1.2), as a failed
+  test does. [`scripts-scan-vulnerabilities.sh`](scripts-scan-vulnerabilities.sh) runs Trivy,
+  pinned like every other image, over `package-lock.json`'s production dependencies and over each
+  image a change builds. It lists every HIGH and CRITICAL finding that has a fixed version and fails
+  on a CRITICAL one; HIGH ones are listed, not gated, and one with no fix yet is left out. The web
+  app's dependencies are scanned in its image, as this Trivy does not read `bun.lock`. Each target
+  is analysed once, and one Trivy cannot scan (a refused database download, a missing image) fails
+  while the rest are still scanned. CI restores the day's Trivy database from its cache
+  ([`.github/actions/trivy-db`](.github/actions/trivy-db/action.yml)), so a run seldom downloads it.
+  To run it: `./scripts-scan-vulnerabilities.sh --lockfile`, or `--image <name>` for an image you
+  have built.
+- **Code owners.** [`.github/CODEOWNERS`](.github/CODEOWNERS) asks each service's owner, and the
+  owner of the web app, the console, the contracts and the pipeline, to review a change to theirs.
+  A catch-all line gives everything else, root files included, an owner too.
+- **What `main` requires.** Branch protection requires the `CI` check, on a branch up to date with
+  `main`, and refuses force pushes. It does not require an approval: a review by one person other
+  than the author is the team's rule (each ticket's Definition of Done), and `CODEOWNERS` requests it.
+- **Coverage is reported, not gated** (PL-NFR4.1.1). Each service's and shared package's tests run
+  with `--coverage` in CI, and [`scripts-coverage-summary.sh`](scripts-coverage-summary.sh) puts
+  their lines, branches and functions in the job's summary; the web app's table is in its log. No
+  package has a threshold. To see a service's locally:
+  `npm test -w @foc/order-service -- --coverage`.
+- **Pinned tools.** Bun in CI is the version the web app's image builds with (1.4.2), and a test
+  fails if the two differ.
 
 ### Checking the path filter without pushing
 
@@ -879,6 +908,49 @@ npm run test:contract        # contract compatibility + provider checks
 
 Every test suite, its naming convention and the variables that switch on the real-PostgreSQL and
 RabbitMQ suites are described in [docs/testing.md](docs/testing.md).
+
+### Published images
+
+A push to `main` that passes every check publishes the five application images to the GitHub
+Container Registry (NTH-04, [#164](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/164)):
+`ghcr.io/ay2627s1-cs3219-p30/foc-user-service`, `-supplier-service`, `-order-service`,
+`-credit-service` and `-web-app`. Each is tagged `sha-<commit>` with the full commit hash, and the
+newest is also `main`. Pull requests build the images but never push them.
+
+[`compose.images.yaml`](compose.images.yaml) names them for Compose. With it, a stack starts from
+the published images instead of building:
+
+```bash
+FOC_IMAGE_TAG=sha-<commit> docker compose -f compose.yaml -f compose.images.yaml pull
+FOC_IMAGE_TAG=sha-<commit> docker compose -f compose.yaml -f compose.images.yaml up -d --no-build
+```
+
+`FOC_IMAGE_TAG` defaults to `main`. Starting an earlier commit's tag rolls the stack back (PLT-09,
+[#284](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/284)). CI builds with the same file
+through `docker buildx bake`, so a published image has exactly `compose.yaml`'s build arguments.
+
+- **The web app's image is for this local stack only.** `next build` inlines its build arguments,
+  so it calls the services at `localhost` on `compose.yaml`'s default ports (3001 to 3004) and links
+  sign-up to the dev mailbox; its image label says so. A stack on other ports keeps the published
+  services and builds the web app from its own `.env` first:
+  `docker compose -f compose.yaml -f compose.images.yaml build web-app`, then `up -d --no-build`.
+  A web app image that can be deployed elsewhere waits for the edge proxy (PLT-10,
+  [#285](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/285)), which puts it and the APIs
+  on one origin.
+- **Every merged commit is published, unless its scan fails.** Each run on `main` has a concurrency
+  group of its own, so none is dropped or cancelled while another runs; only a pull request's
+  superseded run is cancelled. As runs can then finish out of order, a run moves `main` only while
+  its commit is still the newest on `main`.
+- **What is pushed is what was scanned.** The publish job builds all five images, scans every one,
+  changed in that push or not, and only then pushes them. A critical vulnerability with a fix,
+  disclosed since an image was last scanned, stops the publish: nothing is pushed.
+- **Only the publish job may write to the registry.** It alone has `packages: write`, and it runs
+  only after the `CI` job passed on a push to `main`.
+- **Fast after the first.** It reads and writes the per-service layer cache that the image builds
+  use, from `main`, which every later run, pull requests included, can read.
+- **If `pull` says `denied`,** the package is still private: an organisation owner makes it public
+  under the package's settings, or you sign in first with
+  `docker login ghcr.io -u <github-user>` and a token that has `read:packages`.
 
 ## Repository Structure
 
