@@ -1,4 +1,4 @@
-import type { OrderStatus } from './types.js';
+import type { OrderStatus, ReleaseReason } from './types.js';
 
 export const ORDER_ACTIONS = [
   'CREDIT_RESERVED',
@@ -27,6 +27,29 @@ export const ORDER_ACTIONS = [
 
 export type OrderAction = (typeof ORDER_ACTIONS)[number];
 
+/**
+ * What a participant's suspension does to an errand, by their part in it: the action tried from
+ * each status it can change (the rules below decide the result) and the reason recorded with it.
+ * A requester's picked-up errand is referred only once the delivery period has passed.
+ */
+export const SUSPENSION_EFFECTS: Record<
+  'REQUESTER' | 'COURIER',
+  { reason: string; actions: Partial<Record<OrderStatus, OrderAction>> }
+> = {
+  REQUESTER: {
+    reason: 'requester suspended',
+    actions: {
+      OPEN: 'REQUESTER_SUSPENDED',
+      ACCEPTED: 'REQUESTER_SUSPENDED',
+      PICKED_UP: 'DELIVERY_PERIOD_PASSED',
+    },
+  },
+  COURIER: {
+    reason: 'courier suspended',
+    actions: { ACCEPTED: 'COURIER_SUSPENDED', PICKED_UP: 'COURIER_SUSPENDED' },
+  },
+};
+
 /** The action that carries out each outcome an administrator can decide a dispute for. */
 export const RESOLVE_ACTIONS = {
   COURIER: 'RESOLVE_FOR_COURIER',
@@ -47,14 +70,15 @@ export type OrderActor = (typeof ORDER_ACTORS)[number];
 export interface TransitionContext {
   acceptanceDeadlinePassed?: boolean;
   deliveryPeriodPassed?: boolean;
+  autoConfirmationPeriodPassed?: boolean;
   requesterSuspended?: boolean;
   reasonProvided?: boolean;
-  releaseReason?: 'CANCELLED' | 'EXPIRED';
+  releaseReason?: ReleaseReason;
 }
 
 export interface TransitionDecision {
   to: OrderStatus;
-  releaseReason?: 'CANCELLED' | 'EXPIRED';
+  releaseReason?: ReleaseReason;
   emitted: readonly string[];
 }
 
@@ -190,7 +214,7 @@ export const ORDER_TRANSITIONS: readonly TransitionRule[] = [
     from: 'PICKED_UP',
     action: 'DELIVERY_PERIOD_PASSED',
     actors: ['SYSTEM'],
-    guard: (c) => c.requesterSuspended === true,
+    guard: (c) => c.requesterSuspended === true && c.deliveryPeriodPassed === true,
     decide: () => ({ to: 'DISPUTED', emitted: statusChanged }),
   },
   {
@@ -215,6 +239,8 @@ export const ORDER_TRANSITIONS: readonly TransitionRule[] = [
     from: 'DELIVERED',
     action: 'REPORT_NON_RECEIPT',
     actors: ['REQUESTER'],
+    // Once the period has passed the errand is confirmed, even before the scheduler records it.
+    guard: (c) => !c.autoConfirmationPeriodPassed,
     decide: () => ({ to: 'DISPUTED', emitted: statusChanged }),
   },
   {

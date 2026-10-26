@@ -58,6 +58,8 @@ const ENDPOINTS: Endpoint[] = [
   participant('confirm-receipt', 'CONFIRM_RECEIPT'),
   participant('cancel', 'CANCEL'),
   participant('withdraw', 'WITHDRAW'),
+  participant('report-non-delivery', 'REPORT_NON_DELIVERY'),
+  participant('report-non-receipt', 'REPORT_NON_RECEIPT'),
   decision('COURIER', 'RESOLVE_FOR_COURIER'),
   decision('REQUESTER', 'RESOLVE_FOR_REQUESTER'),
 ];
@@ -182,6 +184,10 @@ function permitted(order: OrderRow, action: OrderAction, userId: string, isAdmin
   return (
     decideTransition(order.status, action, role, {
       acceptanceDeadlinePassed: new Date(order.acceptanceDeadlineAt ?? 0) <= new Date(),
+      deliveryPeriodPassed:
+        order.nonDeliveryReportAt !== null && new Date(order.nonDeliveryReportAt) <= new Date(),
+      autoConfirmationPeriodPassed:
+        order.autoConfirmAt !== null && new Date(order.autoConfirmAt) <= new Date(),
       releaseReason: order.releaseReason ?? undefined,
     }) !== null
   );

@@ -19,7 +19,7 @@ Every `ADMIN` is also a `STUDENT` (an admin can still place and fulfil errands).
 delivering (US-FR2.1.1). Modelling them as roles would force a role change or a second account for a
 routine action, and would put a permission check on something that carries no privilege difference.
 The requester↔courier switch is therefore a **UX preference** (`preferredMode` on the profile). It
-changes which screens the navigation shows and **never** changes a server authorization decision
+changes which requests the feed and history show and **never** changes a server authorization decision
 (US-FR2.1.2, US-NFR1.1.2).
 
 ### Account status (orthogonal to role)
@@ -123,7 +123,7 @@ for someone, and no administrator action edits a wallet.
 
 | Screen                                              | Shown to |
 | --------------------------------------------------- | -------- |
-| Requester views (compose, my errands) / courier views (discover, active deliveries) | Every active STUDENT; the requester↔courier switch (`preferredMode`) picks which is in front |
+| Requester views (own open requests and history) / courier views (other students' open requests and own delivery history) | Every active STUDENT; the requester↔courier switch (`preferredMode`) selects the list |
 | Supplier admin controls, user administration, audit trail | ADMIN only — hidden for clarity; each service still refuses a non-admin |
 
 The automated matrix test (US-NFR1.1.1) runs every protected endpoint for four actors —

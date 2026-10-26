@@ -62,4 +62,12 @@ describe('identity-change invalidation is wired (USR-07)', () => {
       expect(broker.subscription(queue)?.routingKeys).toContain(routingKey);
     }
   });
+
+  it('subscribes a durable queue of its own to suspensions, shared by every instance (ORD-06)', () => {
+    expect(subscribed).toContain('foc.order.user-suspensions');
+    expect(broker.subscription('foc.order.user-suspensions')).toMatchObject({
+      routingKeys: ['user.suspended'],
+    });
+    expect(broker.subscription('foc.order.user-suspensions')?.exclusive).not.toBe(true);
+  });
 });

@@ -7,13 +7,55 @@ import {
   OrdersRepository,
   type TransitionCommand,
 } from './orders.repository.js';
-import { RESOLVE_ACTIONS, type OrderAction } from './order-state-machine.js';
+import { RESOLVE_ACTIONS, SUSPENSION_EFFECTS, type OrderAction } from './order-state-machine.js';
 import { SupplierClient } from './supplier.client.js';
-import type { OpenOrderSummary, OrderReceipt, OrderRow, OrderView } from './types.js';
-import type { CreateOrderInput, ResolveOrderInput } from './validation.js';
+import type { OpenOrderSummary, OrderReceipt, OrderRow, OrderStatus, OrderView } from './types.js';
+import type {
+  AccountErrandsQuery,
+  CreateOrderInput,
+  MyOrdersQuery,
+  ResolveOrderInput,
+} from './validation.js';
 
 const MY_ERRANDS_LIMIT = 100;
+const SUSPENSION_REASONS = new Set(
+  Object.values(SUSPENSION_EFFECTS).map((effect) => effect.reason),
+);
+
+type HistoryEntry = Awaited<ReturnType<OrdersRepository['findHistory']>>[number];
+
+/**
+ * A history entry as anyone but the referred administrator sees it. Every system move, whether a
+ * timer, a referral or a suspension made it, shows as the same system outcome, without the action,
+ * actor or reason that would say which; so does the Credit Service's cancellation for a suspended
+ * requester. An administrator's decision is never masked, whatever its reason says. The statuses
+ * stay true, so a move only a suspension makes can still be worked out.
+ */
+function asParticipantSees(entry: HistoryEntry): HistoryEntry {
+  const creditForSuspension =
+    entry.actorType === 'CREDIT_SERVICE' &&
+    entry.reason !== null &&
+    SUSPENSION_REASONS.has(entry.reason);
+  if (entry.actorType !== 'SYSTEM' && !creditForSuspension) return entry;
+  return { ...entry, action: 'SYSTEM_OUTCOME', actorType: 'SYSTEM', actorId: null, reason: null };
+}
 const notFound = () => new ApiException(404, 'NOT_FOUND', 'Order not found.');
+
+/** A requester's report refused in this status can only be refused by its deadline, so say so. */
+const DEADLINE_REFUSALS: Partial<
+  Record<OrderAction, { status: OrderStatus; code: string; message: string }>
+> = {
+  REPORT_NON_DELIVERY: {
+    status: 'PICKED_UP',
+    code: 'DELIVERY_PERIOD_NOT_PASSED',
+    message: 'The delivery period has not passed yet.',
+  },
+  REPORT_NON_RECEIPT: {
+    status: 'DELIVERED',
+    code: 'AUTO_CONFIRMATION_PASSED',
+    message: 'The errand has already been confirmed automatically.',
+  },
+};
 
 export function projectOrder(
   order: OrderRow,
@@ -46,11 +88,22 @@ export function projectOrder(
     acceptanceDeadlineAt: order.acceptanceDeadlineAt,
     createdAt: order.createdAt,
     updatedAt: order.updatedAt,
+    serverTime: new Date().toISOString(),
     ...(canReadPrivate
       ? {
           requesterId: order.requesterId,
           ...(order.courierId ? { courierId: order.courierId } : {}),
           deliveryInstructions: order.deliveryInstructions,
+          // Each deadline only means something in the status it was set for.
+          ...(order.status === 'PICKED_UP' && order.nonDeliveryReportAt
+            ? { nonDeliveryReportAt: order.nonDeliveryReportAt }
+            : {}),
+          ...(order.status === 'DELIVERED' && order.autoConfirmAt
+            ? { autoConfirmAt: order.autoConfirmAt }
+            : {}),
+          ...(order.status === 'RELEASE_PENDING_CREDIT' && order.releaseReason
+            ? { releaseReason: order.releaseReason }
+            : {}),
         }
       : {}),
     ...(order.status === 'REJECTED' && canReadPrivate && order.rejectionReason
@@ -66,6 +119,26 @@ export function projectOrder(
   };
 }
 
+/**
+ * The fields any student may see on an open errand, whatever the status: no participant IDs,
+ * delivery instructions or item notes. What an administrator's view of an account lists.
+ */
+export function publicOrderView(order: OrderRow): OrderView {
+  return {
+    orderId: order.orderId,
+    supplier: order.supplierSnapshot,
+    items: order.items.map(({ name, quantity }) => ({ name, quantity })),
+    deliveryZone: order.deliveryZone,
+    reward: order.reward,
+    status: order.status,
+    version: order.version,
+    acceptanceDeadlineAt: order.acceptanceDeadlineAt,
+    createdAt: order.createdAt,
+    updatedAt: order.updatedAt,
+    serverTime: new Date().toISOString(),
+  };
+}
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -73,17 +146,20 @@ export class OrdersService {
     @Inject(SupplierClient) private readonly suppliers: SupplierClient,
   ) {}
 
-  async listOpen(): Promise<OpenOrderSummary[]> {
-    return this.orders.listOpen();
+  async listOpen(callerId: string): Promise<OpenOrderSummary[]> {
+    return this.orders.listOpen(callerId);
   }
 
   /** The caller's own errands, each in their private projection, with `truncated` past the cap. */
-  async listMine(caller: AuthContext): Promise<{
+  async listMine(
+    caller: AuthContext,
+    query: MyOrdersQuery = {},
+  ): Promise<{
     items: Array<OrderView & { myRole: 'REQUESTER' | 'COURIER' }>;
     truncated: boolean;
   }> {
     // One extra row tells us whether the cap cut the list off.
-    const orders = await this.orders.listMine(caller.userId, MY_ERRANDS_LIMIT + 1);
+    const orders = await this.orders.listMine(caller.userId, MY_ERRANDS_LIMIT + 1, query);
     return {
       items: orders.slice(0, MY_ERRANDS_LIMIT).flatMap((order) => {
         const view = projectOrder(order, caller);
@@ -92,6 +168,17 @@ export class OrdersService {
       }),
       truncated: orders.length > MY_ERRANDS_LIMIT,
     };
+  }
+
+  /** An administrator's view of one account's errands (ORD-15): public fields only, paged. */
+  async listByAccount(query: AccountErrandsQuery) {
+    const { requesterId, courierId, page, pageSize } = query;
+    const { rows, total } = await this.orders.listByAccount(
+      { requesterId, courierId },
+      page,
+      pageSize,
+    );
+    return { items: rows.map(publicOrderView), page, pageSize, total };
   }
 
   async getById(orderId: string, caller: AuthContext, privateView = false): Promise<OrderView> {
@@ -206,6 +293,10 @@ export class OrdersService {
         details,
       );
     }
+    const deadline = DEADLINE_REFUSALS[action];
+    if (deadline?.status === result.order.status) {
+      throw new ApiException(409, deadline.code, deadline.message, details);
+    }
     throw new ApiException(
       409,
       'INVALID_ORDER_STATE',
@@ -281,7 +372,9 @@ export class OrdersService {
         'Only an order participant or its referred administrator may read the status history.',
       );
     }
-    return { orderId, entries: await this.orders.findHistory(orderId) };
+    const entries = await this.orders.findHistory(orderId);
+    const isReferredAdmin = caller.isAdmin && caller.userId === order.referredAdminId;
+    return { orderId, entries: isReferredAdmin ? entries : entries.map(asParticipantSees) };
   }
 
   async reconciliationAttempts() {

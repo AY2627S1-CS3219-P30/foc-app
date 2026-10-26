@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 
 /**
  * End-to-end checks for the account journey (USR-05) against the real stack: `docker compose up`
@@ -9,10 +10,15 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const at = (width: number, height: number) => ({ ...devices["Desktop Chrome"], viewport: { width, height } });
 
+// The runner makes a fresh ID per invocation; workers reload this config and keep its inherited ID.
+if (process.env.TEST_WORKER_INDEX === undefined) process.env.E2E_RUN = randomUUID();
+
 export default defineConfig({
   testDir: "./e2e",
   testMatch: "**/*.e2e.ts",
-  // Each project registers its own account; one at a time keeps well inside the sign-up rate limit.
+  globalSetup: "./e2e/global-setup.ts",
+  // One at a time, so projects never act on the shared errand accounts at once. The User Service
+  // limits sign-ups and logins per IP, whatever the worker count; staying inside them is up to the specs.
   workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

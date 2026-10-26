@@ -12,6 +12,7 @@ import type {
 } from "./generated/credit-service";
 import type { components as OrderComponents, paths as OrderPaths } from "./generated/order-service";
 import type { components as UserComponents, paths as UserPaths } from "./generated/user-service";
+import { CREDIT_SERVICE_URL, ORDER_SERVICE_URL } from "./order-api";
 import { NOT_CONFIGURED_MESSAGE, USER_SERVICE_URL } from "./user-api";
 
 type UserSchemas = UserComponents["schemas"];
@@ -31,6 +32,15 @@ export type AdminRead = UserSchemas["AdminRead"];
 export type AdminAlert = UserSchemas["AdminAlert"];
 export type AdminAlertKind = UserSchemas["AdminAlertKind"];
 export type CreditWait = OrderSchemas["CreditWaitList"]["items"][number];
+/** ORD-15: an errand as an administrator sees it in an account's list (public fields only). */
+export type AccountErrand = OrderSchemas["Order"];
+export type AccountErrandPage = OrderSchemas["AccountOrderPage"];
+export type OrderStatus = AccountErrand["status"];
+/** ORD-11: a dispute referred to the caller (`assignedToMe`, with private details) or to no one yet. */
+export type ReferredDispute = OrderSchemas["ReferredOrders"]["items"][number];
+export type DisputeDecision = OrderSchemas["DisputeDecisions"]["items"][number];
+export type DisputeOutcome = OrderSchemas["ResolveDispute"]["outcome"];
+export type ResolveDispute = OrderSchemas["ResolveDispute"];
 export type ReconciliationAttempt = OrderSchemas["ReconciliationAttempts"]["items"][number];
 export type Wallet = CreditSchemas["Wallet"];
 export type LedgerItem = CreditSchemas["LedgerItem"];
@@ -45,15 +55,6 @@ export type CreditAuditAlert = CreditSchemas["CreditAuditAlert"];
 export type OrderCreditTrace = CreditSchemas["OrderCreditTrace"];
 /** ADM-04: the Credit Service's alerts about administrators (BULK_WALLET_READS). */
 export type WalletReadAlert = CreditSchemas["AdminActivityAlert"];
-
-export const ORDER_SERVICE_URL = serviceUrl(
-  process.env.NEXT_PUBLIC_ORDER_SERVICE_URL,
-  "http://localhost:3003",
-);
-export const CREDIT_SERVICE_URL = serviceUrl(
-  process.env.NEXT_PUBLIC_CREDIT_SERVICE_URL,
-  "http://localhost:3004",
-);
 
 /** The platform dashboard (PLT-04), beside the Compose stack. */
 export const GRAFANA_URL = serviceUrl(process.env.NEXT_PUBLIC_GRAFANA_URL, "http://localhost:3005");
@@ -77,6 +78,9 @@ export type AuditQuery = Paging & {
   to?: string;
 };
 export type ReadsQuery = Paging & { actorId?: string; targetUserId?: string };
+/** One account's errands: those it requested, those it holds as courier, or both. One is required. */
+export type AccountErrandQuery = Paging &
+  ({ requesterId: string; courierId?: string } | { courierId: string; requesterId?: string });
 
 /** The ledger page size the console asks for. */
 export const LEDGER_PAGE = 20;
@@ -182,6 +186,35 @@ export function createAdminApi({
     stepUp: (token: string, password: string) =>
       unwrap(users.POST("/auth/step-up", { body: { password }, headers: bearer(token) })),
 
+    /** ORD-15: one account's errands, newest first. Students are refused by the Order Service. */
+    accountErrands: (token: string, query: AccountErrandQuery) =>
+      unwrap(orders.GET("/admin/orders", { params: { query }, headers: bearer(token) })),
+    /** ORD-11: disputes referred to the caller, in full, and those referred to no one yet. */
+    referredDisputes: (token: string) =>
+      unwrap(orders.GET("/admin/orders/referred", { headers: bearer(token) })),
+    /** The most recent dispute decisions, newest first. */
+    disputeDecisions: (token: string) =>
+      unwrap(orders.GET("/admin/orders/decisions", { headers: bearer(token) })),
+    /**
+     * One errand's private view. The Order Service gives it only to the administrator the dispute
+     * is referred to; anyone else gets 403.
+     */
+    errand: (token: string, orderId: string) =>
+      unwrap(
+        orders.GET("/orders/{orderId}", {
+          params: { path: { orderId }, query: { view: "private" } },
+          headers: bearer(token),
+        }),
+      ),
+    /** The referred administrator decides, with a reason, at the version they read. */
+    resolveDispute: (token: string, orderId: string, decision: ResolveDispute) =>
+      unwrap(
+        orders.POST("/admin/orders/{orderId}/resolve", {
+          params: order(orderId),
+          body: decision,
+          headers: bearer(token),
+        }),
+      ),
     creditWaits: (token: string) =>
       unwrap(orders.GET("/admin/orders/pending-credit", { headers: bearer(token) })),
     reconciliation: (token: string) =>

@@ -48,11 +48,19 @@ INITIAL_CREDITS="${INITIAL_CREDIT_ALLOCATION:-10}"
 
 # Signs up and activates a student through the dev mailbox, logs them in, and
 # waits for their initial wallet. Sets STUDENT_ID and STUDENT_TOKEN.
-signup() { # label
+signup() { # label [no-wallet]
   local email="demo-$1-$RUN@$EMAIL_DOMAIN" password token
   password=$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')
-  curl -fsS -X POST "http://localhost:${USER_PORT}/auth/register" -H 'content-type: application/json' \
-    -d "{\"email\":\"$email\",\"password\":\"$password\",\"displayName\":\"Demo $1\"}" -o /dev/null 2>/dev/null || true
+  local registered
+  registered=$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://localhost:${USER_PORT}/auth/register" -H 'content-type: application/json' \
+    -d "{\"email\":\"$email\",\"password\":\"$password\",\"displayName\":\"Demo $1\"}" 2>/dev/null) || true
+  if [[ "$registered" == "429" ]]; then
+    # The User Service allows 20 registrations an hour from one address, and every script on
+    # this machine is one address. The count is in memory, so a restart clears it.
+    echo "Registration is rate-limited (20 an hour from one address). Clear it with:" >&2
+    echo "  docker compose restart user-service" >&2
+    exit 1
+  fi
   token=$(curl -fsS -G "http://localhost:${USER_PORT}/dev/mailbox" --data-urlencode "to=$email" 2>/dev/null | json 'd.get("token", "")') || true
   if [[ -z "$token" ]]; then
     echo "No activation token for $email: the dev mailbox exists only outside production." >&2
@@ -69,6 +77,9 @@ signup() { # label
     echo "Could not sign in as $email." >&2
     exit 1
   fi
+  # `signup label no-wallet` returns as soon as the student is signed in, for a caller that
+  # wants to show the wallet arriving, or that has cut the Credit Service off on purpose.
+  [[ "${2:-}" == "no-wallet" ]] && return 0
   wait_for 30 "$INITIAL_CREDITS" wallet_available "$STUDENT_ID" || {
     echo "No ${INITIAL_CREDITS}-credit wallet for $email after 30 s (got '${LAST:-nothing}')." >&2
     exit 1

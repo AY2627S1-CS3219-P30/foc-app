@@ -61,6 +61,7 @@ type LedgerRow = Row & {
   occurred_at: Date | string;
   resulting_available: number;
   resulting_reserved: number;
+  total_change: number;
 };
 
 type StatusOperationRow = Row & {
@@ -544,14 +545,16 @@ export class CreditRepository {
       `WITH activity AS (
          SELECT DISTINCT ON (t.transaction_id)
                 t.transaction_id, t.transaction_type, t.amount, t.order_id, t.occurred_at,
-                e.resulting_available, e.resulting_reserved
+                e.resulting_available, e.resulting_reserved,
+                SUM(CASE e.direction WHEN 'CREDIT' THEN e.amount ELSE -e.amount END)
+                  OVER (PARTITION BY t.transaction_id) AS total_change
            FROM credit_transactions t
            JOIN ledger_entries e ON e.transaction_id = t.transaction_id
           WHERE e.wallet_user_id = $1
           ORDER BY t.transaction_id, e.entry_no DESC
        )
        SELECT transaction_id, transaction_type, amount, order_id, occurred_at,
-              resulting_available, resulting_reserved
+              resulting_available, resulting_reserved, total_change
          FROM activity
          ${cursorSql}
         ORDER BY occurred_at DESC, transaction_id DESC
@@ -570,6 +573,7 @@ export class CreditRepository {
         resultingAvailable: Number(row.resulting_available),
         resultingReserved: Number(row.resulting_reserved),
         resultingTotal: Number(row.resulting_available) + Number(row.resulting_reserved),
+        totalChange: Number(row.total_change),
       })),
     };
   }

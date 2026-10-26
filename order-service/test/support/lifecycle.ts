@@ -5,6 +5,10 @@ import {
   TRANSFER_RESULTS_QUEUE,
 } from '../../src/credit-terminal-results.consumer.js';
 import { LifecycleScheduler } from '../../src/orders/lifecycle.scheduler.js';
+import {
+  RESERVATION_RESULTS_QUEUE,
+  ReservationResultsConsumer,
+} from '../../src/reservation-results.consumer.js';
 import { asRequester, asStranger, http, type TestApp } from '../helpers/app.js';
 
 export const SEEDED_ORDER = '00000000-0000-4000-8000-000000000129';
@@ -19,16 +23,25 @@ class RecordingConsumer {
   }
 }
 
-/** Boots the terminal-results consumer against a recording broker and returns its subscriptions. */
-export async function terminalSubscriptions(t: TestApp) {
+/** Boots a consumer against a recording broker and returns its subscriptions, by queue. */
+export async function subscriptionsOf(
+  create: (broker: EventConsumer) => { onApplicationBootstrap(): Promise<void> },
+): Promise<Record<string, SubscribeOptions<unknown>>> {
   const recorder = new RecordingConsumer();
-  await new CreditTerminalResultsConsumer(
-    recorder as unknown as EventConsumer,
-    t.db,
-    t.orders,
-  ).onApplicationBootstrap();
+  await create(recorder as unknown as EventConsumer).onApplicationBootstrap();
   return Object.fromEntries(recorder.subscriptions.map((sub) => [sub.queue, sub]));
 }
+
+export const terminalSubscriptions = (t: TestApp) =>
+  subscriptionsOf((broker) => new CreditTerminalResultsConsumer(broker, t.db, t.orders));
+
+/** The reservation-results subscription, wired to the app's (fake) User Service. */
+export const reservationSubscription = async (t: TestApp) =>
+  (
+    await subscriptionsOf(
+      (broker) => new ReservationResultsConsumer(broker, t.db, t.orders, t.directory),
+    )
+  )[RESERVATION_RESULTS_QUEUE]!;
 
 export const transferred = (
   overrides: Partial<{
@@ -177,7 +190,7 @@ export const released = (
 /** Moves the seeded order's clocks so a timer is due without waiting for it. */
 export async function backdate(
   t: TestApp,
-  column: 'acceptance_deadline_at' | 'accepted_at',
+  column: 'acceptance_deadline_at' | 'accepted_at' | 'non_delivery_report_at' | 'auto_confirm_at',
   msAgo: number,
   orderId = SEEDED_ORDER,
 ): Promise<void> {
@@ -201,10 +214,10 @@ export const SECRET = {
 };
 
 /** Creates a PENDING_CREDIT order through the API, carrying the private markers above. */
-export async function createPending(t: TestApp): Promise<string> {
+export async function createPending(t: TestApp, auth = asRequester): Promise<string> {
   const response = await http(t)
     .post('/orders')
-    .set('Authorization', asRequester)
+    .set('Authorization', auth)
     .set('Idempotency-Key', randomUUID())
     .send({
       supplierId: '00000000-0000-4000-8000-000000000125',
@@ -218,16 +231,15 @@ export async function createPending(t: TestApp): Promise<string> {
 }
 
 /** Delivers Credit's reservation reply for an order created by {@link createPending}. */
-export async function reservationReply(t: TestApp, orderId: string, rejected = false) {
-  const { ReservationResultsConsumer, RESERVATION_RESULTS_QUEUE } =
-    await import('../../src/reservation-results.consumer.js');
-  const recorder = new RecordingConsumer();
-  await new ReservationResultsConsumer(
-    recorder as unknown as EventConsumer,
-    t.db,
-    t.orders,
-  ).onApplicationBootstrap();
-  await recorder.subscriptions[0]!.handler(
+export async function reservationReply(
+  t: TestApp,
+  orderId: string,
+  rejected = false,
+  requesterId = REQUESTER,
+) {
+  await (
+    await reservationSubscription(t)
+  ).handler(
     createEnvelope({
       eventId: randomUUID(),
       eventType: rejected ? EVENTS.CREDIT_RESERVATION_REJECTED : EVENTS.CREDITS_RESERVED,
@@ -238,12 +250,12 @@ export async function reservationReply(t: TestApp, orderId: string, rejected = f
       payload: rejected
         ? {
             orderId,
-            requesterId: REQUESTER,
+            requesterId,
             amount: SEEDED_REWARD,
             reason: 'INSUFFICIENT_CREDITS',
             available: 0,
           }
-        : { orderId, requesterId: REQUESTER, amount: SEEDED_REWARD },
+        : { orderId, requesterId, amount: SEEDED_REWARD },
     }),
     { attempt: 1, queue: RESERVATION_RESULTS_QUEUE },
   );
@@ -268,7 +280,8 @@ export const sweep = (t: TestApp, batchSize?: number) =>
 
 /**
  * Drives the order to DISPUTED with no administrator yet: from DELIVERED the requester reports
- * non-receipt; from PICKED_UP the courier is suspended. Neither has an endpoint of its own yet.
+ * non-receipt; from PICKED_UP the courier is suspended, which has no endpoint, so both go through
+ * the repository.
  */
 export async function dispute(
   t: TestApp,

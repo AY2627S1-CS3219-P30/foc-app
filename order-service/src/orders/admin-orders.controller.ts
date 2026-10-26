@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Inject, Param, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query, Req } from '@nestjs/common';
 import { AdminOnly, CurrentUser, type AuthContext } from '@foc/auth-client';
 import { ApiException, DEAD_LETTERS, type DeadLetters } from '@foc/platform';
 import type { Request } from 'express';
@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { env } from '../config.js';
 import { OperationsRepository } from './operations.repository.js';
 import { OrdersService } from './orders.service.js';
-import { parseOrderId, parseResolveOrder } from './validation.js';
+import { parseAccountErrandsQuery, parseOrderId, parseResolveOrder } from './validation.js';
 
 const orderIdSchema = z.uuid();
 
@@ -18,6 +18,17 @@ export class AdminOrdersController {
     @Inject(OperationsRepository) private readonly operations: OperationsRepository,
     @Inject(DEAD_LETTERS) private readonly deadLetters: DeadLetters,
   ) {}
+
+  /**
+   * ORD-15 — one account's errands, as requester (`requesterId`), as current courier
+   * (`courierId`), or both, newest first and paged. Public fields only: an administrator reads an
+   * errand's private details only when it is referred to them, through `GET /orders/{orderId}`.
+   */
+  @Get()
+  @AdminOnly()
+  accountErrands(@Query() query: unknown) {
+    return this.orders.listByAccount(parseAccountErrandsQuery(query));
+  }
 
   /** The most recent reconciliation decisions (CRD-07), newest first. */
   @Get('reconciliation-attempts')

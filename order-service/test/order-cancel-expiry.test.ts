@@ -39,6 +39,10 @@ const scheduler = (t: TestApp, pickupTimeoutMs = 30 * MINUTE) =>
     creditWaitTimeoutMs: 5 * MINUTE,
     intervalMs: 10_000,
   });
+const getAs = (t: TestApp, auth: string) =>
+  http(t).get(`/orders/${SEEDED_ORDER}`).set('Authorization', auth).expect(200);
+const mineAs = async (t: TestApp, auth: string) =>
+  (await http(t).get('/orders/mine').set('Authorization', auth).expect(200)).body.items;
 const releaseRequest = { orderId: SEEDED_ORDER, requesterId: REQUESTER, amount: SEEDED_REWARD };
 
 describe('cancellation, withdrawal and expiry (ORD-05)', () => {
@@ -48,8 +52,15 @@ describe('cancellation, withdrawal and expiry (ORD-05)', () => {
   it('lets the requester cancel an OPEN order and finalises CANCELLED on the release, once', async () => {
     t = await createTestApp();
     const cancelled = await post(t, 'cancel', asRequester, 2).expect(200);
-    expect(cancelled.body).toMatchObject({ status: 'RELEASE_PENDING_CREDIT', version: 3 });
+    expect(cancelled.body).toMatchObject({
+      status: 'RELEASE_PENDING_CREDIT',
+      version: 3,
+      releaseReason: 'CANCELLED',
+    });
     expect(await t.orders.findById(SEEDED_ORDER)).toMatchObject({ releaseReason: 'CANCELLED' });
+    expect(await mineAs(t, asRequester)).toMatchObject([
+      { orderId: SEEDED_ORDER, releaseReason: 'CANCELLED' },
+    ]);
     expect(await outboxOf(t, EVENTS.CREDIT_RELEASE_REQUESTED)).toEqual([releaseRequest]);
 
     const pending = await footprint(t);
@@ -75,6 +86,10 @@ describe('cancellation, withdrawal and expiry (ORD-05)', () => {
     const closed = await t.orders.findById(SEEDED_ORDER);
     expect(closed).toMatchObject({ status: 'CANCELLED', creditTransactionId: transactionId });
     expect(closed!.releasedAt).not.toBeNull();
+    expect((await getAs(t, asRequester)).body).not.toHaveProperty('releaseReason');
+    const [listed] = await mineAs(t, asRequester);
+    expect(listed).toMatchObject({ orderId: SEEDED_ORDER, status: 'CANCELLED' });
+    expect(listed).not.toHaveProperty('releaseReason');
     expect((await footprint(t)).history).toBe(pending.history + 1);
     await expect(
       deliver(t, RELEASE_RESULTS_QUEUE, released({ transactionId: randomUUID() })),
@@ -132,6 +147,8 @@ describe('cancellation, withdrawal and expiry (ORD-05)', () => {
     await backdate(t, 'acceptance_deadline_at', 1_000);
     const withdrawn = await post(t, 'withdraw', asStranger, 3).expect(200);
     expect(withdrawn.body).toMatchObject({ status: 'RELEASE_PENDING_CREDIT' });
+    expect(withdrawn.body).not.toHaveProperty('releaseReason'); // no longer the courier
+    expect((await getAs(t, asRequester)).body).toMatchObject({ releaseReason: 'EXPIRED' });
     expect(await t.orders.findById(SEEDED_ORDER)).toMatchObject({
       releaseReason: 'EXPIRED',
       courierId: null,
@@ -140,6 +157,7 @@ describe('cancellation, withdrawal and expiry (ORD-05)', () => {
     expect(await outboxOf(t, EVENTS.CREDIT_RELEASE_REQUESTED)).toEqual([releaseRequest]);
     await deliver(t, RELEASE_RESULTS_QUEUE, released());
     expect(await t.orders.findById(SEEDED_ORDER)).toMatchObject({ status: 'EXPIRED' });
+    expect((await getAs(t, asRequester)).body).not.toHaveProperty('releaseReason');
   });
 
   it('holds RELEASE_PENDING_CREDIT against every participant, administrator and timer action', async () => {
@@ -193,6 +211,7 @@ describe('lifecycle scheduler (OS-FR6.1.2, OS-FR6.1.3, OS-NFR3.1)', () => {
       status: 'RELEASE_PENDING_CREDIT',
       releaseReason: 'EXPIRED',
     });
+    expect((await getAs(t, asRequester)).body).toMatchObject({ releaseReason: 'EXPIRED' });
     expect(await outboxOf(t, EVENTS.CREDIT_RELEASE_REQUESTED)).toEqual([releaseRequest]);
     const history = await t.db.query<{ action: string; actor_type: string }>(
       `SELECT action, actor_type FROM order_status_history WHERE order_id = $1 AND new_status = 'RELEASE_PENDING_CREDIT'`,
@@ -207,6 +226,8 @@ describe('lifecycle scheduler (OS-FR6.1.2, OS-FR6.1.3, OS-NFR3.1)', () => {
     expect(await scheduler(t).sweep()).toEqual({
       expired: 0,
       pickupTimedOut: 0,
+      autoConfirmed: 0,
+      undeliveredReferred: 0,
       skipped: 0,
       creditWaitAlerts: 0,
       adminsAssigned: 0,

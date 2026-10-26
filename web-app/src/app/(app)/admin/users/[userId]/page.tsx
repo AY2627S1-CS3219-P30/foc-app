@@ -14,6 +14,7 @@ import { AdminShell, Loaded, Section, Tag } from "../../_components/ui";
 import { useAdminData } from "../../_components/use-admin-data";
 import styles from "../../_components/admin.module.css";
 import { AccountActions } from "./AccountActions";
+import { AccountErrands } from "./AccountErrands";
 
 export default function AccountPage({ params }: { params: Promise<{ userId: string }> }) {
   const { userId } = use(params);
@@ -35,6 +36,8 @@ function Account({ userId }: { userId: string }) {
   const [latest, setLatest] = useState<AdminUser | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [known, setKnown] = useState<ReadonlySet<string> | null>(null);
+  // An action can cancel or reopen the account's errands (ORD-06), so it reloads them too.
+  const [errandsKey, setErrandsKey] = useState(0);
 
   const shown = latest ?? account.data;
   const request = pending.data?.items.find(
@@ -48,6 +51,7 @@ function Account({ userId }: { userId: string }) {
     audit.reload();
     pending.reload();
     directory.reload();
+    setErrandsKey((k) => k + 1);
   }
 
   return (
@@ -118,27 +122,30 @@ function Account({ userId }: { userId: string }) {
               />
             </Section>
           )}
-
-          <Section
-            title="Audit trail for this account"
-            actions={
-              <Link href={`/admin/audit?target=${shown.id}`} className={styles.link}>
-                Full audit trail
-              </Link>
-            }
-          >
-            <Loaded
-              state={audit}
-              label="audit records"
-              isEmpty={(d) => d.items.length === 0}
-              emptyTitle="No records yet"
-              emptyText="Suspensions, reactivations and role changes for this account appear here."
-            >
-              {(d) => <AuditTable records={d.items} known={known} showTarget={false} />}
-            </Loaded>
-          </Section>
         </>
       )}
+      {/* Read from the Order Service by the id in the address, so the lists neither wait for the
+          User Service nor depend on it answering. */}
+      <AccountErrands userId={userId} refreshKey={errandsKey} />
+
+      <Section
+        title="Audit trail for this account"
+        actions={
+          <Link href={`/admin/audit?target=${userId}`} className={styles.link}>
+            Full audit trail
+          </Link>
+        }
+      >
+        <Loaded
+          state={audit}
+          label="audit records"
+          isEmpty={(d) => d.items.length === 0}
+          emptyTitle="No records yet"
+          emptyText="Suspensions, reactivations and role changes for this account appear here."
+        >
+          {(d) => <AuditTable records={d.items} known={known} showTarget={false} />}
+        </Loaded>
+      </Section>
     </AdminShell>
   );
 }

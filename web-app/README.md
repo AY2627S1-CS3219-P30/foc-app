@@ -62,6 +62,12 @@ the top bar and sidebar; `@media (min-width: 1440px)` widens the gutters. Nothin
 
 ## End-to-end checks
 
+`e2e/errand-journey.e2e.ts` runs WEB-02, WEB-03 and WEB-05 with three students: two couriers race to
+accept one errand (the loser's card is replaced with the reason), the winner sees the delivery
+instructions and records pickup and delivery, and the requester confirms receipt until the errand is
+complete. The requester then opens the receipt, follows it to the payment in their wallet and back,
+and the courier follows the same payment from their receipt to their wallet and back.
+
 `e2e/account-journey.e2e.ts` runs the account journey (USR-05) in Chromium at 360, 768 and 1440 px against
 the real User Service: sign-up with a failed submit, activation through the dev mailbox, sign-in with a
 rejected password, the mode switch and log-out. Only the keyboard drives the forms, and every focus stop
@@ -106,7 +112,109 @@ The supplier listing calls the real Supplier Service through `src/lib/supplier-a
 Search, type and building filters, sort order, and paging are sent to `GET /suppliers`;
 the page then retrieves each visible supplier by ID for the location and hours on its card.
 Admin create, edit, and delete use the same service with the signed-in access token.
-Errands and wallet still run on the in-memory mock store (`src/lib/store.tsx`).
+The new-request composer picks a pickup point with `SupplierPicker` (search over active suppliers
+only) and passes its `supplierId` on; the details step resolves it with `useSupplier` and explains a
+deactivated or missing supplier (`SUPPLIER_UNAVAILABLE`) instead of hiding it (SUP-04).
+Creating an errand, the feed, order history, the errand page, its receipt, the wallet and the credit
+pill call the real Order and Credit Services (below). Nothing reads mock data.
+
+### Request composer (WEB-01)
+
+`/request/new` → `details` → `review`, then `/request/{orderId}`. The calls are in
+`src/lib/order-api.ts`; the draft, checks and error mapping in `src/lib/composer.ts`.
+
+- **Pick** with `SupplierPicker` (SUP-04); the chosen `supplierId` travels in the URL.
+- **Details**: items (name, quantity, optional note), a delivery zone, delivery instructions and a
+  reward of 1–5 credits, checked against the Order Service's rules before anything is sent.
+- **Review** shows the supplier, items, zone, the 60-minute open period (`OPEN_PERIOD_MINUTES`), the
+  reward, the **available** balance from `GET /wallets/me` and `available − reward`, which is what the
+  Credit Service reserves. Zero available credits, or fewer than the reward, blocks posting and says
+  why; with none, it says courier work is how credits are earned.
+- **Submit** sends `POST /orders` with an `Idempotency-Key` made once per draft. The draft and its key
+  live in `sessionStorage`, so a retry, a reload or a reconnect replays the same key and the Order
+  Service returns the original order instead of a second one. The button is disabled while a send is
+  in flight. `422 INVALID_SUPPLIER` shows SUP-04's message and goes back to the picker;
+  `422 VALIDATION_FAILED` (or a `400` with details) marks the fields; a `503` or network failure
+  offers "Try again" with the same key. The draft is cleared once the server returns the order.
+- **Result**: `/request/{orderId}` reads `GET /orders/{orderId}` with `useOrder`
+  (`src/lib/use-order.ts`) until the errand is `REJECTED`, `COMPLETED`, `CANCELLED` or `EXPIRED`:
+  1, 2, 4, 8, then every 15 seconds in the `*_PENDING_CREDIT` states, every 30 seconds otherwise. A
+  hidden tab pauses; showing it again or coming back online reads at once, even after an error
+  stopped polling. In a settled state, polling also pauses after 10 minutes without a change until
+  the tab is shown or back online. It says any `*_PENDING_CREDIT` state is taking longer than usual
+  30 seconds after the order's `updatedAt`. `OPEN` shows the deadline from `acceptanceDeadlineAt`;
+  `REJECTED` shows what to do for its reason, using `rejection.available` when present. `REJECTED`
+  and `EXPIRED` offer "Post a new request", a copy under a new key.
+
+#### Recovery (WEB-04)
+
+Every retry below sends the draft's key again, and the Order Service answers a repeated key with the
+order it already made, so none of them can create a second errand. Posting anything under a new key
+always takes a click the student can see.
+
+- **Lost response** (the server made the order, the page never heard): the review offers "Try
+  again" and keeps the draft. The retry gets `200` with the same order, and the order page says "This
+  request was already posted". So does a second tab posting the same draft.
+- **Offline**: the send fails as a network error and offers "Try again"; the `online` event retries
+  by itself, with the same key.
+- **`IDEMPOTENCY_KEY_REUSED`** (the details changed after a lost response): the first body sent
+  under the key is kept as `sentBody` and replayed, which finds the original errand. The review says
+  the changes weren't applied and moves them to a new key, posted only if the student asks.
+- **Reload**: the draft, key and `sentBody` are in `sessionStorage`, so Post replays the same key. It
+  stays enabled when the balance no longer covers the reward, since the lost post may hold it.
+
+`e2e/reconnect-journey.e2e.ts` runs each case and checks through the API that it made one order and
+reserved its reward once.
+
+### After posting: couriers and requesters (WEB-02, WEB-03, WEB-05)
+
+- **Feed** (`/feed`): `GET /orders`, which already leaves out the student's own errands. Each card
+  shows the supplier, items, zone, reward and time left, counted from `timeRemainingSeconds` so a
+  wrong device clock cannot skew it, and goes at zero. The list is read again every 30 seconds, on
+  returning to the tab and on reconnecting.
+- **History** (`/order-history`): `GET /orders/mine`, split into active and past. Each card shows the
+  status, what it means for the student's part, their role, when it was posted, and until when it is
+  open, when it last changed or when it ended. A complete errand links to its receipt. The list is read every 5 seconds while
+  any errand is in a `*_PENDING_CREDIT` state, every 30 seconds while any is otherwise active, and on
+  returning or reconnecting.
+- **Receipt** (`/request/{orderId}/receipt`): `GET /orders/{orderId}/receipt`, readable by the
+  requester and courier once the courier is paid. It shows the supplier, reward, both parties, every
+  timestamp (`deliveredAt` is null when an administrator decided the errand for the courier) and links
+  to the payment in the wallet. Before then it says there is no receipt yet.
+- **Wallet** (`/wallet`): `GET /wallets/me` for the available, reserved and total figures, and
+  `GET /wallets/me/ledger` paged by cursor with "Load more". Each entry shows its signed change to the
+  total (`totalChange`: 0 for a reservation or release, which only move credits between available and
+  reserved) and the total after it, and links to its errand, or to the receipt for a transfer.
+  `/wallet?tx={transactionId}` (the receipt's `creditTransactionId`) loads pages until that entry is
+  shown and focuses it, or says it isn't in the wallet. With nothing available, it explains that the
+  student can't post but can still earn as a courier. Read again on returning or reconnecting.
+- **Errand page** (`/request/{orderId}`): the role comes from the participant IDs, which only the
+  requester and courier receive; anyone else is a prospective courier. Delivery instructions show
+  only when the Order Service sends them, which it does once the errand is the courier's. The page
+  reads the errand until it is final: on the backing-off schedule while the Credit Service has it,
+  every 15 seconds otherwise, and at once on returning or reconnecting.
+- **Actions** come from one table, `actionsFor(order, role, now)` in `src/lib/order-actions.ts`,
+  which follows the Order Service's transition table:
+
+  | Status | Requester | Courier | Anyone else |
+  | --- | --- | --- | --- |
+  | `OPEN` | Cancel | — | Accept, until the deadline |
+  | `ACCEPTED` | Cancel | Record pickup, withdraw | — |
+  | `PICKED_UP` | Report not delivered, from `nonDeliveryReportAt` | Record delivery | — |
+  | `DELIVERED` | Confirm receipt; report not received until `autoConfirmAt` | — | — |
+  | `DISPUTED` and the rest | — | — | — |
+
+  A timer set for the governing deadline (`useNowAfter`) changes the offer at that moment, so the
+  referral option appears exactly 2 hours after pickup. A referred errand says it is with an
+  administrator and offers nothing.
+- **Sending** goes through `useOrderAction`: every action is confirmed in a dialog, then sent with the
+  version on screen as `expectedVersion`. A refusal because the errand moved on (`409`, `403`,
+  `404`: someone else accepted it, it changed, or a report came too early or too late) closes the
+  dialog, says what happened and re-reads, so the screen never keeps a button for a state that has
+  gone. A network or server failure stays in the dialog to try again.
+
+Every state's label and plain-language explanation is in `src/lib/order-status.ts`, typed from the
+generated contract so all twelve are covered.
 
 ### Sessions
 
@@ -201,16 +309,16 @@ CI runs it in the `Supplier listing integration` job when `supplier-service/`, t
 client (`src/lib/supplier-*`, `SupplierCard`), the test itself, or anything shared or stack-wide changes
 (`scripts-ci-detect.sh`).
 
-When you do wire it up, the services run on ports 3001–3004 — see the root
-[README](../README.md). Every service returns the same error envelope and echoes
-an `x-correlation-id` header, so send one and log it alongside the response to
-trace a failure across services.
+The services run on ports 3001–3004 — see the root [README](../README.md). Every
+service returns the same error envelope and echoes an `x-correlation-id` header,
+so send one and log it alongside the response to trace a failure across services.
 
-> **Note:** `src/lib/types.ts` defines `RequestStatus` with five values. That does
-> not match the order status model in
-> [`order-service/README.md`](../order-service/README.md). Reconciling the two is
-> part of WEB-01 — do not add screens against the current shape without reading
-> that first.
+Order statuses are the twelve in
+[`order-service/README.md`](../order-service/README.md), as generated into
+`Order["status"]`; `src/lib/order-status.ts` labels and explains each one, for the requester, the
+courier and anyone else. `statusWording(order, role)` takes the order because a
+`RELEASE_PENDING_CREDIT` errand reads as cancelling or expiring from its `releaseReason`; the badge,
+the cards and the errand page all use it, and none of the waiting states shows a spinner.
 
 ## Structure
 
@@ -218,7 +326,7 @@ trace a failure across services.
 src/
 ├── app/           routes — (app) group for the authenticated shell
 ├── components/    shared UI and the form, button and state primitives
-├── lib/           auth, API clients (generated/ from contracts), store, navigation, mock data
+├── lib/           auth, API clients (generated/ from contracts), store, navigation
 └── styles/        design tokens (tokens.ts → generated tokens.css)
 ```
 
@@ -232,11 +340,11 @@ refuses a student with `403` on its own.
 | Page | Calls |
 | --- | --- |
 | Overview | Role requests and alerts (User Service); stuck errands and reconciliation (Order Service) |
-| Users, one account | `GET /admin/directory` to find, `GET /admin/users/{userId}` to open (recorded), suspend, reactivate, role change |
+| Users, one account | `GET /admin/directory` to find, `GET /admin/users/{userId}` to open (recorded), suspend, reactivate, role change; its errands from `GET /admin/orders?requesterId=` and `?courierId=` (Order Service, ORD-15), each list loading on its own (ADM-05) |
 | Role requests | `GET /admin/role-requests`, approve, reject |
 | Audit trail | `GET /admin/audit-records`, by administrator, account, action and dates |
 | Admin activity | `GET /admin/alerts`, `GET /admin/reads` |
-| Errands | `GET /admin/orders/pending-credit`, `GET /admin/orders/reconciliation-attempts`; referrals arrive with ORD-11 (#171) |
+| Errands | Disputes: `GET /admin/orders/referred`, and `GET /admin/orders/decisions` for the latest decisions. One dispute (`/admin/errands/{orderId}`): `GET /orders/{orderId}?view=private`, which only the referred administrator is given, and `POST /admin/orders/{orderId}/resolve` with a reason (ORD-11, #271). Also `GET /admin/orders/pending-credit` and `GET /admin/orders/reconciliation-attempts` |
 | Wallets | `GET /admin/wallets/{userId}` and its ledger (Credit Service; read-only, every read recorded) |
 | Operations | Placeholder until PLT-05 (#154) |
 

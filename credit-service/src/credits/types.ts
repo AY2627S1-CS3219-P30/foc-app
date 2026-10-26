@@ -35,6 +35,7 @@ export interface LedgerItem {
   resultingAvailable: number;
   resultingReserved: number;
   resultingTotal: number;
+  totalChange: number;
 }
 
 export interface LedgerPage {

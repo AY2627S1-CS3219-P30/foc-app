@@ -78,6 +78,12 @@ suite('completion saga under concurrent delivery on real PostgreSQL', () => {
       ),
     );
     expect(attempts.filter((attempt) => attempt.kind === 'applied')).toHaveLength(1);
+    // The rest wait on the row lock, then find the errand already past DELIVERED.
+    expect(
+      attempts.filter(
+        (attempt) => attempt.kind === 'rejected' && attempt.reason === 'INVALID_STATE',
+      ),
+    ).toHaveLength(29);
     const requests = await db.query(
       `SELECT * FROM outbox_events WHERE aggregate_id = $1 AND event_type = $2`,
       [orderId, EVENTS.ORDER_COMPLETION_REQUESTED],

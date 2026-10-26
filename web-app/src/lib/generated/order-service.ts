@@ -29,7 +29,8 @@ export interface paths {
          * @description Errands the caller requested or is the current courier of, in any status, most recently
          *     changed first, at most 100 (no paging yet); `truncated` is true when more were left out. Each
          *     carries the caller's private projection and `myRole`. A courier who withdrew or timed out no
-         *     longer holds the errand and does not see it.
+         *     longer holds the errand and does not see it. Filter by `role` before the limit; `active=true`
+         *     includes only errands that have not reached a final status.
          */
         get: operations["listMyOrders"];
         put?: never;
@@ -72,7 +73,7 @@ export interface paths {
         };
         /**
          * Discover currently acceptable errands.
-         * @description Returns only unexpired OPEN orders and never exposes delivery instructions or participant IDs.
+         * @description Returns only unexpired OPEN orders, leaves out the caller's own errands, and never exposes delivery instructions or participant IDs.
          */
         get: operations["listOpenOrders"];
         put?: never;
@@ -217,6 +218,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/orders/{orderId}/report-non-delivery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Requester reports an errand not delivered (PICKED_UP → DISPUTED).
+         * @description Only the requester may report, and only from `nonDeliveryReportAt` (pickup plus the delivery
+         *     period, 2 hours by default) on; earlier it is refused with 409 `DELIVERY_PERIOD_NOT_PASSED`.
+         *     The errand is referred to an administrator, and no timer changes it afterwards.
+         */
+        post: operations["reportNonDelivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/orders/{orderId}/report-non-receipt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Requester reports a delivered errand not received (DELIVERED → DISPUTED).
+         * @description Instead of confirming, the requester may report the errand not received until
+         *     `autoConfirmAt` (delivery plus the auto-confirmation period, 24 hours by default). From then
+         *     the errand is confirmed automatically and a report is refused with 409
+         *     `AUTO_CONFIRMATION_PASSED`, even before the confirmation is recorded. A reported errand is
+         *     referred to an administrator, and no timer changes it afterwards.
+         */
+        post: operations["reportNonReceipt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/orders/{orderId}/history": {
         parameters: {
             query?: never;
@@ -232,6 +279,30 @@ export interface paths {
          *     a 404 for everyone else.
          */
         get: operations["getOrderHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * An administrator's view of one account's errands (ORD-15).
+         * @description The errands one account requested (`requesterId`), currently holds as courier
+         *     (`courierId`), or both when both are given, in any status, newest first. Public fields only:
+         *     no participant IDs, delivery instructions or item notes, even for an errand referred to the
+         *     caller, whose private details are read through `GET /orders/{orderId}`. A courier who
+         *     withdrew or timed out no longer holds the errand. Administrators only.
+         */
+        get: operations["listAccountOrders"];
         put?: never;
         post?: never;
         delete?: never;
@@ -544,9 +615,34 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+            /**
+             * Format: date-time
+             * @description The server's clock when it answered. A client measures the deadlines against it, not
+             *     against its own clock, which may be wrong.
+             */
+            serverTime: string;
             requesterId?: string;
             courierId?: string;
             deliveryInstructions?: string;
+            /**
+             * Format: date-time
+             * @description Private, and only while `PICKED_UP`: pickup plus the delivery period. From then the
+             *     requester may report non-delivery.
+             */
+            nonDeliveryReportAt?: string;
+            /**
+             * Format: date-time
+             * @description Private, and only while `DELIVERED`: delivery plus the auto-confirmation period. From
+             *     then the errand is confirmed automatically unless the requester has confirmed or
+             *     reported it.
+             */
+            autoConfirmAt?: string;
+            /**
+             * @description Private, and only while `RELEASE_PENDING_CREDIT`: the status the errand ends in once the
+             *     Credit Service confirms the credits are returned.
+             * @enum {string}
+             */
+            releaseReason?: "CANCELLED" | "EXPIRED";
             rejection?: {
                 reason: string;
                 available?: number;
@@ -627,13 +723,22 @@ export interface components {
             entries: {
                 previousStatus: string | null;
                 newStatus: string;
+                /**
+                 * @description The transition's action. To anyone but the referred administrator, every change
+                 *     the system made (a timer, a referral or a suspension) shows as `SYSTEM_OUTCOME`,
+                 *     with `actorType` `SYSTEM` and a null `actorId` and `reason`, so the history does
+                 *     not say what caused it. So does the Credit Service's cancellation for a suspended
+                 *     requester. The statuses and times are always the real ones, so a change only a
+                 *     suspension makes can be inferred.
+                 */
                 action: string;
                 actorType: string;
                 actorId: string | null;
                 /**
-                 * @description An administrator's reason for a decision, or, on `ADMIN_ASSIGNED` and
-                 *     `ADMIN_UNASSIGNED`, the user ID of the administrator referred or cleared;
-                 *     otherwise null.
+                 * @description An administrator's reason for a decision; or, to the referred administrator only,
+                 *     the user ID of the administrator referred or cleared on `ADMIN_ASSIGNED` and
+                 *     `ADMIN_UNASSIGNED`, and `requester suspended` or `courier suspended` on a change a
+                 *     suspension caused. Otherwise null.
                  */
                 reason: string | null;
                 version: number;
@@ -791,6 +896,13 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        AccountOrderPage: {
+            page: number;
+            pageSize: number;
+            total: number;
+            /** @description The public projection; the private properties of Order are never present. */
+            items: components["schemas"]["Order"][];
+        };
         DeadLetterPage: {
             page: number;
             pageSize: number;
@@ -878,6 +990,15 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
+        /** @description Neither requesterId nor courierId given, an unknown parameter, or a page out of range. */
+        AccountQueryInvalid: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
         /** @description The caller is not an administrator. */
         AdminOnly: {
             headers: {
@@ -912,9 +1033,10 @@ export interface components {
             };
         };
         /**
-         * @description `INVALID_ORDER_STATE` (the order is not in a state that allows this action) or
-         *     `ORDER_CHANGED` (stale expectedVersion). `details` carries the current status and version.
-         *     Nothing changes.
+         * @description `INVALID_ORDER_STATE` (the order is not in a state that allows this action),
+         *     `ORDER_CHANGED` (stale expectedVersion), or for the requester's reports
+         *     `DELIVERY_PERIOD_NOT_PASSED` or `AUTO_CONFIRMATION_PASSED`. `details` carries the current
+         *     status and version. Nothing changes.
          */
         LifecycleConflict: {
             headers: {
@@ -1008,7 +1130,10 @@ export interface operations {
     };
     listMyOrders: {
         parameters: {
-            query?: never;
+            query?: {
+                role?: "REQUESTER" | "COURIER";
+                active?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1308,6 +1433,70 @@ export interface operations {
             422: components["responses"]["InvalidOrder"];
         };
     };
+    reportNonDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LifecycleCommand"];
+            };
+        };
+        responses: {
+            /** @description The order after the transition, projected for the caller. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Order"];
+                };
+            };
+            400: components["responses"]["InvalidOrderId"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["ActionForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["LifecycleConflict"];
+            422: components["responses"]["InvalidOrder"];
+        };
+    };
+    reportNonReceipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LifecycleCommand"];
+            };
+        };
+        responses: {
+            /** @description The order after the transition, projected for the caller. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Order"];
+                };
+            };
+            400: components["responses"]["InvalidOrderId"];
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["ActionForbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["LifecycleConflict"];
+            422: components["responses"]["InvalidOrder"];
+        };
+    };
     getOrderHistory: {
         parameters: {
             query?: never;
@@ -1332,6 +1521,34 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["PrivateForbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listAccountOrders: {
+        parameters: {
+            query?: {
+                requesterId?: string;
+                courierId?: string;
+                page?: number;
+                pageSize?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the account's errands. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountOrderPage"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["AdminOnly"];
+            422: components["responses"]["AccountQueryInvalid"];
         };
     };
     listReconciliationAttempts: {

@@ -104,9 +104,27 @@ async function checkPrivacy(
     if (full) {
       expect(surfaces.detail.status, where).toBe(200);
       expect(surfaces.detail.body.deliveryInstructions, where).toBe(SECRET.instructions);
+      // Every release this suite reaches is a cancellation: the requester's, or a dispute decided for them.
+      expect(surfaces.detail.body.releaseReason, where).toBe(
+        state === 'RELEASE_PENDING_CREDIT' ? 'CANCELLED' : undefined,
+      );
       expect(surfaces.private.status, where).toBe(200);
       expect(surfaces.history.status, where).toBe(200);
       expect(surfaces.history.body.entries.length, where).toBeGreaterThan(0);
+      // Only the referred administrator reads the history as recorded; to anyone else every system
+      // change looks the same, so the history does not say whether a timer or a suspension made it.
+      if (viewer.userId === context.referredAdmin) {
+        expect(surfaces.history.body.entries, where).toEqual(await t.orders.findHistory(orderId));
+      } else {
+        for (const entry of surfaces.history.body.entries) {
+          if (entry.actorType !== 'SYSTEM') continue;
+          expect(entry, where).toMatchObject({
+            action: 'SYSTEM_OUTCOME',
+            actorId: null,
+            reason: null,
+          });
+        }
+      }
       expect(surfaces.receipt.status, where).toBe(state === 'COMPLETED' ? 200 : 404);
       continue;
     }
@@ -116,6 +134,7 @@ async function checkPrivacy(
     expect(surfaces.private.status, where).toBe(expected);
     expect(surfaces.history.status, where).toBe(expected);
     expect(surfaces.receipt.status, where).toBe(expected);
+    expect(surfaces.detail.body, where).not.toHaveProperty('releaseReason');
     for (const [surface, response] of Object.entries(surfaces)) {
       expect(leaks(response.body, forbidden), `${where} ${surface}`).toEqual([]);
     }

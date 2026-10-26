@@ -33,7 +33,15 @@ paths:
         Errands the caller requested or is the current courier of, in any status, most recently
         changed first, at most 100 (no paging yet); `truncated` is true when more were left out. Each
         carries the caller's private projection and `myRole`. A courier who withdrew or timed out no
-        longer holds the errand and does not see it.
+        longer holds the errand and does not see it. Filter by `role` before the limit; `active=true`
+        includes only errands that have not reached a final status.
+      parameters:
+        - in: query
+          name: role
+          schema: { type: string, enum: [REQUESTER, COURIER] }
+        - in: query
+          name: active
+          schema: { type: boolean }
       responses:
         '200':
           description: The caller's errands.
@@ -74,7 +82,7 @@ paths:
     get:
       operationId: listOpenOrders
       summary: Discover currently acceptable errands.
-      description: Returns only unexpired OPEN orders and never exposes delivery instructions or participant IDs.
+      description: Returns only unexpired OPEN orders, leaves out the caller's own errands, and never exposes delivery instructions or participant IDs.
       responses:
         '200':
           description: Privacy-safe open-order summaries ordered by acceptance deadline.
@@ -293,6 +301,68 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/LifecycleConflict' }
         '422': { $ref: '#/components/responses/InvalidOrder' }
+  /orders/{orderId}/report-non-delivery:
+    post:
+      operationId: reportNonDelivery
+      summary: Requester reports an errand not delivered (PICKED_UP → DISPUTED).
+      description: |
+        Only the requester may report, and only from `nonDeliveryReportAt` (pickup plus the delivery
+        period, 2 hours by default) on; earlier it is refused with 409 `DELIVERY_PERIOD_NOT_PASSED`.
+        The errand is referred to an administrator, and no timer changes it afterwards.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LifecycleCommand' }
+      responses:
+        '200':
+          description: The order after the transition, projected for the caller.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/ActionForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/LifecycleConflict' }
+        '422': { $ref: '#/components/responses/InvalidOrder' }
+  /orders/{orderId}/report-non-receipt:
+    post:
+      operationId: reportNonReceipt
+      summary: Requester reports a delivered errand not received (DELIVERED → DISPUTED).
+      description: |
+        Instead of confirming, the requester may report the errand not received until
+        `autoConfirmAt` (delivery plus the auto-confirmation period, 24 hours by default). From then
+        the errand is confirmed automatically and a report is refused with 409
+        `AUTO_CONFIRMATION_PASSED`, even before the confirmation is recorded. A reported errand is
+        referred to an administrator, and no timer changes it afterwards.
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LifecycleCommand' }
+      responses:
+        '200':
+          description: The order after the transition, projected for the caller.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/ActionForbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/LifecycleConflict' }
+        '422': { $ref: '#/components/responses/InvalidOrder' }
   /orders/{orderId}/history:
     get:
       operationId: getOrderHistory
@@ -317,6 +387,34 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/PrivateForbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /admin/orders:
+    get:
+      operationId: listAccountOrders
+      summary: An administrator's view of one account's errands (ORD-15).
+      description: |
+        The errands one account requested (`requesterId`), currently holds as courier
+        (`courierId`), or both when both are given, in any status, newest first. Public fields only:
+        no participant IDs, delivery instructions or item notes, even for an errand referred to the
+        caller, whose private details are read through `GET /orders/{orderId}`. A courier who
+        withdrew or timed out no longer holds the errand. Administrators only.
+      parameters:
+        - { name: requesterId, in: query, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: courierId, in: query, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - {
+            name: pageSize,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 20 },
+          }
+      responses:
+        '200':
+          description: One page of the account's errands.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountOrderPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/AdminOnly' }
+        '422': { $ref: '#/components/responses/AccountQueryInvalid' }
   /admin/orders/reconciliation-attempts:
     get:
       operationId: listReconciliationAttempts
@@ -619,6 +717,7 @@ components:
         - acceptanceDeadlineAt
         - createdAt
         - updatedAt
+        - serverTime
       properties:
         orderId: { type: string, format: uuid }
         supplier: { $ref: '#/components/schemas/SupplierSnapshot' }
@@ -647,9 +746,34 @@ components:
         acceptanceDeadlineAt: { type: [string, 'null'], format: date-time }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
+        serverTime:
+          type: string
+          format: date-time
+          description: |
+            The server's clock when it answered. A client measures the deadlines against it, not
+            against its own clock, which may be wrong.
         requesterId: { type: string }
         courierId: { type: string }
         deliveryInstructions: { type: string }
+        nonDeliveryReportAt:
+          type: string
+          format: date-time
+          description: |
+            Private, and only while `PICKED_UP`: pickup plus the delivery period. From then the
+            requester may report non-delivery.
+        autoConfirmAt:
+          type: string
+          format: date-time
+          description: |
+            Private, and only while `DELIVERED`: delivery plus the auto-confirmation period. From
+            then the errand is confirmed automatically unless the requester has confirmed or
+            reported it.
+        releaseReason:
+          type: string
+          enum: [CANCELLED, EXPIRED]
+          description: |
+            Private, and only while `RELEASE_PENDING_CREDIT`: the status the errand ends in once the
+            Credit Service confirms the credits are returned.
         rejection:
           type: object
           required: [reason]
@@ -772,15 +896,24 @@ components:
             properties:
               previousStatus: { type: [string, 'null'] }
               newStatus: { type: string }
-              action: { type: string }
+              action:
+                type: string
+                description: |
+                  The transition's action. To anyone but the referred administrator, every change
+                  the system made (a timer, a referral or a suspension) shows as `SYSTEM_OUTCOME`,
+                  with `actorType` `SYSTEM` and a null `actorId` and `reason`, so the history does
+                  not say what caused it. So does the Credit Service's cancellation for a suspended
+                  requester. The statuses and times are always the real ones, so a change only a
+                  suspension makes can be inferred.
               actorType: { type: string }
               actorId: { type: [string, 'null'] }
               reason:
                 type: [string, 'null']
                 description: |
-                  An administrator's reason for a decision, or, on `ADMIN_ASSIGNED` and
-                  `ADMIN_UNASSIGNED`, the user ID of the administrator referred or cleared;
-                  otherwise null.
+                  An administrator's reason for a decision; or, to the referred administrator only,
+                  the user ID of the administrator referred or cleared on `ADMIN_ASSIGNED` and
+                  `ADMIN_UNASSIGNED`, and `requester suspended` or `courier suspended` on a change a
+                  suspension caused. Otherwise null.
               version: { type: integer, minimum: 1 }
               occurredAt: { type: string, format: date-time }
     ResolveDispute:
@@ -1026,6 +1159,17 @@ components:
             body:
               { description: The message as received, parsed when it is JSON, its text otherwise. }
             headers: { type: object, additionalProperties: true }
+    AccountOrderPage:
+      type: object
+      required: [page, pageSize, total, items]
+      properties:
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 100 }
+        total: { type: integer, minimum: 0 }
+        items:
+          type: array
+          description: The public projection; the private properties of Order are never present.
+          items: { $ref: '#/components/schemas/Order' }
     DeadLetterPage:
       type: object
       required: [page, pageSize, total, items]
@@ -1088,6 +1232,11 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    AccountQueryInvalid:
+      description: Neither requesterId nor courierId given, an unknown parameter, or a page out of range.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     AdminOnly:
       description: The caller is not an administrator.
       content:
@@ -1109,9 +1258,10 @@ components:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     LifecycleConflict:
       description: |
-        `INVALID_ORDER_STATE` (the order is not in a state that allows this action) or
-        `ORDER_CHANGED` (stale expectedVersion). `details` carries the current status and version.
-        Nothing changes.
+        `INVALID_ORDER_STATE` (the order is not in a state that allows this action),
+        `ORDER_CHANGED` (stale expectedVersion), or for the requester's reports
+        `DELIVERY_PERIOD_NOT_PASSED` or `AUTO_CONFIRMATION_PASSED`. `details` carries the current
+        status and version. Nothing changes.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }

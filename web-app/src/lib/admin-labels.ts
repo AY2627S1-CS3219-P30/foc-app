@@ -3,6 +3,8 @@ import type {
   AdminAlert,
   AdminAlertKind,
   AuditAction,
+  DisputeOutcome,
+  OrderStatus,
   ReconciliationAttempt,
   RoleRequestStatus,
 } from "./admin-api";
@@ -40,6 +42,38 @@ export const REQUEST_STATUSES: Record<RoleRequestStatus, string> = {
   EXPIRED: "Expired",
 };
 
+/** How the console names an errand's status (ORD-01's lifecycle). */
+export const ORDER_STATUSES: Record<OrderStatus, string> = {
+  PENDING_CREDIT: "Waiting on credits",
+  OPEN: "Open",
+  ACCEPTED: "Accepted",
+  PICKED_UP: "Picked up",
+  DELIVERED: "Delivered",
+  DISPUTED: "Disputed",
+  COMPLETION_PENDING_CREDIT: "Paying the courier",
+  RELEASE_PENDING_CREDIT: "Returning credits",
+  REJECTED: "Rejected",
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
+  EXPIRED: "Expired",
+};
+
+/** Why an errand was disputed: the action that moved it to DISPUTED (ORD-06, ORD-10). */
+const DISPUTE_CAUSES: Record<string, string> = {
+  REPORT_NON_RECEIPT: "The requester reported it never arrived, after the courier recorded delivery",
+  REPORT_NON_DELIVERY: "The requester reported it was not delivered in time",
+  // The system reports for a requester who can't: it fires only while they are suspended.
+  DELIVERY_PERIOD_PASSED: "The delivery period passed while the requester was suspended",
+  COURIER_SUSPENDED: "The courier was suspended",
+};
+/** A cause this build does not know is shown as its code. */
+export const disputeCause = (action: string) => DISPUTE_CAUSES[action] ?? action;
+
+export const DISPUTE_OUTCOMES: Record<DisputeOutcome, string> = {
+  COURIER: "For the courier: the reward is transferred to them",
+  REQUESTER: "For the requester: the reward is returned and the errand cancelled",
+};
+
 export const RECONCILIATION_ACTIONS: Record<ReconciliationAttempt["action"], string> = {
   REISSUED: "Request sent again",
   ALERTED: "Contradiction raised",
@@ -63,6 +97,21 @@ export const STATUS_TONES: Record<AccountStatus, Tone> = {
   PENDING_ACTIVATION: "neutral",
   ACTIVE: "success",
   SUSPENDED: "danger",
+};
+
+export const ORDER_TONES: Record<OrderStatus, Tone> = {
+  PENDING_CREDIT: "neutral",
+  OPEN: "info",
+  ACCEPTED: "info",
+  PICKED_UP: "info",
+  DELIVERED: "info",
+  DISPUTED: "danger",
+  COMPLETION_PENDING_CREDIT: "warning",
+  RELEASE_PENDING_CREDIT: "warning",
+  REJECTED: "neutral",
+  COMPLETED: "success",
+  CANCELLED: "neutral",
+  EXPIRED: "neutral",
 };
 
 export const REQUEST_TONES: Record<RoleRequestStatus, Tone> = {

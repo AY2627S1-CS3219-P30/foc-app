@@ -11,7 +11,7 @@ const OPTIONS: { value: PreferredMode; label: string }[] = [
 ];
 
 /**
- * The requester↔courier switch (USR-03 / US-FR2.1.2). It changes which screens lead, and is saved
+ * The requester↔courier switch (USR-03 / US-FR2.1.2). It changes the request lists, and is saved
  * as `preferredMode` so it follows the student across devices. It is a preference only: every
  * active student may request and deliver, and no server decision ever reads it.
  */

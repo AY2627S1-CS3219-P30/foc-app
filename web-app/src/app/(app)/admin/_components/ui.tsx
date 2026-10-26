@@ -5,7 +5,7 @@ import { useId, type ReactNode } from "react";
 import { Button } from "@/components/Button";
 import { DesktopShell } from "@/components/DesktopShell";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
-import type { Tone } from "@/lib/admin-labels";
+import { shortId, type Tone } from "@/lib/admin-labels";
 import { cx } from "@/lib/cx";
 import { ADMIN_NAV } from "@/lib/nav";
 import { useDirectory } from "./Directory";
@@ -105,16 +105,19 @@ export function Pager({
   pageSize,
   total,
   onPage,
+  label = "Pages",
 }: {
   page: number;
   pageSize: number;
   total: number;
   onPage: (page: number) => void;
+  /** Names the landmark; give one per pager when a page has more than one. */
+  label?: string;
 }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
   if (pages <= 1) return null;
   return (
-    <nav className={styles.pager} aria-label="Pages">
+    <nav className={styles.pager} aria-label={label}>
       <Button variant="outline" disabled={page <= 1} onClick={() => onPage(page - 1)}>
         Previous
       </Button>
@@ -135,6 +138,15 @@ export function UserLink({ id }: { id: string | null }) {
   return (
     <Link href={`/admin/users/${id}`} className={styles.link}>
       {name(id)}
+    </Link>
+  );
+}
+
+/** An errand's ID, opening its full trace on the Operations tab (PLT-05). */
+export function TraceLink({ orderId }: { orderId: string }) {
+  return (
+    <Link href={`/admin/operations?order=${orderId}#trace`} className={styles.link} title="Trace this errand">
+      {shortId(orderId)}
     </Link>
   );
 }

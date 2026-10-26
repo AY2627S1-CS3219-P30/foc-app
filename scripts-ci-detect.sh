@@ -16,7 +16,7 @@ SHARED_RE='^(platform/|test-harness/|system-tests/|package\.json|package-lock\.j
 SERVICE_RE='^(user|supplier|order|credit)-service/'
 # Wiring between containers, as opposed to code inside one. `.env.example`
 # belongs here because the smoke job builds `.env` from it.
-STACK_RE='^(compose(\.dev)?\.yaml|postgres-init\.sh|rabbitmq-init\.sh|scripts-(smoke|demo-failures|demo-credits|restart-check|scan-secrets|init-env|env|lib|ci-detect)\.sh|platform/|observability/|\.env\.example|\.gitleaks\.toml)|Dockerfile|\.dockerignore'
+STACK_RE='^(compose(\.dev)?\.yaml|postgres-init\.sh|rabbitmq-init\.sh|scripts-(smoke|demo-failures|demo-journey|demo-credits|restart-check|scan-secrets|init-env|env|lib|ci-detect)\.sh|platform/|observability/|\.env\.example|\.gitleaks\.toml)|Dockerfile|\.dockerignore'
 # The deployment files that test-harness/test/compose-config.test.ts reads (PLT-06): a change to
 # one runs the Node job, where that test lives, without fanning out to every service.
 DEPLOY_CONFIG_RE='^(compose(\.dev)?\.yaml|postgres-init\.sh|rabbitmq-init\.sh|scripts-init-env\.sh|\.env\.example)|Dockerfile|\.dockerignore'
@@ -124,6 +124,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "env generator -> stack runs"           "scripts-init-env.sh" 'stack=true'
   check "restart check -> stack runs"           "scripts-restart-check.sh" 'stack=true'
   check "restart check -> node skipped"         "scripts-restart-check.sh" 'node=false'
+  check "demo journey -> stack runs"            "scripts-demo-journey.sh" 'stack=true'
+  check "demo runbook -> nothing runs"          "docs/demo/d3-runbook.md" 'stack=false'
   check "a Dockerfile -> stack runs"            "order-service/Dockerfile" 'stack=true'
   check "a Dockerfile -> that service too"      "order-service/Dockerfile" 'services=["order-service"]'
   check "web Dockerfile -> stack and web"       "web-app/Dockerfile" 'web=true'

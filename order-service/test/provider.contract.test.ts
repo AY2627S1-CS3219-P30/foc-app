@@ -14,6 +14,8 @@ import {
 } from './helpers/app.js';
 import {
   TRANSFER_RESULTS_QUEUE,
+  advance,
+  backdate,
   deliver,
   dispute,
   sweep,
@@ -146,6 +148,80 @@ describe('order-service honours its published contract', () => {
     }
   });
 
+  it('non-delivery and non-receipt reports, and the deadlines in the private view (200, 403, 409)', async () => {
+    const pickedUp = await createTestApp();
+    const delivered = await createTestApp();
+    try {
+      const call = (t: TestApp, path: string, auth: string, expectedVersion: number) =>
+        http(t)
+          .post(`/orders/${SEEDED_ORDER}/${path}`)
+          .set('Authorization', auth)
+          .send({ expectedVersion });
+      const nonDelivery = '/orders/{orderId}/report-non-delivery';
+      await advance(pickedUp, 'PICKED_UP');
+      contract.assert(
+        'post',
+        nonDelivery,
+        await call(pickedUp, 'report-non-delivery', asStranger, 4),
+      );
+      contract.assert(
+        'post',
+        nonDelivery,
+        await call(pickedUp, 'report-non-delivery', asRequester, 4),
+      );
+      await backdate(pickedUp, 'non_delivery_report_at', 1);
+      contract.assert(
+        'post',
+        nonDelivery,
+        await call(pickedUp, 'report-non-delivery', asRequester, 4),
+      );
+
+      const nonReceipt = '/orders/{orderId}/report-non-receipt';
+      await advance(delivered, 'DELIVERED');
+      contract.assert(
+        'get',
+        '/orders/{orderId}',
+        await http(delivered)
+          .get(`/orders/${SEEDED_ORDER}?view=private`)
+          .set('Authorization', asRequester),
+      );
+      contract.assert(
+        'post',
+        nonReceipt,
+        await call(delivered, 'report-non-receipt', asStranger, 5),
+      );
+      contract.assert(
+        'post',
+        nonReceipt,
+        await call(delivered, 'report-non-receipt', asRequester, 5),
+      );
+      contract.assert(
+        'post',
+        nonReceipt,
+        await call(delivered, 'report-non-receipt', asRequester, 5),
+      );
+    } finally {
+      await pickedUp.close();
+      await delivered.close();
+    }
+  });
+
+  it.each(['report-non-delivery', 'report-non-receipt'])(
+    'POST /orders/{orderId}/%s (400, 401, 404, 422)',
+    async (path) => {
+      const template = `/orders/{orderId}/${path}`;
+      const report = (id: string, body: object, auth?: string) => {
+        const req = http(app).post(`/orders/${id}/${path}`);
+        return (auth ? req.set('Authorization', auth) : req).send(body);
+      };
+      const valid = { expectedVersion: 1 };
+      contract.assert('post', template, await report('not-a-uuid', valid, asRequester).expect(400));
+      contract.assert('post', template, await report(SEEDED_ORDER, valid).expect(401));
+      contract.assert('post', template, await report(randomUUID(), valid, asRequester).expect(404));
+      contract.assert('post', template, await report(SEEDED_ORDER, {}, asRequester).expect(422));
+    },
+  );
+
   it('cancel and withdraw (200, 403, 409)', async () => {
     const lifecycle = await createTestApp();
     try {
@@ -271,6 +347,19 @@ describe('order-service honours its published contract', () => {
     const alerts = '/admin/orders/alerts';
     contract.assert('get', alerts, await get(alerts, asAdmin));
     contract.assert('get', alerts, await get(alerts, asStranger));
+  });
+
+  it("an administrator's view of one account's errands (200, 401, 403, 422)", async () => {
+    const accounts = '/admin/orders';
+    const get = (query: string, auth?: string) =>
+      auth
+        ? http(app).get(`${accounts}?${query}`).set('Authorization', auth)
+        : http(app).get(`${accounts}?${query}`);
+    contract.assert('get', accounts, await get('requesterId=seed-requester', asAdmin));
+    contract.assert('get', accounts, await get('courierId=unrelated-student&page=2', asAdmin));
+    contract.assert('get', accounts, await get('requesterId=seed-requester'));
+    contract.assert('get', accounts, await get('requesterId=seed-requester', asStranger));
+    contract.assert('get', accounts, await get('pageSize=5', asAdmin));
   });
 
   it('dead letters: find, inspect, redrive (200, 401, 403, 404, 422, 503)', async () => {

@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OutboxRelay, createEnvelope } from '@foc/platform';
 import type { CreationBoundary } from '../src/orders/orders.repository.js';
 import type { CreateOrderInput } from '../src/orders/validation.js';
-import { asRequester, createTestApp, http, type TestApp } from './helpers/app.js';
+import { asRequester, asStranger, createTestApp, http, type TestApp } from './helpers/app.js';
+import { reservationReply } from './support/lifecycle.js';
 
 const supplierId = '00000000-0000-4000-8000-000000000125';
 const validInput: CreateOrderInput = {
@@ -67,7 +68,7 @@ describe('asynchronous order creation (ORD-02)', () => {
     const first = await post(t, 'repeat-1').expect(201);
     for (let replay = 0; replay < 100; replay++) {
       const repeated = await post(t, 'repeat-1').expect(200);
-      expect(repeated.body).toEqual(first.body);
+      expect(repeated.body).toEqual({ ...first.body, serverTime: expect.any(String) });
     }
     expect(supplierFetch).toHaveBeenCalledTimes(1);
     const count = await t.db.query<{ count: number } & Record<string, unknown>>(
@@ -111,6 +112,43 @@ describe('asynchronous order creation (ORD-02)', () => {
     );
     expect((await post(t, 'inactive-1').expect(422)).body.error.code).toBe('INVALID_SUPPLIER');
     expect((await t.db.query(`SELECT * FROM outbox_events`)).rows).toHaveLength(0);
+  });
+
+  it('keeps the errand’s pickup as it was when the supplier is renamed, moved or deactivated', async () => {
+    let supplier = {
+      supplierId,
+      name: 'The Deck',
+      type: 'FOOD',
+      building: 'COM2',
+      floor: '1',
+      locationDescription: 'Level 1 canteen',
+      active: true,
+    };
+    const supplierFetch = vi.fn(async () => Response.json(supplier));
+    t = await createTestApp(supplierFetch as unknown as typeof fetch);
+    const { active: _, ...snapshot } = supplier;
+    const { orderId } = (await post(t, 'snapshot-1', validOrder({ reward: 2 })).expect(201)).body;
+    await reservationReply(t, orderId);
+
+    supplier = {
+      ...supplier,
+      name: 'The Deck (renamed)',
+      building: 'COM3',
+      locationDescription: 'Moved upstairs',
+      active: false,
+    };
+
+    for (const auth of [asRequester, asStranger]) {
+      const { body } = await http(t).get(`/orders/${orderId}`).set('Authorization', auth);
+      expect(body.supplier).toEqual(snapshot);
+    }
+    const open = await http(t).get('/orders').set('Authorization', asStranger).expect(200);
+    expect(
+      open.body.find((item: { orderId: string }) => item.orderId === orderId).supplier,
+    ).toEqual(snapshot);
+    // Reading an errand never asks the Supplier Service again; only creation does.
+    expect(supplierFetch).toHaveBeenCalledTimes(1);
+    expect((await post(t, 'snapshot-2').expect(422)).body.error.code).toBe('INVALID_SUPPLIER');
   });
 
   it('fails closed when Supplier cannot be verified', async () => {

@@ -20,6 +20,7 @@ import {
   parseAcceptOrder,
   parseCreateOrder,
   parseIdempotencyKey,
+  parseMyOrdersQuery,
   parseOrderId,
 } from './validation.js';
 
@@ -29,15 +30,15 @@ export class OrdersController {
 
   @Get()
   @Authenticated()
-  list() {
-    return this.orders.listOpen();
+  list(@CurrentUser() caller: AuthContext) {
+    return this.orders.listOpen(caller.userId);
   }
 
   // Declared before ':id', which would otherwise refuse "mine" as an invalid order ID.
   @Get('mine')
   @Authenticated()
-  listMine(@CurrentUser() caller: AuthContext) {
-    return this.orders.listMine(caller);
+  listMine(@Query() query: unknown, @CurrentUser() caller: AuthContext) {
+    return this.orders.listMine(caller, parseMyOrdersQuery(query));
   }
 
   @Get(':id')
@@ -137,6 +138,30 @@ export class OrdersController {
     @Req() request: Request & { correlationId?: string },
   ) {
     return this.run(id, 'WITHDRAW', body, caller, request);
+  }
+
+  @Post(':id/report-non-delivery')
+  @HttpCode(200)
+  @Authenticated()
+  reportNonDelivery(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() caller: AuthContext,
+    @Req() request: Request & { correlationId?: string },
+  ) {
+    return this.run(id, 'REPORT_NON_DELIVERY', body, caller, request);
+  }
+
+  @Post(':id/report-non-receipt')
+  @HttpCode(200)
+  @Authenticated()
+  reportNonReceipt(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() caller: AuthContext,
+    @Req() request: Request & { correlationId?: string },
+  ) {
+    return this.run(id, 'REPORT_NON_RECEIPT', body, caller, request);
   }
 
   private run(

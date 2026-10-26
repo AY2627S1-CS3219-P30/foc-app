@@ -83,17 +83,35 @@ const fakeAuthenticator = {
 
 /**
  * A stand-in User Service behind the directory client's fetch: the active administrators (the two
- * admin identities above) and whether it answers at all. Tests change either to suspend an admin
- * or take the service down.
+ * admin identities above), who is suspended, and whether it answers at all. Tests change these to
+ * suspend a user or take the service down.
  */
 export class FakeUserService {
   readonly admins = new Set(['admin-1', 'admin-2']);
+  readonly suspended = new Set<string>();
+  /** Users whose lookup answers 503, while everything else still works. */
+  readonly failing = new Set<string>();
+  /** Every user looked up, in order. */
+  readonly lookups: string[] = [];
   down = false;
   readonly fetch: typeof fetch = async (input) => {
     if (this.down) throw new TypeError('fetch failed');
     const { pathname } = new URL(String(input));
-    if (pathname !== '/internal/admins') return new Response(null, { status: 404 });
-    return Response.json({ items: [...this.admins].map((userId) => ({ userId })) });
+    if (pathname === '/internal/admins') {
+      return Response.json({ items: [...this.admins].map((userId) => ({ userId })) });
+    }
+    const user = /^\/internal\/users\/([^/]+)$/.exec(pathname)?.[1];
+    if (!user) return new Response(null, { status: 404 });
+    const userId = decodeURIComponent(user);
+    this.lookups.push(userId);
+    if (this.failing.has(userId)) return new Response(null, { status: 503 });
+    return Response.json({
+      userId,
+      exists: true,
+      status: this.suspended.has(userId) ? 'SUSPENDED' : 'ACTIVE',
+      roles: ['STUDENT'],
+      displayName: 'Student',
+    });
   };
 }
 

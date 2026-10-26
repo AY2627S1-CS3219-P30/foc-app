@@ -9,6 +9,7 @@ import {
   type TestApp,
 } from './helpers/app.js';
 import {
+  COURIER,
   SECRET,
   SEEDED_ORDER,
   advance,
@@ -67,6 +68,68 @@ describe('my errands', () => {
       .expect(200);
     const withdrawn = await mine(asStranger);
     expect(withdrawn.body).toEqual({ items: [], truncated: false });
+  });
+
+  it('lets a student with an open errand of their own deliver someone else’s', async () => {
+    t = await createTestApp();
+    // The requester's seeded errand is open; another student posts one of their own.
+    const theirs = await createPending(t, asStranger);
+    await reservationReply(t, theirs, false, COURIER);
+
+    await http(t)
+      .post(`/orders/${theirs}/accept`)
+      .set('Authorization', asRequester)
+      .send({ expectedVersion: 2 })
+      .expect(201);
+
+    const { body } = await mine(asRequester);
+    expect(body.items).toMatchObject([
+      { orderId: theirs, status: 'ACCEPTED', myRole: 'COURIER' },
+      { orderId: SEEDED_ORDER, status: 'OPEN', myRole: 'REQUESTER' },
+    ]);
+    // Each role keeps its own rules: they still may not accept their own errand.
+    const own = await http(t)
+      .post(`/orders/${SEEDED_ORDER}/accept`)
+      .set('Authorization', asRequester)
+      .send({ expectedVersion: 2 });
+    expect([own.status, own.body.error.code]).toEqual([403, 'SELF_ACCEPTANCE_FORBIDDEN']);
+    await http(t)
+      .post(`/orders/${theirs}/pickup`)
+      .set('Authorization', asRequester)
+      .send({ expectedVersion: 3 })
+      .expect(200);
+  });
+
+  it('filters by role and active status', async () => {
+    t = await createTestApp();
+    const theirs = await createPending(t, asStranger);
+    await reservationReply(t, theirs, false, COURIER);
+    await http(t)
+      .post(`/orders/${theirs}/accept`)
+      .set('Authorization', asRequester)
+      .send({ expectedVersion: 2 })
+      .expect(201);
+    const rejected = await createPending(t);
+    await reservationReply(t, rejected, true);
+
+    const get = (query: string) =>
+      http(t!).get(`/orders/mine${query}`).set('Authorization', asRequester).expect(200);
+    expect(
+      (await get('?role=REQUESTER&active=true')).body.items.map(
+        (o: { orderId: string }) => o.orderId,
+      ),
+    ).toEqual([SEEDED_ORDER]);
+    expect(
+      (await get('?role=REQUESTER&active=false')).body.items.map(
+        (o: { orderId: string }) => o.orderId,
+      ),
+    ).toEqual([rejected]);
+    expect(
+      (await get('?role=COURIER&active=true')).body.items.map(
+        (o: { orderId: string }) => o.orderId,
+      ),
+    ).toEqual([theirs]);
+    await http(t).get('/orders/mine?role=OTHER').set('Authorization', asRequester).expect(422);
   });
 
   it('shows an unrelated student nothing', async () => {
