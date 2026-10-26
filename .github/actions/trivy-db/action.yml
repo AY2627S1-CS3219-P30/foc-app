@@ -1,0 +1,23 @@
+# Trivy's vulnerability database, restored from GitHub's cache before a scan (NTH-04, #164).
+# Without it every scanning job downloads the whole database, which adds minutes and runs into
+# the registries' rate limits (TOOMANYREQUESTS). The copy is saved once a day: a job that
+# restores today's uses it as it is; one that finds only an older copy lets Trivy update it, and
+# that job saves today's.
+name: Trivy database
+description: Restores the vulnerability database scripts-scan-vulnerabilities.sh reads.
+runs:
+  using: composite
+  steps:
+    - id: today
+      shell: bash
+      run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+    - id: cache
+      uses: actions/cache@v4
+      with:
+        # Only the database; Trivy's per-image analysis cache next to it is not worth keeping.
+        path: ~/.cache/foc-trivy/db
+        key: trivy-db-${{ steps.today.outputs.date }}
+        restore-keys: trivy-db-
+    - if: steps.cache.outputs.cache-hit == 'true'
+      shell: bash
+      run: echo "FOC_TRIVY_SKIP_DB_UPDATE=true" >> "$GITHUB_ENV"
