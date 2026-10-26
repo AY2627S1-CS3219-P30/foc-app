@@ -296,6 +296,10 @@ jobs:
       # stack of its own (the smoke run has removed its copy), ending with credits conserved.
       - name: Force messaging failures and check the outcome
         run: ./scripts-demo-failures.sh --up
+      # CRD-09: reserve, transfer and release through the public API, with both wallets before and
+      # after each, ending with the closed-economy invariants checked on the live database.
+      - name: Walk the credits through an errand
+        run: ./scripts-demo-credits.sh --up
       # PLT-06: stop and start every container, remove and recreate them, and take Postgres away
       # under the running services. Nothing committed is lost, a waiting message is handled once,
       # and a service without its database says 503 instead of accepting a write.
