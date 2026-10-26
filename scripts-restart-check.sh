@@ -27,6 +27,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 . ./scripts-env.sh
 . ./scripts-lib.sh
+# The balances checked below (10/0, 7/3, ...) are for the default allocation of 10 credits.
+REQUIRED_ALLOCATION=10
 
 TEARDOWN=0
 DISRUPTED=0
@@ -113,10 +115,7 @@ print(", ".join(lost))' "$1" "$2" 2>/dev/null || echo "could not compare"
 
 # Creates an errand worth 3 credits as the requester. Sets ERRAND_ID (empty on failure).
 create_errand() { # label
-  ERRAND_ID=$(curl -fsS -X POST "http://localhost:${ORDER_PORT}/orders" -H "Authorization: Bearer $REQUESTER_TOKEN" \
-    -H 'content-type: application/json' -H "Idempotency-Key: restart-$1-$RUN" -H "x-correlation-id: restart-$1-$RUN" \
-    -d "{\"supplierId\":\"$SUPPLIER_ID\",\"items\":[{\"name\":\"Chicken rice\",\"quantity\":1}],\"deliveryZone\":\"COM2 Lobby\",\"deliveryInstructions\":\"Meet at the security desk\",\"reward\":3}" \
-    2>/dev/null | json 'd["orderId"]') || true
+  ERRAND_ID=$(post_errand "$REQUESTER_TOKEN" "$SUPPLIER_ID" 3 "restart-$1")
 }
 
 reserves() { sql foc_credit "SELECT count(*) FROM credit_transactions WHERE order_id = '$1' AND transaction_type = 'RESERVE'"; }
@@ -177,8 +176,7 @@ step "0. State to keep" \
 signup requester
 REQUESTER_ID=$STUDENT_ID
 REQUESTER_TOKEN=$STUDENT_TOKEN
-SUPPLIER_ID=$(curl -fsS "http://localhost:${SUPPLIER_PORT}/suppliers" -H "Authorization: Bearer $REQUESTER_TOKEN" 2>/dev/null |
-  json '(lambda items: items[0].get("id") or items[0].get("supplierId"))(d["items"] if isinstance(d, dict) else d)') || true
+SUPPLIER_ID=$(first_supplier "$REQUESTER_TOKEN")
 create_errand first
 FIRST_ERRAND=$ERRAND_ID
 if [[ -z "$FIRST_ERRAND" ]]; then

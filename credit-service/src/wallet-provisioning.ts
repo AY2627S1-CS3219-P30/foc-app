@@ -34,6 +34,10 @@ export class WalletProvisioning implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
+    this.logger.log({
+      initialAllocation: this.credits.initialAllocation,
+      msg: 'new wallets are issued the initial allocation',
+    });
     await this.consumer.subscribe({
       queue: WALLET_QUEUE,
       eventType: EVENTS.USER_ACTIVATED,
@@ -56,6 +60,7 @@ export class WalletProvisioning implements OnApplicationBootstrap {
       causationId: envelope.causationId,
       userId: envelope.payload.userId,
       issued,
+      amount: issued ? this.credits.initialAllocation : 0,
       msg: issued ? 'wallet created and initial credits issued' : 'wallet already exists',
     });
   }
