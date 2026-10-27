@@ -24,6 +24,10 @@
   background: var(--color-page);
 }
 
+.logout {
+  color: var(--color-danger);
+}
+
 .active {
   background: var(--color-primary);
   color: var(--color-on-primary);
@@ -42,5 +46,12 @@
     overflow-x: visible;
     border-bottom: none;
     border-right: 1px solid var(--color-border);
+  }
+
+  .logout {
+    margin-top: var(--space-3);
+    border-top: 1px solid var(--color-border);
+    padding-top: var(--space-4);
+    border-radius: 0;
   }
 }
