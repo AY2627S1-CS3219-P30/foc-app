@@ -71,14 +71,19 @@ that path at `/api/user/auth`, so the edge rewrites the cookie's path on the way
 holds wherever the stack is served from. The service is unchanged, and still works on its own
 (`npm run dev`) with `/auth`.
 
-### 4. One trusted hop, for the client's address only
+### 4. The edge alone is believed, for the client's address only
 
-Behind the edge every request comes from the edge. It replaces `X-Forwarded-For` with the address
-it saw, ignoring whatever the client sent, and each service trusts exactly one proxy hop
-(`TRUST_PROXY_HOPS=1`), so `req.ip` is the client's and a per-address limit counts clients. This is
-the one thing a service believes from the edge, and it is an address, not an identity. A process on
-this machine could send its own `X-Forwarded-For` to a service's `127.0.0.1` port; that only moves
-which address a limit counts, and only from here.
+Behind the edge a browser's request comes from the edge. It replaces `X-Forwarded-For` with the
+address it saw, ignoring whatever the client sent, and each service believes that header from the
+edge alone (`TRUSTED_PROXY=edge`): it looks the name up in Docker's DNS, again every 10 seconds as
+the edge does for the services, and takes only the last address, the one the edge wrote. So
+`req.ip` is the client's and a per-address limit counts clients. A request from anywhere else, a
+process on this machine calling a service's `127.0.0.1` port or another container on the network,
+is taken at its own address whatever header it sends, so it cannot spread itself across a limit's
+addresses. This is the one thing a service believes from the edge, and it is an address, not an
+identity. Until the first lookup succeeds (the edge can start after a service), or for up to 10
+seconds after the edge is recreated at a new address, nobody is believed, and the edge's own
+address is what a limit counts.
 
 ### 5. Recreated containers are found again
 

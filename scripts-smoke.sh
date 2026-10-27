@@ -275,7 +275,8 @@ done
 # The internal API and the metrics are not routed, however the path is spelled. The edge answers
 # itself: a service would echo the correlation ID in a header, and the edge does not.
 for path in /api/user/internal/introspect /api/user/%69nternal/introspect /api/user//internal/introspect \
-  /api/credit/internal/orders/x/credit-status /api/order/metrics; do
+  /api/user/Internal/introspect /api/credit/internal/orders/x/credit-status /api/order/metrics \
+  /api/order/Metrics /api/supplier/METRICS; do
   response=$(curl -s -o /dev/null -D - -w '%{http_code}' "$EDGE$path" -H 'x-correlation-id: edge-probe' 2>/dev/null || echo 000)
   code="${response: -3}"
   echoed=$(printf '%s' "$response" | header x-correlation-id)

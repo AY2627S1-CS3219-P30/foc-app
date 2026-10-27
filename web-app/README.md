@@ -81,8 +81,11 @@ bunx playwright install chromium   # once
 bun run e2e
 ```
 
-`E2E_BASE_URL` points it elsewhere. Each run registers one account per width, well inside the sign-up
-limit of 20 an hour per address. Specs are named `*.e2e.ts` so `bun test` leaves them alone.
+`E2E_BASE_URL` points it elsewhere. The specs call the services through the edge too, at
+`$E2E_BASE_URL/api/<service>`, as the page does: a sign-in there sets the refresh cookie for
+`/api/user/auth`, where the page refreshes (`E2E_USER_SERVICE_URL` and the like override one). Each run
+registers one account per width, well inside the sign-up limit of 20 an hour per address. Specs are
+named `*.e2e.ts` so `bun test` leaves them alone.
 
 `E2E_BROWSER_CHANNEL=chrome` drives an installed Google Chrome instead of Playwright's Chromium, so
 nothing needs installing. CI does that: GitHub's Ubuntu runners come with Chrome and its system

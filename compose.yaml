@@ -19,8 +19,9 @@ x-service-base: &service-base
     NODE_ENV: ${NODE_ENV:-development}
     LOG_LEVEL: ${LOG_LEVEL:-info}
     CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
-    # Behind the edge (PLT-10): believe its X-Forwarded-For, one hop, for the client's address.
-    TRUST_PROXY_HOPS: 1
+    # Behind the edge (PLT-10): believe X-Forwarded-For, for the client's address, from the edge
+    # alone, found by its name. A request from anywhere else is taken at its own address.
+    TRUSTED_PROXY: edge
     # Prometheus sends it to /metrics (PLT-04); the prometheus service reads the same value.
     METRICS_TOKEN: ${METRICS_TOKEN:?run ./scripts-init-env.sh}
   depends_on: &service-deps

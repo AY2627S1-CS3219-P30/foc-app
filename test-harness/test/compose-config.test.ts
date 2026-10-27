@@ -330,8 +330,9 @@ describe('the edge (PLT-10)', () => {
   });
 
   it('never routes the internal API or the metrics, however the path is spelled', () => {
-    // Matched on nginx's normalised path, which a regex location checks before the prefixes.
-    expect(nginx).toContain('location ~ ^/api/[a-z]+/(internal|metrics)(/|$) {');
+    // Matched on nginx's normalised path, which a regex location checks before the prefixes, and
+    // ignoring case, as the services' routes do.
+    expect(nginx).toContain('location ~* ^/api/[a-z]+/(internal|metrics)(/|$) {');
   });
 
   it('sets the security headers on every response, and limits writes and request size', () => {
@@ -354,11 +355,12 @@ describe('the edge (PLT-10)', () => {
     expect(nginx).toContain('proxy_cookie_path /auth /api/user/auth;');
   });
 
-  it('tells each service the client’s address in one trusted hop, never the client’s own header', () => {
+  it('tells each service the client’s address, which the service believes from the edge alone', () => {
     expect(nginx).toContain('proxy_set_header X-Forwarded-For $remote_addr;');
     for (const name of APPLICATION) {
       const env = services[name]!.environment as Record<string, unknown>;
-      expect(env.TRUST_PROXY_HOPS, name).toBe(1);
+      expect(env.TRUSTED_PROXY, name).toBe('edge');
+      expect(env, name).not.toHaveProperty('TRUST_PROXY_HOPS');
     }
   });
 });

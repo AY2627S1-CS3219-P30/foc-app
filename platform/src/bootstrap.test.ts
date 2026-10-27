@@ -148,13 +148,13 @@ describe('startService: behind the edge (PLT-10)', () => {
     app = undefined;
   });
 
-  async function ipSeen(trustProxyHops: number | undefined, forwardedFor: string) {
+  async function ipSeen(trustedProxy: string | undefined, forwardedFor: string) {
     app = await NestFactory.create(AppModule, { logger: false });
     await startService(app, {
       serviceName: 'test-service',
       port: 0,
       corsOrigins: 'http://localhost:3000',
-      trustProxyHops,
+      trustedProxy,
     });
     const { port } = app.getHttpServer().address() as AddressInfo;
     const response = await fetch(`http://127.0.0.1:${port}/whoami`, {
@@ -163,8 +163,17 @@ describe('startService: behind the edge (PLT-10)', () => {
     return ((await response.json()) as { ip: string }).ip;
   }
 
-  it('takes the client address the edge forwards, through one trusted hop', async () => {
-    expect(await ipSeen(1, '203.0.113.7')).toBe('203.0.113.7');
+  // These requests come from 127.0.0.1, which `localhost` resolves to: here, that is the edge.
+  it('takes the client address the edge forwards, the edge found by its name', async () => {
+    expect(await ipSeen('localhost', '203.0.113.7')).toBe('203.0.113.7');
+  });
+
+  it('believes one hop only: the address the edge wrote, not one the client added before it', async () => {
+    expect(await ipSeen('localhost', '198.51.100.9, 203.0.113.7')).toBe('203.0.113.7');
+  });
+
+  it('ignores a forwarded address from anyone but the edge', async () => {
+    expect(await ipSeen('192.0.2.1', '203.0.113.7')).toBe('127.0.0.1');
   });
 
   it('ignores a forwarded address when no proxy is trusted, as a service run alone is', async () => {

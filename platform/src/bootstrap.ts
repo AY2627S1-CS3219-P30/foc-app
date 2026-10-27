@@ -1,3 +1,4 @@
+import { lookup } from 'node:dns/promises';
 import { createServer, type Server } from 'node:http';
 import {
   INestApplication,
@@ -41,8 +42,40 @@ class InternalRoutesGuard implements CanActivate {
 const internalPortFromEnv = (): number | undefined =>
   process.env.INTERNAL_PORT ? Number(process.env.INTERNAL_PORT) : undefined;
 
-/** `TRUST_PROXY_HOPS` as `loadEnv` validated it; unset trusts no proxy. */
-const trustProxyHopsFromEnv = (): number => Number(process.env.TRUST_PROXY_HOPS ?? 0);
+/** `TRUSTED_PROXY` as `loadEnv` validated it; unset trusts no proxy. */
+const trustedProxyFromEnv = (): string | undefined => process.env.TRUSTED_PROXY || undefined;
+
+/** How often the trusted proxy's name is looked up again: as often as the edge looks up a service. */
+const TRUSTED_PROXY_LOOKUP_MS = 10_000;
+
+/**
+ * Believes `X-Forwarded-For` from the proxy named `host` alone, and only its last entry: the one
+ * the edge wrote. Anyone else, a process on this machine or another container on the network,
+ * is taken at its own address whatever it claims. The name is looked up again every 10 s, so an
+ * edge that is recreated at a new address is trusted there; until a lookup succeeds (the edge
+ * can start after a service), nobody is.
+ */
+async function trustOnly(host: string): Promise<{
+  trust: (address: string, hop: number) => boolean;
+  stop: () => void;
+}> {
+  let addresses = new Set<string>();
+  const refresh = async (): Promise<void> => {
+    try {
+      addresses = new Set((await lookup(host, { all: true })).map((found) => found.address));
+    } catch {
+      // Not resolvable for now: keep the addresses last found.
+    }
+  };
+  await refresh();
+  const timer = setInterval(() => void refresh(), TRUSTED_PROXY_LOOKUP_MS);
+  timer.unref();
+  return {
+    // Hop 0 is the connection itself; believing it moves `req.ip` to the edge's entry, and no further.
+    trust: (address, hop) => hop === 0 && addresses.has(address.replace(/^::ffff:/, '')),
+    stop: () => clearInterval(timer),
+  };
+}
 
 /**
  * Applies the conventions every service shares and starts listening.
@@ -65,8 +98,8 @@ export async function startService(
     corsOrigins: string;
     /** Defaults to `INTERNAL_PORT` from the environment. */
     internalPort?: number;
-    /** Proxies to believe about the client's address. Defaults to `TRUST_PROXY_HOPS`. */
-    trustProxyHops?: number;
+    /** The proxy to believe about the client's address, by name. Defaults to `TRUSTED_PROXY`. */
+    trustedProxy?: string;
   },
 ): Promise<void> {
   const logger = new Logger(options.serviceName);
@@ -75,14 +108,16 @@ export async function startService(
     throw new Error('INTERNAL_PORT must differ from PORT: it is the port that is not published.');
   }
 
-  // Behind the edge every request comes from the edge; it forwards the address it saw, so
+  // Behind the edge a browser's request comes from the edge; it forwards the address it saw, so
   // `req.ip` is the client's and per-address limits count clients (PLT-10, ADR 0010).
-  const trustProxyHops = options.trustProxyHops ?? trustProxyHopsFromEnv();
-  if (trustProxyHops > 0) {
+  const trustedProxy = options.trustedProxy ?? trustedProxyFromEnv();
+  if (trustedProxy) {
+    const { trust, stop } = await trustOnly(trustedProxy);
     (app.getHttpAdapter().getInstance() as { set(name: string, value: unknown): void }).set(
       'trust proxy',
-      trustProxyHops,
+      trust,
     );
+    (app.getHttpServer() as Server).once('close', stop);
   }
 
   app.useGlobalFilters(new ErrorEnvelopeFilter());
