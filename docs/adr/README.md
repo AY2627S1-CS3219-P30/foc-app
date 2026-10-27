@@ -14,6 +14,7 @@ record; it does not silently rewrite it.
 | [0007](0007-credit-invariant-and-double-entry-ledger.md) | Credit invariant and double-entry ledger | Proposed; implementation basis |
 | [0008](0008-controlling-administrators.md) | How administrators are controlled | Proposed; implementation basis |
 | [0009](0009-messaging-rabbitmq-events-and-ordering.md) | Messaging: RabbitMQ, what a message is, and ordering | Proposed; implementation basis |
+| [0010](0010-api-edge.md) | The API edge: one origin, routed and protected by nginx | Proposed; implementation basis |
 
 “Proposed; implementation basis” means the repository uses the decision while the required human
 review is collected. The author cannot record approval on another team member's behalf.

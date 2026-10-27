@@ -258,8 +258,23 @@ function Review() {
 }
 
 export default function NewRequestReviewPage() {
+  const router = useRouter();
+  // Read on click, not with useSearchParams: this sits outside the Suspense boundary that needs.
+  const back = () => {
+    const supplierId = new URLSearchParams(window.location.search).get("supplierId");
+    router.push(
+      supplierId
+        ? `/request/new/details?supplierId=${encodeURIComponent(supplierId)}`
+        : "/request/new",
+    );
+  };
   return (
-    <ResponsiveShell title="Review request" navItems={STUDENT_NAV} activeHref="/feed">
+    <ResponsiveShell
+      title="Review request"
+      navItems={STUDENT_NAV}
+      activeHref="/feed"
+      onBack={back}
+    >
       <Suspense fallback={null}>
         <Review />
       </Suspense>

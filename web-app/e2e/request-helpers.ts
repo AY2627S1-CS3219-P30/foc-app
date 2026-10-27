@@ -1,9 +1,12 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 
-export const USER = process.env.E2E_USER_SERVICE_URL ?? "http://localhost:3001";
-const SUPPLIER = process.env.E2E_SUPPLIER_SERVICE_URL ?? "http://localhost:3002";
-export const ORDER = process.env.E2E_ORDER_SERVICE_URL ?? "http://localhost:3003";
-const CREDIT = process.env.E2E_CREDIT_SERVICE_URL ?? "http://localhost:3004";
+// Through the edge, as the page calls them: a sign-in here sets the refresh cookie for
+// /api/user/auth, where the page refreshes, so the page picks up the session (PLT-10).
+const EDGE = process.env.E2E_BASE_URL ?? "http://localhost:3000";
+export const USER = process.env.E2E_USER_SERVICE_URL ?? `${EDGE}/api/user`;
+const SUPPLIER = process.env.E2E_SUPPLIER_SERVICE_URL ?? `${EDGE}/api/supplier`;
+export const ORDER = process.env.E2E_ORDER_SERVICE_URL ?? `${EDGE}/api/order`;
+const CREDIT = process.env.E2E_CREDIT_SERVICE_URL ?? `${EDGE}/api/credit`;
 const PASSWORD = "a long enough passphrase";
 export const ORDER_URL = /\/request\/[0-9a-f-]{36}(\?.*)?$/;
 

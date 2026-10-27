@@ -228,6 +228,18 @@ compose_do down
 compose_do up -d
 check_recovered "being recreated" "$THIRD" "1/9"
 
+# PLT-10: one service recreated while the edge keeps running. The edge asks Docker's DNS again
+# every 10 s, so it reaches the new container, at whatever address it got, with no restart of
+# its own.
+through_edge() { curl -s -o /dev/null -w '%{http_code}' "http://localhost:${WEB_PORT}/api/$1/health" 2>/dev/null || echo 000; }
+edge_started=$(started_at edge)
+compose_do up -d --force-recreate --no-deps order-service
+wait_for 90 200 through_edge order &&
+  pass "the edge reaches the recreated Order Service without restarting" ||
+  fail "after recreating the Order Service, /api/order/health through the edge is '${LAST:-nothing}'"
+[[ "$(started_at edge)" == "$edge_started" ]] && pass "the edge itself was not restarted" ||
+  fail "the edge was restarted ($edge_started, now $(started_at edge))"
+
 drop_marker
 
 # ---- 3. the database goes away under the running services -------------------------
