@@ -37,6 +37,17 @@ describe('the load test (TST-03)', () => {
     );
   });
 
+  it('measures the services over the stack’s own network, not through this machine’s ports', () => {
+    // Their ports are on 127.0.0.1 (PLT-10), which a container cannot reach through the host on
+    // Linux; and the edge would count 100 users from one address against its write limit.
+    const script = read('scripts-load.sh');
+    expect(script).toContain('--network "${COMPOSE_PROJECT_NAME}_gateway"');
+    expect(script).toContain('-e USER_URL=http://user-service:3001');
+    expect(script).toContain('-e SUPPLIER_URL=http://supplier-service:3002');
+    expect(script).toContain('-e CREDIT_URL=http://credit-service:3004');
+    expect(script).not.toContain('host.docker.internal');
+  });
+
   it('runs on a stack of its own, with a pinned k6', () => {
     const script = read('scripts-load.sh');
     expect(script).toContain('export COMPOSE_PROJECT_NAME=foc-load');

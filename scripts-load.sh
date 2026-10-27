@@ -165,12 +165,15 @@ OUT=$(mktemp -d)
 OTHER_CONTAINERS=$(docker ps --format '{{.Names}}' | grep -vc '^foc-load-' || true)
 # As this machine's user: on Docker Engine a bind mount keeps the host's owner, and k6's own user
 # could not write its summary into the directory mktemp made.
+# On the stack's own network, to each service directly: their ports here are on 127.0.0.1, which a
+# container cannot reach through the host on Linux, and the edge (PLT-10) would count every
+# virtual user as one address against its write limit. This measures the services, not the edge.
 k6() { # script
-  docker run --rm --user "$(id -u):$(id -g)" --add-host=host.docker.internal:host-gateway \
+  docker run --rm --user "$(id -u):$(id -g)" --network "${COMPOSE_PROJECT_NAME}_gateway" \
     -v "$PWD/load:/load:ro" -v "$OUT:/out" \
-    -e USER_URL="http://host.docker.internal:${USER_SERVICE_PORT}" \
-    -e SUPPLIER_URL="http://host.docker.internal:${SUPPLIER_SERVICE_PORT}" \
-    -e CREDIT_URL="http://host.docker.internal:${CREDIT_SERVICE_PORT}" \
+    -e USER_URL=http://user-service:3001 \
+    -e SUPPLIER_URL=http://supplier-service:3002 \
+    -e CREDIT_URL=http://credit-service:3004 \
     -e ORIGIN="$CORS_ORIGINS" -e RUN="$RUN" -e EMAIL_DOMAIN="$EMAIL_DOMAIN" -e PASSWORD="$SIGNUP_PASSWORD" \
     -e STUDENTS="$STUDENTS" -e VUS="$VUS" -e DURATION_S="$DURATION_S" -e THINK_S="$THINK_S" \
     "$K6" run --quiet --no-usage-report "/load/$1.js"

@@ -1018,14 +1018,14 @@ FOC_IMAGE_TAG=sha-<commit> docker compose -f compose.yaml -f compose.images.yaml
 [#284](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/284)). CI builds with the same file
 through `docker buildx bake`, so a published image has exactly `compose.yaml`'s build arguments.
 
-- **The web app's image is for this local stack only.** `next build` inlines its build arguments,
-  so it calls the services at `localhost` on `compose.yaml`'s default ports (3001 to 3004) and links
-  sign-up to the dev mailbox; its image label says so. A stack on other ports keeps the published
-  services and builds the web app from its own `.env` first:
-  `docker compose -f compose.yaml -f compose.images.yaml build web-app`, then `up -d --no-build`.
-  A web app image that can be deployed elsewhere waits for the edge proxy (PLT-10,
-  [#285](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/285)), which puts it and the APIs
-  on one origin.
+- **The web app's image runs behind the edge, on any host and port.** `next build` inlines its
+  build arguments, and since the edge (PLT-10,
+  [#285](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/285)) they are paths: it calls the
+  services at `/api/<service>` on whatever origin serves it. Two links in it are still this
+  stack's, and its image label says so: sign-up links to the dev mailbox, and the admin console to
+  Grafana at `localhost:3005`. With another `GRAFANA_PORT`, build the web app from your own `.env`
+  first: `docker compose -f compose.yaml -f compose.images.yaml build web-app`, then
+  `up -d --no-build`.
 - **Every merged commit is published, unless its scan fails.** Each run on `main` has a concurrency
   group of its own, so none is dropped or cancelled while another runs; only a pull request's
   superseded run is cancelled. As runs can then finish out of order, a run moves `main` only while
