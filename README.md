@@ -12,13 +12,44 @@ withdrawn, or exchanged for money, and only circulate within the platform.
 
 ## Team Members
 
-| Name           | Role                               |
-| -------------- | ---------------------------------- |
-| Anselm Long    | Developer/LinkedInfluencer         |
-| Zhang Yuan     | Developer/Hasn't showered in weeks |
-| Jonus Ho       | Developer/BTS 8th member           |
-| Isaac Chua     | Developer/Goat                     |
-| Patrick Thomas | Developer/Diversity hire           |
+| Name           | GitHub                | Owns                                                        | Nice-to-have                                                |
+| -------------- | --------------------- | ----------------------------------------------------------- | ----------------------------------------------------------- |
+| Anselm Long    | `@anselmlong`         | User Service: identity and access                           | N1.1 the User Service side; N1.2 chat access and retention  |
+| Zhang Yuan     | `@volleyballkickedme` | Order Service: the errand lifecycle                         | N1.1 dispute referral and decision; N1.2 the chat lifecycle |
+| Jonus Ho       | `@jonushzw`           | Integration and platform: events, containers, observability | N1.1 the admin console and operations; N4.1 CI/CD           |
+| Isaac Chua     | `@isaacchua0309`      | Credit Service: the credit economy                          | N3.1 conservation evidence; N3.2 credit reconciliation      |
+| Patrick Thomas | `@pastchum`           | Supplier Service and the web app                            | N1.2 the chat interface                                     |
+
+What each nice-to-have is, and how the work on it is shared, is in
+[docs/nice-to-haves.md](docs/nice-to-haves.md).
+
+---
+
+## How it fits together
+
+- **A web app and four services.** The web app (Next.js) is what students and administrators use. It
+  calls each service's public API directly, with the signed-in user's token: the
+  [User](user-service), [Supplier](supplier-service), [Order](order-service) and
+  [Credit](credit-service) Services, each a NestJS application in a container of its own
+  ([Ports and ownership](#ports-and-ownership)).
+- **Each service owns its data.** One PostgreSQL server holds four databases, one per service, and
+  each service has a login to its own alone. No service reads another's tables
+  ([ADR 0003](docs/adr/0003-service-boundaries-and-data-ownership.md)).
+- **Who you are is checked everywhere.** The User Service signs short-lived access tokens; every
+  service verifies them itself and asks the User Service, on an internal port, whether the account is
+  still active ([ADR 0004](docs/adr/0004-authentication-and-trust.md)).
+- **The credit workflow is asynchronous.** An errand's credits are reserved, transferred and returned
+  through RabbitMQ: the Order Service asks, the Credit Service answers, and each change is saved
+  with its message so neither is lost or applied twice
+  ([Asynchronous workflows](#asynchronous-workflows),
+  [ADR 0002](docs/adr/0002-asynchronous-order-credit-saga.md),
+  [ADR 0009](docs/adr/0009-messaging-rabbitmq-events-and-ordering.md)).
+- **It can be watched and run anywhere Docker runs.** Prometheus and Grafana show latency, queues
+  and alerts ([Observability](#observability)); one `docker compose up` starts all of it
+  ([Containers](#containers-secrets-networks-and-restarts)), and CI runs the whole stack on every push
+  to `main` and on a pull request that touches it ([Continuous integration](#continuous-integration)).
+
+Every design decision and its reasons are in the [decision records](docs/adr/README.md).
 
 ---
 
@@ -815,7 +846,42 @@ set -a; . ./.env; set +a   # the stack's addresses and logins, from your .env
 TEST_POSTGRES_URL=$HOST_POSTGRES_URL npm test -w @foc/platform
 ```
 
-Not done yet: published outbox rows and old inbox rows are never pruned.
+**Pruning** (PLT-12, [#287](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/287)). Neither
+table grows for ever. Each service with event tables registers an `EventTablePruner`
+([`pruner.ts`](platform/src/events/pruner.ts)), with or without a broker. On a timer of its own,
+right after start and then hourly, it deletes, in batches of 1,000, published outbox rows more than
+30 days old and inbox rows more than 30 days old (`pruneEventTables` in
+[`retention.ts`](platform/src/events/retention.ts)). It never deletes an unpublished row, however
+old, nor an inbox row whose event still waits as a dead letter, which an operator may redrive at
+any time. Thirty days is far longer than any copy of an event can take to arrive; it is also how far
+back the admin console's errand trace sees an errand's events. It runs apart from the relay, so even
+a first prune of a long backlog never holds up a publish, and a service shutting down stops it after
+the batch in hand. It finds its rows through two indexes each service's migrations create
+(`outbox_events_published_idx`, `processed_events_processed_idx`). A failed prune is logged with
+its error (`pruning the event tables failed; will retry`) and tried again an hour later;
+`foc_event_rows_pruned_total{table}` counts what went, batch by batch. Pass `retention` or
+`intervalMs` to `provideEventTablePruner` to change either.
+
+## What is kept about a person, and for how long
+
+FoC stores what its features need and keeps it for the life of the deployment: there is no account
+deletion (an administrator suspends an account instead), and history that settles credits or
+disputes is append-only by design ([ADR 0007](docs/adr/0007-credit-invariant-and-double-entry-ledger.md),
+[ADR 0008](docs/adr/0008-controlling-administrators.md)).
+
+| Where                         | About a person                                                                                                       | Kept                                                                        | Who can read it                                                                                                               |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| User Service (`foc_user`)     | NUS email, password hash (Argon2id), display name, faculty, avatar, contact preference, mode, roles, status          | for the life of the account                                                 | the person; administrators, each opening of an account recorded                                                               |
+|                               | Sign-in sessions (a hash of the refresh token), activation tokens (hashed)                                           | until they expire; expired rows are not yet removed                         | nobody through the API                                                                                                        |
+|                               | The audit trail: who suspended, reactivated or changed whose role, and why                                           | for ever (append-only)                                                      | administrators                                                                                                                |
+| Order Service (`foc_order`)   | Errands: requester and courier ids, items and notes, delivery zone and instructions, status history, dispute reasons | for ever                                                                    | the requester and courier; an administrator only once a dispute is referred to them (ADR 0008); others see public fields only |
+| Credit Service (`foc_credit`) | Wallet balances and the ledger, by user id                                                                           | for ever (append-only)                                                      | the person; administrators, every read recorded                                                                               |
+| Events (each service)         | Ids (user, errand) in event payloads; no email or name                                                               | outbox 30 days once published, inbox 30 days (above); dead letters for ever | operators, in the Operations tab                                                                                              |
+| Logs                          | User and correlation ids; never an email, password or token (redacted)                                               | as long as Docker keeps the container's log                                 | whoever runs the stack                                                                                                        |
+| Supplier Service, metrics     | Nothing about a person                                                                                               | —                                                                           | —                                                                                                                             |
+
+Personal data never leaves the stack: no service calls a third party, and no secret or personal
+value is written to an image ([Secrets](#secrets)).
 
 ## Continuous integration
 
@@ -960,17 +1026,26 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
 
 ```text
 .
-├── user-service/
-├── supplier-service/
-├── order-service/
-├── credit-service/
-├── <n2h-service>/
-└── README.md
+├── user-service/        identity, sign-in, roles, the audit trail
+├── supplier-service/    the campus supplier catalogue
+├── order-service/       errands: their lifecycle, disputes, reconciliation
+├── credit-service/      wallets and the double-entry ledger
+├── web-app/             the Next.js front end, students' and administrators'
+├── platform/            what every service shares: config, logging, health, events
+├── auth-client/         how a service verifies a caller with the User Service
+├── contracts/           the OpenAPI and event contracts, checked for breaking changes
+├── test-harness/        shared test fixtures, contract and deployment-file checks
+├── system-tests/        Order and Credit run together: races, faults, conservation
+├── observability/       Prometheus rules and the Grafana dashboard
+├── data/                the supplier seed data
+├── docs/                decision records, runbooks, reports, the plan
+├── compose*.yaml        the stack, and its overrides
+└── scripts-*.sh         start, smoke-test, demo and check the stack
 ```
 
 - Any **nice-to-have (N2H)** feature that warrants its own service should
   be added as an **additional folder** at the same level, following the
-  same per-service structure.
+  same per-service structure (the chat service, N1.2, would be one).
 - Files for agentic coding tools (e.g. agent configs, prompts, skills)
   may be added as needed, but must still **respect the
   one-service-per-folder skeleton** for core implementation.

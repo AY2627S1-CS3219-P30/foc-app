@@ -90,15 +90,18 @@ are is the Order Service's call (`order-service/README.md`).
 
 ## 3. API contract
 
-### C1. Contract lives in `contracts/`, not `packages/contracts` — 🟡
+### C1. Contract lives in `contracts/`, not `packages/contracts` — ✅ (settled 22 Oct)
 The FND-03 ticket text says `packages/contracts`; the execution plan (§3.1, §8.1) and the root README use a flat layout.
 - **Chosen:** follow the plan. **Trade-off:** it contradicts a ticket body, so Jonus should confirm; it is a `git mv` if not.
+- **Settled:** Jonus confirmed it: `contracts/` stays at the root (§8).
 
-### C2. The contract is a proposal until the consumers sign off — ❓
+### C2. The contract is a proposal until the consumers sign off — ✅ (settled 22 Oct)
 FND-03 asked for a workshop with Patrick. There is no evidence it happened, so the cross-service
 conventions (error envelope, pagination, auth header, IDs, timestamps, event envelope) are written as a
 proposal in `contracts/README.md` for review in #176.
 - **Trade-off:** faster to review than a meeting, but nothing is frozen until Jonus and Patrick approve.
+- **Settled:** every contract is implemented and checked: each service has a provider test, and CI
+  fails a change that breaks a contract against the branch's merge base (`contracts/README.md`).
 
 ### C3. Events follow the submitted backlog — 🟡
 `UserActivated`, `UserSuspended`, `UserReactivated` — not the plan's `UserActivated` + `UserStatusChanged` (§3.2).
@@ -173,7 +176,8 @@ Claims: `sub`, `sid`, `iss`, `jti`, `iat`, `exp`. Services learn role and status
   `kid` support is in, but rotation is not automated.
 - **Dev convenience:** outside production, if `JWT_PRIVATE_KEY` is unset a throwaway key is generated,
   so no key is ever committed. Every restart then invalidates access tokens; refresh sessions survive.
-  In production the key is required. ❓ JWKS caching and key distribution to other services is an open question (contracts/README.md).
+  In production the key is required. ~~❓ JWKS caching and key distribution to other services is an open question~~ — settled:
+  see [auth-client: Key rotation](../../auth-client/README.md#key-rotation).
 
 ### A3. Access token lives in memory; refresh token lives in an `HttpOnly` cookie — ✅
 Cookie: `foc_refresh; HttpOnly; SameSite=Strict; Path=/auth` (`Secure` in production).
@@ -288,22 +292,22 @@ Recorded because they are the honest answer to "what went wrong?" and each has a
 ## 8. Open questions and known limitations
 
 **Needs a teammate or mentor**
-- ❓ Jonus: review the `platform` changes (O3) and the `compose.yaml` additions; confirm `contracts/` vs `packages/contracts`; decide whether `aggregateVersion` is in the envelope.
-- ❓ Patrick: is `preferredMode` on the profile the right home for the toggle? Will the gateway or dev proxy keep web and API on one site?
-- ❓ Everyone: how do other services get and cache the JWKS, and who owns key rotation?
+- ~~❓ Jonus: review the `platform` changes (O3) and the `compose.yaml` additions; confirm `contracts/` vs `packages/contracts`; decide whether `aggregateVersion` is in the envelope~~ — settled: merged; `contracts/` at the root; no `aggregateVersion` in the envelope, and an event that needs one carries its own (`orderVersion`, ADR 0009).
+- ~~❓ Patrick: is `preferredMode` on the profile the right home for the toggle? Will the gateway or dev proxy keep web and API on one site?~~ — settled: see [contracts/README.md, questions 1 and 2](../../contracts/README.md#questions-settled-during-the-build).
+- ~~❓ Everyone: how do other services get and cache the JWKS, and who owns key rotation?~~ — settled: see [auth-client: Key rotation](../../auth-client/README.md#key-rotation).
 
 **Deferred, with an owner**
 - ~~Bootstrap secret stays valid; bootstrap unaudited~~ — fixed in §11 (D1 feedback on USR-03).
 - ~~USR-03~~ — built: admin endpoints, suspension revoking sessions, audit table, seeded admins, profile edits (see §9).
 - ~~USR-05 — single-flight refresh across tabs~~ — built (§14).
 - ~~USR-06~~ — built (see §10). Consuming services must still add the dependency, the two env vars and the Dockerfile lines.
-- PLT-06 — remove the dev default `INTERNAL_SERVICE_KEYS`.
+- ~~PLT-06 — remove the dev default `INTERNAL_SERVICE_KEYS`~~ — done in PLT-06 (#240): Compose has no default for it, and `./scripts-init-env.sh` generates one.
 - ~~EVT-02 — drain `outbox_events`~~ — the platform relay publishes it (S6).
-- Gateway work — configure `trust proxy` so per-IP limits mean per client.
+- Gateway work — configure `trust proxy` so per-IP limits mean per client (now the edge proxy, PLT-10 #285).
 
 **Not yet automated**
 - The real-Postgres concurrency checks (O4, and the demotion race in M2) were run by hand.
-- The full `docker compose up` (all services and web-app) has not been run; only Postgres and the User Service.
+- ~~The full `docker compose up` (all services and web-app) has not been run; only Postgres and the User Service~~ — done: CI's Compose smoke job runs the whole stack.
 
 ---
 

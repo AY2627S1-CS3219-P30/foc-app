@@ -130,6 +130,10 @@ export const outboxEvents = pgTable(
     index('outbox_events_pending_aggregate_idx')
       .on(t.aggregateId, t.seq)
       .where(sql`published_at IS NULL`),
+    // PLT-12: how the platform's prune finds published rows past their retention.
+    index('outbox_events_published_idx')
+      .on(t.publishedAt)
+      .where(sql`published_at IS NOT NULL`),
   ],
 );
 

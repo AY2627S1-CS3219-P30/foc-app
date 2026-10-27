@@ -18,9 +18,12 @@ interface Step {
   with?: Record<string, unknown>;
   if?: string;
 }
-const jobs = (
-  yaml.load(read('.github/workflows/ci.yml')) as { jobs: Record<string, { steps: Step[] }> }
-).jobs;
+interface Job {
+  steps: Step[];
+  env?: Record<string, string>;
+  'timeout-minutes'?: number;
+}
+const jobs = (yaml.load(read('.github/workflows/ci.yml')) as { jobs: Record<string, Job> }).jobs;
 const runs = (job: string) => jobs[job]!.steps.map((step) => step.run ?? '').join('\n');
 
 describe('the vulnerability scan (PL-NFR4.1.2)', () => {
@@ -68,6 +71,56 @@ describe('test coverage (PL-NFR4.1.1)', () => {
     expect(runs('web-app')).toContain('bun test --coverage');
     expect(runs('service')).toContain('./scripts-coverage-summary.sh');
     expect(runs('packages')).toContain('./scripts-coverage-summary.sh');
+  });
+});
+
+/**
+ * The browser journeys: bounded in time, with nothing installed from the network at run time, and
+ * the stack's images built from the layer cache the per-service and publish jobs fill.
+ */
+describe('the browser journeys job', () => {
+  const e2e = jobs.e2e!;
+  const APPLICATION = [
+    'user-service',
+    'supplier-service',
+    'order-service',
+    'credit-service',
+    'web-app',
+  ];
+
+  it('gives up within 20 minutes rather than GitHub’s six hours', () => {
+    expect(e2e['timeout-minutes']).toBeGreaterThan(0);
+    expect(e2e['timeout-minutes']).toBeLessThanOrEqual(20);
+  });
+
+  it('drives the runner’s own Google Chrome, so nothing is downloaded or installed with apt', () => {
+    expect(e2e.env?.E2E_BROWSER_CHANNEL).toBe('chrome');
+    expect(runs('e2e')).not.toMatch(/playwright install/);
+    expect(e2e.steps.some((step) => step.uses?.startsWith('actions/cache@'))).toBe(false);
+    expect(read('web-app/playwright.config.ts')).toContain(
+      'channel: process.env.E2E_BROWSER_CHANNEL || undefined',
+    );
+  });
+
+  it('builds the stack’s images once, from the shared layer cache, and starts them without building', () => {
+    const bake = e2e.steps.find((step) => step.uses?.startsWith('docker/bake-action@'))!;
+    expect(String(bake.with!.files).split('\n').filter(Boolean)).toEqual([
+      'compose.yaml',
+      'compose.images.yaml',
+    ]);
+    expect(String(bake.with!.targets).split('\n').filter(Boolean)).toEqual(APPLICATION);
+    expect(String(bake.with!.load)).toBe('true');
+    const set = String(bake.with!.set)
+      .split('\n')
+      .map((line) => line.trim());
+    for (const application of APPLICATION) {
+      expect(set).toContain(`${application}.cache-from=type=gha,scope=${application}`);
+    }
+    // compose.images.yaml names each service's and migrate container's image; the job's
+    // COMPOSE_FILE makes every docker compose call, the smoke test's included, use it.
+    expect(e2e.env).toMatchObject({ COMPOSE_FILE: 'compose.yaml:compose.images.yaml' });
+    expect(runs('e2e')).toContain('docker compose up -d --no-build');
+    expect(runs('e2e')).not.toContain('--build\n');
   });
 });
 

@@ -1,5 +1,10 @@
 import { Module } from '@nestjs/common';
-import { EventsModule, PlatformModule, provideOutboxRelay } from '@foc/platform';
+import {
+  EventsModule,
+  PlatformModule,
+  provideEventTablePruner,
+  provideOutboxRelay,
+} from '@foc/platform';
 import { env, SERVICE_NAME, SERVICE_VERSION } from './config.js';
 import { RAW_DB } from './db/db.js';
 import { UsersModule } from './users/users.module.js';
@@ -11,7 +16,7 @@ import { UsersModule } from './users/users.module.js';
  *
  * Every event is written to `outbox_events` in the transaction that caused it;
  * the relay publishes committed rows (EVT-02). Without a broker the rows wait,
- * and go out once the service runs with one.
+ * and go out once the service runs with one. The pruner runs either way (PLT-12).
  */
 const eventModules = env.RABBITMQ_URL
   ? [EventsModule.forRoot({ url: env.RABBITMQ_URL, producer: SERVICE_NAME })]
@@ -28,6 +33,6 @@ const eventProviders = env.RABBITMQ_URL ? [provideOutboxRelay({ db: RAW_DB })] :
     UsersModule.forRoot(),
     ...eventModules,
   ],
-  providers: eventProviders,
+  providers: [provideEventTablePruner({ db: RAW_DB }), ...eventProviders],
 })
 export class AppModule {}
