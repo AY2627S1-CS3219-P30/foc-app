@@ -1079,7 +1079,9 @@ npm run test:contract        # contract compatibility + provider checks
 ```
 
 Every test suite, its naming convention and the variables that switch on the real-PostgreSQL and
-RabbitMQ suites are described in [docs/testing.md](docs/testing.md).
+RabbitMQ suites are described in [docs/testing.md](docs/testing.md). Which tests prove which
+requirement is the [traceability matrix](docs/traceability.md): every Must requirement of the D1
+backlog, its tests, and the gaps still open. CI fails if a test it names disappears (PL-NFR4.1.1).
 
 ### Published images
 

@@ -30,6 +30,10 @@ SUPPLIER_STACK_RE='^(supplier-service/|web-app/src/app/\(app\)/suppliers/|web-ap
 # The load test (TST-03): not run in CI, but test-harness/test/load-harness.test.ts reads it, so a
 # change to it runs the Node job, without fanning out to every service.
 LOAD_RE='^(load/|scripts-load\.sh|compose\.load\.yaml)'
+# The requirements traceability matrix (REL-02): test-harness/test/traceability.test.ts reads it
+# and checks that every test it names exists, so a change to it, to a web app test or to a stack
+# script's checks runs the Node job. A service's own tests already do, as any service change does.
+TRACE_RE='^(docs/traceability\.(yaml|md)|web-app/(test|e2e)/|scripts-[a-z-]+\.sh)'
 # Paths that cannot affect a build, a test or a container.
 IGNORED_RE='^docs/|\.md$|^\.github/|^LICENSE$|^\.gitignore$|^\.(vscode|idea|claude)/'
 
@@ -69,7 +73,8 @@ detect() {
 
   matches "$WEB_RE" && echo 'web=true' || echo 'web=false'
 
-  if [[ "$shared" == "true" ]] || matches "$SERVICE_RE" || matches "$DEPLOY_CONFIG_RE" || matches "$LOAD_RE"; then
+  if [[ "$shared" == "true" ]] || matches "$SERVICE_RE" || matches "$DEPLOY_CONFIG_RE" || matches "$LOAD_RE" ||
+    matches "$TRACE_RE"; then
     echo 'node=true'
   else
     echo 'node=false'
@@ -117,6 +122,11 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "web only -> node skipped"              "web-app/src/app/page.tsx" 'node=false'
   check "docs only -> no services"              "docs/EXECUTION-PLAN.md" 'services=[]'
   check "docs only -> node skipped"             "docs/EXECUTION-PLAN.md" 'node=false'
+  check "traceability matrix -> node runs"      "docs/traceability.yaml" 'node=true'
+  check "traceability matrix -> no services"    "docs/traceability.yaml" 'services=[]'
+  check "traceability matrix -> stack skipped"  "docs/traceability.yaml" 'stack=false'
+  check "web test -> node runs"                 "web-app/test/wallet.test.tsx" 'node=true'
+  check "stack script -> node runs"             "scripts-demo-journey.sh" 'node=true'
   check "docs only -> stack skipped"            "docs/EXECUTION-PLAN.md" 'stack=false'
   check "README only -> nothing runs"           "README.md" 'services=[]'
   check "compose -> stack runs"                 "compose.yaml" 'stack=true'
@@ -129,7 +139,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "broker init -> stack runs"             "rabbitmq-init.sh" 'stack=true'
   check "env generator -> stack runs"           "scripts-init-env.sh" 'stack=true'
   check "restart check -> stack runs"           "scripts-restart-check.sh" 'stack=true'
-  check "restart check -> node skipped"         "scripts-restart-check.sh" 'node=false'
+  check "restart check -> node runs (traced)"   "scripts-restart-check.sh" 'node=true'
   check "demo journey -> stack runs"            "scripts-demo-journey.sh" 'stack=true'
   check "demo runbook -> nothing runs"          "docs/demo/d3-runbook.md" 'stack=false'
   check "a Dockerfile -> stack runs"            "order-service/Dockerfile" 'stack=true'
