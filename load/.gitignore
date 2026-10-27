@@ -1,0 +1,2 @@
+# Python writes its bytecode cache here when load/report.py runs.
+__pycache__/

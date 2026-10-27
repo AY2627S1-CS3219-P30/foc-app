@@ -566,7 +566,7 @@ jobs:
           set: |
             *.labels.org.opencontainers.image.source=https://github.com/${{ github.repository }}
             *.labels.org.opencontainers.image.revision=${{ github.sha }}
-            web-app.labels.org.opencontainers.image.description=For the local stack only: it calls the services at localhost on compose.yaml's default ports, and links sign-up to the dev mailbox.
+            web-app.labels.org.opencontainers.image.description=Runs behind the edge: it calls the services at /api/<service> on its own origin. Links sign-up to the dev mailbox and the admin console to Grafana on localhost:3005.
             user-service.cache-from=type=gha,scope=user-service
             supplier-service.cache-from=type=gha,scope=supplier-service
             order-service.cache-from=type=gha,scope=order-service
