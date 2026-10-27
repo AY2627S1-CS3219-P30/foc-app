@@ -1,0 +1,12 @@
+# The load test's stack (TST-03, #166): compose.yaml, with the User Service's sign-in and
+# sign-up limits raised. The test's 100 virtual users all sign in from this one machine, so at
+# the real limits (50 sign-ins per address per 15 minutes) it would measure the limiter's 429,
+# not a sign-in. Used only by ./scripts-load.sh, on a Compose project of its own; never with the
+# demo stack.
+
+services:
+  user-service:
+    environment:
+      LOGIN_LIMIT_PER_IP: '1000000'
+      LOGIN_LIMIT_PER_EMAIL: '1000000'
+      REGISTER_LIMIT_PER_IP: '1000000'

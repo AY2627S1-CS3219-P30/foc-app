@@ -1,5 +1,5 @@
 {
-  "id": "a933d162-4daf-4c7b-855c-9659fbe9a9b8",
+  "id": "07a6cccd-80dc-4fc5-ac0d-4c7b67e40f8e",
   "prevId": "92ab21b9-e5fb-4ae6-89c8-e1c86501b08e",
   "version": "7",
   "dialect": "postgresql",
@@ -739,6 +739,27 @@
           "method": "btree",
           "with": {}
         },
+        "orders_created_idx": {
+          "name": "orders_created_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "order_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "orders_requester_created_idx": {
           "name": "orders_requester_created_idx",
           "columns": [
@@ -1057,22 +1078,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "outbox_events_published_idx": {
-          "name": "outbox_events_published_idx",
-          "columns": [
-            {
-              "expression": "published_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"outbox_events\".\"published_at\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1112,23 +1117,7 @@
           "default": "now()"
         }
       },
-      "indexes": {
-        "processed_events_processed_idx": {
-          "name": "processed_events_processed_idx",
-          "columns": [
-            {
-              "expression": "processed_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "processed_events_consumer_event_id_pk": {

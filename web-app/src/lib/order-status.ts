@@ -135,7 +135,9 @@ export function statusWording(
   return { ...wording, label, explanation: `${why} ${RETURNING[role]}` };
 }
 
-const FINAL = new Set<OrderStatus>(["REJECTED", "COMPLETED", "CANCELLED", "EXPIRED"]);
+/** The statuses no transition leaves (the Order Service's `TERMINAL_ORDER_STATUSES`). */
+export const FINAL_STATUSES: readonly OrderStatus[] = ["REJECTED", "COMPLETED", "CANCELLED", "EXPIRED"];
+const FINAL = new Set(FINAL_STATUSES);
 export const PENDING_POLL_MS = 5_000;
 
 /** No transition leaves these states, so there is nothing more to read. */
