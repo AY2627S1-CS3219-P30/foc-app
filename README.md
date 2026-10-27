@@ -250,7 +250,8 @@ is printed as it is made.
 ```
 
 The demo itself, part by part with who presents what, is
-[docs/demo/d3-runbook.md](docs/demo/d3-runbook.md).
+[docs/demo/d3-runbook.md](docs/demo/d3-runbook.md). The nice-to-have features we chose, with the
+problem each solves, its design and its owners, are in [docs/nice-to-haves.md](docs/nice-to-haves.md).
 
 ---
 
