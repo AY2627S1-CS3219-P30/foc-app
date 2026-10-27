@@ -577,6 +577,27 @@ describe('requester', () => {
     expect(buttons(container, 'Report not delivered').length).toBeGreaterThan(0);
   });
 
+  for (const [clockOff, serverAhead] of [
+    ['fast', -10 * 60_000],
+    ['slow', 10 * 60_000],
+  ] as const) {
+    it(`says a credit wait is slow after 30 seconds on the server's clock when this device's is ${clockOff}`, async () => {
+      const clock = fakeClock();
+      const service = fakeOrderService();
+      service.serverAhead = serverAhead;
+      const changed = new Date(START + serverAhead).toISOString();
+      service.current = order({ status: 'PENDING_CREDIT', updatedAt: changed });
+      const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+      expect(container.textContent).not.toContain('taking longer than usual');
+
+      for (let waited = 1_000; waited < 30_000; waited += 1_000) await clock.advance(1_000);
+      expect(container.textContent).not.toContain('taking longer than usual');
+
+      await clock.advance(1_000);
+      expect(container.textContent).toContain('taking longer than usual');
+    });
+  }
+
   it('explains a report sent before the server agrees the period has passed', async () => {
     const service = fakeOrderService();
     service.current = order({

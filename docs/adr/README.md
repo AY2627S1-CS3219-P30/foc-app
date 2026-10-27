@@ -25,7 +25,7 @@ review is collected. The author cannot record approval on another team member's 
 | Isaac Chua (`@isaacchua0309`) | #132, #183 | Approved 0002–0009, with the amendments to 0005 and 0006 (#254) and to 0007 (#250) | 2026-10-26 |
 | Zhang Yuan (`@volleyballkickedme`) | #132, #183, #218; Order owner | Approved | 2026-10-19 |
 | Jonus (`@jonushzw`) | #132, #183 | Pending | — |
-| Anselm Long (`@anselmlong`) | #183, #218 | Pending | — |
+| Anselm Long (`@anselmlong`) | #183, #218 | Approved 0002–0009, with the amendments to 0005 and 0006 (#254) and to 0007 (#250) | 2026-10-27 |
 | Patrick Thomas (`@pastchum`) | #183 | Pending | — |
 
 At least one non-author must approve the pull request before merge. After all five members have read

@@ -84,6 +84,11 @@ bun run e2e
 `E2E_BASE_URL` points it elsewhere. Each run registers one account per width, well inside the sign-up
 limit of 20 an hour per address. Specs are named `*.e2e.ts` so `bun test` leaves them alone.
 
+`E2E_BROWSER_CHANNEL=chrome` drives an installed Google Chrome instead of Playwright's Chromium, so
+nothing needs installing. CI does that: GitHub's Ubuntu runners come with Chrome and its system
+libraries, which keeps the `e2e` job from downloading a browser or running `apt` each time. The job
+builds the stack's images from CI's shared layer cache and stops after 20 minutes.
+
 ## API clients
 
 Types come from the contracts in [`contracts/`](../contracts), generated into `src/lib/generated/` by
@@ -346,7 +351,7 @@ refuses a student with `403` on its own.
 | Admin activity | `GET /admin/alerts`, `GET /admin/reads` |
 | Errands | Disputes: `GET /admin/orders/referred`, and `GET /admin/orders/decisions` for the latest decisions. One dispute (`/admin/errands/{orderId}`): `GET /orders/{orderId}?view=private`, which only the referred administrator is given, and `POST /admin/orders/{orderId}/resolve` with a reason (ORD-11, #271). Also `GET /admin/orders/pending-credit` and `GET /admin/orders/reconciliation-attempts` |
 | Wallets | `GET /admin/wallets/{userId}` and its ledger (Credit Service; read-only, every read recorded) |
-| Operations | Placeholder until PLT-05 (#154) |
+| Operations | Dead letters on either service: `GET /admin/dead-letters`, one with `GET /admin/dead-letters/{id}`, and `POST /admin/dead-letters/{id}/redrive` with a reason. An errand's trace: `GET /admin/orders/{orderId}/timeline` (Order Service) and `GET /admin/orders/{orderId}/credit` (Credit Service). Operator alerts: `GET /admin/orders/alerts` (PLT-05, #154) |
 
 **Controls on administrators** ([ADR 0008](../docs/adr/0008-controlling-administrators.md)). Every
 write asks for a reason first. Requesting or approving a role change, and suspending an administrator,
