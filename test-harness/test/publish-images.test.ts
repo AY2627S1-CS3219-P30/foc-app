@@ -133,12 +133,15 @@ describe('the publish job', () => {
     expect(bake.with!.set).not.toContain(':main');
   });
 
-  it('labels the web app’s image as one for the local stack', () => {
+  it('labels the web app’s image as one that runs behind the edge, on any host and port', () => {
     const set = bake.with!.set!.split('\n').map((line) => line.trim());
     const label = set.find((line) =>
       line.startsWith('web-app.labels.org.opencontainers.image.description='),
     );
-    expect(label).toMatch(/local stack/);
+    // Its build has paths, not addresses, in it since PLT-10 (#285).
+    expect(label).toContain('/api/<service>');
+    expect(label).toContain('dev mailbox');
+    expect(label).not.toMatch(/local stack only|default ports/);
   });
 
   it('gives every run but a pull request’s a group of its own, so none is dropped while it waits', () => {

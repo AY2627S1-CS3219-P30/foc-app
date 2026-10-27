@@ -10,9 +10,10 @@
 # CI builds with this same file (`docker buildx bake`), so the published images get
 # compose.yaml's build arguments and nothing else.
 #
-# The web app's image is for this local stack only: `next build` inlined localhost URLs on
-# compose.yaml's default ports, and the dev mailbox link. On other ports, build it from your own
-# .env before `up --no-build`: docker compose -f compose.yaml -f compose.images.yaml build web-app
+# The web app's image calls the services at /api/<service> on its own origin, behind the edge
+# (PLT-10), so it runs on any host and port. It links sign-up to the dev mailbox, and the admin
+# console to Grafana at localhost:3005; with another GRAFANA_PORT, build it from your own .env
+# before `up --no-build`: docker compose -f compose.yaml -f compose.images.yaml build web-app
 #
 # A service and its migrate container run one image, as they are built from one Dockerfile.
 
