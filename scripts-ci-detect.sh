@@ -148,7 +148,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "two services -> both"                  "$(printf 'user-service/src/a.ts\ncredit-service/src/b.ts')" 'services=["user-service","credit-service"]'
   check "mixed web + service"                   "$(printf 'web-app/x.tsx\norder-service/src/y.ts')" 'services=["order-service"]'
   check "this workflow -> all four"             ".github/workflows/ci.yml" 'services=["user-service","supplier-service","order-service","credit-service"]'
-  check "deploy workflow -> nothing"            ".github/workflows/deploy-web-app.yml" 'services=[]'
+  check "another workflow -> nothing"           ".github/workflows/release.yml" 'services=[]'
   check "issue template -> nothing"             ".github/ISSUE_TEMPLATE/config.yml" 'node=false'
   check "docs PDF -> nothing"                   "docs/CS3219-Instructions-MilestoneD2.pdf" 'node=false'
   check "gitignore -> nothing"                  ".gitignore" 'node=false'

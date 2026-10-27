@@ -17,30 +17,21 @@ export interface LockedSession {
 /** All SQL for refresh sessions. Every function takes a {@link Database} so callers control the transaction. */
 export const sessionsRepository = {
   /**
-   * `continues` names the session a refresh replaces: the new one is the same sign-in, so a recent
-   * password re-entry carries over to it (ADR 0008).
+   * Starts the session a refresh hands out in place of `continues`. It is the same sign-in, so it
+   * keeps the family, the expiry fixed at login (US-FR1.1.2: seven days however often it refreshes)
+   * and a recent password re-entry (ADR 0008).
    */
-  async insert(
+  async rotate(
     db: Database,
-    s: {
-      id: string;
-      familyId: string;
-      userId: string;
-      tokenHash: string;
-      ttlDays: number;
-      continues?: string;
-    },
+    s: { id: string; tokenHash: string; continues: string },
   ): Promise<void> {
-    await db.insert(refreshSessions).values({
-      id: s.id,
-      familyId: s.familyId,
-      userId: s.userId,
-      tokenHash: s.tokenHash,
-      expiresAt: sql`now() + make_interval(days => ${s.ttlDays})`,
-      ...(s.continues && {
-        steppedUpAt: sql`(SELECT ${refreshSessions.steppedUpAt} FROM ${refreshSessions} WHERE ${refreshSessions.id} = ${s.continues})`,
-      }),
-    });
+    await execute(
+      db,
+      sql`
+      INSERT INTO ${refreshSessions} (id, family_id, user_id, token_hash, expires_at, stepped_up_at)
+      SELECT ${s.id}, family_id, user_id, ${s.tokenHash}, expires_at, stepped_up_at
+      FROM ${refreshSessions} WHERE id = ${s.continues}`,
+    );
   },
 
   /**

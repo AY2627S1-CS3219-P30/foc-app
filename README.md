@@ -171,6 +171,10 @@ Then open <http://localhost:3000>. That is the edge
 ([ADR 0010](docs/adr/0010-api-edge.md)): the web app and every API on one origin, the APIs under
 `/api/user/`, `/api/supplier/`, `/api/order/` and `/api/credit/`.
 
+**This is how FoC is deployed for D4:** the whole stack in local containers, which the D3
+instructions accept. There is no hosted deployment
+([PLT-11 #286](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/286)).
+
 | Command                               | What it does                                  |
 | ------------------------------------- | --------------------------------------------- |
 | `docker compose up -d --build`        | Build and start everything                    |
