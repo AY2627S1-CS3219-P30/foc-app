@@ -14,14 +14,16 @@ const PENDING_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000];
 const SETTLED_DELAY_MS = 30_000;
 /** After this long in any `*_PENDING_CREDIT` state, say it is slower than usual. */
 const STILL_WAITING_MS = 30_000;
-/** Settled polling stops this long after the status last changed or the tab last woke. */
+/** Settled polling stops this long after the status last changed, the tab last woke or a refresh. */
 const IDLE_LIMIT_MS = 10 * 60_000;
 
 /**
  * Reads the order, and keeps reading until it reaches a final state: often while credits move,
  * every 30 seconds otherwise. Settled polling also pauses after ten minutes without a change, until
- * the tab is shown or back online. A 4xx, or an error that is not an {@link ApiError} (a bug, not
- * the network), stops, and a 404 drops the errand so its actions go with it.
+ * the tab is shown, back online or refreshed; `paused` says so meanwhile, since a tab that stays
+ * visible never wakes it. A 4xx, or an error that is not an {@link ApiError} (a bug, not the
+ * network), stops without pausing, as `problem` shows it, and a 404 drops the errand so its actions
+ * go with it.
  * `skew` is how far this device's clock runs ahead of the server's, from the order's `serverTime`.
  */
 export function useOrder(orderId: string) {
@@ -30,6 +32,7 @@ export function useOrder(orderId: string) {
   const [skew, setSkew] = useState(0);
   const [problem, setProblem] = useState<ApiError | null>(null);
   const [stillWaiting, setStillWaiting] = useState(false);
+  const [paused, setPaused] = useState(false);
   const status = useRef<OrderStatus | null>(null);
   const version = useRef(-1);
   const since = useRef(0);
@@ -51,11 +54,13 @@ export function useOrder(orderId: string) {
     }
   }, []);
 
-  /** Until the next read: backing off while credits move, `null` once settled polling goes idle. */
+  /** Until the next read: backing off while credits move, `null` (and paused) once settled polling goes idle. */
   const nextDelay = useCallback(() => {
     if (!status.current || waitsOnCredit(status.current))
       return PENDING_DELAYS_MS[Math.min(attempt.current++, PENDING_DELAYS_MS.length - 1)];
-    return Date.now() - since.current >= IDLE_LIMIT_MS ? null : SETTLED_DELAY_MS;
+    const idle = Date.now() - since.current >= IDLE_LIMIT_MS;
+    setPaused(idle);
+    return idle ? null : SETTLED_DELAY_MS;
   }, []);
 
   const read = useCallback(
@@ -80,18 +85,22 @@ export function useOrder(orderId: string) {
     [authed, orderId, show, nextDelay],
   );
   const readNow = usePoll(read);
-  useOnReturn(() => {
+  /** Gives settled polling another ten minutes. Every read after a pause starts here. */
+  const wake = useCallback(() => {
     since.current = Date.now();
-  });
+    setPaused(false);
+  }, []);
+  useOnReturn(wake);
 
-  /** Shows `latest` (a command's answer) at once, then reads again. */
+  /** Shows `latest` (a command's answer) at once, then reads again, resuming paused polling. */
   const refresh = useCallback(
     (latest?: Order) => {
       if (latest) show(latest);
+      wake();
       readNow();
     },
-    [readNow, show],
+    [readNow, show, wake],
   );
 
-  return { order, skew, problem, stillWaiting, refresh };
+  return { order, skew, problem, stillWaiting, paused, refresh };
 }

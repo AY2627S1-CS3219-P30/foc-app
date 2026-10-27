@@ -66,6 +66,7 @@ function StatusBody({
   passed,
   skew,
   stillWaiting,
+  paused,
   problem,
   notice,
   acted,
@@ -79,6 +80,8 @@ function StatusBody({
   passed: boolean;
   skew: number;
   stillWaiting: boolean;
+  /** Updates have stopped until the student refreshes, which `onRetry` does. */
+  paused: boolean;
   problem: ApiError | null;
   notice: string | null;
   /** Counts commands that went through. The button that sent one may be gone, so focus comes here. */
@@ -118,6 +121,14 @@ function StatusBody({
         {stillWaiting && slow && <p style={muted}>{slow}</p>}
         {note && <p style={{ ...muted, fontWeight: vars.weight.semibold }}>{note}</p>}
         {order.status === "REJECTED" && <p style={muted}>{rejectionMessage(order)}</p>}
+        {paused && (
+          <>
+            <p style={muted}>Updates paused. Refresh to see the latest.</p>
+            <Button variant="outline" onClick={onRetry} style={{ alignSelf: "flex-start" }}>
+              Refresh
+            </Button>
+          </>
+        )}
       </div>
       <FormAlert tone="info" takeFocus>{notice}</FormAlert>
       {problem && (
@@ -177,7 +188,7 @@ function StatusBody({
 export function OrderDetail({ orderId }: { orderId: string }) {
   const router = useRouter();
   const { user } = useAuth();
-  const { order, skew, problem, stillWaiting, refresh } = useOrder(orderId);
+  const { order, skew, problem, stillWaiting, paused, refresh } = useOrder(orderId);
   const [notice, setNotice] = useState<string | null>(null);
   const [acted, setActed] = useState(0);
   const { refresh: refreshCredits } = useCredits();
@@ -224,6 +235,8 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       passed={deadline !== null && now >= deadline}
       skew={skew}
       stillWaiting={stillWaiting}
+      // A failed read that then paused already offers to try again.
+      paused={paused && !problem}
       problem={problem}
       notice={notice}
       acted={acted}
