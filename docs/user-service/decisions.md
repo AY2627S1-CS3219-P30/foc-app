@@ -203,7 +203,11 @@ whole family. The lookup uses `SELECT … FOR UPDATE`, so simultaneous use of on
 - **Trade-off — the two-tab problem:** two tabs refreshing at the same instant look like a replay and
   end the session. Because reloads always refresh (A3.2), restoring two tabs together is common.
   **USR-05 must make refresh single-flight across tabs** (a shared lock or `BroadcastChannel`).
-- **Trade-off — sliding lifetime:** each rotation grants a fresh 7 days; there is no absolute cap.
+- **Lifetime — fixed at login (USR-10, #275):** a session ends 7 days after login, however often it
+  refreshes (US-FR1.1.2). Each rotation copies the family's `expires_at` instead of granting a fresh 7 days,
+  so a refresh after it is refused and clears the cookie. *First built as a sliding 7 days with no absolute
+  cap, which let a session that refreshed weekly live for ever.* There is no separate idle limit: at 7 days it
+  could never end a session earlier than the absolute one.
 - The ticket marks reuse detection as "cut order #4". It is built; it is the first thing to drop under time pressure.
 
 ### A6. The access-token guard checks the session in the database on every request — ✅

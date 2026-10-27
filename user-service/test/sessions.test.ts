@@ -58,6 +58,14 @@ const logout = (cookie: string) =>
 const me = (accessToken: string) =>
   http().get('/users/me').set('Authorization', `Bearer ${accessToken}`);
 
+/** The database decides expiry with its own `now()`, so moving every session instant back moves time on. */
+const passTime = (seconds: number) =>
+  t.db.exec(`UPDATE refresh_sessions SET
+    issued_at = issued_at - interval '${seconds} seconds',
+    expires_at = expires_at - interval '${seconds} seconds',
+    rotated_at = rotated_at - interval '${seconds} seconds',
+    stepped_up_at = stepped_up_at - interval '${seconds} seconds'`);
+
 describe('login CSRF', () => {
   it('refuses a login from a foreign origin and issues no session or cookie', async () => {
     await activeUser();
@@ -307,6 +315,27 @@ describe('POST /auth/refresh — rotation', () => {
     const fresh = refreshCookie(await login().expect(200));
     await t.db.exec('UPDATE refresh_sessions SET revoked_at = now()');
     await refresh(fresh).expect(401);
+  });
+
+  it('ends a session seven days after login, however often it refreshes (US-FR1.1.2)', async () => {
+    await activeUser();
+    let cookie = refreshCookie(await login().expect(200));
+    const DAY = 24 * 60 * 60;
+    for (let day = 1; day <= 6; day++) {
+      await passTime(DAY);
+      cookie = refreshCookie(await refresh(cookie).expect(200));
+    }
+    await passTime(DAY - 2);
+    const last = await refresh(cookie).expect(200);
+    cookie = refreshCookie(last);
+
+    await passTime(2);
+    const ended = await refresh(cookie).expect(401);
+    expect(ended.body.error.code).toBe('REFRESH_TOKEN_INVALID');
+    expect(([] as string[]).concat(ended.headers['set-cookie'] ?? []).join()).toMatch(
+      /foc_refresh=;/,
+    );
+    await me(last.body.accessToken).expect(401);
   });
 
   it('refuses to refresh once the account is suspended, and revokes the family', async () => {
