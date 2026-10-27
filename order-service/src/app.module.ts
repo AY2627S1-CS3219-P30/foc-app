@@ -1,6 +1,12 @@
 import { Module } from '@nestjs/common';
 import { authStatusEvents, AuthModule } from '@foc/auth-client';
-import { EVENTS, EventsModule, PlatformModule, provideOutboxRelay } from '@foc/platform';
+import {
+  EVENTS,
+  EventsModule,
+  PlatformModule,
+  provideEventTablePruner,
+  provideOutboxRelay,
+} from '@foc/platform';
 import { authConfig, env, SERVICE_NAME, SERVICE_VERSION } from './config.js';
 import { OrdersModule } from './orders/orders.module.js';
 import { CREDIT_RECONCILER_OPTIONS, CreditReconciler } from './orders/credit-reconciler.js';
@@ -71,6 +77,8 @@ const eventModules = env.RABBITMQ_URL
         intervalMs: env.LIFECYCLE_SWEEP_INTERVAL_MS,
       },
     },
+    // PLT-12: the outbox and inbox are pruned with or without a broker.
+    provideEventTablePruner({ db: ORDER_DB }),
     // Re-issued requests wait in the outbox like any other until the relay can publish them.
     CreditReconciler,
     {

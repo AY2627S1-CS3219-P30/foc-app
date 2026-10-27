@@ -1,0 +1,1 @@
+CREATE INDEX "outbox_events_published_idx" ON "outbox_events" USING btree ("published_at") WHERE published_at IS NOT NULL;

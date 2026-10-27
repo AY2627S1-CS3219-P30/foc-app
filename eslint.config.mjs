@@ -27,6 +27,12 @@ export default tseslint.config(
     },
   },
   {
+    // The load scripts run in k6, not Node (TST-03): k6's globals, and the summary they print.
+    files: ['load/**/*.js'],
+    languageOptions: { globals: { __ENV: 'readonly', __VU: 'readonly', __ITER: 'readonly' } },
+    rules: { 'no-console': 'off' },
+  },
+  {
     // Tests may reach for `any` and log freely.
     files: ['**/*.test.ts'],
     rules: { '@typescript-eslint/no-explicit-any': 'off', 'no-console': 'off' },
