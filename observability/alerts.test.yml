@@ -7,6 +7,62 @@ rule_files:
 evaluation_interval: 15s
 
 tests:
+  # A daily scan has one hour of grace, then a ten-minute pending period. A fresh scan clears it.
+  - interval: 1m
+    input_series:
+      - series: 'foc_credit_ledger_audit_last_completed_timestamp_seconds{service="credit-service"}'
+        values: '0x1619 97200'
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: CreditLedgerAuditOverdue
+        exp_alerts: []
+      - eval_time: 25h9m
+        alertname: CreditLedgerAuditOverdue
+        exp_alerts: []
+      - eval_time: 25h11m
+        alertname: CreditLedgerAuditOverdue
+        exp_alerts:
+          - exp_labels: { service: credit-service, severity: warn }
+            exp_annotations:
+              summary: 'Credit ledger audit has not completed within 25 hours'
+              description: 'Check the daily audit scheduler and database. Run an on-demand audit from Operations.'
+      - eval_time: 27h
+        alertname: CreditLedgerAuditOverdue
+        exp_alerts: []
+
+  - interval: 1m
+    input_series:
+      - series: 'foc_credit_ledger_audit_mismatches{service="credit-service"}'
+        values: '0 2 2 0'
+      - series: 'foc_credit_ledger_audit_failed{service="credit-service"}'
+        values: '0 0 1 0'
+    alert_rule_test:
+      - eval_time: 0m
+        alertname: CreditLedgerMismatch
+        exp_alerts: []
+      - eval_time: 1m
+        alertname: CreditLedgerMismatch
+        exp_alerts:
+          - exp_labels: { service: credit-service, severity: page }
+            exp_annotations:
+              summary: 'Credit ledger audit found 2 mismatch(es)'
+              description: >-
+                Inspect the latest ledger audit in the admin Operations tab and its immutable findings
+                using the runbook. Do not edit balances automatically.
+      - eval_time: 3m
+        alertname: CreditLedgerMismatch
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: CreditLedgerAuditFailed
+        exp_alerts:
+          - exp_labels: { service: credit-service, severity: page }
+            exp_annotations:
+              summary: 'Credit ledger audit could not complete'
+              description: 'Inspect the credit-service logs and retry the audit; failure is not a clean reconciliation.'
+      - eval_time: 3m
+        alertname: CreditLedgerAuditFailed
+        exp_alerts: []
+
   # One dead letter fires at once; a redrive clears it.
   - interval: 15s
     input_series:

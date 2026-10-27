@@ -32,8 +32,8 @@ export const CREDIT_ECONOMIC_SUBSCRIPTIONS = [
 ] as const;
 
 /**
- * Exact HTTP surface. The test suite inventories runtime routes. Every route but one is read-only,
- * and none moves credit: the redrive (PLT-05) sends a dead-lettered input, byte for byte, back to the
+ * Exact HTTP surface. The test suite inventories runtime routes. Neither write moves credit:
+ * a ledger audit appends findings only; the redrive (PLT-05) sends an input, byte for byte, back to the
  * queue above that it failed on, so a balance still changes only through those four subscriptions,
  * their inbox and their checks.
  */
@@ -54,7 +54,11 @@ export const CREDIT_HTTP_SURFACE = [
   'GET /admin/dead-letters',
   'GET /admin/dead-letters/:id',
   'POST /admin/dead-letters/:id/redrive',
+  'GET /admin/ledger-audits/latest',
+  'POST /admin/ledger-audits/run',
 ] as const;
 
-/** The one route that is not a read. It writes only the dead letter's redrive stamp. */
+/** Writes only the dead letter's redrive stamp. */
 export const CREDIT_REDRIVE_ROUTE = 'POST /admin/dead-letters/:id/redrive';
+/** Appends an audit result and never changes monetary rows. */
+export const CREDIT_AUDIT_ROUTE = 'POST /admin/ledger-audits/run';

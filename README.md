@@ -245,7 +245,8 @@ is printed as it is made.
 ```
 
 The demo itself, part by part with who presents what, is
-[docs/demo/d3-runbook.md](docs/demo/d3-runbook.md).
+[docs/demo/d3-runbook.md](docs/demo/d3-runbook.md). The nice-to-have features we chose, with the
+problem each solves, its design and its owners, are in [docs/nice-to-haves.md](docs/nice-to-haves.md).
 
 ---
 
@@ -561,9 +562,14 @@ operator works with them:
   waiting, reconciliation, alerts and dead letters from both services, in order.
 
 A `dead_letters` row cannot be deleted, and changes once, to record its redrive
-(a database trigger refuses anything else). The Credit Service's one HTTP write
-is this redrive; it moves no credit itself, so a balance still changes only
+(a database trigger refuses anything else). Credit's HTTP writes redrive unchanged inputs or
+append a financial audit result; a balance still changes only
 through the four event subscriptions in `credit-service/src/closed-economy.ts`.
+
+Credit also runs a daily wallet-versus-ledger audit (#283). **Admin → Operations** shows the latest
+result and can run it on demand; `npm run audit:credits` does the same from the terminal. Immutable
+findings, mismatch/failure/overdue alerts and recovery steps are in the
+[financial audit runbook](docs/runbooks/credit-ledger-audit.md). The audit never repairs a balance.
 
 Prometheus evaluates `observability/alerts.yml`. A firing alert shows on the
 dashboard's **Firing alerts** panel and at <http://localhost:9090/alerts>; no
