@@ -15,7 +15,7 @@ TST-01 #145). Each service fills the suites with its own cases.
 | Broker integration      | `*.integration.test.ts`                       | `RABBITMQ_URL`           | `RABBITMQ_URL=… npm test -w @foc/platform`              |
 | System (cross-service)  | `system-tests/test/*.test.ts`                 | `TEST_POSTGRES_URL`      | `TEST_POSTGRES_URL=… npm test -w @foc/system-tests`     |
 | Stack checks            | `scripts-*.sh` (see below)                    | Docker (Compose), `.env` | each script, with `--up` for a stack of its own          |
-| End-to-end (browser)    | Owned by TST-02 (#160)                        | the Compose stack        | Playwright journeys, in #160                             |
+| End-to-end (browser)    | `web-app/e2e/*.e2e.ts` (Playwright)           | the Compose stack        | `cd web-app && bun run e2e` (CI's browser job; the journeys still to add are in #160) |
 | Load and report         | `system-tests/scripts/conservation-report.ts` | Docker (Compose)         | `npm run report:conservation` (not run in CI)           |
 | Load and latency        | `load/*.js` (k6), run by `scripts-load.sh`    | Docker (Compose)         | `./scripts-load.sh` (not run in CI; `--quick` to check it) |
 | Coverage                | every package's suites, with `--coverage`     | nothing more             | `npm test -w @foc/<package> -- --coverage` (reported in CI, not gated) |
