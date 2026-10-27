@@ -11,6 +11,35 @@ import type { Queryable, Row } from '@foc/platform';
  */
 export type CreditInvariant = (queryable: Queryable) => Promise<string[]>;
 
+/** Reconstruct both stored balances from immutable ledger movements (CRD-10). */
+export const walletLedgerViolations: CreditInvariant = async (queryable) => {
+  const result = await queryable.query<
+    Row & {
+      user_id: string;
+      available: number;
+      reserved: number;
+      ledger_available: string;
+      ledger_reserved: string;
+    }
+  >(`WITH ledger AS (
+       SELECT wallet_user_id,
+              coalesce(sum(CASE WHEN direction = 'CREDIT' THEN amount ELSE -amount END)
+                FILTER (WHERE account = 'AVAILABLE'), 0) AS available,
+              coalesce(sum(CASE WHEN direction = 'CREDIT' THEN amount ELSE -amount END)
+                FILTER (WHERE account = 'RESERVED'), 0) AS reserved
+         FROM ledger_entries WHERE wallet_user_id IS NOT NULL GROUP BY wallet_user_id
+     )
+     SELECT w.user_id, w.available, w.reserved,
+            coalesce(l.available, 0) AS ledger_available, coalesce(l.reserved, 0) AS ledger_reserved
+       FROM wallets w LEFT JOIN ledger l ON l.wallet_user_id = w.user_id
+      WHERE w.available <> coalesce(l.available, 0) OR w.reserved <> coalesce(l.reserved, 0)
+      ORDER BY w.user_id`);
+  return result.rows.map(
+    (row) =>
+      `wallet ${row.user_id} holds ${row.available}/${row.reserved} available/reserved but its ledger records ${row.ledger_available}/${row.ledger_reserved}`,
+  );
+};
+
 /** No wallet is negative or fractional. */
 export const balanceViolations: CreditInvariant = async (queryable) => {
   const wallets = await queryable.query<

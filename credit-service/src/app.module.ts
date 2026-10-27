@@ -10,6 +10,8 @@ import { authConfig, env, SERVICE_NAME, SERVICE_VERSION } from './config.js';
 import { CREDIT_ECONOMIC_SUBSCRIPTIONS } from './closed-economy.js';
 import { CreditModule } from './credit.module.js';
 import { RAW_DB } from './db/db.js';
+import { LedgerAuditService } from './credits/ledger-audit.service.js';
+import { LedgerAuditScheduler } from './credits/ledger-audit.scheduler.js';
 import { ReservationConsumer } from './reservation-consumer.js';
 import { CompletionConsumer, ReleaseConsumer } from './terminal-consumers.js';
 import { WALLET_QUEUE, WalletProvisioning } from './wallet-provisioning.js';
@@ -53,6 +55,11 @@ const eventModules = env.RABBITMQ_URL
     ...eventModules,
   ],
   providers: [
+    {
+      provide: LedgerAuditScheduler,
+      useFactory: (audit: LedgerAuditService) => new LedgerAuditScheduler(audit),
+      inject: [LedgerAuditService],
+    },
     // PLT-12: the outbox and inbox are pruned with or without a broker.
     provideEventTablePruner({ db: RAW_DB }),
     ...(env.RABBITMQ_URL

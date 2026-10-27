@@ -124,6 +124,17 @@ To check a running stack's economy at any time (read-only; exits 1 on any violat
 docker compose exec -T credit-service node credit-service/dist/check-invariants.js
 ```
 
+## Daily financial audit (CRD-10)
+
+Credit checks every wallet against its ledger once per UTC day and on demand, using one consistent
+database snapshot. Each run appends immutable PASS/MISMATCH/ERROR evidence; it never changes a
+balance. Administrators see the latest result and can start a scan in **Admin → Operations**.
+Operators can run `npm run audit:credits` from the repository root (exit 0 clean, 1 mismatch,
+2 busy/failure). Metrics and Prometheus rules report mismatches, failed scans and overdue scans.
+See the [ledger-audit runbook](../docs/runbooks/credit-ledger-audit.md) for incident response,
+restricted findings, scheduling and test evidence. This differs from Order's pending-saga recovery
+job (#152), which replays ordinary idempotent commands.
+
 ## HTTP API
 
 Student/admin routes require an active identity resolved by `@foc/auth-client`. The internal status
@@ -141,11 +152,14 @@ route uses the ADR-0004 `X-Service-Key` mechanism and accepts only configured se
 | `GET /admin/activity-alerts`                   | Admin            | `BULK_WALLET_READS` alerts about administrators (ADM-04)         |
 | `GET /admin/dead-letters`, `/{id}`             | Admin            | Inputs that failed every retry, searchable; the message as kept  |
 | `POST /admin/dead-letters/{id}/redrive`        | Admin            | Sends one dead letter back, unchanged, to the queue it failed on |
+| `GET /admin/ledger-audits/latest`              | Admin            | Last financial audit summary, or null before the first run       |
+| `POST /admin/ledger-audits/run`                | Admin            | Append an on-demand financial audit; no balance changes          |
 
 There is deliberately no caller-selectable student route and no HTTP route that moves credit. The
-one write is the redrive (PLT-05): it puts a failed input back, byte for byte, on the queue of the
+redrive (PLT-05) puts a failed input back, byte for byte, on the queue of the
 subscription that failed it, which decides again through its inbox and checks; the route itself
-records only who redrove it and why. The admin trace and alert routes show no balance, so they are
+records only who redrove it and why. The other POST appends a ledger audit result. The admin trace,
+alert and audit-summary routes show no balance, so they are
 not recorded wallet reads. The complete wire contract is
 [`contracts/credit-service.openapi.yaml`](../contracts/credit-service.openapi.yaml).
 
@@ -172,7 +186,7 @@ read-only and return the same IDs and timestamps.
 | `order.reservation-requested` | `RESERVE`         | `order-service` producer, inbox, conditional debit and order key  |
 | `order.completion-requested`  | `TRANSFER`        | `order-service` producer, reservation lock and terminal key       |
 | `order.release-requested`     | `RELEASE`         | `order-service` producer, reservation lock and terminal key       |
-| HTTP routes                   | None              | Reads, plus the admin redrive of an unchanged input; guards apply |
+| HTTP routes                   | None              | Reads, unchanged-input redrive and financial audit; guards apply  |
 | Migrations/operations         | None at runtime   | Migration role changes schema only; no balance-set command exists |
 
 There is no purchase, withdrawal, cash-out, gift, arbitrary transfer, balance-set, administrative

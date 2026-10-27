@@ -7,6 +7,8 @@ import { AdminActivity, WALLET_READS_ALERT_PER_HOUR } from './credits/admin-acti
 import { CreditRepository, INITIAL_ALLOCATION } from './credits/credit.repository.js';
 import { AdminCreditController, DeadLettersController } from './credits/operations.controller.js';
 import { CreditOperationsRepository } from './credits/operations.repository.js';
+import { LedgerAuditService } from './credits/ledger-audit.service.js';
+import { LedgerAuditController } from './credits/ledger-audit.controller.js';
 import { CreditStatusController } from './credits/status.controller.js';
 import { CreditStatusService } from './credits/status.service.js';
 import { AdminWalletsController, WalletsController } from './credits/wallets.controller.js';
@@ -25,9 +27,11 @@ export class CreditModule {
         CreditStatusController,
         AdminCreditController,
         DeadLettersController,
+        LedgerAuditController,
       ],
       providers: [
         CreditRepository,
+        LedgerAuditService,
         WalletsService,
         CreditStatusService,
         CreditOperationsRepository,
@@ -49,7 +53,14 @@ export class CreditModule {
           inject: [RAW_DB],
         },
       ],
-      exports: [DB, RAW_DB, CreditRepository, WalletsService, CreditStatusService],
+      exports: [
+        DB,
+        RAW_DB,
+        CreditRepository,
+        WalletsService,
+        CreditStatusService,
+        LedgerAuditService,
+      ],
     };
   }
 }

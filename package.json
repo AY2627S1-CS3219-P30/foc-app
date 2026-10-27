@@ -16,6 +16,7 @@
     "system-tests"
   ],
   "scripts": {
+    "audit:credits": "docker compose exec -T credit-service node credit-service/dist/audit-ledger.js",
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:contract": "npm run contracts:compat -w @foc/test-harness && npm test -w @foc/test-harness -- contracts compat && npm test --workspaces --if-present -- --passWithNoTests .contract.test",
