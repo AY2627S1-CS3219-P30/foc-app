@@ -208,10 +208,11 @@ describe('containers get only what they need (PL-NFR2.1.2)', () => {
       ...Object.fromEntries(
         APPLICATION.map((name) => [name, ['broker', 'db', 'gateway', 'public', 'services']]),
       ),
-      // Reached only through the edge; the web app's container calls nothing.
-      'web-app': ['gateway'],
-      // Its own way out, for the one published port, and the internal network to what it routes to.
-      edge: ['edge', 'gateway'],
+      // Reached only through the edge, on a network the two share; the web app's container calls
+      // nothing, so it reaches no service, internal port or public (PLT-13).
+      'web-app': ['web'],
+      // Its own way out, for the one published port, and the internal networks to what it routes to.
+      edge: ['edge', 'gateway', 'web'],
       prometheus: ['broker', 'observability', 'services'],
       grafana: ['observability'],
     });
@@ -318,7 +319,8 @@ describe('the edge (PLT-10)', () => {
   it('runs unprivileged, read-only, with a health check', () => {
     expect(edge.image).toMatch(/^nginxinc\/nginx-unprivileged:/);
     expect(edge.read_only).toBe(true);
-    expect(JSON.stringify(edge.healthcheck)).toContain('/edge/health');
+    // Its health is the stack's readiness (PLT-13): see stack-readiness.test.ts.
+    expect(JSON.stringify(edge.healthcheck)).toContain('/edge/ready');
   });
 
   it('routes each service under /api/<service>/, and the rest to the web app', () => {

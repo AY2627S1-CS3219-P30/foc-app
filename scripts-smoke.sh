@@ -434,14 +434,19 @@ inside=$(docker compose exec -T order-service node -e "fetch('http://user-servic
 [[ "$inside" =~ ^[0-9]+$ && "$inside" != "404" ]] && pass "the Order Service reaches the User Service's internal routes ($inside without a key)" ||
   fail "from the Order Service, /internal/introspect was '${inside:-not tried}'"
 
-# The web app's container is on a network of its own: it has no route to the database.
-reach=$(docker compose exec -T web-app node -e "
-const s = require('net').connect({ host: 'postgres', port: 5432, timeout: 2000 });
+# The web app's container shares a network with the edge alone: it has no route to the
+# database, the broker, or any service, internal port or public.
+for target in postgres:5432 rabbitmq:5672 user-service:4001 supplier-service:4002 order-service:4003 \
+  credit-service:4004 user-service:3001; do
+  reach=$(docker compose exec -T web-app node -e "
+const [host, port] = process.argv[1].split(':');
+const s = require('net').connect({ host, port: Number(port), timeout: 2000 });
 const say = (w) => { console.log(w); process.exit(0); };
 s.on('connect', () => say('reached')); s.on('error', () => say('unreachable')); s.on('timeout', () => say('unreachable'));
-" 2>/dev/null | tr -d '\r' | tail -1 || true)
-[[ "$reach" == "unreachable" ]] && pass "the web app's container cannot reach Postgres" ||
-  fail "from the web app's container, Postgres was '${reach:-not tried}'"
+" "$target" 2>/dev/null | tr -d '\r' | tail -1 || true)
+  [[ "$reach" == "unreachable" ]] && pass "the web app's container cannot reach $target" ||
+    fail "from the web app's container, $target was '${reach:-not tried}'"
+done
 
 # ---- one broker account per service (PLT-06) ---------------------------------
 # What the broker says when a service, signed in as itself, does something on a
@@ -476,6 +481,40 @@ said=$(broker_says order-service "ch.publish('foc.events', 'order.smoke-probe', 
 said=$(broker_says supplier-service "ch.publish('foc.events', 'supplier.anything', Buffer.from('{}'))")
 [[ "$said" == "refused" ]] && pass "the Supplier Service, which publishes nothing, may publish nothing" ||
   fail "a publish by the Supplier Service was '${said:-not tried}'"
+
+# ---- the stack's readiness (PLT-13) ------------------------------------------
+# /edge/ready answers 200 only while the web app and all four services answer their health
+# checks, and names each that does not. Last, as it takes a service away and brings it back.
+ready_code() { curl -s -o /dev/null -w '%{http_code}' "$EDGE/edge/ready" 2>/dev/null || echo 000; }
+ready_down() { curl -s "$EDGE/edge/ready" 2>/dev/null | python3 -c 'import sys,json;print(",".join(json.load(sys.stdin)["down"]))' 2>/dev/null || true; }
+ready_becomes() { # seconds code
+  local _
+  for _ in $(seq 1 "$(($1 * 2))"); do
+    [[ "$(ready_code)" == "$2" ]] && return 0
+    sleep 0.5
+  done
+  return 1
+}
+code=$(ready_code)
+[[ "$code" == "200" && -z "$(ready_down)" ]] && pass "the stack reports ready at /edge/ready" ||
+  fail "/edge/ready answered $code, naming '$(ready_down)'"
+edge_started=$(docker inspect -f '{{.State.StartedAt}}' "$(docker compose ps -q edge)" 2>/dev/null || true)
+docker compose stop order-service >/dev/null 2>&1 || true
+if ready_becomes 30 503; then
+  down=$(ready_down)
+  [[ "$down" == "order-service" ]] && pass "with the Order Service stopped, /edge/ready answers 503 naming it" ||
+    fail "with the Order Service stopped, /edge/ready named '${down:-nothing}'"
+else
+  fail "with the Order Service stopped, /edge/ready still answered $(ready_code)"
+fi
+docker compose start order-service >/dev/null 2>&1 || true
+if ready_becomes 90 200; then
+  [[ "$(docker inspect -f '{{.State.StartedAt}}' "$(docker compose ps -q edge)" 2>/dev/null)" == "$edge_started" ]] &&
+    pass "the Order Service started again makes the stack ready again, the edge not restarted" ||
+    fail "the stack is ready again, but the edge was restarted"
+else
+  fail "with the Order Service started again, /edge/ready still answered $(ready_code), naming '$(ready_down)'"
+fi
 
 echo
 if [[ $FAILURES -eq 0 ]]; then
