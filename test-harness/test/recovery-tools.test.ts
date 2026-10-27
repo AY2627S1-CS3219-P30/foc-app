@@ -83,4 +83,31 @@ describe('backup bundle integrity before restore (PLT-09)', () => {
     expect(result.status).toBe(2);
     expect(result.stderr).toContain('sha-<40 hex commit>');
   });
+
+  it('refuses both application and migration writers while accepting infrastructure alone', () => {
+    const library = fileURLToPath(new URL('../../scripts-recovery-lib.sh', import.meta.url));
+    const check = (running: string) =>
+      spawnSync(
+        'bash',
+        [
+          '-c',
+          `
+      . "$1"
+      fake_running="$2"
+      docker() { printf '%s\\n' "$fake_running"; }
+      recovery_apps_stopped
+    `,
+          'recovery-guard-test',
+          library,
+          running,
+        ],
+        { encoding: 'utf8' },
+      );
+    expect(check('postgres\nrabbitmq').status).toBe(0);
+    for (const writer of ['edge', 'credit-service', 'user-service-migrate']) {
+      const result = check(writer);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('containers are running');
+    }
+  });
 });

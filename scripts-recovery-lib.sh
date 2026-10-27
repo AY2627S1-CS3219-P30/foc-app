@@ -30,8 +30,8 @@ recovery_broker_empty() {
 recovery_apps_stopped() {
   local running
   running=$(docker compose ps --status running --services) || return 1
-  if printf '%s\n' "$running" | grep -qE '^(edge|web-app|user-service|supplier-service|order-service|credit-service)$'; then
-    recovery_error 'Application containers are running; stop them before restoring.'
+  if printf '%s\n' "$running" | grep -qE '^(edge|web-app|(user|supplier|order|credit)-service(-migrate)?)$'; then
+    recovery_error 'Application or migration containers are running; stop them before restoring.'
     return 1
   fi
 }
