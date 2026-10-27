@@ -69,14 +69,16 @@ describe('the publish job', () => {
     expect(publish.if).toContain("github.event_name == 'push'");
     expect(publish.if).toContain("github.ref == 'refs/heads/main'");
     expect(publish.if).toContain("needs.ci.result == 'success'");
+    expect(publish.if).toContain('always()');
   });
 
   it('is the only job that may write to the registry', () => {
     expect(workflow.permissions).toEqual({ contents: 'read' });
     expect(publish.permissions).toEqual({ contents: 'read', packages: 'write' });
     for (const [name, job] of Object.entries(workflow.jobs)) {
-      if (name !== 'publish') expect(job.permissions?.packages, name).toBeUndefined();
+      if (name !== 'publish') expect(job.permissions?.packages, name).not.toBe('write');
     }
+    expect(workflow.jobs.stack!.permissions?.packages).toBe('read');
   });
 
   const steps = publish.steps!;

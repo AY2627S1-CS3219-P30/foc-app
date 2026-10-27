@@ -190,6 +190,11 @@ instructions accept. There is no hosted deployment
 | `./scripts-restart-check.sh`          | Restart, recreate and take Postgres away      |
 | `./scripts-demo-journey.sh`           | A student, an errand and its credits, by API  |
 
+For a consistent four-database backup, fresh-stack restore, timed disposable drill and prior-image
+rollback, follow the [recovery runbook](docs/runbooks/backup-restore-rollback.md). Start a backup
+with `./scripts-backup.sh`; it briefly stops application writers and resumes them after the dump.
+Restore refuses existing tables and validates every table before smoke and the financial audit.
+
 `docker compose down` keeps your data. Use `-v` only when you want a clean
 database — it is also the only way to re-run `postgres-init.sh`, which runs
 once when the data volume is empty. What each of these keeps is spelled out
