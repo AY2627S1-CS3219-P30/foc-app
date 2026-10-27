@@ -69,6 +69,7 @@ describe('the publish job', () => {
     expect(publish.if).toContain("github.event_name == 'push'");
     expect(publish.if).toContain("github.ref == 'refs/heads/main'");
     expect(publish.if).toContain("needs.ci.result == 'success'");
+    expect(publish.if).toContain('always()');
   });
 
   it('is the only job that may write to the registry', () => {
@@ -148,5 +149,23 @@ describe('the publish job', () => {
     expect(String(workflow.concurrency['cancel-in-progress'])).toBe(
       "${{ github.event_name == 'pull_request' }}",
     );
+  });
+});
+
+describe('every bake step', () => {
+  // A `set` block is a literal string: a `#` line in it is not a YAML comment but text that bake
+  // refuses to parse, which once failed every publish from main.
+  it('passes only overrides in its `set`: target.key=value on every line', () => {
+    const bakes = Object.entries(workflow.jobs).flatMap(([name, job]) =>
+      (job.steps ?? [])
+        .filter((step) => step.uses?.startsWith('docker/bake-action@'))
+        .map((step) => [name, step.with?.set ?? ''] as const),
+    );
+    expect(bakes.length).toBeGreaterThan(0);
+    for (const [name, set] of bakes) {
+      for (const line of set.split('\n').filter((line) => line.trim())) {
+        expect(line.trim(), name).toMatch(/^[\w*-]+\.[\w.-]+=\S/);
+      }
+    }
   });
 });
