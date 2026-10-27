@@ -299,7 +299,8 @@ problem each solves, its design and its owners, are in [docs/nice-to-haves.md](d
 | `prometheus`       | 9090 | Jonus      | Compose only            |
 
 In Compose, port 3000 is the edge, which serves the web app and the four APIs on one origin; the
-web app's container has no port of its own. `bun dev` serves the web app on 3000 itself, calling
+web app's container has no port of its own. What its answers mean, how to follow a request through
+it, and how to change its configuration are in the [edge runbook](docs/runbooks/edge.md). `bun dev` serves the web app on 3000 itself, calling
 the services on their own ports, so run one or the other.
 
 **Is the stack ready?** `curl -s localhost:3000/edge/ready` answers `200` once the web app and all
@@ -678,6 +679,9 @@ docker run --rm -v "$PWD/observability:/rules:ro" --entrypoint promtool prom/pro
    in the wrong state. Redriving before then only fails it again.
 4. Redrive it with a reason, then watch the trace: the consumer handles it, or
    it fails again and comes back as a new dead letter with the new reason.
+
+The [dead-letter runbook](docs/runbooks/dead-letters.md) has the whole procedure: the API calls,
+which failure reasons to redrive and which never to, and how to check the outcome.
 
 ---
 
