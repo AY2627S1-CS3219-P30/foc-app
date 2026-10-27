@@ -101,6 +101,15 @@ function StatusBody({
     if (acted) status.current?.focus();
   }, [acted]);
 
+  // The retry button goes once its read succeeds, so focus comes to the status if it went with it.
+  const retried = useRef(false);
+  const stale = paused || !!problem;
+  useEffect(() => {
+    if (stale || !retried.current) return;
+    retried.current = false;
+    if (document.activeElement === document.body) status.current?.focus();
+  }, [stale]);
+
   return (
     <>
       <div>
@@ -121,26 +130,24 @@ function StatusBody({
         {stillWaiting && slow && <p style={muted}>{slow}</p>}
         {note && <p style={{ ...muted, fontWeight: vars.weight.semibold }}>{note}</p>}
         {order.status === "REJECTED" && <p style={muted}>{rejectionMessage(order)}</p>}
-        {paused && (
-          <>
-            <p style={muted}>Updates paused. Refresh to see the latest.</p>
-            <Button variant="outline" onClick={onRetry} style={{ alignSelf: "flex-start" }}>
-              Refresh
-            </Button>
-          </>
-        )}
+        {paused && <p style={muted}>Updates paused. Refresh to see the latest.</p>}
       </div>
       <FormAlert tone="info" takeFocus>{notice}</FormAlert>
-      {problem && (
-        <div
-          role="alert"
-          style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: vars.space[2] }}
-        >
-          <p style={{ fontSize: vars.text.sm, color: vars.color.danger }}>
-            Could not refresh this request. {problem.message}
-          </p>
-          <Button variant="outline" onClick={onRetry}>
-            Try again
+      {stale && (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: vars.space[2] }}>
+          {problem && (
+            <p role="alert" style={{ fontSize: vars.text.sm, color: vars.color.danger }}>
+              Could not refresh this request. {problem.message}
+            </p>
+          )}
+          <Button
+            variant="outline"
+            onClick={() => {
+              retried.current = true;
+              onRetry();
+            }}
+          >
+            {problem ? "Try again" : "Refresh"}
           </Button>
         </div>
       )}
@@ -235,8 +242,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
       passed={deadline !== null && now >= deadline}
       skew={skew}
       stillWaiting={stillWaiting}
-      // A failed read that then paused already offers to try again.
-      paused={paused && !problem}
+      paused={paused}
       problem={problem}
       notice={notice}
       acted={acted}
