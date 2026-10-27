@@ -79,7 +79,7 @@ revokes the whole session family as soon as the real browser refreshes.
 ### 4. Conflicts of interest
 
 - An admin cannot approve their own request, and the target of a request cannot decide it
-  (`SELF_APPROVAL_FORBIDDEN`, `CONFLICT_OF_INTEREST`).
+  (`403 SELF_APPROVAL_FORBIDDEN`, `403 CONFLICT_OF_INTEREST`).
 - An admin cannot decide a referred errand they are the requester or courier of
   (`403 CONFLICT_OF_INTEREST`, ORD-11 #171).
 

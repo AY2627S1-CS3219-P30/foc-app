@@ -271,7 +271,7 @@ export class AdminService {
       const { actor, target } = await this.lockActorAndTarget(tx, actorId, targetId);
       const userId = canonicalId(target);
       if (actorId === userId) {
-        throw new ApiException(409, 'SELF_SUSPENSION_FORBIDDEN', 'You cannot suspend yourself.');
+        throw new ApiException(403, 'SELF_SUSPENSION_FORBIDDEN', 'You cannot suspend yourself.');
       }
       if (target.roles.includes('ADMIN')) {
         await this.guardAdminTarget(tx, actor, sessionId, 'suspend');
@@ -544,7 +544,7 @@ export class AdminService {
       const request = await this.openRequest(tx, requestId);
       if (actorId === request.targetUserId) {
         throw new ApiException(
-          409,
+          403,
           'CONFLICT_OF_INTEREST',
           'You cannot decide a role change about yourself.',
         );
@@ -596,7 +596,7 @@ export class AdminService {
     if (!target.roles.includes('ADMIN')) return false;
     if (actorId === userId) {
       throw new ApiException(
-        409,
+        403,
         'SELF_DEMOTION_FORBIDDEN',
         'You cannot remove your own administrator role.',
       );
@@ -692,14 +692,14 @@ export class AdminService {
   private assertCanDecide(actorId: string, request: RoleRequestRow): void {
     if (actorId === request.requestedBy) {
       throw new ApiException(
-        409,
+        403,
         'SELF_APPROVAL_FORBIDDEN',
         'Another administrator must approve your request.',
       );
     }
     if (actorId === request.targetUserId) {
       throw new ApiException(
-        409,
+        403,
         'CONFLICT_OF_INTEREST',
         'You cannot decide a role change about yourself.',
       );
