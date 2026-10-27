@@ -107,6 +107,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/ledger-audits/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Last persisted wallet-versus-ledger audit summary (CRD-10).
+         * @description Administrator-only. Detailed wallet findings stay in the audit database; this summary exposes counts, not individual balances.
+         */
+        get: operations["latestLedgerAudit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/admin/ledger-audits/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Inspect the economy and append an immutable audit result; never repair balances.
+         * @description Administrator-only. Mismatches are a completed result (200), not an infrastructure failure. The authenticated actor is recorded. Concurrent audits are refused.
+         */
+        post: operations["runLedgerAudit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/admin/credit-alerts": {
         parameters: {
             query?: never;
@@ -238,6 +278,25 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        LedgerAuditRun: {
+            /** Format: uuid */
+            runId: string;
+            /** @enum {string} */
+            origin: "SCHEDULED" | "MANUAL" | "CLI";
+            requestedBy: string | null;
+            /** @enum {string} */
+            status: "PASS" | "MISMATCH" | "ERROR";
+            mismatchCount: number | null;
+            error: string | null;
+            /** Format: date-time */
+            startedAt: string;
+            /** Format: date-time */
+            completedAt: string;
+            checks: {
+                name: string;
+                mismatchCount: number;
+            }[];
+        };
         Health: {
             /** @constant */
             status: "ok";
@@ -704,6 +763,81 @@ export interface operations {
             400: components["responses"]["InvalidOrderId"];
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    latestLedgerAudit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Last attempt, or null before the first attempt. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        run: components["schemas"]["LedgerAuditRun"] | null;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            /** @description Audit storage or identity service unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+    };
+    runLedgerAudit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Completed scan, with PASS or MISMATCH status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        run: components["schemas"]["LedgerAuditRun"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["Forbidden"];
+            /** @description LEDGER_AUDIT_BUSY; retry after the current scan finishes. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description LEDGER_AUDIT_FAILED or identity service unavailable. A failed scan is not a clean result. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     listCreditAuditAlerts: {

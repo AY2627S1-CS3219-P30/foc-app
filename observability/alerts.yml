@@ -5,6 +5,33 @@
 groups:
   - name: foc-operations
     rules:
+      - alert: CreditLedgerMismatch
+        expr: foc_credit_ledger_audit_mismatches > 0
+        labels:
+          severity: page
+        annotations:
+          summary: 'Credit ledger audit found {{ $value }} mismatch(es)'
+          description: >-
+            Inspect the latest ledger audit in the admin Operations tab and its immutable findings
+            using the runbook. Do not edit balances automatically.
+
+      - alert: CreditLedgerAuditFailed
+        expr: foc_credit_ledger_audit_failed > 0
+        labels:
+          severity: page
+        annotations:
+          summary: 'Credit ledger audit could not complete'
+          description: 'Inspect the credit-service logs and retry the audit; failure is not a clean reconciliation.'
+
+      - alert: CreditLedgerAuditOverdue
+        expr: time() - foc_credit_ledger_audit_last_completed_timestamp_seconds > 90000
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: 'Credit ledger audit has not completed within 25 hours'
+          description: 'Check the daily audit scheduler and database. Run an on-demand audit from Operations.'
+
       # A message failed every retry and is parked for an operator. One is enough: each is an event
       # the system did not act on, such as a student with no wallet.
       - alert: DeadLetterWaiting

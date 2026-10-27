@@ -254,6 +254,10 @@ export function createAdminApi({
       ),
     creditAlerts: (token: string) =>
       unwrap(credit.GET("/admin/credit-alerts", { headers: bearer(token) })),
+    latestLedgerAudit: (token: string) =>
+      unwrap(credit.GET("/admin/ledger-audits/latest", { headers: bearer(token) })),
+    runLedgerAudit: (token: string) =>
+      unwrap(credit.POST("/admin/ledger-audits/run", { headers: bearer(token) })),
     /** ADM-04: administrators who read many wallets in an hour, newest first. */
     walletReadAlerts: (token: string) =>
       unwrap(credit.GET("/admin/activity-alerts", { headers: bearer(token) })),
