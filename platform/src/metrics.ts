@@ -63,6 +63,7 @@ export class Metrics {
   readonly eventsDeferred: Counter<'queue' | 'event_type'>;
   readonly outboxPublished: Counter;
   readonly outboxFailures: Counter;
+  readonly eventRowsPruned: Counter<'table'>;
   private readonly logger = new Logger(Metrics.name);
 
   constructor(serviceName: string) {
@@ -146,6 +147,12 @@ export class Metrics {
     this.outboxFailures = new Counter({
       name: 'foc_outbox_publish_failures_total',
       help: 'Failed attempts to publish an outbox row; the row is retried after a backoff.',
+      registers,
+    });
+    this.eventRowsPruned = new Counter({
+      name: 'foc_event_rows_pruned_total',
+      help: 'Published outbox rows and inbox rows deleted once past their retention (PLT-12).',
+      labelNames: ['table'],
       registers,
     });
   }
