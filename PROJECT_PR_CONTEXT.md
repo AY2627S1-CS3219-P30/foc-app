@@ -1,7 +1,7 @@
 # Project and PR context for Isaac
 
 Living context for `isaacchua0309` in `AY2627S1-CS3219-P30/foc-app`.
-Refreshed 2026-10-27 against `origin/main` `0f938fa` and live GitHub. Recheck GitHub before starting
+Refreshed 2026-10-27 against `origin/main` `32aa950` and live GitHub. Recheck GitHub before starting
 another issue. This replaces the obsolete October 20 inventory; historical open/blocked claims
 from that inventory must not be used as current state.
 
@@ -26,15 +26,15 @@ Three issues remain open. [PR #313](https://github.com/AY2627S1-CS3219-P30/foc-a
 merged #283 at `0f938fa7c05724b807ef23c25f49e28f59e8714e` on 27 Oct; GitHub closed the issue.
 All required CI checks passed on feature head `0956860` (run `40466911987`). The repository owner
 explicitly authorized the internal-review/merge pipeline; that authorization was used without
-claiming a teammate review (GitHub review list was empty). #284 is being developed on
-`feat/284-stack-recovery`, now based on merged main.
+claiming a teammate review (GitHub review list was empty). #284 is in draft PR #314 on `feat/284-stack-recovery`, based on merged main.
+CI performs the published-image rollback using read-only package access; it must pass before merge.
 
-| Issue                                                             | Feature / classification                                        | Status                                                                | Dependencies                                                                                                | Blockers                                                                                      | Relevant code                                                                                                                                      |
-| ----------------------------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [#283](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/283) | CRD-10 financial audit; foundation                              | CLOSED; PR #313 merged, exact-head CI green                           | #166 related, not a prerequisite; contributes a runbook to #168                                             | Merged under owner-authorized internal review                                                 | `credit-service/src/credits/ledger-audit.*`, `invariants.ts`, `web-app/src/app/(app)/admin/operations/LedgerAudit.tsx`, `observability/alerts.yml` |
-| [#284](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/284) | PLT-09 stack backup/restore/rollback; integration               | Backup/restore implemented locally; 71-second disposable drill passed | Explicit #164 image publishing (closed); technical dependency on #283 for post-restore financial validation | Prior published release/access and real rollback drill remain                                 | `scripts-{backup,restore,rollback,recovery-drill}.sh`, `scripts-recovery.py`, recovery runbook/report, CI                                          |
-| [#167](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/167) | REL-01 deterministic seed, smoke and D4 narrative; finalization | Not started; reassigned to Isaac in issue's D4 amendment              | Explicit TST-02 #160 (open, Patrick)                                                                        | Two successful non-owner rehearsals required; cannot fabricate them                           | `scripts-lib.sh`, `scripts-smoke.sh`, `scripts-demo-*.sh`, future `docs/demo/d4-runbook.md`                                                        |
-| [#238](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/238) | DOC-04 ADR acceptance; team gate                                | Isaac's own approval merged in #300; shared completion pending        | Related #183/#226 satisfied; amendments in #250 (merged), #254 (open)                                       | Patrick pending; Jonus approval/amendments pending merge in #254; all five approvals required | `docs/adr/README.md`, ADRs 0002–0009                                                                                                               |
+| Issue                                                             | Feature / classification                                        | Status                                                                | Dependencies                                                                                                | Blockers                                                            | Relevant code                                                                                                                                      |
+| ----------------------------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [#283](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/283) | CRD-10 financial audit; foundation                              | CLOSED; PR #313 merged, exact-head CI green                           | #166 related, not a prerequisite; contributes a runbook to #168                                             | Merged under owner-authorized internal review                       | `credit-service/src/credits/ledger-audit.*`, `invariants.ts`, `web-app/src/app/(app)/admin/operations/LedgerAudit.tsx`, `observability/alerts.yml` |
+| [#284](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/284) | PLT-09 stack backup/restore/rollback; integration               | Backup/restore implemented locally; 71-second disposable drill passed | Explicit #164 image publishing (closed); technical dependency on #283 for post-restore financial validation | Prior published release/access and real rollback drill remain       | `scripts-{backup,restore,rollback,recovery-drill}.sh`, `scripts-recovery.py`, recovery runbook/report, CI                                          |
+| [#167](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/167) | REL-01 deterministic seed, smoke and D4 narrative; finalization | Not started; reassigned to Isaac in issue's D4 amendment              | Explicit TST-02 #160 (open, Patrick)                                                                        | Two successful non-owner rehearsals required; cannot fabricate them | `scripts-lib.sh`, `scripts-smoke.sh`, `scripts-demo-*.sh`, future `docs/demo/d4-runbook.md`                                                        |
+| [#238](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/238) | DOC-04 ADR acceptance; team gate                                | Isaac's own approval merged in #300; shared completion pending        | Related #183/#226 satisfied; amendments in #250 (merged), #254 (merged)                                     | Patrick approval pending; other four now recorded on main           | `docs/adr/README.md`, ADRs 0002–0009                                                                                                               |
 
 #167's original owner line still says Patrick; its D4 amendment and GitHub assignment supersede
 that line. #284's body still says no published images exist; #164 is now closed, so verify actual
@@ -60,7 +60,7 @@ checks as test-only; this branch implements the runtime check but main does not 
 #238 shared ADR acceptance
   ├── Isaac approval [merged #300]
   ├── Zhang Yuan / Anselm approvals [recorded on main]
-  ├── Jonus amendment/approval [open #254]
+  ├── Jonus amendment/approval [merged #254]
   └── Patrick approval [pending]
 ```
 
@@ -154,7 +154,8 @@ Partial evidence: 36 tables / 321 rows restored with matching canonical-row fing
 health + complete smoke + PASS/0 financial audit, measured 71 seconds against 3600-second RTO.
 A normal backup also resumes previously running apps. Bundle tests reject corruption, missing
 databases, wrong format and symlinked dumps. The repeatable isolated drill also passed (55 seconds), as did the non-empty-target refusal.
-CI and published-image rollback evidence remain incomplete.
+CI and published-image rollback evidence remain incomplete. Draft PR #314 carries the work;
+its original CI run is `40470144507`, superseded when the current main/guard update is pushed.
 
 Release blocker: successful main push run `40458490320` skipped Publish images; the expected
 `sha-c5d5c0c...` Credit manifest was not found after registry login. The local GitHub token lacks
@@ -183,7 +184,7 @@ on an agent execution or invented approval.
 
 Goal/acceptance: required ADRs no longer Proposed and all five members recorded. Isaac's approval
 already exists in `docs/adr/README.md` via merged #300. Zhang Yuan and Anselm are recorded. Main
-still lists Jonus and Patrick Pending; Jonus's changes are in open #254. ADRs 0002–0009 remain
+now records Jonus's approval through merged #254 (`32aa950`); Patrick remains Pending. ADRs 0002–0009 remain
 `Proposed; implementation basis`; 0010 is a newer proposed edge ADR.
 
 Read #254's exact changes/reviews before any merge; never record another person's approval on
@@ -226,7 +227,7 @@ solely for prose, but required repository checks/review still apply.
 ```ini
 [x] #234 — Credit D3 evidence — PR #250 merged; issue closed
 [x] #238 personal part — Isaac approval recorded in merged PR #300
-[ ] #238 team completion — Patrick pending; Jonus amendment/approval in open #254
+[ ] #238 team completion — Patrick pending; other four approvals recorded; #254 merged at 32aa950
 [x] #283 — Daily financial audit — PR #313 merged at 0f938fa; issue closed; exact-head CI green
 [ ] #284 — Backup/restore implemented; 71-second local drill passed; repeatable drill passed in 55 seconds; CI and actual published-image rollback remain
 [ ] #167 — Seed and D4 demo — not started; #160 and two non-owner rehearsals remain gates
@@ -236,3 +237,15 @@ Before starting another issue, pull main, reread live issues/comments/linked PRs
 document. On merge, record PR/commit/check evidence, update the tracker and reassess dependencies.
 Mark missing information UNRESOLVED. This Codex-assisted context summarizes repository evidence;
 the team must validate it and disclose AI use according to course policy before assessed use.
+
+## Goal blockers and handoff
+
+- #283 is merged/closed; exact feature-head CI passed.
+- #284 needs exact-head CI and actual prior-published-image rollback evidence. Local backup/restore
+  is proven; the required CI job has package-read access to avoid depending on a workstation token.
+- #167 still explicitly depends on #160. Its D4 amendment lists missing UI journeys (expiry,
+  auto-confirm, disputes, suspension/reassignment, browsing/history and admin smoke); read it before
+  claiming browser coverage complete. Named seed/narrative preparation may proceed independently.
+  Two actual non-owner rehearsals are required; an asynchronous question asks who can perform them.
+- #238 now waits only for Patrick's actual approval. #254 merged with existing Anselm review and
+  code-checked amendments; no new teammate approval was invented.
