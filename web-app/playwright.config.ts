@@ -25,6 +25,9 @@ export default defineConfig({
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000",
+    // CI drives the runner's installed Google Chrome ("chrome"), so nothing is downloaded there;
+    // unset, Playwright uses its own Chromium (`bunx playwright install chromium`).
+    channel: process.env.E2E_BROWSER_CHANNEL || undefined,
     trace: "retain-on-failure",
   },
   projects: [
