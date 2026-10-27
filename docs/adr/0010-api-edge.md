@@ -95,9 +95,10 @@ the edge. An upstream that does not answer gives `503 UNAVAILABLE` in the shared
 
 The image is `nginxinc/nginx-unprivileged`, pinned by version and digest: it runs as an
 unprivileged user on port 8080, so the container drops every Linux capability, cannot gain one,
-and has a read-only file system with `/tmp` as its only scratch space. It is on two networks: an
-ordinary one of its own, for its published port, and the internal `gateway` network shared with the
-web app and the services' public ports.
+and has a read-only file system with `/tmp` as its only scratch space. It is on three networks: an
+ordinary one of its own, for its published port; the internal `gateway` network, to the services'
+public ports; and the internal `web` network, to the web app, which is on no other network and so
+reaches no service (PLT-13, #289).
 
 ## Alternatives considered
 

@@ -297,11 +297,15 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
+    # Every page needs one service or another, so it starts once all four are healthy (PLT-13).
     depends_on:
       user-service: { condition: service_healthy }
       supplier-service: { condition: service_healthy }
-    # Not published: the browser reaches it through the edge. This container calls nothing.
-    networks: [gateway]
+      order-service: { condition: service_healthy }
+      credit-service: { condition: service_healthy }
+    # Not published: the browser reaches it through the edge, on a network the two share alone.
+    # This container calls nothing, so it reaches no service, internal port or public (PLT-13).
+    networks: [web]
     cap_drop: [ALL]
     security_opt: ['no-new-privileges:true']
 
@@ -316,18 +320,23 @@ services:
     volumes:
       - ./edge/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./edge/headers.conf:/etc/nginx/foc/headers.conf:ro
+      - ./edge/readiness.js:/etc/nginx/foc/readiness.js:ro
     read_only: true
     tmpfs: [/tmp]
     ports: ['${WEB_APP_PORT:-3000}:8080']
     depends_on:
       web-app: { condition: service_started }
+    # Healthy means ready: the web app and all four services answer (PLT-13), so `up --wait` and
+    # the scripts' wait end when every page can work. A service lost later turns it unhealthy,
+    # and /edge/ready names it.
     healthcheck:
-      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/edge/health']
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/edge/ready']
       interval: 5s
-      timeout: 3s
-      retries: 10
-    # Its own way out, for its published port, and `gateway` to what it routes to.
-    networks: [edge, gateway]
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+    # Its own way out, for its published port; `web` to the web app, `gateway` to the services.
+    networks: [edge, web, gateway]
     cap_drop: [ALL]
     security_opt: ['no-new-privileges:true']
 
@@ -397,15 +406,16 @@ configs:
 
 # Who can reach whom (PL-NFR2.1.2). A container joins only the networks of the
 # things it depends on, so, for one, the web app's container cannot open a
-# connection to Postgres, and Grafana cannot reach a service.
+# connection to Postgres or to any service, and Grafana cannot reach a service.
 #
-# The four networks containers talk to each other on are `internal`: they have
+# The five networks containers talk to each other on are `internal`: they have
 # no route out, and no port can be published through them.
 #
 #   db             postgres       <- the four services and their migrate jobs
 #   broker         rabbitmq       <- the four services; Prometheus, for queue depths
 #   services       service <-> service on the internal ports; Prometheus scrapes here
-#   gateway        the edge -> the web app and the four services' public ports
+#   gateway        the edge -> the four services' public ports
+#   web            the edge -> the web app, which is on no other network
 #
 # Publishing a port needs an ordinary network, and a container must have exactly
 # one: with two, Docker may publish the port on one and route the replies out of
@@ -426,6 +436,8 @@ networks:
   services:
     internal: true
   gateway:
+    internal: true
+  web:
     internal: true
   edge:
   public:

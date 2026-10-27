@@ -267,6 +267,13 @@ In Compose, port 3000 is the edge, which serves the web app and the four APIs on
 web app's container has no port of its own. `bun dev` serves the web app on 3000 itself, calling
 the services on their own ports, so run one or the other.
 
+**Is the stack ready?** `curl -s localhost:3000/edge/ready` answers `200` once the web app and all
+four services answer their health checks, so every page can work, and `503` naming each one that
+does not, such as `{"status":"unavailable","down":["order-service"],…}` (PLT-13). The edge's own
+health check asks it, so `docker compose ps` shows the edge `healthy`, and `docker compose up -d
+--wait` returns, only once the whole stack is ready. `/edge/health` says only that the edge itself
+is running.
+
 ---
 
 ## What every service already has
@@ -373,18 +380,19 @@ A container joins only the networks of what it depends on (PL-NFR2.1.2):
 | `db`            | Postgres, the four services, the migrate containers | each service's own database            |
 | `broker`        | RabbitMQ, the four services, Prometheus             | events; queue depths for the dashboard |
 | `services`      | the four services, Prometheus                       | service-to-service calls; scraping     |
-| `gateway`       | the edge, the web app, the four services            | the edge's routes to them              |
+| `gateway`       | the edge, the four services                         | the edge's routes to them              |
+| `web`           | the edge, the web app                               | the edge's route to the web app        |
 | `edge`          | the edge                                            | publishing port 3000                   |
 | `public`        | the four services                                   | publishing ports 3001-3004             |
 | `local`         | Postgres, RabbitMQ                                  | publishing their ports on `127.0.0.1`  |
 | `observability` | Prometheus, Grafana                                 | the dashboard's queries; their ports   |
 
-The first four are `internal`: containers talk on them, they have no route
+The first five are `internal`: containers talk on them, they have no route
 out, and no port can be published through them. Publishing a port needs an
 ordinary network, and each container has exactly one, because with two Docker
 can publish the port on one and send the replies out of the other. So the web
-app's container cannot open a connection to Postgres, and Grafana cannot reach
-a service.
+app's container cannot open a connection to Postgres, RabbitMQ or any service,
+and Grafana cannot reach a service.
 
 | From this machine                                                | Reachable on     |
 | ---------------------------------------------------------------- | ---------------- |
