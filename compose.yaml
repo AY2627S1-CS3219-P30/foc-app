@@ -144,11 +144,20 @@ services:
       # Without a fixed key every restart would sign everyone out (PL-NFR3.1.1).
       JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:?run ./scripts-init-env.sh}
       ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD:?run ./scripts-init-env.sh}
+      # Activation email goes to Mailpit (below); the link opens the web app.
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      # Mailpit offers no STARTTLS; a real relay must (the default in production).
+      SMTP_REQUIRE_TLS: 'false'
+      ACTIVATION_URL: http://localhost:${WEB_APP_PORT:-3000}/activate
     ports: ['${USER_SERVICE_PORT:-3001}:3001']
+    networks: [public, db, broker, services, mail]
     depends_on:
       <<: *consumer-deps
       user-service-migrate:
         condition: service_completed_successfully
+      mailpit:
+        condition: service_healthy
 
   supplier-service-migrate:
     build: { context: ., dockerfile: supplier-service/Dockerfile }
@@ -286,9 +295,6 @@ services:
         NEXT_PUBLIC_SUPPLIER_SERVICE_URL: http://localhost:${SUPPLIER_SERVICE_PORT:-3002}
         NEXT_PUBLIC_ORDER_SERVICE_URL: http://localhost:${ORDER_SERVICE_PORT:-3003}
         NEXT_PUBLIC_CREDIT_SERVICE_URL: http://localhost:${CREDIT_SERVICE_PORT:-3004}
-        # The stack's User Service runs in development mode, which mounts the
-        # dev mailbox, so the sign-up screen may link straight to activation.
-        NEXT_PUBLIC_DEV_MAILBOX: 'true'
         # Linked from the admin console's Operations tab (PLT-05).
         NEXT_PUBLIC_GRAFANA_URL: http://localhost:${GRAFANA_PORT:-3005}
     restart: unless-stopped
@@ -300,6 +306,25 @@ services:
     ports: ['${WEB_APP_PORT:-3000}:3000']
     # A network of its own: the browser calls the services, this container calls nothing.
     networks: [web]
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+
+  # ---- mail (USR-09) ----------------------------------------------------------
+  # Catches every email the stack sends, so an activation link lands in a real
+  # inbox on this machine: http://localhost:8025. It relays nothing onward and
+  # needs no credential. The User Service reaches its SMTP port over `mail`; the
+  # inbox (UI, and the API the scripts and suites read) is on 127.0.0.1 only.
+  mailpit:
+    image: axllent/mailpit:v1.31.6@sha256:23fe39e81bde596a918000b3135c0f85dc8bb4c9ea6be274b051143f3e300387
+    restart: unless-stopped
+    environment:
+      # Older messages are dropped past this, so a long-running stack does not grow without end.
+      MP_MAX_MESSAGES: 5000
+    ports: ['127.0.0.1:${MAILPIT_PORT:-8025}:8025']
+    # The image runs as root; it needs none (ports above 1024, its store in /tmp).
+    user: '65534:65534'
+    # The image's own healthcheck (`/mailpit readyz`) decides `service_healthy`.
+    networks: [mail, inbox]
     cap_drop: [ALL]
     security_opt: ['no-new-privileges:true']
 
@@ -371,12 +396,13 @@ configs:
 # things it depends on, so, for one, the web app's container cannot open a
 # connection to Postgres, and Grafana cannot reach a service.
 #
-# The three networks containers talk to each other on are `internal`: they have
+# The four networks containers talk to each other on are `internal`: they have
 # no route out, and no port can be published through them.
 #
 #   db             postgres       <- the four services and their migrate jobs
 #   broker         rabbitmq       <- the four services; Prometheus, for queue depths
 #   services       service <-> service on the internal ports; Prometheus scrapes here
+#   mail           mailpit's SMTP port <- the User Service
 #
 # Publishing a port needs an ordinary network, and a container must have exactly
 # one: with two, Docker may publish the port on one and route the replies out of
@@ -385,11 +411,12 @@ configs:
 #   public         the four services: how ports 3001-3004 reach this machine
 #   web            the web app alone: the browser calls the services, it does not
 #   local          postgres and rabbitmq: how their ports reach 127.0.0.1
+#   inbox          mailpit alone: how its inbox reaches 127.0.0.1
 #   observability  grafana -> prometheus, and how both reach 127.0.0.1
 #
 # What the host can reach is decided by `ports:` above: the web app and each
-# service's public port on every interface, the data stores and the dashboards on
-# 127.0.0.1, and no internal port at all.
+# service's public port on every interface, the data stores, the mail inbox and
+# the dashboards on 127.0.0.1, and no internal port at all.
 networks:
   db:
     internal: true
@@ -397,7 +424,10 @@ networks:
     internal: true
   services:
     internal: true
+  mail:
+    internal: true
   public:
   web:
   local:
+  inbox:
   observability:

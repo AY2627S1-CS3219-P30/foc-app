@@ -172,7 +172,7 @@ done
 
 # ---- an activation reaches the Credit Service --------------------------------
 # The queues above can exist with nothing flowing through them. This signs up a
-# throwaway student, activates them through the dev mailbox, and waits for the
+# throwaway student, activates them through the emailed link (Mailpit), and waits for the
 # wallet the Credit Service issues on `user.activated`: User Service, outbox
 # relay, broker and Credit Service, end to end.
 #
@@ -199,10 +199,9 @@ registered=$(post_json /auth/register "{\"email\":\"$SMOKE_EMAIL\",\"password\":
 
 activation_token=""
 if [[ -z "$wallet_step" ]]; then
-  activation_token=$(curl -fsS "http://localhost:${USER_PORT}/dev/mailbox?to=$SMOKE_EMAIL" 2>/dev/null | json_field token) || true
-  # The dev mailbox exists only outside production. A stack this script can check is not in
-  # production, so no token means the mailbox or the registration is broken: a failure, not a skip.
-  [[ -n "$activation_token" ]] || wallet_step="the dev mailbox gave no activation token (is NODE_ENV production?)"
+  activation_token=$(./scripts-activation-token.sh "$SMOKE_EMAIL") || true
+  # The stack mails every activation link to Mailpit, so no email is a failure, not a skip.
+  [[ -n "$activation_token" ]] || wallet_step="no activation email reached Mailpit"
 fi
 if [[ -z "$wallet_step" ]]; then
   activated=$(post_json /auth/activate "{\"token\":\"$activation_token\"}" "$response" -H 'x-correlation-id: smoke-wallet')

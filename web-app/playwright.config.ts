@@ -3,8 +3,8 @@ import { randomUUID } from "node:crypto";
 
 /**
  * End-to-end checks for the account journey (USR-05) against the real stack: `docker compose up`
- * serves the web app on :3000 and the User Service behind it, with the dev mailbox mounted. Nothing
- * here is mocked. The three projects are the README's breakpoints.
+ * serves the web app on :3000, the User Service behind it, and Mailpit on :8025, where the specs read
+ * the activation email. Nothing here is mocked. The three projects are the README's breakpoints.
  *
  * Specs are `*.e2e.ts`, never `*.test.ts` or `*.spec.ts`, so `bun test` does not pick them up.
  */

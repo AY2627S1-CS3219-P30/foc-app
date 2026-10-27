@@ -9,6 +9,9 @@
 #
 #   USER_SERVICE_URL=http://localhost:4001
 #
+# It also publishes Mailpit's SMTP port, so a by-hand User Service can send activation email
+# to the stack's inbox: SMTP_HOST=localhost SMTP_PORT=1025.
+#
 # Nothing else changes. Without this file the internal ports are not reachable from the host.
 services:
   user-service:
@@ -19,3 +22,5 @@ services:
     ports: ['127.0.0.1:4003:4003']
   credit-service:
     ports: ['127.0.0.1:4004:4004']
+  mailpit:
+    ports: ['127.0.0.1:1025:1025']

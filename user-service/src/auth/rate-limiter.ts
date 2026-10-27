@@ -40,6 +40,9 @@ export interface AuthRateLimiters {
   registerPerIp: RateLimiter;
   /** Password re-entry (`POST /auth/step-up`) is a password oracle too, so it is limited per user. */
   stepUpPerUser: RateLimiter;
+  /** Resending activation mails an inbox, so it is limited per address as well as per client. */
+  resendPerEmail: RateLimiter;
+  resendPerIp: RateLimiter;
 }
 
 export const RATE_LIMITERS = Symbol('RATE_LIMITERS');
@@ -49,4 +52,6 @@ export const defaultRateLimiters = (): AuthRateLimiters => ({
   loginPerIp: new RateLimiter(50, 15 * 60_000),
   registerPerIp: new RateLimiter(20, 60 * 60_000),
   stepUpPerUser: new RateLimiter(10, 15 * 60_000),
+  resendPerEmail: new RateLimiter(3, 60 * 60_000),
+  resendPerIp: new RateLimiter(20, 60 * 60_000),
 });

@@ -10,7 +10,7 @@
 #   user-service → :3001, supplier-service → :3002, order-service → :3003, credit-service → :3004.
 #
 # Run the requests in order: each block reuses tokens and IDs from the ones before. Three students are
-# registered and activated here through the dev mailbox: a requester, a courier, and a bystander
+# registered and activated here with the emailed token: a requester, a courier, and a bystander
 # with no part in the errand. Re-running against the same database gets 409 on register; reset the
 # database (`docker compose down -v`) or change the three emails.
 #
@@ -40,15 +40,17 @@ Content-Type: application/json
 
 { "email": "{{requesterEmail}}", "password": "{{password}}", "displayName": "ORD-14 Requester" }
 
-### 1b · Read the requester's activation token from the dev mailbox
-# @name requesterMail
-GET {{userBase}}/dev/mailbox?to={{requesterEmail}}
+### 1b · Read the requester's activation token from the email
+# The email is in Mailpit (http://localhost:8025). From the repo root, run
+#     ./scripts-activation-token.sh <requesterEmail>
+# and paste what it prints here:
+@requesterToken = paste-the-token
 
 ### 1c · Activate the requester — expect 200
 POST {{userBase}}/auth/activate
 Content-Type: application/json
 
-{ "token": "{{requesterMail.response.body.token}}" }
+{ "token": "{{requesterToken}}" }
 
 ### 1d · Requester login — expect 200
 # @name requesterLogin
@@ -67,14 +69,14 @@ Content-Type: application/json
 { "email": "{{courierEmail}}", "password": "{{password}}", "displayName": "ORD-14 Courier" }
 
 ### 1f · Read the courier's activation token
-# @name courierMail
-GET {{userBase}}/dev/mailbox?to={{courierEmail}}
+# ./scripts-activation-token.sh <courierEmail>, pasted here:
+@courierToken = paste-the-token
 
 ### 1g · Activate the courier — expect 200
 POST {{userBase}}/auth/activate
 Content-Type: application/json
 
-{ "token": "{{courierMail.response.body.token}}" }
+{ "token": "{{courierToken}}" }
 
 ### 1h · Courier login — expect 200
 # @name courierLogin
@@ -93,14 +95,14 @@ Content-Type: application/json
 { "email": "{{bystanderEmail}}", "password": "{{password}}", "displayName": "ORD-14 Bystander" }
 
 ### 1j · Read the bystander's activation token
-# @name bystanderMail
-GET {{userBase}}/dev/mailbox?to={{bystanderEmail}}
+# ./scripts-activation-token.sh <bystanderEmail>, pasted here:
+@bystanderToken = paste-the-token
 
 ### 1k · Activate the bystander — expect 200
 POST {{userBase}}/auth/activate
 Content-Type: application/json
 
-{ "token": "{{bystanderMail.response.body.token}}" }
+{ "token": "{{bystanderToken}}" }
 
 ### 1l · Bystander login — expect 200
 # @name bystanderLogin

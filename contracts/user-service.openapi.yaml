@@ -102,6 +102,11 @@ paths:
         Normalizes the email, rejects addresses outside the configured NUS domain allowlist, rejects a
         duplicate without creating anything, and sends a one-time activation link. The account is
         `PENDING_ACTIVATION` until activated.
+
+        An address that was registered but never activated, and whose every link has expired, is not
+        a duplicate: registering it again keeps the account, replaces its password and display name,
+        and sends a new link. A failure to send the email does not fail the request; the student can
+        ask for the link again with `POST /auth/activation/resend`.
       security: []
       requestBody:
         required: true
@@ -169,6 +174,46 @@ paths:
         '404': { $ref: '#/components/responses/TokenInvalid' }
         '410': { $ref: '#/components/responses/TokenExpired' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /auth/activation/resend:
+    post:
+      tags: [Auth]
+      operationId: resendActivation
+      summary: Email a new activation link to a pending account
+      description: |
+        If the address has an account waiting for activation, emails it a new link and invalidates
+        every earlier one. The answer is the same `202` whether or not that is so, and is sent before
+        the email, so neither the body nor the timing says whether the address has an account.
+
+        Rate limited per IP and per normalized address. Both limits count every request, whatever
+        the address, so a `429` reveals nothing either.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              additionalProperties: false
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+            example: { email: e0123456@u.nus.edu }
+      responses:
+        '202':
+          description: Accepted. A link is sent only if the address has a pending account.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message]
+                additionalProperties: false
+                properties:
+                  message: { type: string }
+              example:
+                message: If that address has an account waiting for activation, a new link is on its way.
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
 
   /auth/login:
     post:

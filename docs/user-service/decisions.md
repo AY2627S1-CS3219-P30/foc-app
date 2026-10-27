@@ -236,11 +236,29 @@ Compared in constant time against digests; a user access token is never accepted
 - **Trade-off:** static shared secrets, no rotation story. `compose.yaml` carries a **dev-only default key**
   so `up` works on a clean clone — a committed credential PLT-06 (secrets hardening) should remove.
 
-### O2. Dev mailbox exposes activation tokens; it refuses to run in production — 🟡
-`GET /dev/mailbox?to=…` returns the emailed token, so the demo can activate without a mail server.
-- **Guard:** the module throws at boot if `NODE_ENV=production`, and a test pins that.
-- **Trade-off:** the demo stack runs with `NODE_ENV=development`, so that endpoint is live and unauthenticated there.
-  There is no production mail adapter yet — a real deployment cannot start until one exists.
+### O2. Activation email goes over SMTP; no route returns a token — ✅ (USR-09, #274)
+*Was:* a dev mailbox, `GET /dev/mailbox?to=…`, returned any address's token unauthenticated on the
+published port, and production refused to boot because no other adapter existed.
+- **Now:** an SMTP adapter (`SmtpMailer`, nodemailer). Compose runs Mailpit as the SMTP server, its inbox
+  on `127.0.0.1:8025` only, so the demo email lands in a real inbox on the laptop with no credential.
+  Production refuses to boot without `SMTP_HOST`. The dev mailbox route is deleted, not flagged off.
+  The in-memory mailbox is kept for tests and for a by-hand run without SMTP, with no route.
+- **Resend:** `POST /auth/activation/resend` answers `202` the same for every address and does the work
+  after answering, so neither the body nor the timing shows whether an account exists. It is limited
+  per address (3 an hour, which stops inbox flooding) and per IP, counting every request.
+- **Re-register:** an address that never activated, and whose every link has expired, can be
+  registered again, keeping its id. **Trade-off:** until an address is proven, the last registrant
+  sets the password. That is no weaker than a first sign-up, since only the inbox owner can activate.
+- **Open risk, pre-registration hijack:** the password is chosen at sign-up, before the inbox is
+  proven. Someone can register a student's address with their own password and keep it pending by
+  resending before each link expires, so the student's own sign-up gets `409`, and the only way on
+  is to click a link that activates the other person's password. No password reset exists to
+  recover. The robust fix is to set the password at activation (or add reset); a follow-up, not #274.
+- **Trade-off:** the per-address resend limit counts every request, so a stranger can use up an
+  address's three resends for an hour. Keying it on address and IP would let a single address be
+  flooded from many clients; the inbox is the thing protected.
+- **Trade-off:** a mail failure after the account is committed is logged, not returned: the student
+  sees "check your email" and recovers with resend, rather than a 500 for an account that exists.
 
 ### O3. Shared `platform` package changes — ✅ (needs Jonus's review)
 Three additive changes, all in code every service imports:

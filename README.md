@@ -174,6 +174,12 @@ from your `.env`. The operator dashboard is
 Grafana at <http://localhost:3005>, open to view without signing in, with
 Prometheus behind it at <http://localhost:9090>; see [Observability](#observability).
 
+**Email.** Every email the stack sends, such as an activation link, lands in
+Mailpit's inbox at <http://localhost:8025> (`127.0.0.1` only). Nothing is
+delivered beyond this machine. Register in the web app, open the email there,
+and click its link. `./scripts-activation-token.sh <email>` prints the token from
+the newest one, for scripts.
+
 **Connections.** Compose gives each service its own `DATABASE_URL` and its own
 `RABBITMQ_URL`: a database role and a broker account per service. Each applies
 its own migrations through a one-shot container before starting. Services talk
@@ -426,18 +432,19 @@ consumer has ever started stays in the outbox until the consumer's queue exists.
 
 ### Pre-built images
 
-Six images are pulled as published; everything else is built from this
+Seven images are pulled as published; everything else is built from this
 repository. Each is pinned to an exact version and digest, in `compose.yaml` and
 the Dockerfiles, so two builds of one commit use the same bytes.
 
-| Image                              | Used for                           | Published by                                              | Licence of the software |
-| ---------------------------------- | ---------------------------------- | --------------------------------------------------------- | ----------------------- |
-| `node:22.23.3-alpine3.24`          | base of the four services, web app | Docker Official Image, by the Node.js Docker team         | MIT                     |
-| `oven/bun:1.4.2-alpine`            | building the web app               | Oven, the makers of Bun                                   | MIT                     |
-| `postgres:17.11-alpine3.24`        | the database server                | Docker Official Image, by the PostgreSQL Docker community | PostgreSQL Licence      |
-| `rabbitmq:4.3.6-management-alpine` | the message broker                 | Docker Official Image, by the Docker community            | MPL 2.0                 |
-| `prom/prometheus:v3.13.4`          | metrics and alert rules            | The Prometheus project                                    | Apache 2.0              |
-| `grafana/grafana-oss:12.4.3`       | the dashboard                      | Grafana Labs                                              | AGPL 3.0                |
+| Image                              | Used for                             | Published by                                              | Licence of the software |
+| ---------------------------------- | ------------------------------------ | --------------------------------------------------------- | ----------------------- |
+| `node:22.23.3-alpine3.24`          | base of the four services, web app   | Docker Official Image, by the Node.js Docker team         | MIT                     |
+| `oven/bun:1.4.2-alpine`            | building the web app                 | Oven, the makers of Bun                                   | MIT                     |
+| `postgres:17.11-alpine3.24`        | the database server                  | Docker Official Image, by the PostgreSQL Docker community | PostgreSQL Licence      |
+| `rabbitmq:4.3.6-management-alpine` | the message broker                   | Docker Official Image, by the Docker community            | MPL 2.0                 |
+| `prom/prometheus:v3.13.4`          | metrics and alert rules              | The Prometheus project                                    | Apache 2.0              |
+| `grafana/grafana-oss:12.4.3`       | the dashboard                        | Grafana Labs                                              | AGPL 3.0                |
+| `axllent/mailpit:v1.31.6`          | the local inbox for activation email | Ralph Slooten, the Mailpit author                         | MIT                     |
 
 Two more are run as tools, not as part of the stack: `ghcr.io/gitleaks/gitleaks:v8.30.0`
 (the Gitleaks project, MIT), by `./scripts-scan-secrets.sh`, and `aquasec/trivy:0.58.1` (Aqua
@@ -930,8 +937,8 @@ FOC_IMAGE_TAG=sha-<commit> docker compose -f compose.yaml -f compose.images.yaml
 through `docker buildx bake`, so a published image has exactly `compose.yaml`'s build arguments.
 
 - **The web app's image is for this local stack only.** `next build` inlines its build arguments,
-  so it calls the services at `localhost` on `compose.yaml`'s default ports (3001 to 3004) and links
-  sign-up to the dev mailbox; its image label says so. A stack on other ports keeps the published
+  so it calls the services at `localhost` on `compose.yaml`'s default ports (3001 to 3004); its
+  image label says so. A stack on other ports keeps the published
   services and builds the web app from its own `.env` first:
   `docker compose -f compose.yaml -f compose.images.yaml build web-app`, then `up -d --no-build`.
   A web app image that can be deployed elsewhere waits for the edge proxy (PLT-10,

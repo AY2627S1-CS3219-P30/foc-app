@@ -299,7 +299,7 @@ signup requester no-wallet
 REQUESTER_ID=$STUDENT_ID
 REQUESTER_TOKEN=$STUDENT_TOKEN
 COURIER_TOKEN=$REQUESTER_TOKEN
-pass "registered, activated through the dev mailbox, and signed in"
+pass "registered, activated through the emailed link, and signed in"
 has_wallet() { [[ -n "$(balance "$1")" ]] && echo yes || echo no; }
 wait_for 30 yes has_wallet "$REQUESTER_TOKEN" || true
 arrived=$(balance "$REQUESTER_TOKEN")
