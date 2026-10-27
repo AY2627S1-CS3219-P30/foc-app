@@ -28,6 +28,33 @@ export const wallets = pgTable(
   ],
 );
 
+/** CRD-10: completed audit attempts are immutable, including failures and their findings. */
+export const ledgerAuditRuns = pgTable(
+  'ledger_audit_runs',
+  {
+    runId: uuid('run_id').primaryKey(),
+    origin: text('origin').notNull(),
+    requestedBy: text('requested_by'),
+    scheduledDay: text('scheduled_day'),
+    status: text('status').notNull(),
+    mismatchCount: integer('mismatch_count'),
+    results: jsonb('results').$type<Array<{ name: string; violations: string[] }>>().notNull(),
+    error: text('error'),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    completedAt: timestamp('completed_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('ledger_audit_origin_enum', sql`${t.origin} IN ('SCHEDULED', 'MANUAL', 'CLI')`),
+    check('ledger_audit_status_enum', sql`${t.status} IN ('PASS', 'MISMATCH', 'ERROR')`),
+    check(
+      'ledger_audit_result_consistent',
+      sql`(${t.status} = 'PASS' AND ${t.mismatchCount} IS NOT NULL AND ${t.mismatchCount} = 0) OR (${t.status} = 'MISMATCH' AND ${t.mismatchCount} IS NOT NULL AND ${t.mismatchCount} > 0) OR (${t.status} = 'ERROR' AND ${t.mismatchCount} IS NULL)`,
+    ),
+    uniqueIndex('ledger_audit_scheduled_day_key').on(t.scheduledDay),
+    index('ledger_audit_completed_idx').on(t.completedAt, t.runId),
+  ],
+);
+
 export const creditTransactions = pgTable(
   'credit_transactions',
   {

@@ -123,6 +123,7 @@ interface ComposeService {
   image?: string;
   user?: string;
   hostname?: string;
+  read_only?: boolean;
   entrypoint?: string[];
   environment?: Record<string, string>;
   ports?: string[];

@@ -6,9 +6,9 @@ info:
   description: |
     Students can read only the wallet resolved from their bearer token. Administrators can use the
     explicit admin routes; every admin wallet read attempt is appended to the audit log. Credit
-    mutations are asynchronous domain events and are not exposed over HTTP. The one write, a dead
-    letter's redrive (PLT-05), sends a failed event back unchanged to the consumer that failed it,
-    which decides again as it would have; it moves no credit itself.
+    mutations are asynchronous domain events and are not exposed over HTTP. The writes are a dead
+    letter's redrive (PLT-05), which sends its unchanged input back to the original consumer, and a
+    ledger audit (CRD-10), which appends findings. Neither route changes a balance directly.
 servers:
   - url: http://localhost:3004
 security:
@@ -120,6 +120,60 @@ paths:
         '400': { $ref: '#/components/responses/InvalidOrderId' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/ledger-audits/latest:
+    get:
+      operationId: latestLedgerAudit
+      summary: Last persisted wallet-versus-ledger audit summary (CRD-10).
+      description: Administrator-only. Detailed wallet findings stay in the audit database; this summary exposes counts, not individual balances.
+      responses:
+        '200':
+          description: Last attempt, or null before the first attempt.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [run]
+                additionalProperties: false
+                properties:
+                  run:
+                    anyOf:
+                      - { $ref: '#/components/schemas/LedgerAuditRun' }
+                      - { type: 'null' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503':
+          description: Audit storage or identity service unavailable.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+  /admin/ledger-audits/run:
+    post:
+      operationId: runLedgerAudit
+      summary: Inspect the economy and append an immutable audit result; never repair balances.
+      description: Administrator-only. Mismatches are a completed result (200), not an infrastructure failure. The authenticated actor is recorded. Concurrent audits are refused.
+      responses:
+        '200':
+          description: Completed scan, with PASS or MISMATCH status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [run]
+                additionalProperties: false
+                properties:
+                  run: { $ref: '#/components/schemas/LedgerAuditRun' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: LEDGER_AUDIT_BUSY; retry after the current scan finishes.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: LEDGER_AUDIT_FAILED or identity service unavailable. A failed scan is not a clean result.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
   /admin/credit-alerts:
     get:
       operationId: listCreditAuditAlerts
@@ -282,6 +336,29 @@ components:
       description: Opaque cursor returned by the previous page.
       schema: { type: string, minLength: 1 }
   schemas:
+    LedgerAuditRun:
+      type: object
+      additionalProperties: false
+      required:
+        [runId, origin, requestedBy, status, mismatchCount, error, startedAt, completedAt, checks]
+      properties:
+        runId: { type: string, format: uuid }
+        origin: { type: string, enum: [SCHEDULED, MANUAL, CLI] }
+        requestedBy: { type: [string, 'null'] }
+        status: { type: string, enum: [PASS, MISMATCH, ERROR] }
+        mismatchCount: { type: [integer, 'null'], minimum: 0 }
+        error: { type: [string, 'null'] }
+        startedAt: { type: string, format: date-time }
+        completedAt: { type: string, format: date-time }
+        checks:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, mismatchCount]
+            properties:
+              name: { type: string }
+              mismatchCount: { type: integer, minimum: 0 }
     Health:
       type: object
       required: [status, service, version, uptimeSeconds]
