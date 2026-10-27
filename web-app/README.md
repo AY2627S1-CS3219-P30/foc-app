@@ -84,6 +84,11 @@ bun run e2e
 `E2E_BASE_URL` points it elsewhere. Each run registers one account per width, well inside the sign-up
 limit of 20 an hour per address. Specs are named `*.e2e.ts` so `bun test` leaves them alone.
 
+`E2E_BROWSER_CHANNEL=chrome` drives an installed Google Chrome instead of Playwright's Chromium, so
+nothing needs installing. CI does that: GitHub's Ubuntu runners come with Chrome and its system
+libraries, which keeps the `e2e` job from downloading a browser or running `apt` each time. The job
+builds the stack's images from CI's shared layer cache and stops after 20 minutes.
+
 ## API clients
 
 Types come from the contracts in [`contracts/`](../contracts), generated into `src/lib/generated/` by
@@ -241,7 +246,7 @@ holds the React state around them.
 ### Configuration
 
 - `NEXT_PUBLIC_USER_SERVICE_URL` is inlined at **build** time, so set it where the app is built:
-  the Vercel project's environment, or the `web-app` build args in `compose.yaml` (the Dockerfile
+  the `web-app` build args in `compose.yaml` (the Dockerfile
   takes it as an `ARG`; setting it on a running container does nothing). Unset, a development build
   uses `http://localhost:3001`; a production build shows a configuration error on the account
   screens rather than calling localhost. The build itself still succeeds.
@@ -346,7 +351,7 @@ refuses a student with `403` on its own.
 | Admin activity | `GET /admin/alerts`, `GET /admin/reads` |
 | Errands | Disputes: `GET /admin/orders/referred`, and `GET /admin/orders/decisions` for the latest decisions. One dispute (`/admin/errands/{orderId}`): `GET /orders/{orderId}?view=private`, which only the referred administrator is given, and `POST /admin/orders/{orderId}/resolve` with a reason (ORD-11, #271). Also `GET /admin/orders/pending-credit` and `GET /admin/orders/reconciliation-attempts` |
 | Wallets | `GET /admin/wallets/{userId}` and its ledger (Credit Service; read-only, every read recorded) |
-| Operations | Placeholder until PLT-05 (#154) |
+| Operations | Dead letters on either service: `GET /admin/dead-letters`, one with `GET /admin/dead-letters/{id}`, and `POST /admin/dead-letters/{id}/redrive` with a reason. An errand's trace: `GET /admin/orders/{orderId}/timeline` (Order Service) and `GET /admin/orders/{orderId}/credit` (Credit Service). Operator alerts: `GET /admin/orders/alerts` (PLT-05, #154) |
 
 **Controls on administrators** ([ADR 0008](../docs/adr/0008-controlling-administrators.md)). Every
 write asks for a reason first. Requesting or approving a role change, and suspending an administrator,
@@ -365,5 +370,8 @@ address: inlined at build time, with `http://localhost:3003` and `:3004` as the 
 
 ## Deployment
 
-Pushes to `main` that touch `web-app/**` deploy to Vercel via
-[`.github/workflows/deploy-web-app.yml`](../.github/workflows/deploy-web-app.yml).
+The web app is deployed with the rest of the stack, in local containers (`docker compose up`, see
+the [repository README](../README.md#6-run-the-whole-stack-in-docker)). That is the D4 deployment
+mode. There is no hosted deployment: the Vercel workflow was removed in
+[PLT-11 #286](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/286), because a hosted web app
+had no hosted back end to call, and its `SameSite=Strict` refresh cookie is not sent across sites.

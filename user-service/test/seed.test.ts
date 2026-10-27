@@ -3,7 +3,6 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { reportSeed, seedAdmins, type SeedResult } from '../src/admin/seed.js';
 import { REFRESH_COOKIE } from '../src/auth/cookies.js';
 import { JWT, type JwtService } from '../src/auth/jwt.service.js';
-import { sessionsRepository } from '../src/auth/sessions.repository.js';
 import { newOpaqueToken, sha256Hex } from '../src/auth/tokens.js';
 import { createTestApp, SERVICE_KEY, type TestApp } from './helpers/app.js';
 import {
@@ -215,13 +214,11 @@ describe('the bootstrap secret is retired at first sign-in (US-FR3.1.3.2)', () =
     const { id } = (await t.db.query<{ id: string }>('SELECT id FROM users')).rows[0]!;
     const token = newOpaqueToken();
     const sid = randomUUID();
-    await sessionsRepository.insert(t.orm, {
-      id: sid,
-      familyId: randomUUID(),
-      userId: id,
-      tokenHash: sha256Hex(token),
-      ttlDays: 7,
-    });
+    await t.db.query(
+      `INSERT INTO refresh_sessions (id, family_id, user_id, token_hash, expires_at)
+       VALUES ($1, $2, $3, $4, now() + interval '7 days')`,
+      [sid, randomUUID(), id, sha256Hex(token)],
+    );
 
     const accessToken = t.app.get<JwtService>(JWT).sign({ sub: id, sid });
     const guarded = await http(t)
