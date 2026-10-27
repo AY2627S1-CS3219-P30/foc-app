@@ -6,20 +6,22 @@ responsible ([DOC-03 #237](https://github.com/AY2627S1-CS3219-P30/foc-app/issues
 instructions, Part 5). The same allocation is presented again at the final presentation.
 
 Five features, chosen to deepen the errand and credit workflows rather than to add breadth. Three
-are built or in review; two are built in Sprint 4.
+are merged; the console gains two more areas in Sprint 4; chat and the delivery half of the
+pipeline are built in Sprint 4.
 
-| Feature                                         | Owners                    | State on 13 Oct                                         |
-| ----------------------------------------------- | ------------------------- | ------------------------------------------------------- |
-| N1.1 Admin operations and dispute console       | Jonus, Anselm, Zhang Yuan | In review: #226, #228, #229                             |
-| N1.2 Participant chat                           | Patrick, Zhang Yuan, Anselm | Sprint 4. Design proposed below, not yet agreed       |
-| N3.1 Concurrency, load and conservation evidence | Isaac                    | Merged (#165)                                           |
-| N3.2 Automated credit reconciliation            | Isaac                     | Merged (#152)                                           |
-| N4.1 CI/CD pipeline                             | Jonus                     | CI merged (#118); build, scan and publish in Sprint 4 (#164) |
+| Feature                                          | Owners                      | State on 22 Oct                                                    |
+| ------------------------------------------------ | --------------------------- | ------------------------------------------------------------------ |
+| N1.1 Admin operations and dispute console        | Jonus, Anselm, Zhang Yuan   | Merged: #226, #228, #229, #252, #273. Sprint 4: #279, #280         |
+| N1.2 Participant chat                            | Patrick, Zhang Yuan, Anselm | Sprint 4. Design to agree by Sun 25 Oct; merged by Tue 3 Nov       |
+| N3.1 Concurrency, load and conservation evidence | Isaac                       | Merged (#165)                                                      |
+| N3.2 Automated credit reconciliation             | Isaac                       | Merged (#152)                                                      |
+| N4.1 CI/CD pipeline                              | Jonus                       | CI merged (#118); scan, publish and the demo tag in Sprint 4 (#164) |
 
 > **Status of this page.** The N1.1 and N4.1 sections are written by their owner. The N3.1 and N3.2
 > sections describe what is merged, from the code and its documentation, for Isaac to confirm. The
 > N1.2 section is a **proposal** drawn from the three chat tickets and the existing architecture;
-> its owners have not agreed it. The team has not yet signed the page off.
+> its owners settle its open points by Sun 25 Oct. Each member signs the page off in the
+> [register at the end](#sign-off).
 
 ## N1.1 Admin operations and dispute console
 
@@ -33,9 +35,10 @@ act, but cannot edit a wallet, cannot change their own role, and leaves a record
 **Design.**
 
 - A console in the web app (`/admin`) with seven areas: users, role requests, the audit log,
-  activity alerts, wallets (read-only), errands, and operations.
+  activity alerts, wallets (read-only), errands and disputes, and operations. Sprint 4 adds every
+  errand, live and past (#279), and supplier management (#280).
 - Controls on administrators themselves
-  ([ADR 0008](adr/0008-controlling-administrators.md), proposed, in review with #226): a role
+  ([ADR 0008](adr/0008-controlling-administrators.md)): a role
   change needs a second administrator to approve it, the riskiest actions need the password
   again, and unusual activity (many suspensions, many account or wallet reads in an hour) raises
   an alert.
@@ -56,12 +59,14 @@ asking the User Service who the caller is. Nothing in the console can change a b
 
 | Owner      | Part                                                                                       | Tickets                              |
 | ---------- | ------------------------------------------------------------------------------------------ | ------------------------------------ |
-| Jonus      | The console, the controls on administrators, the wallet-read alert, dead letters and redrive, the dashboard | #218-#221 (ADM-01 to 04), #154, #235 |
+| Jonus      | The console, the controls on administrators, the wallet-read alert, dead letters and redrive, the dashboard, disputes in the console | #218-#221 (ADM-01 to 04), #154, #235, #271; Sprint 4: #279, #280 |
 | Anselm     | The User Service side: admin endpoints, the audit log and its filters, log privacy          | #156                                 |
-| Zhang Yuan | Dispute referral and the administrator's decision; one account's errands for the console    | #171, #233                           |
+| Zhang Yuan | Dispute referral and the administrator's decision; one account's errands for the console; the all-errands endpoint | #171, #233; Sprint 4: #279 |
 
-**State.** Console and controls: #226. Operations and redrive: #228. Referral and decision: #229.
-All in review. One account's errands (#233, #235) follows.
+**State.** Merged: console and controls (#226), operations and redrive (#228), referral and
+decision (#229), one account's errands (#235, in #252), and deciding disputes in the console
+(#271, in #273). Sprint 4: every errand, live and past, with a count of disputes waiting (#279),
+and supplier management (#280).
 
 ## N1.2 Participant chat
 
@@ -91,6 +96,8 @@ and what they said is kept with the errand for an administrator reviewing a disp
   Only they may send, and only while the channel is open; they and an administrator may read.
 - **Retention and limits.** Messages are kept with the errand for dispute review, for a period the
   owners still have to set. Sending is rate-limited per participant.
+- **Names.** The panel shows both participants' display names. Today neither the requester nor the
+  courier can see who the other is, so this also gives the handover a name.
 
 **Integration.** Chat consumes one event from the Order Service, `order.status-changed`, which the
 Order Service already publishes on every transition, and calls one internal endpoint on it to learn
@@ -98,10 +105,10 @@ an errand's requester and courier. That endpoint does not exist yet and is part 
 publishes nothing the other services depend on, so the errand and credit workflows are unaffected if
 it is down. In the web app it is a panel on the active-errand view.
 
-**Open questions for the owners.** Whether chat is a fifth service or a module of the Order
-Service; the retention period; the rate limit; whether `order.status-changed` gains its first
-durable consumer here (it then joins the events that must reach a consumer); and how an
-administrator reads a channel from the console.
+**Open questions for the owners, to settle by Sun 25 Oct.** Whether chat is a fifth service or a
+module of the Order Service; WebSocket or polling for the first version; the retention period; the
+rate limit; whether `order.status-changed` gains its first durable consumer here (it then joins
+the events that must reach a consumer); and how an administrator reads a channel from the console.
 
 **Owners and how the work is shared.**
 
@@ -111,7 +118,9 @@ administrator reads a channel from the console.
 | Zhang Yuan | Channel lifecycle bound to the errand; messages kept with the errand  | #162   | M    |
 | Anselm     | Who may read and send, retention, rate limiting                       | #163   | M    |
 
-**State.** Sprint 4. No code, contract or decision record yet.
+**State.** Sprint 4. No code, contract or decision record yet. Text messages per errand, history on
+reconnect, participants only and closed at a terminal state are to be merged by Tue 3 Nov; chat is
+the one feature allowed past the 31 Oct scope freeze, because it is Patrick's only nice-to-have.
 
 ## N3.1 Concurrency, load and credit-conservation evidence
 
@@ -197,12 +206,16 @@ commit and rebuilt.
   Registry, tagged with the commit and `main`.
 - **Cache.** Image layers are cached between runs, so an unchanged service is not rebuilt.
 - **The demo commit.** The final demonstration commit is tagged, and its images are recorded by
-  digest, so the stack that was demonstrated can be pulled and started again exactly.
+  digest, so the stack that was demonstrated can be pulled and started again exactly. The
+  published images are also what a rollback starts from (#284).
+- **Coverage and ownership.** Test coverage reported per package, `CODEOWNERS` per service folder,
+  and the branch protection on `main` written down.
 
 **Integration.** The pipeline is what the Compose setup already assumes: base images pinned to a
 digest, secrets generated and never committed, and each service built from its own Dockerfile so
 one can be built, scanned and published without the others. Deployment stays local Compose, which
-is the mandatory scope; the published images are what a hosted deployment would start from.
+is the mandatory scope; the published images are what a hosted deployment would start from. The
+web app's separate Vercel workflow is fixed or removed in #286.
 
 **Owner.** Jonus (#118, #164).
 
@@ -217,16 +230,18 @@ service.
 | Patrick    | Supplier, web app       | N1.2 the chat interface (#161)                                        |
 | Zhang Yuan | Order                   | N1.1 dispute referral and decision (#171, #233); N1.2 lifecycle (#162) |
 | Isaac      | Credit                  | N3.1 evidence (#165); N3.2 reconciliation (#152)                      |
-| Jonus      | Integration and platform | N1.1 console, controls and operations; N4.1 pipeline (#164)          |
+| Jonus      | Integration and platform | N1.1 console, controls and operations (#279, #280 in Sprint 4); N4.1 pipeline (#164) |
 
 Every member owns part of at least one feature. Two points for the team to settle before D3:
 
-- **Chat is one feature in three slices.** Patrick's is the largest and is his only nice-to-have.
-  Anselm and Zhang Yuan each also hold a part of N1.1. Whether each chat slice is a feature's
-  worth on its own is a judgement the three owners should make together; if not, the split to
-  revisit is between the lifecycle (#162) and authorization (#163) slices.
+- **Chat is one feature in three slices.** Patrick's is the largest and is his only nice-to-have,
+  so chat cannot be dropped. Anselm and Zhang Yuan each also hold a part of N1.1. Whether each chat
+  slice is a feature's worth on its own is a judgement the three owners should make together by
+  Sun 25 Oct; if not, the split to revisit is between the lifecycle (#162) and authorization
+  (#163) slices.
 - **Isaac's two are already merged.** Nothing further is planned for him in Sprint 4 under a
-  nice-to-have.
+  nice-to-have. His Sprint 4 work is on core requirements: the daily wallet-against-ledger check
+  (#283), backup and restore (#284), and the D4 demo data and runbook (#167).
 
 ## Considered and not selected
 
@@ -242,10 +257,12 @@ product and the five features above are finished rather than more being started
 | Grouped runs (one courier, several errands)            | Changes the errand and credit model the core services depend on   |
 | Voice and video calls                                  | Text is enough to coordinate a handover                           |
 | Kubernetes, autoscaling, cloud hosting                 | Local Compose is the mandatory scope; nothing here needs more     |
+| Reorder and saved delivery details (plan NTH-02)       | A shortcut on top of the composer; chat and the console came first |
+| Live updates over SSE (plan WEB-04)                    | Every page already polls (`web-app/src/lib/use-poll.ts`); WEB-04's ticket (#159) became connectivity and conflict recovery |
 
-## For the D3 slides
+## For the D3 and D4 slides
 
-Two slides, drawn from this page.
+Two slides, drawn from this page. D4 presents the same allocation.
 
 **Slide 1: what and why.**
 
@@ -262,3 +279,18 @@ feature joins the application: the console calls each service's own admin endpoi
 consumes one Order event and asks Order who the participants are; the evidence suite runs the real
 Order and Credit code; reconciliation reads Credit and resends; the pipeline builds each service
 from its own Dockerfile.
+
+## Sign-off
+
+The D3 instructions ask the team to finalise this allocation, and D4 presents it again. Each member
+reads the page and replaces their `Pending` with `Agreed` and the date (in a pull request, or by
+commenting on [#237](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/237)), or raises what
+should change. Due Sun 25 Oct.
+
+| Member                             | Status  | Date |
+| ---------------------------------- | ------- | ---- |
+| Anselm Long (`@anselmlong`)        | Pending | —    |
+| Isaac Chua (`@isaacchua0309`)      | Pending | —    |
+| Jonus (`@jonushzw`)                | Pending | —    |
+| Patrick Thomas (`@pastchum`)       | Pending | —    |
+| Zhang Yuan (`@volleyballkickedme`) | Pending | —    |

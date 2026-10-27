@@ -12,8 +12,11 @@ set -euo pipefail
 # of these fans out to all four. test-harness/ holds every service's shared test
 # fixtures and contract checks, so it fans out too; it is never in an image.
 # system-tests/ runs the real service code together, so it fans out the same way.
-SHARED_RE='^(platform/|test-harness/|system-tests/|package\.json|package-lock\.json|tsconfig\.base\.json|eslint\.config\.mjs|\.prettierrc|\.prettierignore|\.github/workflows/ci\.yml|\.nvmrc)'
+SHARED_RE='^(platform/|test-harness/|system-tests/|package\.json|package-lock\.json|tsconfig\.base\.json|eslint\.config\.mjs|\.prettierrc|\.prettierignore|\.github/workflows/ci\.yml|\.github/actions/|\.nvmrc|scripts-scan-vulnerabilities\.sh|scripts-coverage-summary\.sh)'
 SERVICE_RE='^(user|supplier|order|credit)-service/'
+# What the web-app job reads: the app, the contracts its API types are generated from, and what
+# it builds and scans its image with (the generated .env, compose.yaml, the scan, this workflow).
+WEB_RE='^(web-app/|contracts/|compose\.yaml|\.env\.example|scripts-(init-env|scan-vulnerabilities)\.sh|\.github/workflows/ci\.yml|\.github/actions/)'
 # Wiring between containers, as opposed to code inside one. `.env.example`
 # belongs here because the smoke job builds `.env` from it; `edge/` is the edge's config.
 STACK_RE='^(compose(\.dev)?\.yaml|postgres-init\.sh|rabbitmq-init\.sh|scripts-(smoke|demo-failures|demo-journey|demo-credits|restart-check|scan-secrets|init-env|env|lib|ci-detect)\.sh|platform/|observability/|edge/|\.env\.example|\.gitleaks\.toml)|Dockerfile|\.dockerignore'
@@ -24,6 +27,9 @@ DEPLOY_CONFIG_RE='^(compose(\.dev)?\.yaml|postgres-init\.sh|rabbitmq-init\.sh|sc
 # (web-app/test/suppliers.integration.test.tsx) runs against the real Supplier
 # Service whenever either side, or anything shared or stack-wide, changes.
 SUPPLIER_STACK_RE='^(supplier-service/|web-app/src/app/\(app\)/suppliers/|web-app/src/lib/supplier-|web-app/src/components/SupplierCard|web-app/test/suppliers\.integration\.test\.tsx)'
+# The load test (TST-03): not run in CI, but test-harness/test/load-harness.test.ts reads it, so a
+# change to it runs the Node job, without fanning out to every service.
+LOAD_RE='^(load/|scripts-load\.sh|compose\.load\.yaml)'
 # Paths that cannot affect a build, a test or a container.
 IGNORED_RE='^docs/|\.md$|^\.github/|^LICENSE$|^\.gitignore$|^\.(vscode|idea|claude)/'
 
@@ -31,7 +37,7 @@ IGNORED_RE='^docs/|\.md$|^\.github/|^LICENSE$|^\.gitignore$|^\.(vscode|idea|clau
 # new package such as auth-client/, seed data, a contract — is treated as
 # shared and runs everything, rather than nothing. Otherwise a whole new package
 # could merge with no job ever running its tests.
-KNOWN_RE="$SHARED_RE|$SERVICE_RE|^web-app/|$STACK_RE|$IGNORED_RE"
+KNOWN_RE="$SHARED_RE|$SERVICE_RE|^web-app/|$STACK_RE|$LOAD_RE|$IGNORED_RE"
 
 detect() {
   local changed="$1" force_stack="${2:-false}"
@@ -61,10 +67,9 @@ detect() {
     )]"
   fi
 
-  # The web app's API types are generated from contracts/, and its tests check they are current.
-  matches '^(web-app|contracts)/' && echo 'web=true' || echo 'web=false'
+  matches "$WEB_RE" && echo 'web=true' || echo 'web=false'
 
-  if [[ "$shared" == "true" ]] || matches "$SERVICE_RE" || matches "$DEPLOY_CONFIG_RE"; then
+  if [[ "$shared" == "true" ]] || matches "$SERVICE_RE" || matches "$DEPLOY_CONFIG_RE" || matches "$LOAD_RE"; then
     echo 'node=true'
   else
     echo 'node=false'
@@ -106,6 +111,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "platform -> stack runs"                "platform/src/env.ts" 'stack=true'
   check "root config -> all four services"      "tsconfig.base.json" 'services=["user-service","supplier-service","order-service","credit-service"]'
   check "lockfile -> all four services"         "package-lock.json" 'services=["user-service","supplier-service","order-service","credit-service"]'
+  check "vulnerability scan -> all four services" "scripts-scan-vulnerabilities.sh" 'services=["user-service","supplier-service","order-service","credit-service"]'
   check "web only -> no services"               "web-app/src/app/page.tsx" 'services=[]'
   check "web only -> web runs"                  "web-app/src/app/page.tsx" 'web=true'
   check "web only -> node skipped"              "web-app/src/app/page.tsx" 'node=false'
@@ -130,6 +136,15 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "a Dockerfile -> that service too"      "order-service/Dockerfile" 'services=["order-service"]'
   check "web Dockerfile -> stack and web"       "web-app/Dockerfile" 'web=true'
   check "contract -> web runs"                  "contracts/supplier-service.openapi.yaml" 'web=true'
+  # The web-app job runs these too: it generates .env, bakes its image from compose.yaml and scans it.
+  check "vulnerability scan -> web runs"        "scripts-scan-vulnerabilities.sh" 'web=true'
+  check "env generator -> web runs"             "scripts-init-env.sh" 'web=true'
+  check "env example -> web runs"               ".env.example" 'web=true'
+  check "compose -> web runs"                   "compose.yaml" 'web=true'
+  check "this workflow -> web runs"             ".github/workflows/ci.yml" 'web=true'
+  check "dev override -> web skipped"           "compose.dev.yaml" 'web=false'
+  check "a CI action -> all four"               ".github/actions/trivy-db/action.yml" 'services=["user-service","supplier-service","order-service","credit-service"]'
+  check "a CI action -> web runs"               ".github/actions/trivy-db/action.yml" 'web=true'
   check "two services -> both"                  "$(printf 'user-service/src/a.ts\ncredit-service/src/b.ts')" 'services=["user-service","credit-service"]'
   check "mixed web + service"                   "$(printf 'web-app/x.tsx\norder-service/src/y.ts')" 'services=["order-service"]'
   check "this workflow -> all four"             ".github/workflows/ci.yml" 'services=["user-service","supplier-service","order-service","credit-service"]'
@@ -167,6 +182,9 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "supplier unit test -> no supplier stack" "web-app/test/suppliers-page.test.tsx" 'supplier_stack=false'
   check "order service -> no supplier stack"    "order-service/src/y.ts" 'supplier_stack=false'
   check "docs only -> no supplier stack"        "docs/EXECUTION-PLAN.md" 'supplier_stack=false'
+  check "load test -> node runs its tests"      "load/user.js" 'node=true'
+  check "load test -> no services"              "scripts-load.sh" 'services=[]'
+  check "load override -> stack skipped"        "compose.load.yaml" 'stack=false'
 
   echo
   [[ $FAILURES -eq 0 ]] && echo "All detection checks passed." || {
