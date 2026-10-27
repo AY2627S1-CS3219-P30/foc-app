@@ -215,7 +215,7 @@ commit and rebuilt.
 digest, secrets generated and never committed, and each service built from its own Dockerfile so
 one can be built, scanned and published without the others. Deployment stays local Compose, which
 is the mandatory scope; the published images are what a hosted deployment would start from. The
-web app's separate Vercel workflow is fixed or removed in #286.
+web app's separate Vercel workflow was removed in #286.
 
 **Owner.** Jonus (#118, #164).
 
