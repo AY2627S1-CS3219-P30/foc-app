@@ -88,9 +88,11 @@
     margin-bottom: var(--space-4);
   }
 
+  /* The negative margins keep the 44 px target from making the row taller than the heading. */
   .back {
     width: var(--size-control);
     height: var(--size-control);
+    margin-block: calc(var(--size-control) / -2);
     display: flex;
     align-items: center;
     justify-content: center;

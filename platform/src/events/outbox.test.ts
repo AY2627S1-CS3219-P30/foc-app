@@ -640,3 +640,25 @@ describe('OutboxRelay metrics (PLT-04)', () => {
     await db.close();
   });
 });
+
+describe('OutboxRelay and pruning (PLT-12)', () => {
+  it('leaves pruning to EventTablePruner, so publishing never waits on it', async () => {
+    const db = await outboxDb();
+    const broker = fakeBroker();
+    const relay = new OutboxRelay({ db, publisher: broker.publisher, logger: quietLogger() });
+    await db.query(
+      `INSERT INTO outbox_events (id, event_type, aggregate_id, payload, correlation_id, occurred_at, published_at)
+       VALUES ($1, 'user.suspended', 'user-old', '{}', 'corr-old', now() - interval '40 days', now() - interval '35 days')`,
+      [randomUUID()],
+    );
+
+    await relay.tick();
+
+    const { rows } = await db.query<{ n: number } & Row>(
+      `SELECT count(*)::int AS n FROM outbox_events`,
+    );
+    expect(rows[0]!.n).toBe(1);
+    await relay.stop();
+    await db.close();
+  });
+});

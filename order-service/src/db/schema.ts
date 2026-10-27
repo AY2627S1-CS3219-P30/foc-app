@@ -100,6 +100,8 @@ export const orders = pgTable(
       sql`${t.status} <> 'DELIVERED' OR ${t.autoConfirmAt} IS NOT NULL`,
     ),
     index('orders_status_created_idx').on(t.status, t.createdAt),
+    // Every errand, newest first (ADM-06): read backwards, it serves the page and its keyset.
+    index('orders_created_idx').on(t.createdAt, t.orderId),
     index('orders_requester_created_idx').on(t.requesterId, t.createdAt),
     index('orders_courier_created_idx').on(t.courierId, t.createdAt),
     index('orders_referred_admin_created_idx').on(t.referredAdminId, t.createdAt),
@@ -253,7 +255,11 @@ export const processedEvents = pgTable(
     eventType: text('event_type').notNull(),
     processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.consumer, t.eventId] })],
+  (t) => [
+    primaryKey({ columns: [t.consumer, t.eventId] }),
+    // PLT-12: how the platform's prune finds rows past their retention.
+    index('processed_events_processed_idx').on(t.processedAt),
+  ],
 );
 
 export const outboxEvents = pgTable(
@@ -280,5 +286,9 @@ export const outboxEvents = pgTable(
     index('outbox_events_pending_aggregate_idx')
       .on(t.aggregateId, t.seq)
       .where(sql`${t.publishedAt} IS NULL`),
+    // PLT-12: how the platform's prune finds published rows past their retention.
+    index('outbox_events_published_idx')
+      .on(t.publishedAt)
+      .where(sql`${t.publishedAt} IS NOT NULL`),
   ],
 );

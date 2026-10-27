@@ -142,7 +142,7 @@ committed; every restart then invalidates existing access tokens (refresh sessio
 **Known limits.** Logout and suspension take effect immediately _for this service_, because the access-token
 guard checks the session in the database on every request. Other services will get the same guarantee from
 the shared middleware (USR-06), which must check session state rather than trust the JWT alone. Rate
-limiting is in memory, so it is per instance. Refresh lifetime is sliding: each rotation issues a fresh 7 days.
+limiting is in memory, so it is per instance. A session ends 7 days after login, however often it refreshes: each rotation keeps the expiry set at login.
 
 ### Roles, profile and administration (USR-03)
 

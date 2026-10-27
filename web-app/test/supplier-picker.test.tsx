@@ -33,6 +33,7 @@ mock.module('next/navigation', () => ({
 const { SupplierPicker, SUPPLIER_UNAVAILABLE } = await import('../src/components/SupplierPicker');
 const { default: PickerPage } = await import('../src/app/(app)/request/new/page');
 const { default: DetailsPage } = await import('../src/app/(app)/request/new/details/page');
+const { default: ReviewPage } = await import('../src/app/(app)/request/new/review/page');
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -282,6 +283,33 @@ describe('details step', () => {
     const { container, root } = await renderDetails(() => json(200, detail(true)));
     await act(async () => button(container, 'Back').click());
     expect(pushed).toEqual(['/request/new']);
+    await act(() => root.unmount());
+  });
+});
+
+describe('review step', () => {
+  async function renderReview(respond: () => Response | Promise<Response>) {
+    search = `supplierId=${cafe.supplierId}`;
+    window.happyDOM.setURL(`http://localhost:3000/request/new/review?${search}`);
+    serve(respond);
+    return render(<ReviewPage />);
+  }
+
+  it('leads back to the details step for the same supplier while the pickup point is loading', async () => {
+    const { container, root } = await renderReview(() => new Promise<Response>(() => {}));
+    expect(container.textContent).toContain('Loading your request');
+    await act(async () => button(container, 'Back').click());
+    expect(pushed).toEqual([`/request/new/details?supplierId=${cafe.supplierId}`]);
+    await act(() => root.unmount());
+  });
+
+  it('leads back to the details step when the pickup point could not load', async () => {
+    const { container, root } = await renderReview(() =>
+      failure(503, 'SUPPLIER_SERVICE_UNAVAILABLE', 'Try again shortly.'),
+    );
+    expect(container.textContent).toContain('Could not load the pickup point');
+    await act(async () => button(container, 'Back').click());
+    expect(pushed).toEqual([`/request/new/details?supplierId=${cafe.supplierId}`]);
     await act(() => root.unmount());
   });
 });

@@ -247,6 +247,84 @@ fi
 code=$(curl -fsS -o /dev/null -w '%{http_code}' "http://localhost:${WEB_PORT}/" 2>/dev/null || echo 000)
 [[ "$code" == "200" ]] && pass "web app responds 200" || fail "web app returned $code"
 
+# ---- the edge: one origin (PLT-10, ADR 0010) ---------------------------------
+EDGE="http://localhost:${WEB_PORT}"
+header() { tr -d '\r' | awk -v h="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]'):" 'tolower($1)==h{$1="";sub(/^ /,"");print;exit}'; }
+
+health=$(curl -fsS "$EDGE/edge/health" 2>/dev/null | tr -d '\n' || true)
+[[ "$health" == "ok" ]] && pass "the edge answers its health check" || fail "the edge's health check said '${health:-nothing}'"
+
+# Each service under its prefix, which comes off on the way.
+for pair in "user:user-service" "supplier:supplier-service" "order:order-service" "credit:credit-service"; do
+  prefix="${pair%%:*}"
+  name="${pair##*:}"
+  seen=$(curl -fsS "$EDGE/api/$prefix/health" 2>/dev/null | json_field service || true)
+  [[ "$seen" == "$name" ]] && pass "/api/$prefix/ reaches $name" || fail "/api/$prefix/health answered '${seen:-nothing}'"
+done
+
+# The security headers, on a page and on an API answer alike.
+for path in / /api/user/health; do
+  headers=$(curl -fsS -o /dev/null -D - "$EDGE$path" 2>/dev/null || true)
+  missing=""
+  for name in Content-Security-Policy X-Frame-Options X-Content-Type-Options Referrer-Policy; do
+    [[ -n "$(printf '%s' "$headers" | header "$name")" ]] || missing="$missing $name"
+  done
+  [[ -z "$missing" ]] && pass "the edge sets the security headers on $path" || fail "$path is missing:$missing"
+done
+
+# The internal API and the metrics are not routed, however the path is spelled. The edge answers
+# itself: a service would echo the correlation ID in a header, and the edge does not.
+for path in /api/user/internal/introspect /api/user/%69nternal/introspect /api/user//internal/introspect \
+  /api/user/Internal/introspect /api/credit/internal/orders/x/credit-status /api/order/metrics \
+  /api/order/Metrics /api/supplier/METRICS; do
+  response=$(curl -s -o /dev/null -D - -w '%{http_code}' "$EDGE$path" -H 'x-correlation-id: edge-probe' 2>/dev/null || echo 000)
+  code="${response: -3}"
+  echoed=$(printf '%s' "$response" | header x-correlation-id)
+  [[ "$code" == "404" && -z "$echoed" ]] && pass "the edge does not route $path" ||
+    fail "$path through the edge answered $code${echoed:+, from the service}"
+done
+
+# Only the edge is published beyond this machine.
+edge_port=$(docker compose port edge 8080 2>/dev/null | tr -d '\r' || true)
+[[ "$edge_port" == "0.0.0.0:${WEB_PORT}" ]] && pass "the edge is published on every interface ($edge_port)" ||
+  fail "the edge is published on '${edge_port:-nothing}'"
+for pair in "user-service:3001" "supplier-service:3002" "order-service:3003" "credit-service:3004"; do
+  bound=$(docker compose port "${pair%%:*}" "${pair##*:}" 2>/dev/null | tr -d '\r' || true)
+  [[ "$bound" == 127.0.0.1:* ]] && pass "${pair%%:*} is published on this machine only ($bound)" ||
+    fail "${pair%%:*} is published on '${bound:-nothing}'"
+done
+
+# The refresh cookie works on the one origin: set at /api/user/auth, and sent back there.
+if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
+  jar=$(mktemp)
+  cookie=$(curl -s -o /dev/null -D - -c "$jar" -X POST "$EDGE/api/user/auth/login" -H 'content-type: application/json' \
+    -H "Origin: $EDGE" -d "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"$SMOKE_PASSWORD\"}" 2>/dev/null | header set-cookie || true)
+  [[ "$cookie" == *"Path=/api/user/auth"* ]] && pass "signing in through the edge sets the refresh cookie for /api/user/auth" ||
+    fail "the refresh cookie through the edge was '${cookie:-missing}'"
+  refreshed=$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" -X POST "$EDGE/api/user/auth/refresh" \
+    -H 'content-type: application/json' -H "Origin: $EDGE" -d '{}' 2>/dev/null || echo 000)
+  [[ "$refreshed" == "200" ]] && pass "the browser's refresh through the edge sends the cookie back" ||
+    fail "a refresh through the edge answered $refreshed"
+  rm -f "$jar"
+fi
+
+# A request over the size limit is refused before it reaches a service.
+too_big=$(head -c 2000000 /dev/zero | tr '\0' a | curl -s -o /dev/null -w '%{http_code}' -X POST "$EDGE/api/supplier/suppliers" \
+  -H 'content-type: application/json' --data-binary @- 2>/dev/null || echo 000)
+[[ "$too_big" == "413" ]] && pass "the edge refuses a 2 MB request (413)" || fail "a 2 MB request answered $too_big"
+
+# Writes are limited per client address. Against a write no service limits by itself (an
+# unauthenticated supplier create answers 401), so no account's own limit is used up.
+limited=0
+for _ in $(seq 1 80); do
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$EDGE/api/supplier/suppliers" -H 'content-type: application/json' -d '{}' 2>/dev/null || echo 000)
+  [[ "$code" == "429" ]] && limited=$((limited + 1))
+done
+[[ $limited -gt 0 ]] && pass "a burst of writes is limited ($limited of 80 answered 429)" ||
+  fail "80 writes in a burst were all let through"
+# Let the limit refill before anything else writes through the edge.
+sleep 4
+
 # ---- metrics reach the dashboard (PLT-04) ------------------------------------
 METRICS_AUTH="Authorization: Bearer ${METRICS_TOKEN:?}"
 for pair in "user-service:$USER_PORT" "supplier-service:$SUPPLIER_PORT" \
