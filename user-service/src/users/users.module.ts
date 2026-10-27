@@ -7,7 +7,7 @@ import { AccessTokenGuard } from '../auth/access-token.guard.js';
 import { AdminGuard } from '../auth/admin.guard.js';
 import { JwksController } from '../auth/jwks.controller.js';
 import { JWT, JwtService } from '../auth/jwt.service.js';
-import { defaultRateLimiters, RATE_LIMITERS } from '../auth/rate-limiter.js';
+import { authRateLimits, createRateLimiters, RATE_LIMITERS } from '../auth/rate-limiter.js';
 import { SESSION_SETTINGS, SessionsService } from '../auth/sessions.service.js';
 import { SERVICE_KEYS, ServiceKeyGuard } from '../auth/service-key.guard.js';
 import { env } from '../config.js';
@@ -55,7 +55,20 @@ export class UsersModule {
           provide: JWT,
           useFactory: () => JwtService.create(env.JWT_PRIVATE_KEY, !isProduction),
         },
-        { provide: RATE_LIMITERS, useFactory: defaultRateLimiters },
+        {
+          provide: RATE_LIMITERS,
+          useFactory: () =>
+            createRateLimiters(
+              authRateLimits(
+                {
+                  loginPerIp: env.LOGIN_LIMIT_PER_IP,
+                  loginPerEmail: env.LOGIN_LIMIT_PER_EMAIL,
+                  registerPerIp: env.REGISTER_LIMIT_PER_IP,
+                },
+                isProduction,
+              ),
+            ),
+        },
         {
           provide: ADMIN_SETTINGS,
           useValue: {

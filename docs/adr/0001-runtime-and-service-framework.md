@@ -57,7 +57,7 @@ not require nesting, so every deployable unit stays at the repository root:
 
 ```
 platform/           shared service runtime (this ticket)
-contracts/          OpenAPI/AsyncAPI + generated types (FND-03, not yet created)
+contracts/          OpenAPI/AsyncAPI + generated types (FND-03)
 user-service/  supplier-service/  order-service/  credit-service/
 web-app/            Next.js front end, Bun, outside the npm workspace
 ```

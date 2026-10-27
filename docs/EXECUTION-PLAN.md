@@ -6,6 +6,12 @@
 
 > An implementation-ready plan covering product scope, architecture, backlog, dependencies, five developer workstreams, sprint delivery, integration, testing, risk, and launch readiness.
 
+> **Status on 22 October.** This is the plan as written on 10 September, before any code existed; its
+> "current state" sections describe that day. What has been built, and why, is in the
+> [README](../README.md) and the [decision records](adr/README.md); what remains before D4 is tracked in
+> [REL-04 #288](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/288). Where the build departed
+> from a decision below, the decision log says so ("As built").
+
 ## Contents
 
 0. [Executive direction](#0-executive-direction)
@@ -984,11 +990,17 @@ Testing is part of each task's Definition of Done. A feature is not "backend com
 - **Alternatives considered:** Direct browser-to-services; full BFF; thin gateway
 - **Chosen approach and reasoning:** Thin gateway for routing/auth/correlation/rate limits/streams.
 - **Trade-offs:** Another container, but simplifies browser security and service exposure.
+- **As built (22 Oct):** no gateway yet. The browser calls each service directly, and each service
+  authenticates the caller itself (ADR 0004). The thin edge is PLT-10 (#285), after the D4 gap fixes,
+  with its own decision record to come (ADR 0010, in #285).
 
 #### Live updates
 - **Alternatives considered:** Polling only; WebSocket everywhere; SSE status + WS chat
 - **Chosen approach and reasoning:** SSE for one-way order status with polling fallback; WebSocket only for bidirectional chat.
 - **Trade-offs:** Two streaming mechanisms; each matches a clear use case.
+- **As built (22 Oct):** polling only, no SSE (`web-app/src/lib/use-poll.ts`, `use-order.ts`). The
+  plan's WEB-04 ticket (#159) became connectivity and conflict recovery instead. Chat (N1.2) chooses
+  its own transport (#161-#163).
 
 #### Supplier history
 - **Alternatives considered:** Live lookup only; full replicated supplier
@@ -1009,6 +1021,9 @@ Testing is part of each task's Definition of Done. A feature is not "backend com
 - **Alternatives considered:** Implement all D1 ideas; AI feature showcase; integrated reliability/product set
 - **Chosen approach and reasoning:** Admin, reorder, dispute, chat/live updates, reliability evidence. These reinforce the core and give each member meaningful ownership.
 - **Trade-offs:** Less novelty than broad AI/Kubernetes work, much higher completion probability.
+- **As built (22 Oct):** the admin and dispute console (N1.1), chat (N1.2), conservation evidence and
+  reconciliation (N3.1, N3.2) and CI/CD (N4.1). Reorder was not built. The final list, with owners, is
+  [docs/nice-to-haves.md](nice-to-haves.md).
 
 #### Cloud/Kubernetes
 - **Alternatives considered:** Mandatory cloud/K8s; no cloud ever; gated stretch
@@ -1067,7 +1082,7 @@ A backlog item is done only when:
 
 Deliver a responsive, trustworthy campus errand platform that matches students and transfers closed-loop credits exactly once, while visibly demonstrating good microservice, event-driven, reliability, and product design decisions.
 
-### B. Current state
+### B. Current state (10 September)
 
 Verified artifacts consist of the official brief, a detailed D1 FR/NFR backlog, and mockup captions. Code, architecture, deployments, tests, and operational evidence are unverified. The first action is an evidence-based repository audit.
 
