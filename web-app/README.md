@@ -84,6 +84,11 @@ bun run e2e
 `E2E_BASE_URL` points it elsewhere. Each run registers one account per width, well inside the sign-up
 limit of 20 an hour per address. Specs are named `*.e2e.ts` so `bun test` leaves them alone.
 
+`E2E_BROWSER_CHANNEL=chrome` drives an installed Google Chrome instead of Playwright's Chromium, so
+nothing needs installing. CI does that: GitHub's Ubuntu runners come with Chrome and its system
+libraries, which keeps the `e2e` job from downloading a browser or running `apt` each time. The job
+builds the stack's images from CI's shared layer cache and stops after 20 minutes.
+
 ## API clients
 
 Types come from the contracts in [`contracts/`](../contracts), generated into `src/lib/generated/` by

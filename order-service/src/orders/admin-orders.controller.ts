@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { env } from '../config.js';
 import { OperationsRepository } from './operations.repository.js';
 import { OrdersService } from './orders.service.js';
-import { parseAccountErrandsQuery, parseOrderId, parseResolveOrder } from './validation.js';
+import { parseAdminOrdersQuery, parseOrderId, parseResolveOrder } from './validation.js';
 
 const orderIdSchema = z.uuid();
 
@@ -20,14 +20,15 @@ export class AdminOrdersController {
   ) {}
 
   /**
-   * ORD-15 — one account's errands, as requester (`requesterId`), as current courier
-   * (`courierId`), or both, newest first and paged. Public fields only: an administrator reads an
+   * ORD-15 and ADM-06 — errands newest first and paged: one account's, as requester
+   * (`requesterId`), as current courier (`courierId`) or both, or every errand when neither is
+   * given; `status` narrows either to some statuses. Public fields only: an administrator reads an
    * errand's private details only when it is referred to them, through `GET /orders/{orderId}`.
    */
   @Get()
   @AdminOnly()
-  accountErrands(@Query() query: unknown) {
-    return this.orders.listByAccount(parseAccountErrandsQuery(query));
+  list(@Query() query: unknown) {
+    return this.orders.listForAdmin(parseAdminOrdersQuery(query));
   }
 
   /** The most recent reconciliation decisions (CRD-07), newest first. */
