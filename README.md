@@ -27,11 +27,46 @@ What each nice-to-have is, and how the work on it is shared, is in
 
 ## How it fits together
 
-- **A web app and four services.** The web app (Next.js) is what students and administrators use. It
-  calls each service's public API directly, with the signed-in user's token: the
-  [User](user-service), [Supplier](supplier-service), [Order](order-service) and
-  [Credit](credit-service) Services, each a NestJS application in a container of its own
-  ([Ports and ownership](#ports-and-ownership)).
+```mermaid
+flowchart TB
+  browser["Students and administrators, in a browser"]
+  edge["<b>Edge</b> · nginx<br/>the one origin: routes, security headers, write limits"]
+  web["<b>Web app</b> · Next.js<br/>every page, and the admin console"]
+
+  browser -->|":3000"| edge
+  edge -->|"/"| web
+  edge -->|"/api/user, /api/supplier,<br/>/api/order, /api/credit"| services
+
+  subgraph services["Four NestJS services"]
+    direction LR
+    order["<b>Order Service</b><br/>the errand lifecycle"]
+    credit["<b>Credit Service</b><br/>wallets and the ledger"]
+    supplier["<b>Supplier Service</b><br/>pickup points and items"]
+    user["<b>User Service</b><br/>accounts, tokens, roles"]
+    mq{{"<b>RabbitMQ</b><br/>events"}}
+
+    order -->|"credit status"| credit
+    order -->|"pickup point and items"| supplier
+    supplier & order & credit -->|"is this account active?"| user
+    order <-.-> mq
+    mq <-.->|"reserve, transfer, release<br/>and their results"| credit
+    user -.->|"activated, suspended,<br/>role changed"| mq
+  end
+
+  services -->|"each to its own database, with its own login"| db[("<b>PostgreSQL</b>")]
+```
+
+Solid arrows are HTTP calls; dashed ones are events through RabbitMQ. The account and credit-status
+checks are on the User and Credit Services' internal ports, which the edge never routes to; the
+pickup-point lookup is the Supplier Service's public API. Where each part runs, and what can reach
+what, is in the [deployment diagram](#networks-and-ports).
+
+- **A web app and four services, behind one edge.** The web app (Next.js) is what students and
+  administrators use. Its pages call the four services' APIs, with the signed-in user's token,
+  through the edge (nginx), which serves the web app and the APIs on one origin
+  ([ADR 0010](docs/adr/0010-api-edge.md)): the [User](user-service), [Supplier](supplier-service),
+  [Order](order-service) and [Credit](credit-service) Services, each a NestJS application in a
+  container of its own ([Ports and ownership](#ports-and-ownership)).
 - **Each service owns its data.** One PostgreSQL server holds four databases, one per service, and
   each service has a login to its own alone. No service reads another's tables
   ([ADR 0003](docs/adr/0003-service-boundaries-and-data-ownership.md)).
@@ -373,6 +408,42 @@ a credential, or a fallback for one, is written into a deployment file. And
 image the stack builds.
 
 ### Networks and ports
+
+```mermaid
+flowchart TB
+  browser["Browsers, from any machine"]
+  ghcr[("<b>GitHub Container Registry</b><br/>tagged sha-&lt;commit&gt; and main")]
+
+  subgraph host["One Docker host · docker compose up"]
+    edge["<b>edge</b> · nginx, unprivileged, read-only<br/>:3000 on every interface"]
+    web["<b>web-app</b><br/>no published port"]
+    svc["<b>user-, supplier-, order-, credit-service</b><br/>public :3001–3004 on 127.0.0.1 only<br/>internal :4001–4004 to each other, never published"]
+    mig["<b>four migrate jobs</b><br/>run once, then exit"]
+    pg[("<b>postgres</b> · 127.0.0.1 only<br/>volume postgres-data")]
+    mq[("<b>rabbitmq</b> · 127.0.0.1 only<br/>volume rabbitmq-data")]
+    prom["<b>prometheus</b> · 127.0.0.1:9090"]
+    graf["<b>grafana</b> · 127.0.0.1:3005"]
+  end
+
+  browser -->|":3000"| edge
+  edge -->|"web"| web
+  edge -->|"gateway"| svc
+  svc -->|"db"| pg
+  mig -->|"db"| pg
+  svc -->|"broker"| mq
+  prom -->|"services: /metrics"| svc
+  prom -->|"broker: queue depths"| mq
+  graf -->|"observability"| prom
+  ghcr -.->|"images, by FOC_IMAGE_TAG"| svc
+  ghcr -.-> mig
+  ghcr -.-> web
+```
+
+Each arrow is labelled with the Docker network it crosses. `web`, `gateway`, `db`, `broker` and
+`services` are internal: nothing outside the stack can use them. Only the edge is published beyond
+this machine; everything else that has a port is published on `127.0.0.1` alone. The images are
+built and published by CI ([Pre-built images](#pre-built-images)); `docker compose up --build`
+builds them locally instead.
 
 A container joins only the networks of what it depends on (PL-NFR2.1.2):
 
