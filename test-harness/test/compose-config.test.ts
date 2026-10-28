@@ -358,6 +358,30 @@ describe('the edge (PLT-10)', () => {
     expect(nginx).toContain('proxy_cookie_path /auth /api/user/auth;');
   });
 
+  it('passes the live-update stream on as it is written, and limits streams per address (N1.4)', () => {
+    // Every spelling the Order Service accepts for its route, which Express matches ignoring case
+    // and a trailing slash, so none reaches the stream uncapped through /api/order/ (#335 review).
+    // A regex location is chosen over that prefix.
+    const block = nginx.match(/location ~\* \^\/api\/order\/live\/\?\$ \{([^}]*)\}/)?.[1];
+    expect(nginx).not.toContain('location = /api/order/live');
+    expect(block).toContain('set $upstream order-service:3003;');
+    expect(block).toContain('proxy_pass http://$upstream$api_path;');
+    expect(block).toContain('error_page 502 504 =503 @unavailable;');
+    // Buffered, nudges would arrive in batches; a 20 s keep-alive may be missed twice.
+    expect(block).toMatch(/^\s+proxy_buffering off;$/m);
+    expect(block).toMatch(/^\s+proxy_read_timeout 90s;$/m);
+    // At most 10 per address, refused like the service's own cap, so a page polls for a minute.
+    expect(nginx).toMatch(/limit_conn_zone \$binary_remote_addr zone=streams:/);
+    expect(block).toMatch(/^\s+limit_conn streams 10;$/m);
+    expect(block).toMatch(/^\s+limit_conn_status 429;$/m);
+    expect(block).toContain('error_page 429 = @too_many_streams;');
+    const refusal = nginx.match(/location @too_many_streams \{([^}]*)\}/)?.[1];
+    expect(refusal).toContain('add_header Retry-After 60 always;');
+    expect(refusal).toContain('"code":"TOO_MANY_STREAMS"');
+    // Each stream holds two of the edge's connections, browser and service.
+    expect(nginx).toMatch(/^\s+worker_connections 4096;$/m);
+  });
+
   it('tells each service the client’s address, which the service believes from the edge alone', () => {
     expect(nginx).toContain('proxy_set_header X-Forwarded-For $remote_addr;');
     for (const name of APPLICATION) {
