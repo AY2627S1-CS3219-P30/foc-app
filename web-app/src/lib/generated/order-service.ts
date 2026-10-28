@@ -561,6 +561,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Open a stream of nudges about the caller's errands (N1.4).
+         * @description Server-Sent Events. A nudge never carries an errand: on one, the page reads again through
+         *     the ordinary endpoints, which apply their ordinary rules, so a lost, repeated or reordered
+         *     nudge costs at most one read. Events:
+         *
+         *     - `ready` (`{}`), once, on connect: read everything shown, to catch up.
+         *     - `errand` (`{"orderId", "version"}`), to the errand's requester and courier, when its
+         *       status changes. `version` is the errand's version after the change; it is absent for a
+         *       change recorded before versions were carried.
+         *     - `board` (`{}`), to every stream, when an errand joins or leaves the open list; at most
+         *       once a second.
+         *     - a `: keep-alive` comment every 20 seconds.
+         *
+         *     The caller is authenticated when the stream opens. It ends itself after
+         *     `LIVE_STREAM_MAX_MS` (5 minutes by default); the page reconnects with its current token.
+         *     Polling remains the fallback: a page that is refused keeps polling.
+         */
+        get: operations["openLiveUpdates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1846,6 +1880,49 @@ export interface operations {
             401: components["responses"]["Unauthenticated"];
             403: components["responses"]["PrivateForbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    openLiveUpdates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stream, starting with `ready`. */
+            200: {
+                headers: {
+                    /** @description `no`: a proxy must pass each event on as it is written. */
+                    "X-Accel-Buffering"?: "no";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            /** @description `TOO_MANY_STREAMS`: the caller already holds 5 streams on this instance. */
+            429: {
+                headers: {
+                    "Retry-After"?: "60";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description `LIVE_UNAVAILABLE`: live updates are switched off (`LIVE_UPDATES_ENABLED=false`), or this instance holds 1,000 streams. */
+            503: {
+                headers: {
+                    "Retry-After"?: "60";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
         };
     };
 }
