@@ -71,8 +71,7 @@ and the courier follows the same payment from their receipt to their wallet and 
 `e2e/live-journey.e2e.ts` (N1.4) checks what only the live-update stream can do, since a settled
 page polls every 30 seconds: a new errand reaches a courier's open board within 3 s, and the
 courier's accept reaches the requester's open errand page within 3 s. Refused its stream first, the
-page says *Updating every 30 s* and still works. At 360 and 1440 px; 768 px shows the same header
-as 1440.
+page says *Updating every 30 s* and still works, at every width.
 
 `e2e/dispute-outcome.e2e.ts` covers both administrative dispute decisions at all three widths.
 The requester reports non-receipt, the referred administrator decides through the console, and

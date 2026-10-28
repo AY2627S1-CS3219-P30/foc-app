@@ -8,9 +8,10 @@ import { ORDER, ORDER_URL, USER, errandEmail, firstSupplier, signIn, visible } f
  * live-update stream: a new errand reaches a courier's open board, and the courier's accept reaches
  * the requester's open page. Refused a stream, a page says it updates every 30 s, and still works.
  *
- * At 360 px the label is in the phone's app bar, from 768 px in the top bar; 768 px is skipped, as
- * 1440 px shows the same. The errand journey's students sign in once each here, inside the User
- * Service's limit of ten sign-ins per account in 15 minutes.
+ * At 360 px the label is in the phone's app bar, from 768 px in the top bar. It runs at every width,
+ * since the release suite allows no skipped test; the errand journey's students sign in once each
+ * per width here, six times a run with the errand journey's, inside the User Service's limit of ten
+ * per account in 15 minutes.
  */
 const LIVE_WITHIN_MS = 3_000;
 
@@ -28,7 +29,6 @@ test("live updates: an errand reaches the open board, and its accept the request
   page,
   request,
 }, testInfo) => {
-  test.skip(testInfo.project.name === "768px", "the same top bar as at 1440 px");
   const token = await signIn(page.request, errandEmail("requester"));
   const courier = await courierPage(browser, page, errandEmail("loser"));
   const supplier = await firstSupplier(request, token);
