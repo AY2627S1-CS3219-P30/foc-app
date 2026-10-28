@@ -76,14 +76,14 @@ Before any operator command against this demo, select its context:
 ```bash
 . ./.demo-state/foc-d4-demo/ports.sh
 docker compose ps
-open http://localhost:14009/alerts
-open http://localhost:14005
-open http://localhost:14008
+open "http://localhost:${PROMETHEUS_PORT}/alerts"
+open "http://localhost:${GRAFANA_PORT}"
+open "http://localhost:${RABBITMQ_MANAGEMENT_PORT}"
 ```
 
 Those three tabs are Prometheus alerts, Grafana and RabbitMQ management. Use the configured private
 operator credentials from `.env` locally, never place them in a command argument or screenshot.
-With a different port base, use the printed/exported ports instead of the literal defaults above.
+The exported ports also handle a non-default `D4_PORT_BASE`.
 Use `docker compose start rabbitmq` to recover a deliberately stopped broker. Keep this terminal
 in the repository root with the demo context selected.
 
