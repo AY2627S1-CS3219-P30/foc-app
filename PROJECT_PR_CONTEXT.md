@@ -157,12 +157,13 @@ databases, wrong format and symlinked dumps. The repeatable isolated drill also 
 CI and published-image rollback evidence remain incomplete. Draft PR #314 carries the work;
 its original CI run is `40470144507`, superseded when the current main/guard update is pushed.
 
-Release blocker: successful main push run `40458490320` skipped Publish images; the expected
-`sha-c5d5c0c...` Credit manifest was not found after registry login. The local GitHub token lacks
-`read:packages` (package API 403), so visibility is also unresolved. Do not substitute local retags
-for published artifacts. The branch adds `always()` to the publish job while keeping the
-push/main/aggregate-CI-success gates, to prevent intentionally skipped upstream jobs propagating
-into a publisher skip. See GitHub's [jobs/needs documentation](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-jobs).
+Release blocker resolved on 28 October: Jonus's merged #315 (`f2d3d41`) fixes skipped publishing
+and removes comments from Bake's literal `set` arguments. Main run `40493541331`, commit
+`3560f4d7da1e647617d9b3d3d6113122e7e9c7ee`, completed Publish images successfully: all five images
+were built, scanned and pushed. The earlier #314 CI failed solely because no published release
+existed at that time. The current branch incorporates main and must prove the real rollback now.
+The workstation token still lacks `read:packages`; CI's scoped package-read token supplies access.
+The redundant, uncommitted `work/publisher-fix` experiment is superseded by #315; do not publish it.
 
 ### #167 — seed, smoke and demo narrative
 
