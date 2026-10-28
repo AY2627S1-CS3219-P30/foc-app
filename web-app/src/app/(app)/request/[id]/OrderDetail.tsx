@@ -107,10 +107,10 @@ function StatusBody({
   const retried = useRef(false);
   const stale = paused || !!problem;
   useEffect(() => {
-    if (stale || !retried.current) return;
+    if (paused || !retried.current) return;
     retried.current = false;
-    if (document.activeElement === document.body) status.current?.focus();
-  }, [stale]);
+    if (!problem && document.activeElement === document.body) status.current?.focus();
+  }, [paused, problem]);
 
   return (
     <>

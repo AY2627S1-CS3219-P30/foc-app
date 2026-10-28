@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ApiError } from "./api-client";
 import { useAuth } from "./auth";
 import { getOrder, type Order, type OrderStatus } from "./order-api";
@@ -24,8 +24,6 @@ const MAX_DELAY_MS = 2 ** 31 - 1;
 /** When the server changes the errand by itself unless someone acts first, on the server's clock. */
 function serverDeadline(order: Order) {
   if (order.status === "OPEN") return order.acceptanceDeadlineAt;
-  // Refers it to an administrator if the requester was suspended meanwhile.
-  if (order.status === "PICKED_UP") return order.nonDeliveryReportAt;
   if (order.status === "DELIVERED") return order.autoConfirmAt;
   return null;
 }
@@ -37,12 +35,11 @@ function serverDeadline(order: Order) {
  * the errand by itself, which wakes it for another ten minutes. `paused` says it is idle after a
  * read that worked, since a tab that stays visible never wakes it; it is never set with `problem`.
  * A 4xx, or an error that is not an {@link ApiError} (a bug, not the network), stops, and a 404
- * drops the errand so its actions go with it. Everything starts over when `orderId` changes.
+ * drops the errand so its actions go with it.
  * `skew` is how far this device's clock runs ahead of the server's, from the order's `serverTime`.
  */
 export function useOrder(orderId: string) {
   const { authed } = useAuth();
-  const [shownId, setShownId] = useState(orderId);
   const [order, setOrder] = useState<Order | null>(null);
   const [skew, setSkew] = useState(0);
   const [problem, setProblem] = useState<ApiError | null>(null);
@@ -54,23 +51,6 @@ export function useOrder(orderId: string) {
   const attempt = useRef(0);
   /** The next server deadline on this device's clock, margin included. */
   const due = useRef<number | null>(null);
-
-  if (shownId !== orderId) {
-    setShownId(orderId);
-    setOrder(null);
-    setSkew(0);
-    setProblem(null);
-    setStillWaiting(false);
-    setPaused(false);
-  }
-  // Before `usePoll`'s effect, so the first read of another errand starts from nothing.
-  useEffect(() => {
-    status.current = null;
-    version.current = -1;
-    since.current = 0;
-    attempt.current = 0;
-    due.current = null;
-  }, [orderId]);
 
   const show = useCallback((next: Order) => {
     if (next.version < version.current) return;
@@ -134,10 +114,9 @@ export function useOrder(orderId: string) {
     [authed, orderId, show, nextDelay],
   );
   const readNow = usePoll(read);
-  /** Gives settled polling another ten minutes. */
+  /** Gives settled polling another ten minutes. `paused` stays until the read that follows. */
   const wake = useCallback(() => {
     since.current = Date.now();
-    setPaused(false);
   }, []);
   useOnReturn(wake);
 

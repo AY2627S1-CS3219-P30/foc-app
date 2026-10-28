@@ -108,7 +108,7 @@ function fakeOrderService() {
     history: (): Response => json(200, { items: [], truncated: false }),
     stamp: (o: Order): Order => ({ ...o, serverTime: new Date(Date.now() + service.serverAhead).toISOString() }),
     answer: (): Response => json(200, service.stamp({ ...service.current, version: 4 })),
-    read: (): Response => json(200, service.stamp(service.reads.shift() ?? service.current)),
+    read: (): Response | Promise<Response> => json(200, service.stamp(service.reads.shift() ?? service.current)),
     async fetch(request: Request): Promise<Response> {
       const { pathname, search } = new URL(request.url);
       if (pathname === `/orders/${ORDER_ID}/history`) return json(200, { orderId: ORDER_ID, entries: [] });
@@ -645,8 +645,8 @@ describe('updates on a visible tab', () => {
     for (let i = 0; i < 20; i++) await clock.advance(30_000);
   };
 
-  function Probe({ orderId = ORDER_ID }: { orderId?: string }) {
-    const { order, problem, paused, refresh } = useOrder(orderId);
+  function Probe() {
+    const { order, problem, paused, refresh } = useOrder(ORDER_ID);
     return (
       <>
         <p>{`${order?.status}: ${paused ? 'paused' : 'live'}${problem ? ` (${problem.code})` : ''}`}</p>
@@ -811,36 +811,6 @@ describe('updates on a visible tab', () => {
     expect(reads(service)).toBe(before + 2);
   });
 
-  it('starts over when it is asked for another errand', async () => {
-    const { useState } = await import('react');
-    function Switch() {
-      const [orderId, setOrderId] = useState(ORDER_ID);
-      return (
-        <>
-          <Probe orderId={orderId} />
-          <button onClick={() => setOrderId(OTHER_ID)}>Next</button>
-        </>
-      );
-    }
-    const clock = fakeClock();
-    const service = fakeOrderService();
-    service.current = order({ status: 'DISPUTED', courierId: 'them', version: 9 });
-    const other = order({ orderId: OTHER_ID, status: 'ACCEPTED', courierId: 'them', version: 2 });
-    service.read = () =>
-      json(200, service.stamp(service.queries.at(-1) === `/orders/${OTHER_ID}` ? other : service.current));
-    const container = await render(<Switch />, service);
-    await goIdle(clock);
-    expect(container.textContent).toContain('DISPUTED: paused');
-
-    await act(async () => button(container, 'Next').click());
-    await flush();
-    expect(container.textContent).toContain('ACCEPTED: live');
-    for (let i = 0; i < 19; i++) await clock.advance(30_000);
-    expect(container.textContent).toContain('ACCEPTED: live');
-    await clock.advance(30_000);
-    expect(container.textContent).toContain('ACCEPTED: paused');
-  });
-
   it('shows the pause on the errand, with a refresh that restarts updates', async () => {
     const clock = fakeClock();
     const service = fakeOrderService();
@@ -868,6 +838,25 @@ describe('updates on a visible tab', () => {
     expect(reads(service)).toBe(before + 2);
   });
 
+  it('keeps the pause shown until the refresh read answers', async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+    await goIdle(clock);
+    const ok = service.read;
+    let answer: () => void = () => {};
+    service.read = () => new Promise((resolve) => (answer = () => resolve(ok())));
+
+    await act(async () => button(container, 'Refresh').click());
+    await flush();
+    expect(container.textContent).toContain('Updates paused');
+    expect(buttons(container, 'Refresh').length).toBeGreaterThan(0);
+
+    await act(async () => answer());
+    await flush();
+    expect(container.textContent).not.toContain('Updates paused');
+  });
+
   it('moves focus to the status when trying again clears the problem', async () => {
     const clock = fakeClock();
     const service = fakeOrderService();
@@ -885,6 +874,23 @@ describe('updates on a visible tab', () => {
     await flush();
     expect(buttons(container, 'Try again')).toEqual([]);
     expect(container.ownerDocument.activeElement?.getAttribute('role')).toBe('status');
+  });
+
+  it('leaves focus alone when a later read clears a problem that trying again did not', async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+    const ok = service.read;
+    service.read = () => failure(503, 'INTERNAL');
+    await clock.advance(30_000);
+    await act(async () => button(container, 'Try again').click());
+    await flush();
+    expect(container.textContent).toContain('Could not refresh this request.');
+
+    service.read = ok;
+    await clock.advance(30_000);
+    expect(buttons(container, 'Try again')).toEqual([]);
+    expect(container.ownerDocument.activeElement?.getAttribute('role')).not.toBe('status');
   });
 
   it('offers only the retry when a read fails as updates pause, and stops reading', async () => {
