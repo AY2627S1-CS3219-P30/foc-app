@@ -1,5 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
+import { Test, type TestingModuleBuilder } from '@nestjs/testing';
 import request from 'supertest';
 import { AUTHENTICATOR, AuthModule, authFailure, type AuthContext } from '@foc/auth-client';
 import { ErrorEnvelopeFilter, PlatformModule } from '@foc/platform';
@@ -66,7 +66,8 @@ const identities: Record<string, AuthContext> = {
   },
 };
 
-const fakeAuthenticator = {
+/** Who each test token is; exported so a test can wrap it, to delay a check say. */
+export const fakeAuthenticator = {
   async authenticate(header: string | undefined): Promise<AuthContext> {
     if (!header) throw authFailure('TOKEN_MISSING');
     const token = /^Bearer\s+(\S+)$/i.exec(header)?.[1];
@@ -135,8 +136,10 @@ const activeSupplier = {
   active: true,
 };
 
+/** `configure` may override further providers, such as the live-update options. */
 export async function createTestApp(
   supplierFetch: typeof fetch = async () => Response.json(activeSupplier),
+  configure: (builder: TestingModuleBuilder) => TestingModuleBuilder = (builder) => builder,
 ): Promise<TestApp> {
   const db = await PgliteDb.create();
   await applyMigrations(db);
@@ -163,7 +166,7 @@ export async function createTestApp(
     .useValue(supplierFetch)
     .overrideProvider(USER_DIRECTORY_FETCH)
     .useValue(userService.fetch);
-  const moduleRef = await builder.compile();
+  const moduleRef = await configure(builder).compile();
   const app = moduleRef.createNestApplication();
   app.useGlobalFilters(new ErrorEnvelopeFilter());
   // Bound to 127.0.0.1, where supertest connects: left unbound, supertest listens on [::] and can

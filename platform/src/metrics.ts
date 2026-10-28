@@ -46,8 +46,8 @@ export type GaugeSetter<L extends string> = (
  *   - `foc_events_dropped_total`        events a per-instance queue dropped, by reason
  *   - `foc_outbox_*`                    the outbox relay's throughput and backlog
  *
- * A service adds its own with {@link addGauge}, e.g. the Order Service's errands per status. Queue
- * depths, dead-letter queues included, come from RabbitMQ's own exporter.
+ * A service adds its own with {@link addGauge} or {@link addCounter}, e.g. the Order Service's
+ * errands per status. Queue depths, dead-letter queues included, come from RabbitMQ's own exporter.
  */
 export class Metrics {
   readonly registry = new Registry();
@@ -160,6 +160,20 @@ export class Metrics {
   /** Records one answered request. `route` is the matched pattern, never the raw path. */
   observeHttp(method: string, route: string, status: number, seconds: number): void {
     this.httpDuration.observe({ method, route, status: String(status) }, seconds);
+  }
+
+  /** A counter the service increments itself, such as the Order Service's live-update nudges. */
+  addCounter<L extends string>(options: {
+    name: string;
+    help: string;
+    labelNames?: readonly L[];
+  }): Counter<L> {
+    return new Counter<L>({
+      name: options.name,
+      help: options.help,
+      labelNames: options.labelNames ?? [],
+      registers: [this.registry],
+    });
   }
 
   /**
