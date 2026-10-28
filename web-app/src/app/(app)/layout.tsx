@@ -6,6 +6,7 @@ import { Menu } from "@/components/Menu";
 import { ErrorState, LoadingState } from "@/components/States";
 import { useAuth } from "@/lib/auth";
 import { CreditsProvider } from "@/lib/credits";
+import { LiveProvider } from "@/lib/live/live";
 import styles from "./layout.module.css";
 
 /**
@@ -50,10 +51,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   const showCredits = pathname !== "/suppliers" && !pathname.startsWith("/admin");
+  // N1.4: one live-update stream per tab, on the student's pages; the console polls.
   return (
-    <CreditsProvider enabled={showCredits}>
-      {children}
-      <Menu />
-    </CreditsProvider>
+    <LiveProvider enabled={showCredits}>
+      <CreditsProvider enabled={showCredits}>
+        {children}
+        <Menu />
+      </CreditsProvider>
+    </LiveProvider>
   );
 }
