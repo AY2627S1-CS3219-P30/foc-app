@@ -1,8 +1,9 @@
 # D4 local demonstration — 30-minute rehearsal runbook (REL-01, #167)
 
-Status: preparation, **not signed-off rehearsal evidence**. #160 still owns the missing complete
-browser release journeys. Two non-owners must actually execute this runbook and record their
-results below before #167 closes. Chat is not implemented on the main snapshot used to prepare
+Status: preparation, **not signed-off rehearsal evidence**. The complete browser release journeys
+(#160) merged in #325: 42 cases at 360/768/1440 px passed twice from clean volumes, locally and in
+CI run 40651088404. Two non-owners must actually execute this runbook and record their results
+below before #167 closes. Chat is not implemented on the main snapshot used to prepare
 this document; its owners must supply and rehearse that segment. Do not present planned work as live.
 This runbook does not change the D3 runbook.
 
@@ -97,7 +98,7 @@ claim that a failed live action succeeded.
 | --- | --- | --- | --- |
 | 00:00–02:00 | Jonus | Show `docker compose ps`, `/edge/ready` and the architecture diagram. “The browser has one origin; User, Supplier, Order and Credit own separate databases. This demonstration is local containers.” | If not ready, show which dependency is named, recover it, rerun `--check`; do not start transactions on a failed preflight. |
 | 02:00–05:00 | Anselm | Show Alyssa's profile, the dev activation flow and the private/role boundaries. “Activation creates the wallet through an event; the browser never sets a balance.” A new registration can use a clearly fictional extra address; the five core personas already exist. | If email is delayed, show the local mailbox and Credit's dead letters/audit evidence. Do not register repeatedly or display the passwords. |
-| 05:00–08:00 | Patrick | Alyssa: Suppliers → search for Printer @ Com 2 → compose one additional request, reward **1**, delivery PGP House 7. Name it “D4 dispute example”. Review the available/reserved projection and submit. Keep its resulting detail tab open for the dispute segment. | If composer fails, preserve the refusal/trace and use the preseeded prints errand for the core flow. #160 must supply the complete composer/browser evidence; do not mark it passed from a seed API call. |
+| 05:00–08:00 | Patrick | Alyssa: Suppliers → search for Printer @ Com 2 → compose one additional request, reward **1**, delivery PGP House 7. Name it “D4 dispute example”. Review the available/reserved projection and submit. Keep its resulting detail tab open for the dispute segment. | If composer fails, preserve the refusal/trace and use the preseeded prints errand for the core flow. The composer is covered by the merged release suite (#160, `release-journeys.e2e.ts`); do not mark a live failure passed from a seed API call. |
 | 08:00–13:00 | Zhang Yuan, Isaac | Ben and Chloe: open the preseeded **race** card in their separate feed tabs and both open Accept. Confirm Ben first, then Chloe's stale confirmation. Show one winner and the stale/refused loser. Ben withdraws before pickup; the same reward remains reserved while the errand returns OPEN. Separately, Ben accepts **prints**, records pickup, records delivery. Alyssa confirms receipt. Isaac shows both wallet ledgers. | If race timing is missed, use its recorded 409/domain-code response and the CI contention test. If a transition fails, refresh to get the current version; never force a backward status change. |
 | 13:00–16:00 | Isaac, Zhang Yuan | Alyssa cancels the preseeded **cancel** errand before pickup; show release pending then CANCELLED and +1 available/−1 reserved. Cancel the reopened **race** errand too, releasing its 1. “Withdraw removed the courier; cancellation returned the reward. Credit applied each once.” | If asynchronous release is delayed, show the errand trace/outbox and wait for the actual reply. Restart only the named demo dependency; no SQL credit edits. |
 | 16:00–20:00 | Jonus, Anselm, Zhang Yuan | Admin A opens Users, audit/activity and read-only Wallets. If demonstrating two-person role approval, Dina proposes ADMIN for **Chloe**, and Evan approves in his own session; neither approves a request about themselves. For the live dispute example from minute 5, Ben accepts/picks up/delivers; Alyssa reports non-receipt instead of confirming. Open Admin → Errands in both admin profiles, identify who it was actually referred to, and only that admin decides REQUESTER. Show the ordinary release completing. | If the extra composer errand is absent, disclose that the dispute segment is unavailable and use the linked real dispute test/recorded trace. Do not fake a referral, admin approval or second person's action. |
@@ -133,11 +134,12 @@ docker compose logs --no-color --tail=80 order-service credit-service
 ```
 
 `--check` proves named identities/roles, the printing pickup, the recorded errands and a clean
-audit. It does not exercise every browser action or certify #160. Current browser suite command:
-`cd web-app && bun run e2e` against its documented fresh test stack, not an already consumed demo
-fixture. See the web README and #160 for the full release suite and outstanding controlled-clock,
-dispute and suspension/reassignment coverage. Preserve traces/screenshots on failure. Run the full
-release journeys **twice from a clean seed** when #160 is complete; record actual run links.
+audit. It does not exercise every browser action. The full browser release suite (#160, merged in
+#325) runs on its own disposable project, never this demo fixture:
+`./scripts-e2e-release.sh --twice` from the repository root. It covers the composer, withdrawal and
+cancellation, disputes, suspension/reassignment, controlled-clock expiry/auto-confirmation and the
+admin console; see the [web README](../../web-app/README.md#full-release-suite-tst-02-160). CI
+requires it twice from clean volumes. Preserve traces/screenshots on failure and record run links.
 
 For a 429 during repeated practice, respect Retry-After and stop creating extra accounts. For
 401/403, use the correct persona's own profile and current session; do not copy a token between
@@ -154,6 +156,6 @@ the seed does not reset a persisted deadline or undo a terminal transition.
 
 Record who actually performed the steps, the commit and clean-start command, which segments ran
 live, the timed result, failures/fallbacks and evidence links. An agent run, CI personas or an
-owner's solo rehearsal are not two non-owner rehearsals. #167 stays open until #160, missing live
-feature segments and both real rehearsals are satisfied. #288 coordinates the release-candidate
+owner's solo rehearsal are not two non-owner rehearsals. #160 is closed (#325); #167 stays open until
+the missing live feature segment (chat) and both real rehearsals are satisfied. #288 coordinates the release-candidate
 schedule; do not replace its dates or invent sign-offs here.

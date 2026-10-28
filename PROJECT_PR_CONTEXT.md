@@ -38,7 +38,7 @@ missing live chat implementation and two actual non-owner rehearsals. #238 waits
 | ----------------------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [#283](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/283) | CRD-10 financial audit; foundation                              | CLOSED; PR #313 merged, exact-head CI green                       | #166 related, not a prerequisite; contributes a runbook to #168         | Merged under owner-authorized internal review                                                | `credit-service/src/credits/ledger-audit.*`, `invariants.ts`, `web-app/src/app/(app)/admin/operations/LedgerAudit.tsx`, `observability/alerts.yml` |
 | [#284](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/284) | PLT-09 stack backup/restore/rollback; integration               | CLOSED; PR #314 merged; full recovery/rollback CI PASS            | #164 publisher resolved by #315; #283 merged                            | None for implementation; daily/off-host backup operation remains a deployment responsibility | `scripts-{backup,restore,rollback,recovery-drill}.sh`, `scripts-recovery.py`, recovery runbook/report, CI                                          |
-| [#167](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/167) | REL-01 deterministic seed, smoke and D4 narrative; finalization | Preparation merged in #322; required CI green; acceptance pending | Explicit TST-02 #160 (open, Patrick)                                    | Live chat segment and two successful non-owner rehearsals remain                             | `scripts-seed-demo.{sh,py}`, `scripts-demo-tabs.py`, `docs/demo/d4-runbook.md`, `test-harness/test/demo-seed.test.ts`                              |
+| [#167](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/167) | REL-01 deterministic seed, smoke and D4 narrative; finalization | Preparation merged in #322; required CI green; acceptance pending | TST-02 #160 satisfied (closed via #325)                                 | Live chat segment and two successful non-owner rehearsals remain                             | `scripts-seed-demo.{sh,py}`, `scripts-demo-tabs.py`, `docs/demo/d4-runbook.md`, `test-harness/test/demo-seed.test.ts`                              |
 | [#238](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/238) | DOC-04 ADR acceptance; team gate                                | Isaac's own approval merged in #300; shared completion pending    | Related #183/#226 satisfied; amendments in #250 (merged), #254 (merged) | Patrick approval pending; other four now recorded on main                                    | `docs/adr/README.md`, ADRs 0002–0009                                                                                                               |
 
 #167's original owner line still says Patrick; its D4 amendment and GitHub assignment supersede
@@ -58,7 +58,7 @@ checks as test-only; main now includes the runtime audit through merged #313.
   ├── #284 restore validates this audit after restoring all four databases
   └── #168 financial reconciliation runbook contribution
 
-#160 browser journeys [open, Patrick]
+#160 browser journeys [closed; merged PR #325]
   └── #167 final acceptance + two non-owner rehearsals
        (seed, tabs and narrative merged in #322; live chat also remains gated)
 
@@ -266,8 +266,8 @@ solely for prose, but required repository checks/review still apply.
 [x] #284 — PR #314 merged at e5da74a; issue closed; exact-head CI proves 105-second restore and published-image rollback
 [x] #167 preparation — Seed/tabs/runbook merged in #322 at 462257f; exact-head CI 40637011479 passed
 [x] #281 blocker — PR #324 merged; issue closed; required and main CI passed
-[ ] #160 blocker — 42-case run passed; twice-clean acceptance and new CI matrix pending
-[ ] #167 acceptance — #160, live chat and two actual non-owner rehearsals remain gates
+[x] #160 blocker — PR #325 merged at 2f00a92; 42 cases × 2 clean runs passed locally and in CI run 40651088404; issue closed
+[ ] #167 acceptance — live chat (#161–#163) and two actual non-owner rehearsals remain gates
 ```
 
 Before starting another issue, pull main, reread live issues/comments/linked PRs and update this
@@ -336,3 +336,15 @@ Live GitHub shows two assigned open issues (#167, #238), no assigned open PRs an
 authored by Isaac. Completed implementation has been merged and its completed issues closed.
 The full goal remains incomplete because the two assigned issues still have the specific external
 acceptance gates above. Do not close them or treat agent/CI execution as a teammate decision.
+
+## Status 2026-10-28 (after #325)
+
+- #160 is CLOSED: PR #325 merged at `2f00a92`. Both the local and CI (`40651088404`) release reports
+  show 42/42 passed twice from clean volumes with zero failures, flakes, skips or runner errors.
+- #167's own scope is merged (seed, smoke, runbook, deployment mode). Remaining gates: the live chat
+  segment, which needs #161–#163, and two real non-owner rehearsals.
+- Chat (#161 Patrick, #162 Zhang Yuan, #163 Anselm) is each owner's graded nice-to-have; the design
+  points in `docs/nice-to-haves.md` (separate service or Order module, transport, retention, rate
+  limit) are theirs to settle. Isaac suggested 90-day retention as input only. Do not implement
+  their slices under Isaac's name without the owners' agreement.
+- #238 waits only for Patrick's recorded approval.
