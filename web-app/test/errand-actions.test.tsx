@@ -110,6 +110,7 @@ function fakeOrderService() {
     read: (): Response => json(200, service.stamp(service.reads.shift() ?? service.current)),
     async fetch(request: Request): Promise<Response> {
       const { pathname, search } = new URL(request.url);
+      if (pathname === `/orders/${ORDER_ID}/history`) return json(200, { orderId: ORDER_ID, entries: [] });
       if (request.method === 'GET') service.queries.push(`${pathname}${search}`);
       if (request.method === 'POST') {
         const command = { path: pathname, body: await request.json() };

@@ -22,6 +22,7 @@ coverage/
 .demo-state/
 backups/
 .recovery-results/
+.release-results/
 __pycache__/
 *.tsbuildinfo
 
