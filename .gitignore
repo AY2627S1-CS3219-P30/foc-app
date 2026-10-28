@@ -19,6 +19,9 @@ Thumbs.db
 
 # Test output
 coverage/
+backups/
+.recovery-results/
+__pycache__/
 *.tsbuildinfo
 
 # oh-my-claudecode plugin state (local, per-session)
