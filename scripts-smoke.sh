@@ -370,13 +370,19 @@ else
     elif ! streams_ready 10 5; then
       fail "could not hold ten streams open through the edge"
     else
-      eleventh=$(curl -s --max-time 5 -D - "$EDGE/api/order/live" -H "Authorization: Bearer $second" 2>/dev/null || true)
-      if [[ "$eleventh" == *" 429 "* && "$eleventh" == *"from this address"* ]] &&
-        ! grep -qi '^x-correlation-id:' <<<"$eleventh"; then
-        pass "the 11th stream from one address is refused (429)"
-      else
-        fail "the 11th stream from one address answered: '$(head -c 200 <<<"$eleventh" | tr -d '\r' | tr '\n' ' ')'"
-      fi
+      # The eleventh, by each spelling the Order Service's route accepts: it ignores case and a
+      # trailing slash, so the edge must cap every one of them, not only the exact path.
+      edge_refuses() { # path → whether the edge itself refused a stream there with its 429
+        eleventh=$(curl -s --max-time 5 -D - "$EDGE$1" -H "Authorization: Bearer $second" 2>/dev/null || true)
+        [[ "$eleventh" == *" 429 "* && "$eleventh" == *"from this address"* ]] &&
+          ! grep -qi '^x-correlation-id:' <<<"$eleventh"
+      }
+      answered() { head -c 200 <<<"$eleventh" | tr -d '\r' | tr '\n' ' '; }
+      edge_refuses /api/order/live && pass "the 11th stream from one address is refused (429)" ||
+        fail "the 11th stream from one address answered: '$(answered)'"
+      edge_refuses /api/order/LIVE/ &&
+        pass "so is one spelt /api/order/LIVE/: the cap covers every path the route accepts" ||
+        fail "an 11th stream spelt /api/order/LIVE/ answered: '$(answered)'"
     fi
   elif grep -q '"message":"Cannot GET /live"' "$live_dir/first"; then
     # An Order Service image from before N1.4 has no stream to check, as when the recovery drill

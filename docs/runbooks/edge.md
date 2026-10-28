@@ -77,7 +77,7 @@ otherwise. Every service answer, and the body of every edge error, carries it.
   `curl -sN localhost:3000/api/order/live -H "Authorization: Bearer $TOKEN"` prints `event: ready`
   at once, then a `: keep-alive` every 20 seconds. If instead:
   - nothing comes for a while and then several lines at once, something buffers the stream:
-    `location = /api/order/live` must keep `proxy_buffering off`;
+    the `/api/order/live` location in `nginx.conf` must keep `proxy_buffering off`;
   - `503 LIVE_UNAVAILABLE` (it has an `x-correlation-id` header, so it is the Order Service's):
     live updates are switched off (`ORDER_LIVE_UPDATES_ENABLED=false` in `.env`), or the instance
     holds 1,000 streams;

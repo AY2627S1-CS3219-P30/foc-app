@@ -359,8 +359,11 @@ describe('the edge (PLT-10)', () => {
   });
 
   it('passes the live-update stream on as it is written, and limits streams per address (N1.4)', () => {
-    // An exact match, so it is chosen over the /api/order/ prefix (ADR 0011, #330).
-    const block = nginx.match(/location = \/api\/order\/live \{([^}]*)\}/)?.[1];
+    // Every spelling the Order Service accepts for its route, which Express matches ignoring case
+    // and a trailing slash, so none reaches the stream uncapped through /api/order/ (#335 review).
+    // A regex location is chosen over that prefix.
+    const block = nginx.match(/location ~\* \^\/api\/order\/live\/\?\$ \{([^}]*)\}/)?.[1];
+    expect(nginx).not.toContain('location = /api/order/live');
     expect(block).toContain('set $upstream order-service:3003;');
     expect(block).toContain('proxy_pass http://$upstream$api_path;');
     expect(block).toContain('error_page 502 504 =503 @unavailable;');
