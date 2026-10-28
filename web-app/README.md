@@ -68,6 +68,19 @@ instructions and records pickup and delivery, and the requester confirms receipt
 complete. The requester then opens the receipt, follows it to the payment in their wallet and back,
 and the courier follows the same payment from their receipt to their wallet and back.
 
+`e2e/dispute-outcome.e2e.ts` covers both administrative dispute decisions at all three widths.
+The requester reports non-receipt, the referred administrator decides through the console, and
+both participants read the outcome, reason and time on their errand page and expand its status
+history. The test also verifies the actual transfer/refund and an outsider's HTTP refusal and
+absence of private history in the page.
+
+The participant history panel (WEB-06, #281) reads the existing authenticated
+`GET /orders/{id}/history`; no new backend route or contract field is needed. It shows only the
+server's participant projection, hides cached history immediately when the identity or errand
+changes, ignores stale replies, and offers retry on failure. System causes and raw actor IDs are
+not displayed. Administrative decisions show their actual reason and recorded time; an ordinary
+cancellation or completion is not labelled as an administrative decision.
+
 `e2e/account-journey.e2e.ts` runs the account journey (USR-05) in Chromium at 360, 768 and 1440 px against
 the real User Service: sign-up with a failed submit, activation through the dev mailbox, sign-in with a
 rejected password, the mode switch and log-out. Only the keyboard drives the forms, and every focus stop

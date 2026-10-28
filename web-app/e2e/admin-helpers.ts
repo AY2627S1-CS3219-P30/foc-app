@@ -19,11 +19,13 @@ export async function adminSession(page: Page, throughForm = false) {
   const email = bootstrap("ADMIN_SEED_EMAILS").split(",")[0].trim();
   const seedPassword = bootstrap("ADMIN_SEED_PASSWORD");
   // Shared with the ledger-audit journey, so either spec may run first on a clean stack.
-  const password = process.env.E2E_ADMIN_PASSWORD ?? createHash("sha256")
-    .update(`${seedPassword}:ledger-audit-e2e`).digest("hex");
-  const login = (password: string) => page.request.post(`${edge}/api/user/auth/login`, {
-    data: { email, password },
-  });
+  const password =
+    process.env.E2E_ADMIN_PASSWORD ??
+    createHash("sha256").update(`${seedPassword}:ledger-audit-e2e`).digest("hex");
+  const login = (password: string) =>
+    page.request.post(`${edge}/api/user/auth/login`, {
+      data: { email, password },
+    });
   let response = await login(password);
   if (response.status() === 401 && !process.env.E2E_ADMIN_PASSWORD) {
     const initial = await login(seedPassword);
