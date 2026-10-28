@@ -1,7 +1,7 @@
 # Project and PR context for Isaac
 
 Living context for `isaacchua0309` in `AY2627S1-CS3219-P30/foc-app`.
-Refreshed 2026-10-28 against `origin/main` `10d9511` and live GitHub. Recheck GitHub before starting
+Refreshed 2026-10-28 against `origin/main` `6ef37ca` and live GitHub. Recheck GitHub before starting
 another issue. This replaces the obsolete October 20 inventory; historical open/blocked claims
 from that inventory must not be used as current state.
 
@@ -31,7 +31,7 @@ The owner explicitly authorized internal review/merge; no teammate approval is c
 private credentials, all browser-profile tabs and a 30-minute runbook. Local seed/check/rerun,
 credential/target guards and 34 page visits in five authenticated browser contexts passed; the
 required Compose CI job passed the named seed/check/rerun in run `40637011479` on feature head
-`5d2d545f1a8c77ad89162526fe27e5ae19fefba1`. It remains gated on #160,
+`5d2d545f1a8c77ad89162526fe27e5ae19fefba1`. #160 is now closed via #325. Remaining gates are
 missing live chat implementation and two actual non-owner rehearsals. #238 waits for Patrick.
 
 | Issue                                                             | Feature / classification                                        | Status                                                            | Dependencies                                                            | Blockers                                                                                     | Relevant code                                                                                                                                      |
@@ -66,7 +66,7 @@ checks as test-only; main now includes the runtime audit through merged #313.
   └── #160 complete dispute journey (its D4 audit explicitly requires WEB-06)
 
 #145 / #157 / #158 [closed]
-  └── #160 listed prerequisites are satisfied; remaining implemented-feature tests can proceed
+  └── #160 listed prerequisites and core release journeys are complete
 
 #238 shared ADR acceptance
   ├── Isaac approval [merged #300]
@@ -211,8 +211,8 @@ Reuse existing public API scripts and auth/bootstrap conventions. Keep D3 runboo
 stable fixture identifiers, safe rerun semantics and explicit isolated-demo assumptions. Read live
 service contracts before designing seed calls. Do not embed tokens/passwords in tracked data.
 
-Explicit gate #160 remains open; preparation is merged, but final acceptance needs its real
-journeys and two recorded non-owner rehearsal results (#288 tracks dates). UNRESOLVED: who will
+Explicit gate #160 is satisfied by merged #325. Final #167 acceptance still needs the live chat
+segment and two recorded non-owner rehearsal results (#288 tracks dates). UNRESOLVED: who will
 perform those rehearsals and on which release candidates. Do not mark rehearsals complete based
 on an agent execution or invented approval.
 
@@ -233,7 +233,7 @@ solely for prose, but required repository checks/review still apply.
 1. #283 is complete via merged #313. Its financial audit supplies #284's restore check.
 2. #284 is complete via merged #314: backup/restore/rollback, CI and runbooks/report are proven.
 3. #167 preparation is merged via #322. Complete the remaining release acceptance only after
-   #160, live feature segments and both actual non-owner rehearsals are evidenced.
+   live feature segments and both actual non-owner rehearsals are evidenced; #160 is satisfied.
 4. Finish shared #238 when teammate approvals/amendments are truly recorded; Isaac's part is done.
 
 ## 6. Shared technical decisions and constraints
@@ -284,10 +284,10 @@ the team must validate it and disclose AI use according to course policy before 
   and checks the audit. Initial seed, check and idempotent rerun passed locally; credentials are
   mode 600. Its tab helper opens five isolated browser profiles. These are agent checks, not human
   rehearsals. Do not count them as either non-owner rehearsal.
-- #160 remains open with Patrick: complete UI paths (controlled-clock expiry/auto-confirm,
-  disputes, suspension/reassignment, browsing/history and admin smoke) and twice-from-clean evidence
-  still need verification. #167's live chat segment also needs its actual owner implementation.
-  A pending asynchronous question asks which two non-owners can perform the required rehearsals.
+- #160 is closed via #325: the full core release suite passed twice locally and in CI. #167's live
+  chat segment still needs implementation. Two real non-owner rehearsals remain unrecorded.
+  A follow-up fixes the offline test's ambiguous retry selector found on the merged-main run;
+  details and evidence are recorded below.
 - #238 waits only for Patrick's actual approval. #254 merged with Anselm's recorded review and
   code-checked amendments; no teammate approval was invented.
 
@@ -303,10 +303,10 @@ blocker tickets, not additional issues assigned to Isaac.
   Feature-head CI `40644294001` and merged-main pipeline `40646974317` both passed, including
   publishing all five images. Participant outcome/reason, private history, late-response protection,
   both decisions and outsider denial are verified by unit tests and 18 real browser cases.
-- `test/160-release-journeys` completes the remaining implemented-feature release journeys.
-  A fresh isolated stack passed all 42 cases at 360/768/1440 px. Final twice-from-clean evidence,
-  the new required smoke/release CI matrix, internal review and merge are still pending; no closure
-  is claimed from the single debug run. `scripts-e2e-release.sh`, `compose.e2e.yaml`,
+- `test/160-release-journeys` merged in #325 at `2f00a92`; #160 is CLOSED. Both local and CI
+  `40651088404` runs passed all 42 cases twice at 360/768/1440 px, without retries/skips/errors.
+  The required smoke/release matrix and retained artifacts are on main.
+  `scripts-e2e-release.sh`, `compose.e2e.yaml`,
   `test-harness/e2e-clock.mjs`, `web-app/e2e/release-journeys.e2e.ts` and
   `web-app/e2e/zz-release-clock.e2e.ts` provide the runner and coverage.
 - The clock fixture is mounted only in the explicit disposable release configuration; it advances
@@ -321,16 +321,16 @@ blocker tickets, not additional issues assigned to Isaac.
 - The two real non-owner rehearsals and Patrick's ADR decision remain external gates. An agent
   may complete technical blocker code but cannot supply those people's participation or decisions.
 
-### Completion audit — 28 October, after #322
+### Completion audit — 28 October, after #325 and #326
 
-| Requirement                                                                                                     | Authoritative evidence                                                                                     | Result / next action                                                                |
-| --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| #283 runtime financial audit, tests, operator instructions and merge/closure                                    | Merged #313, closed #283, required CI and runtime evidence above                                           | Complete                                                                            |
-| #284 four-database restore, exact data, audit, timed RTO and real published-image rollback                      | Merged #314, closed #284, CI `40631924720`, `docs/reports/2026-10-28-stack-recovery.md`                    | Complete                                                                            |
-| #167 deterministic named personas, suppliers/errands, preflight, runbook, browser tabs and preparation pipeline | Merged #322; CI `40637011479`, Compose job `122646527466`; source paths above                              | Preparation complete; issue remains open                                            |
-| #167 explicit TST-02 dependency                                                                                 | Live #160 remains OPEN, assigned to Patrick; its body requires critical UI journeys twice from clean seeds | Incomplete; green existing browser tests do not close this broader gate             |
-| #167 all live feature segments and two non-owner rehearsals                                                     | `docs/demo/d4-runbook.md` marks chat gated and both rehearsal rows Pending; #161 remains OPEN              | Incomplete; real owner implementation and rehearsal evidence needed                 |
-| #238 all five approvals and Accepted ADRs                                                                       | `docs/adr/README.md`: Patrick Pending; required ADRs still Proposed                                        | Incomplete; obtain Patrick's actual decision, then update ADR statuses consistently |
+| Requirement                                                                                                     | Authoritative evidence                                                                                       | Result / next action                                                                |
+| --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| #283 runtime financial audit, tests, operator instructions and merge/closure                                    | Merged #313, closed #283, required CI and runtime evidence above                                             | Complete                                                                            |
+| #284 four-database restore, exact data, audit, timed RTO and real published-image rollback                      | Merged #314, closed #284, CI `40631924720`, `docs/reports/2026-10-28-stack-recovery.md`                      | Complete                                                                            |
+| #167 deterministic named personas, suppliers/errands, preflight, runbook, browser tabs and preparation pipeline | Merged #322; CI `40637011479`, Compose job `122646527466`; source paths above                                | Preparation complete; issue remains open                                            |
+| #167 explicit TST-02 dependency                                                                                 | Closed #160, merged #325; downloaded CI `40651088404` artifacts: 42 passed twice, zero failures/flakes/skips | Complete; maintain the release suite and investigate later failures                 |
+| #167 all live feature segments and two non-owner rehearsals                                                     | `docs/demo/d4-runbook.md` marks chat gated and both rehearsal rows Pending; #161 remains OPEN                | Incomplete; real owner implementation and rehearsal evidence needed                 |
+| #238 all five approvals and Accepted ADRs                                                                       | `docs/adr/README.md`: Patrick Pending; required ADRs still Proposed                                          | Incomplete; obtain Patrick's actual decision, then update ADR statuses consistently |
 
 Live GitHub shows two assigned open issues (#167, #238), no assigned open PRs and no open PRs
 authored by Isaac. Completed implementation has been merged and its completed issues closed.
@@ -345,6 +345,21 @@ acceptance gates above. Do not close them or treat agent/CI execution as a teamm
   segment, which needs #161–#163, and two real non-owner rehearsals.
 - Chat (#161 Patrick, #162 Zhang Yuan, #163 Anselm) is each owner's graded nice-to-have; the design
   points in `docs/nice-to-haves.md` (separate service or Order module, transport, retention, rate
-  limit) are theirs to settle. Isaac suggested 90-day retention as input only. Do not implement
-  their slices under Isaac's name without the owners' agreement.
+  limit) are theirs to settle according to merged #326. In this Codex thread Isaac explicitly
+  chose **90 days after the errand ends**; this records his direction, not the other owners' approval.
+  #326 says not to implement their slices under Isaac's name without owners' agreement. An
+  asynchronous scope question asks Isaac to resolve that new note against his earlier instruction
+  to complete all technical blockers. No chat implementation or teammate agreement is claimed.
 - #238 waits only for Patrick's recorded approval.
+
+### Release CI follow-up — ambiguous offline retry selector
+
+Main run `40655470485` (merge `2f00a92`) failed the tablet reconnect journey: a failed wallet read
+and failed request post both legitimately displayed “Try again”, so the unscoped Playwright locator
+matched two buttons. The following main run `40655751822` (`6ef37ca`) passed the full release suite
+and published all five images, but a later pass does not repair the ambiguous selector.
+
+`fix/160-offline-retry-locator` scopes retry to the posting actions beside “Edit details” and
+deliberately fails the browser wallet read in the offline step so both controls are always present.
+It preserves the assertions that reconnect creates exactly one errand and reserves its reward once.
+Twice-clean local verification, required PR CI and merge are pending for this follow-up.

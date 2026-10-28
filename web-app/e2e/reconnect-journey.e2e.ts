@@ -30,6 +30,12 @@ test("reconnect journey: a lost or offline post creates one errand", async ({
   const token = await activeStudent(page.request, email);
   const supplier = await firstSupplier(request, token);
   const auth = { authorization: `Bearer ${token}` };
+  // Wallet recovery can also offer "Try again". Target the posting action beside Edit details,
+  // rather than whichever same-named button happens to appear first after connectivity is lost.
+  const retryPost = page
+    .getByRole("button", { name: "Edit details", exact: true })
+    .locator("..")
+    .getByRole("button", { name: "Try again", exact: true });
   const posted: string[] = [];
   let reserved = 0;
 
@@ -47,22 +53,29 @@ test("reconnect journey: a lost or offline post creates one errand", async ({
     await compose(page, { supplier: supplier.name, item: "Kopi O", reward: 2 });
     const lost = await loseNextPost(page);
     await page.getByRole("button", { name: "Post request" }).click();
-    await expect(page.getByRole("button", { name: "Try again" })).toBeEnabled();
+    await expect(retryPost).toBeEnabled();
     const drafts = await page.evaluate(() => Object.keys(sessionStorage));
     expect(drafts.some((key) => key.startsWith("foc.request-draft:"))).toBe(true);
 
-    await page.getByRole("button", { name: "Try again" }).click();
+    await retryPost.click();
     await expect(page).toHaveURL(new RegExp(`/request/${await lost.orderId}$`));
     await expect(visible(page, "This request was already posted")).toBeVisible();
     await postedOnce(2);
   });
 
   await test.step("offline, then back: the online listener retries and creates one errand", async () => {
+    // Reproduce the main-CI failure deterministically: the balance read and the post both fail,
+    // leaving two legitimate retry controls on screen. Only browser traffic is interrupted.
+    const walletUrl = "**/api/credit/wallets/me";
+    await page.route(walletUrl, (route) => route.abort("internetdisconnected"));
     await compose(page, { supplier: supplier.name, item: "Kaya toast", reward: 2 });
+    await expect(page.getByRole("alert").filter({ hasText: "Could not load your balance" })).toBeVisible();
     await context.setOffline(true);
     await page.getByRole("button", { name: "Post request" }).click();
-    await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+    await expect(retryPost).toBeVisible();
+    await expect(page.getByRole("button", { name: "Try again", exact: true })).toHaveCount(2);
 
+    await page.unroute(walletUrl);
     await context.setOffline(false);
     await postedOnce(2);
   });
@@ -71,7 +84,7 @@ test("reconnect journey: a lost or offline post creates one errand", async ({
     await compose(page, { supplier: supplier.name, item: "Milo", reward: 1 });
     const lost = await loseNextPost(page);
     await page.getByRole("button", { name: "Post request" }).click();
-    await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+    await expect(retryPost).toBeVisible();
 
     await page.getByRole("button", { name: "Edit details" }).click();
     await page.getByRole("slider").fill("2");
@@ -89,7 +102,7 @@ test("reconnect journey: a lost or offline post creates one errand", async ({
     await expect(row(page, "Available after reserving the reward")).toContainText("0 credits");
     const lost = await loseNextPost(page);
     await page.getByRole("button", { name: "Post request" }).click();
-    await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+    await expect(retryPost).toBeVisible();
     await expect.poll(async () => (await wallet()).available, { timeout: 30_000 }).toBe(0);
 
     await page.reload();
