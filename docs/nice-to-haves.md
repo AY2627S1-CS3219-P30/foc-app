@@ -79,6 +79,10 @@ and what they said is kept with the errand for an administrator reviewing a disp
 
 **Proposed design.** Not yet agreed by the owners.
 
+The [implementation handoff](chat-implementation-handoff.md) maps the current code, dependencies,
+policy questions and deployment/recovery changes. Isaac selected 90-day message retention after
+an errand ends in his preparation thread; that records his direction, not the other owners’ agreement.
+
 - **Scope.** One channel per errand, between its requester and its assigned courier. Text only: no
   voice, video, attachments or translation.
 - **Its own service and container**, `chat-service`, with its own database and role
