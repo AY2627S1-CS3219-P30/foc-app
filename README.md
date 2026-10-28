@@ -12,13 +12,13 @@ withdrawn, or exchanged for money, and only circulate within the platform.
 
 ## Team Members
 
-| Name           | GitHub                | Owns                                                        | Nice-to-have                                                |
-| -------------- | --------------------- | ----------------------------------------------------------- | ----------------------------------------------------------- |
-| Anselm Long    | `@anselmlong`         | User Service: identity and access                           | N1.1 the User Service side; N1.2 chat access and retention  |
-| Zhang Yuan     | `@volleyballkickedme` | Order Service: the errand lifecycle                         | N1.1 dispute referral and decision; N1.2 the chat lifecycle |
-| Jonus Ho       | `@jonushzw`           | Integration and platform: events, containers, observability | N1.1 the admin console and operations; N4.1 CI/CD           |
-| Isaac Chua     | `@isaacchua0309`      | Credit Service: the credit economy                          | N3.1 conservation evidence; N3.2 credit reconciliation      |
-| Patrick Thomas | `@pastchum`           | Supplier Service and the web app                            | N1.2 the chat interface                                     |
+| Name           | GitHub                | Owns                                                        | Nice-to-have                                                                |
+| -------------- | --------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Anselm Long    | `@anselmlong`         | User Service: identity and access                           | N1.1 the User Service side; N1.2 chat access and retention                  |
+| Zhang Yuan     | `@volleyballkickedme` | Order Service: the errand lifecycle                         | N1.1 dispute referral and decision; N1.2 the chat lifecycle                 |
+| Jonus Ho       | `@jonushzw`           | Integration and platform: events, containers, observability | N1.1 the admin console and operations; N1.4 live errand updates; N4.1 CI/CD |
+| Isaac Chua     | `@isaacchua0309`      | Credit Service: the credit economy                          | N3.1 conservation evidence; N3.2 credit reconciliation                      |
+| Patrick Thomas | `@pastchum`           | Supplier Service and the web app                            | N1.2 the chat interface                                                     |
 
 What each nice-to-have is, and how the work on it is shared, is in
 [docs/nice-to-haves.md](docs/nice-to-haves.md).
