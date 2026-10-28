@@ -139,7 +139,7 @@ audit. It does not exercise every browser action. The full browser release suite
 `./scripts-e2e-release.sh --twice` from the repository root. It covers the composer, withdrawal and
 cancellation, disputes, suspension/reassignment, controlled-clock expiry/auto-confirmation and the
 admin console; see the [web README](../../web-app/README.md#full-release-suite-tst-02-160). CI
-requires it twice from clean volumes. Preserve traces/screenshots on failure and record run links.
+runs it once on each pull request, and twice from clean volumes on every push to `main`. Preserve traces/screenshots on failure and record run links.
 
 For a 429 during repeated practice, respect Retry-After and stop creating extra accounts. For
 401/403, use the correct persona's own profile and current session; do not copy a token between

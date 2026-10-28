@@ -327,13 +327,15 @@ services:
     depends_on:
       web-app: { condition: service_started }
     # Healthy means ready: the web app and all four services answer (PLT-13), so `up --wait` and
-    # the scripts' wait end when every page can work. A service lost later turns it unhealthy,
-    # and /edge/ready names it.
+    # the scripts' wait end when every page can work. A service lost for a minute turns it
+    # unhealthy; /edge/ready names it at once. The minute lets services be recreated under a
+    # running edge, as a second `up --build` does, without `--wait` failing on the edge while
+    # they come back: it still waits on each service's own health check.
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/edge/ready']
       interval: 5s
       timeout: 5s
-      retries: 3
+      retries: 12
       start_period: 90s
     # Its own way out, for its published port; `web` to the web app, `gateway` to the services.
     networks: [edge, web, gateway]

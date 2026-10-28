@@ -316,10 +316,16 @@ jobs:
   # containers actually talk to each other — database isolation, CORS, health.
   # ---------------------------------------------------------------------------
   stack:
-    name: Compose smoke
+    name: Compose smoke (${{ matrix.part }})
     needs: detect
     if: needs.detect.outputs.stack == 'true'
     runs-on: ubuntu-latest
+    # Three runners at once, each building the images it starts, so the slowest part sets how long
+    # CI takes rather than all of them in a row. Each runs to its end even when another fails.
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [core, resilience, recovery]
     permissions:
       contents: read
       actions: read
@@ -327,8 +333,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+      # compose.yaml refuses to load without its secrets: generated and thrown away, in every part.
+      - name: Generate a throwaway .env
+        run: ./scripts-init-env.sh
       # PLT-05: the alert rules fire when they should (observability/alerts.test.yml).
       - name: Test the alert rules
+        if: matrix.part == 'core'
         run: |
           docker run --rm -v "$PWD/observability:/rules:ro" --entrypoint promtool \
             prom/prometheus:v3.13.4@sha256:87861b8cf91579109319ebc300f3f1060e6da9c05d6ae8ad15a20c879e84e32e test rules /rules/alerts.test.yml
@@ -337,37 +347,43 @@ jobs:
       # PLT-06: no secret in any file git tracks, and none in an image this repository builds.
       # First, so that it builds the images the steps below then start from cache.
       - name: Scan the repository and the images for secrets
-        run: |
-          ./scripts-init-env.sh
-          ./scripts-scan-secrets.sh
+        if: matrix.part == 'core'
+        run: ./scripts-scan-secrets.sh
       - name: Start the stack and smoke it
+        if: matrix.part == 'core'
         run: ./scripts-smoke.sh --up
       # EVT-03: a duplicate, a killed consumer, a stale reply and an unsupported version, on a
       # stack of its own (the smoke run has removed its copy), ending with credits conserved.
       - name: Force messaging failures and check the outcome
+        if: matrix.part == 'core'
         run: ./scripts-demo-failures.sh --up
       # CRD-09: reserve, transfer and release through the public API, with both wallets before and
       # after each, ending with the closed-economy invariants checked on the live database.
       - name: Walk the credits through an errand
+        if: matrix.part == 'core'
         run: ./scripts-demo-credits.sh --up
       # PLT-06: stop and start every container, remove and recreate them, and take Postgres away
       # under the running services. Nothing committed is lost, a waiting message is handled once,
       # and a service without its database says 503 instead of accepting a write.
       - name: Restart, recreate and lose a dependency
+        if: matrix.part == 'resilience'
         run: ./scripts-restart-check.sh --up
       # PLT-07: the D3 demo's journey through the public API. A student registers and gets a
       # wallet; an errand is created, accepted, delivered and paid; one is cancelled; six actions
       # are refused; and a dead letter left by a database outage is redriven by an administrator.
       - name: The demo journey, end to end
+        if: matrix.part == 'resilience'
         run: ./scripts-demo-journey.sh --up --redrive
       # PLT-09: a quiescent four-database dump, fresh volumes, exact row fingerprints, smoke
       # and CRD-10 financial audit. The drill creates/deletes only its own unique project.
       - uses: docker/login-action@v3
+        if: matrix.part == 'recovery'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Back up, restore and roll back the stack
+        if: matrix.part == 'recovery'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -386,7 +402,7 @@ jobs:
           # additive-migration rule and review compatibility before exercising this rollback.
           ./scripts-recovery-drill.sh --rollback-tag "$rollback_tag"
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && matrix.part == 'recovery'
         with:
           name: recovery-drill
           path: .recovery-results/drill.json
@@ -394,6 +410,7 @@ jobs:
           retention-days: 14
       # REL-01: the same named people/errands survive check + repeated seed; no secret is printed.
       - name: Seed and smoke the named D4 demo twice
+        if: matrix.part == 'resilience'
         shell: bash
         run: |
           set -euo pipefail
@@ -497,7 +514,8 @@ jobs:
       fail-fast: false
       matrix:
         suite: [smoke, release]
-    # Release proves the complete suite twice, each time after deleting its own test volumes.
+    # Release proves the complete suite from clean containers: once on a pull request, and twice,
+    # each time after deleting its own test volumes, on a push to main.
     timeout-minutes: 40
     env:
       # The images the bake step below builds and names (compose.images.yaml gives a service and
@@ -550,11 +568,11 @@ jobs:
         if: matrix.suite == 'smoke'
         working-directory: web-app
         run: bun run e2e
-      - name: Run the full release suite twice from clean containers
+      - name: Run the full release suite from clean containers
         if: matrix.suite == 'release'
         env:
           E2E_IMAGE_TAG: ci
-        run: ./scripts-e2e-release.sh --twice
+        run: ./scripts-e2e-release.sh "${{ github.event_name == 'push' && '--twice' || '--once' }}"
       - name: Container logs
         if: failure() && matrix.suite == 'smoke'
         run: docker compose logs --no-color --tail=100
