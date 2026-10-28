@@ -1,7 +1,7 @@
 # Project and PR context for Isaac
 
 Living context for `isaacchua0309` in `AY2627S1-CS3219-P30/foc-app`.
-Refreshed 2026-10-28 against `origin/main` `e5da74a` and live GitHub. Recheck GitHub before starting
+Refreshed 2026-10-28 against `origin/main` `f1ff6e3` and live GitHub. Recheck GitHub before starting
 another issue. This replaces the obsolete October 20 inventory; historical open/blocked claims
 from that inventory must not be used as current state.
 
@@ -27,16 +27,18 @@ PR #313 merged the financial audit at `0f938fa`; PR #314 merged recovery at
 `e5da74ae4fac5e9cf17483d3e7f687ac1fdc1a84`. Required CI passed on each feature head. Recovery CI
 run `40631924720` proves the full restore and actual published-image rollback (105 seconds).
 The owner explicitly authorized internal review/merge; no teammate approval is claimed.
-#167 preparation continues in local worktree `work/d4-demo-seed`: an isolated named-persona seed,
-private credentials, all browser-profile tabs and a 30-minute runbook. It remains gated on #160,
+#167 preparation is implemented on `feat/167-d4-demo-seed`: an isolated named-persona seed,
+private credentials, all browser-profile tabs and a 30-minute runbook. Local seed/check/rerun,
+credential/target guards and 34 page visits in five authenticated browser contexts passed; the
+required Compose CI job will run the named seed/check/rerun too. It remains gated on #160,
 missing live chat implementation and two actual non-owner rehearsals. #238 waits for Patrick.
 
-| Issue                                                             | Feature / classification                                        | Status                                                         | Dependencies                                                            | Blockers                                                                                     | Relevant code                                                                                                                                      |
-| ----------------------------------------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [#283](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/283) | CRD-10 financial audit; foundation                              | CLOSED; PR #313 merged, exact-head CI green                    | #166 related, not a prerequisite; contributes a runbook to #168         | Merged under owner-authorized internal review                                                | `credit-service/src/credits/ledger-audit.*`, `invariants.ts`, `web-app/src/app/(app)/admin/operations/LedgerAudit.tsx`, `observability/alerts.yml` |
-| [#284](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/284) | PLT-09 stack backup/restore/rollback; integration               | CLOSED; PR #314 merged; full recovery/rollback CI PASS         | #164 publisher resolved by #315; #283 merged                            | None for implementation; daily/off-host backup operation remains a deployment responsibility | `scripts-{backup,restore,rollback,recovery-drill}.sh`, `scripts-recovery.py`, recovery runbook/report, CI                                          |
-| [#167](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/167) | REL-01 deterministic seed, smoke and D4 narrative; finalization | Local seed/runbook preparation; not merged or complete         | Explicit TST-02 #160 (open, Patrick)                                    | Two successful non-owner rehearsals required; cannot fabricate them                          | `scripts-lib.sh`, `scripts-smoke.sh`, `scripts-demo-*.sh`, future `docs/demo/d4-runbook.md`                                                        |
-| [#238](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/238) | DOC-04 ADR acceptance; team gate                                | Isaac's own approval merged in #300; shared completion pending | Related #183/#226 satisfied; amendments in #250 (merged), #254 (merged) | Patrick approval pending; other four now recorded on main                                    | `docs/adr/README.md`, ADRs 0002–0009                                                                                                               |
+| Issue                                                             | Feature / classification                                        | Status                                                              | Dependencies                                                            | Blockers                                                                                     | Relevant code                                                                                                                                      |
+| ----------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [#283](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/283) | CRD-10 financial audit; foundation                              | CLOSED; PR #313 merged, exact-head CI green                         | #166 related, not a prerequisite; contributes a runbook to #168         | Merged under owner-authorized internal review                                                | `credit-service/src/credits/ledger-audit.*`, `invariants.ts`, `web-app/src/app/(app)/admin/operations/LedgerAudit.tsx`, `observability/alerts.yml` |
+| [#284](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/284) | PLT-09 stack backup/restore/rollback; integration               | CLOSED; PR #314 merged; full recovery/rollback CI PASS              | #164 publisher resolved by #315; #283 merged                            | None for implementation; daily/off-host backup operation remains a deployment responsibility | `scripts-{backup,restore,rollback,recovery-drill}.sh`, `scripts-recovery.py`, recovery runbook/report, CI                                          |
+| [#167](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/167) | REL-01 deterministic seed, smoke and D4 narrative; finalization | Seed/tabs/runbook implemented locally; CI and external gates remain | Explicit TST-02 #160 (open, Patrick)                                    | Two successful non-owner rehearsals required; cannot fabricate them                          | `scripts-lib.sh`, `scripts-smoke.sh`, `scripts-demo-*.sh`, future `docs/demo/d4-runbook.md`                                                        |
+| [#238](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/238) | DOC-04 ADR acceptance; team gate                                | Isaac's own approval merged in #300; shared completion pending      | Related #183/#226 satisfied; amendments in #250 (merged), #254 (merged) | Patrick approval pending; other four now recorded on main                                    | `docs/adr/README.md`, ADRs 0002–0009                                                                                                               |
 
 #167's original owner line still says Patrick; its D4 amendment and GitHub assignment supersede
 that line. #284's body still says no published images exist; #164 is now closed, so verify actual
@@ -177,6 +179,20 @@ and two admins plus suppliers/errands; health wait + loud smoke failure; repeata
 story; `docs/demo/d4-runbook.md` covers the full 30-minute demo, core and all selected nice-to-haves,
 presenter/fallback for each and local-container deployment (#286); two non-owners finish rehearsals.
 
+`scripts-seed-demo.sh --fresh` creates only the dedicated `foc-d4-demo` project on ports
+14000–14009, using a development mailbox and public User/Supplier/Order/Credit APIs. It creates
+Alyssa/Ben/Chloe as requester/two couriers and Dina/Evan as independently credentialed admins;
+bootstrap passwords must be replaced through the normal endpoint. It references the actual
+Printer @ Com 2 course CSV supplier and three stable idempotency keys. Total initial reservations
+are 4 credits, within the minimum allocation of 5. `--check` verifies the named state and audit;
+`--up` preserves identities/errands on rerun. Private credentials are atomically written mode 600.
+`scripts-demo-tabs.py` opens five isolated Chrome profiles with all route tabs on macOS, or prints
+the complete list cross-platform. `docs/demo/d4-runbook.md` has the 30-minute service/N2H handoffs,
+commands, expected credit movements, fallback per segment and two explicitly pending human rows.
+Three guard tests and actual local seeded-stack checks passed; 34 authenticated page visits passed.
+CI runs clean seed/check/reseed and compares stable persona/errand IDs without printing secrets.
+These checks do not prove #160 or count as two non-owner rehearsals.
+
 Reuse existing public API scripts and auth/bootstrap conventions. Keep D3 runbook unchanged. Use
 stable fixture identifiers, safe rerun semantics and explicit isolated-demo assumptions. Read live
 service contracts before designing seed calls. Do not embed tokens/passwords in tracked data.
@@ -234,7 +250,7 @@ solely for prose, but required repository checks/review still apply.
 [ ] #238 team completion — Patrick pending; other four approvals recorded; #254 merged at 32aa950
 [x] #283 — Daily financial audit — PR #313 merged at 0f938fa; issue closed; exact-head CI green
 [x] #284 — PR #314 merged at e5da74a; issue closed; exact-head CI proves 105-second restore and published-image rollback
-[ ] #167 — Local named seed/tabs/runbook prepared; #160, live chat and two non-owner rehearsals remain gates
+[ ] #167 — Named seed/tabs/runbook implemented and locally verified; CI, #160, live chat and two non-owner rehearsals remain gates
 ```
 
 Before starting another issue, pull main, reread live issues/comments/linked PRs and update this

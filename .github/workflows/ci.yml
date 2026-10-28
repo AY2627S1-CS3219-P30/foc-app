@@ -392,6 +392,37 @@ jobs:
           path: .recovery-results/drill.json
           include-hidden-files: true
           retention-days: 14
+      # REL-01: the same named people/errands survive check + repeated seed; no secret is printed.
+      - name: Seed and smoke the named D4 demo twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup_demo() {
+            status=$?
+            if [[ -f .demo-state/foc-d4-demo/ports.sh ]]; then
+              . ./.demo-state/foc-d4-demo/ports.sh
+              docker compose -p foc-d4-demo down -v || true
+            fi
+            exit "$status"
+          }
+          trap cleanup_demo EXIT
+          ./scripts-seed-demo.sh --fresh
+          cp .demo-state/foc-d4-demo/overview.json /tmp/d4-seed-before.json
+          ./scripts-seed-demo.sh --check
+          ./scripts-seed-demo.sh --up
+          python3 - <<'PY'
+          import json,stat
+          from pathlib import Path
+          before=json.loads(Path('/tmp/d4-seed-before.json').read_text())
+          after=json.loads(Path('.demo-state/foc-d4-demo/overview.json').read_text())
+          assert before['personas']==after['personas'], 'seed duplicated or changed identities'
+          assert before['orders']==after['orders'], 'seed duplicated or changed errands'
+          assert len(after['personas'])==5 and len(after['orders'])==3
+          assert all(x['status']=='OPEN' for x in after['orders'].values())
+          assert stat.S_IMODE(Path('.demo-state/foc-d4-demo/credentials.json').stat().st_mode)==0o600
+          print('Named D4 seed is stable; five identities, three OPEN errands, private credentials.')
+          PY
+          python3 scripts-demo-tabs.py --print
 
   # ---------------------------------------------------------------------------
   # The supplier page against the real Supplier Service, verifying tokens with

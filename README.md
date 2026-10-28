@@ -225,6 +225,12 @@ instructions accept. There is no hosted deployment
 | `./scripts-restart-check.sh`          | Restart, recreate and take Postgres away      |
 | `./scripts-demo-journey.sh`           | A student, an errand and its credits, by API  |
 
+For the named D4 demonstration on a separate local stack, run `./scripts-seed-demo.sh --fresh`.
+It prepares five personas, three errands and a clean financial audit on ports 14000–14009.
+Use `./scripts-seed-demo.sh --check` for the demo smoke check, and follow the
+[D4 runbook](docs/demo/d4-runbook.md) for all browser profiles/tabs, the 30-minute script and
+the outstanding real-rehearsal gates.
+
 For a consistent four-database backup, fresh-stack restore, timed disposable drill and prior-image
 rollback, follow the [recovery runbook](docs/runbooks/backup-restore-rollback.md). Start a backup
 with `./scripts-backup.sh`; it briefly stops application writers and resumes them after the dump.

@@ -19,6 +19,7 @@ Thumbs.db
 
 # Test output
 coverage/
+.demo-state/
 backups/
 .recovery-results/
 __pycache__/
