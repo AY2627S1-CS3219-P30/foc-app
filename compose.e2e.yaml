@@ -1,0 +1,22 @@
+# Explicit test override only. Normal/local/published deployments never load these mounts or clock.
+x-release-clock: &release-clock
+  environment: &clock-env
+    NODE_OPTIONS: --import=/app/e2e-clock.mjs
+    E2E_CLOCK_PROJECT: foc-e2e-release
+    E2E_CLOCK_FILE: /app/e2e-clock/offset-ms
+  volumes:
+    - ./test-harness/e2e-clock.mjs:/app/e2e-clock.mjs:ro
+    - ./.release-results/clock:/app/e2e-clock:ro
+services:
+  order-service: *release-clock
+  supplier-service: *release-clock
+  credit-service: *release-clock
+  user-service:
+    <<: *release-clock
+    environment:
+      <<: *clock-env
+      # Repeated browser fixtures sign in many independent sessions in minutes. The ordinary
+      # smoke suite and User's rate-limit tests retain the real default limits; this is not a
+      # rate-limit benchmark and does not bypass authentication, activation, roles or step-up.
+      LOGIN_LIMIT_PER_IP: '200'
+      LOGIN_LIMIT_PER_EMAIL: '50'
