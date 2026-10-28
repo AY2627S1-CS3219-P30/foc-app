@@ -1,7 +1,7 @@
 # Project and PR context for Isaac
 
 Living context for `isaacchua0309` in `AY2627S1-CS3219-P30/foc-app`.
-Refreshed 2026-10-28 against `origin/main` `462257f` and live GitHub. Recheck GitHub before starting
+Refreshed 2026-10-28 against `origin/main` `10d9511` and live GitHub. Recheck GitHub before starting
 another issue. This replaces the obsolete October 20 inventory; historical open/blocked claims
 from that inventory must not be used as current state.
 
@@ -62,7 +62,7 @@ checks as test-only; main now includes the runtime audit through merged #313.
   └── #167 final acceptance + two non-owner rehearsals
        (seed, tabs and narrative merged in #322; live chat also remains gated)
 
-#281 participant dispute outcome/reason [open; blocker implementation in progress]
+#281 participant dispute outcome/reason [closed; merged PR #324]
   └── #160 complete dispute journey (its D4 audit explicitly requires WEB-06)
 
 #145 / #157 / #158 [closed]
@@ -265,6 +265,8 @@ solely for prose, but required repository checks/review still apply.
 [x] #283 — Daily financial audit — PR #313 merged at 0f938fa; issue closed; exact-head CI green
 [x] #284 — PR #314 merged at e5da74a; issue closed; exact-head CI proves 105-second restore and published-image rollback
 [x] #167 preparation — Seed/tabs/runbook merged in #322 at 462257f; exact-head CI 40637011479 passed
+[x] #281 blocker — PR #324 merged; issue closed; required and main CI passed
+[ ] #160 blocker — 42-case run passed; twice-clean acceptance and new CI matrix pending
 [ ] #167 acceptance — #160, live chat and two actual non-owner rehearsals remain gates
 ```
 
@@ -294,22 +296,28 @@ the team must validate it and disclose AI use according to course policy before 
 The earlier conclusion that no independent technical action remained was too broad. The user
 authorized resolving blockers as well as assigned work. #160 is assigned to Patrick, but all
 three of its listed prerequisites (#145 TST-01, #157 WEB-02, #158 WEB-03) are CLOSED. Its D4 audit
-explicitly requires #281's student dispute outcome, which is still missing on main. These are
+explicitly requires #281's student dispute outcome, now merged in PR #324. These are
 blocker tickets, not additional issues assigned to Isaac.
 
-- `test/160-release-journeys`, local commit `1234e65`, scaffolds the missing release journeys and
-  a dedicated `foc-e2e-release` runner. It is not merged or acceptance evidence. The initial debug
-  run found driver assumptions (withdrawal consumes its URL flag; wallet timestamps change), and
-  confirmed that the current student screen lacks #281's decision/reason. Supplier filtering and
-  the existing mobile journeys passed. Controlled server-clock coverage, suspension/reassignment,
-  all clean release runs and chat coverage still need completion; do not close #160 from this run.
-- `feat/281-participant-dispute-history` implements that concrete UI prerequisite before the
-  release suite is finalized. The existing Order history contract already carries decision reasons
-  to participants and refuses outsiders, so no backend field or contract change is required.
-  Relevant code: `web-app/src/lib/order-api.ts`, `use-order-history.ts`,
-  `web-app/src/components/ErrandHistory.tsx` and `request/[id]/OrderDetail.tsx`; tests cover both
-  outcomes, identity/order changes and late replies, escaping, and real public-route decisions.
-  Merge/closure still require passing CI and the actual PR merge; recheck GitHub.
+- #281 is CLOSED; PR #324 merged at `10d9511fe7ac98d14873d22d378e01260cae8b91`.
+  Feature-head CI `40644294001` and merged-main pipeline `40646974317` both passed, including
+  publishing all five images. Participant outcome/reason, private history, late-response protection,
+  both decisions and outsider denial are verified by unit tests and 18 real browser cases.
+- `test/160-release-journeys` completes the remaining implemented-feature release journeys.
+  A fresh isolated stack passed all 42 cases at 360/768/1440 px. Final twice-from-clean evidence,
+  the new required smoke/release CI matrix, internal review and merge are still pending; no closure
+  is claimed from the single debug run. `scripts-e2e-release.sh`, `compose.e2e.yaml`,
+  `test-harness/e2e-clock.mjs`, `web-app/e2e/release-journeys.e2e.ts` and
+  `web-app/e2e/zz-release-clock.e2e.ts` provide the runner and coverage.
+- The clock fixture is mounted only in the explicit disposable release configuration; it advances
+  the four backends' implicit Node clock and explicit PostgreSQL clock reads. It never edits an
+  errand, wallet, ledger or history row. Tests reauthenticate normally after jumps, then observe
+  actual lifecycle workers and asynchronous credit settlement. Ordinary smoke retains auth limits.
+- #160's explicit implemented-path acceptance does not require a nonexistent chat implementation.
+  #161 assigns its future chat browser journey to the TST-02 suite; that is an integration follow-up,
+  not an inferred prerequisite for the current core journeys. #167's live chat demo remains gated
+  independently. Withdrawal retains reserved credits for reassignment; cancellation releases them,
+  clarifying the audit checklist rather than changing production semantics.
 - The two real non-owner rehearsals and Patrick's ADR decision remain external gates. An agent
   may complete technical blocker code but cannot supply those people's participation or decisions.
 

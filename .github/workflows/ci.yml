@@ -483,7 +483,7 @@ jobs:
   # cannot race it.
   # ---------------------------------------------------------------------------
   e2e:
-    name: Browser journeys (Playwright)
+    name: Browser journeys (${{ matrix.suite }})
     needs: detect
     if: >-
       needs.detect.outputs.web == 'true' ||
@@ -493,8 +493,12 @@ jobs:
       contains(needs.detect.outputs.services, 'order-service') ||
       contains(needs.detect.outputs.services, 'credit-service')
     runs-on: ubuntu-latest
-    # A normal run takes about 4 minutes. Without a limit a hung step runs for GitHub's six hours.
-    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [smoke, release]
+    # Release proves the complete suite twice, each time after deleting its own test volumes.
+    timeout-minutes: 40
     env:
       # The images the bake step below builds and names (compose.images.yaml gives a service and
       # its migrate container one image), for every docker compose call, the smoke test's included.
@@ -534,6 +538,7 @@ jobs:
             credit-service.cache-from=type=gha,scope=credit-service
             web-app.cache-from=type=gha,scope=web-app
       - name: Start the stack
+        if: matrix.suite == 'smoke'
         run: |
           docker compose up -d --no-build
           ./scripts-smoke.sh
@@ -542,17 +547,33 @@ jobs:
       - name: The runner's Chrome
         run: google-chrome --version
       - name: Run the browser journeys
+        if: matrix.suite == 'smoke'
         working-directory: web-app
         run: bun run e2e
+      - name: Run the full release suite twice from clean containers
+        if: matrix.suite == 'release'
+        env:
+          E2E_IMAGE_TAG: ci
+        run: ./scripts-e2e-release.sh --twice
       - name: Container logs
-        if: failure()
+        if: failure() && matrix.suite == 'smoke'
         run: docker compose logs --no-color --tail=100
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-report
-          path: web-app/playwright-report
+          name: playwright-report-${{ matrix.suite }}
+          path: |
+            web-app/playwright-report
+            web-app/test-results
           retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        if: always() && matrix.suite == 'release'
+        with:
+          name: release-journeys
+          path: .release-results
+          include-hidden-files: true
+          retention-days: 14
 
   # ---------------------------------------------------------------------------
   # Required status check.

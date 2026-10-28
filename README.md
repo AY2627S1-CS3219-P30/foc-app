@@ -1168,3 +1168,11 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
   one-service-per-folder skeleton** for core implementation.
 
 ---
+
+## Full browser release check
+
+Run `./scripts-e2e-release.sh --twice` from the repository root to prove the critical user journeys
+twice from clean containers. It resets only the dedicated `foc-e2e-release` project on ports
+14500–14509. Setup, coverage, clock isolation and retained evidence are documented in the
+[web app release suite](web-app/README.md#full-release-suite-tst-02-160). CI requires both its ordinary
+browser smoke and the full release runs.

@@ -8,6 +8,8 @@
 **/node_modules
 **/dist
 **/coverage
+**/test-results
+**/playwright-report
 **/*.tsbuildinfo
 # Local demo identities/browser sessions and recovery dumps never enter an image build context.
 .demo-state
