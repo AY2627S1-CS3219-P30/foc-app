@@ -15,7 +15,7 @@ const read = (path: string) => readFileSync(join(ROOT, path), 'utf8');
 interface ComposeService {
   depends_on?: Record<string, { condition: string }>;
   volumes?: string[];
-  healthcheck?: { test: string[]; start_period?: string };
+  healthcheck?: { test: string[]; interval?: string; retries?: number; start_period?: string };
 }
 const services = (yaml.load(read('compose.yaml')) as { services: Record<string, ComposeService> })
   .services;
@@ -47,6 +47,16 @@ describe('the stack’s readiness (PLT-13)', () => {
     expect(edge.healthcheck!.test.join(' ')).toContain('http://127.0.0.1:8080/edge/ready');
     // Ready within 90 s of starting (PL-NFR1.1.1); until then a failed check is not unhealthy.
     expect(edge.healthcheck!.start_period).toBe('90s');
+  });
+
+  it('stays healthy while the services restart under it, so `up --wait` does not give up', () => {
+    // A second `up --build` recreates every service under the running edge: about 15 s with
+    // nothing ready, on CI. With 15 s of tolerance the edge turned unhealthy as the web app came
+    // back, and `--wait` failed on it (#319). `--wait` still waits on each service's own health
+    // check, and /edge/ready answers 503 at once all the while.
+    const { interval, retries } = services.edge!.healthcheck!;
+    expect(Number.parseInt(interval!, 10) * retries!).toBeGreaterThanOrEqual(60);
+    expect(interval).toMatch(/^\d+s$/);
   });
 });
 
