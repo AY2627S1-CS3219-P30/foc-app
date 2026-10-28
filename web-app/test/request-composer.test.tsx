@@ -102,6 +102,7 @@ function fakeServices({ available = 10 } = {}) {
     gets: 0,
     async fetch(request: Request): Promise<Response> {
       const { pathname } = new URL(request.url);
+      if (pathname === `/orders/${ORDER_ID}/history`) return json(200, { orderId: ORDER_ID, entries: [] });
       if (pathname === `/suppliers/${SUPPLIER_ID}`) return json(200, supplier);
       if (pathname === '/wallets/me')
         return json(200, { userId: 'me', available, reserved: 0, total: available, createdAt: '', updatedAt: '' });

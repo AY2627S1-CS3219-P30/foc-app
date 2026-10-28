@@ -12,6 +12,7 @@ import { NavRow } from "@/components/NavRow";
 import { Screen, ScreenContent } from "@/components/Screen";
 import { ScreenHeader } from "@/components/ScreenHeader";
 import { ErrorState, LoadingState } from "@/components/States";
+import { ErrandHistory } from "@/components/ErrandHistory";
 import type { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth";
 import { draftFrom, itemsLabel, saveDraft } from "@/lib/composer";
@@ -21,6 +22,7 @@ import { actionDeadline, actionsFor, roleIn, type OrderAction, type Role } from 
 import { isFinal, rejectionMessage, statusWording, waitsOnCredit } from "@/lib/order-status";
 import { useNowAfter } from "@/lib/use-now";
 import { useOrder } from "@/lib/use-order";
+import { useOrderHistory } from "@/lib/use-order-history";
 import { useOrderAction } from "@/lib/use-order-action";
 import { useUrlFlag } from "@/lib/use-query-param";
 import { vars } from "@/styles/tokens";
@@ -172,7 +174,10 @@ function StatusBody({
         </div>
       )}
       {role && order.status === "COMPLETED" && (
-        <Link href={`/request/${order.orderId}/receipt`} className={buttonClass({ variant: "outline", full: true })}>
+        <Link
+          href={`/request/${order.orderId}/receipt`}
+          className={buttonClass({ variant: "outline", full: true })}
+        >
           View receipt
         </Link>
       )}
@@ -202,6 +207,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   const wasWaitingForCredits = useRef<boolean | null>(null);
   const orderStatus = order?.status;
   const role = order ? roleIn(order, user?.id) : null;
+  const history = useOrderHistory(orderId, order?.version, role !== null);
   const deadline = order ? actionDeadline(order, role) : null;
   // `now` is on the server's clock, like the deadlines: this device's may be wrong.
   const now = useNowAfter(() => (deadline === null ? null : deadline + skew)) - skew;
@@ -227,31 +233,33 @@ export function OrderDetail({ orderId }: { orderId: string }) {
     if (!orderStatus) return;
     const waiting = waitsOnCredit(orderStatus);
     const firstSettledRead = wasWaitingForCredits.current === null && !isFinal(orderStatus);
-    if (!waiting && (wasWaitingForCredits.current === true || firstSettledRead))
-      refreshCredits();
+    if (!waiting && (wasWaitingForCredits.current === true || firstSettledRead)) refreshCredits();
     wasWaitingForCredits.current = waiting;
   }, [orderStatus, refreshCredits]);
   useUrlFlag("replayed", () => setReplayed(true));
 
   const body = order ? (
-    <StatusBody
-      order={order}
-      replayed={replayed}
-      role={role}
-      actions={actionsFor(order, role, now)}
-      passed={deadline !== null && now >= deadline}
-      skew={skew}
-      stillWaiting={stillWaiting}
-      paused={paused}
-      problem={problem}
-      notice={notice}
-      acted={acted}
-      onAct={(action) => {
-        setNotice(null);
-        act.ask(order, action);
-      }}
-      onRetry={() => refresh()}
-    />
+    <>
+      <StatusBody
+        order={order}
+        replayed={replayed}
+        role={role}
+        actions={actionsFor(order, role, now)}
+        passed={deadline !== null && now >= deadline}
+        skew={skew}
+        stillWaiting={stillWaiting}
+        paused={paused}
+        problem={problem}
+        notice={notice}
+        acted={acted}
+        onAct={(action) => {
+          setNotice(null);
+          act.ask(order, action);
+        }}
+        onRetry={() => refresh()}
+      />
+      {role && <ErrandHistory {...history} />}
+    </>
   ) : problem ? (
     <ErrorState
       title={problem.status === 404 ? "This request no longer exists." : "Could not load this request"}

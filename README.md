@@ -225,6 +225,17 @@ instructions accept. There is no hosted deployment
 | `./scripts-restart-check.sh`          | Restart, recreate and take Postgres away      |
 | `./scripts-demo-journey.sh`           | A student, an errand and its credits, by API  |
 
+For the named D4 demonstration on a separate local stack, run `./scripts-seed-demo.sh --fresh`.
+It prepares five personas, three errands and a clean financial audit on ports 14000–14009.
+Use `./scripts-seed-demo.sh --check` for the demo smoke check, and follow the
+[D4 runbook](docs/demo/d4-runbook.md) for all browser profiles/tabs, the 30-minute script and
+the outstanding real-rehearsal gates.
+
+For a consistent four-database backup, fresh-stack restore, timed disposable drill and prior-image
+rollback, follow the [recovery runbook](docs/runbooks/backup-restore-rollback.md). Start a backup
+with `./scripts-backup.sh`; it briefly stops application writers and resumes them after the dump.
+Restore refuses existing tables and validates every table before smoke and the financial audit.
+
 `docker compose down` keeps your data. Use `-v` only when you want a clean
 database — it is also the only way to re-run `postgres-init.sh`, which runs
 once when the data volume is empty. What each of these keeps is spelled out
@@ -1157,3 +1168,11 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
   one-service-per-folder skeleton** for core implementation.
 
 ---
+
+## Full browser release check
+
+Run `./scripts-e2e-release.sh --twice` from the repository root to prove the critical user journeys
+twice from clean containers. It resets only the dedicated `foc-e2e-release` project on ports
+14500–14509. Setup, coverage, clock isolation and retained evidence are documented in the
+[web app release suite](web-app/README.md#full-release-suite-tst-02-160). CI requires both its ordinary
+browser smoke and the full release runs.

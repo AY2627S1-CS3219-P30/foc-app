@@ -68,6 +68,19 @@ instructions and records pickup and delivery, and the requester confirms receipt
 complete. The requester then opens the receipt, follows it to the payment in their wallet and back,
 and the courier follows the same payment from their receipt to their wallet and back.
 
+`e2e/dispute-outcome.e2e.ts` covers both administrative dispute decisions at all three widths.
+The requester reports non-receipt, the referred administrator decides through the console, and
+both participants read the outcome, reason and time on their errand page and expand its status
+history. The test also verifies the actual transfer/refund and an outsider's HTTP refusal and
+absence of private history in the page.
+
+The participant history panel (WEB-06, #281) reads the existing authenticated
+`GET /orders/{id}/history`; no new backend route or contract field is needed. It shows only the
+server's participant projection, hides cached history immediately when the identity or errand
+changes, ignores stale replies, and offers retry on failure. System causes and raw actor IDs are
+not displayed. Administrative decisions show their actual reason and recorded time; an ordinary
+cancellation or completion is not labelled as an administrative decision.
+
 `e2e/account-journey.e2e.ts` runs the account journey (USR-05) in Chromium at 360, 768 and 1440 px against
 the real User Service: sign-up with a failed submit, activation through the dev mailbox, sign-in with a
 rejected password, the mode switch and log-out. Only the keyboard drives the forms, and every focus stop
@@ -90,7 +103,61 @@ named `*.e2e.ts` so `bun test` leaves them alone.
 `E2E_BROWSER_CHANNEL=chrome` drives an installed Google Chrome instead of Playwright's Chromium, so
 nothing needs installing. CI does that: GitHub's Ubuntu runners come with Chrome and its system
 libraries, which keeps the `e2e` job from downloading a browser or running `apt` each time. The job
-builds the stack's images from CI's shared layer cache and stops after 20 minutes.
+builds the stack's images from CI's shared layer cache; each smoke/release matrix job has a
+40-minute ceiling.
+
+### Full release suite (TST-02 #160)
+
+From the repository root, with Docker running, Node and Bun 1.4.2 installed:
+
+```bash
+npm ci
+(cd web-app && bun install --frozen-lockfile && bunx playwright install chromium)
+./scripts-e2e-release.sh --twice
+# One clean run while debugging:
+./scripts-e2e-release.sh --once
+# Stop only this test project, preserving its last data and evidence:
+./scripts-e2e-release.sh --stop
+```
+
+This resets **only `foc-e2e-release` and its volumes**, on ports 14500–14509 (override with
+`E2E_PORT_BASE`). It generates `.env` if absent, builds the stack, runs its API smoke, and creates
+activated test identities through public APIs for each clean run. It does not reset `foc` or
+`foc-d4-demo`. There are 42 browser cases across 360, 768 and 1440 px, with no retries in release mode.
+CI requires both `Browser journeys (smoke)` (18 baseline cases, release-only cases skipped) and
+`Browser journeys (release)` (all 42 cases twice from clean volumes). The latter reuses the job's
+baked images with `E2E_IMAGE_TAG=ci`; leave that unset for local source builds.
+
+`release-journeys.e2e.ts` covers the composer, withdrawal/reacceptance and cancellation before
+pickup, both participants' order history, a non-receipt dispute, courier suspension/reassignment
+with exact wallet checks, supplier search/filters, and login/opening every admin area. Withdrawal
+keeps the reservation for a replacement courier; cancellation releases it. That is the implemented
+state-machine contract, clarifying the audit checklist's ambiguous “with credits returned.”
+`zz-release-clock.e2e.ts` covers server expiry/refund, automatic confirmation/payment without a
+requester click, and non-delivery reporting only after its period followed by an admin decision.
+The existing suites supply registration, the acceptance race, receipt/ledger navigation, both
+dispute outcomes and outsider denial, reconnection idempotency and the admin financial audit.
+
+The explicit `compose.e2e.yaml` override mounts `test-harness/e2e-clock.mjs` into the four backend
+services. A guarded non-secret offset file advances implicit Node time and explicit SQL `now()` /
+`clock_timestamp()` reads together. Ordinary PostgreSQL defaults and the browser clock are not
+rewritten. Tests read each order's actual server deadline, advance beyond it, wait until each container observes the mounted offset, and sign in normally
+again (old tokens can expire), and wait for real lifecycle workers and RabbitMQ credit replies.
+No application data is injected or modified directly, and no HTTP clock-control endpoint exists.
+The fixture requires the disposable development configuration and is not baked into any image.
+Release-only login budgets accommodate the repeated independent sessions; normal smoke and User
+Service tests retain the default rate limits. Auth, activation, roles and step-up remain enabled.
+Clock cases run last in each width with one worker; changing parallelism would race the shared clock.
+
+Each successful JSON report must have zero failures, flakes, skips and runner errors. Reports are
+in `.release-results/run-1.json` and `run-2.json`, with HTML in `html-1/` and `html-2/`. Failures retain
+screenshots/traces under `web-app/test-results` and bounded container logs under `.release-results`.
+CI uploads release evidence even on success, and failure traces/screenshots separately. Treat those
+artifacts as private test data: they can include disposable credentials and session contents.
+They are ignored by Git and excluded from Docker build contexts.
+
+Chat has no implementation yet; #161 owns its future chat browser journey. This suite certifies the
+implemented paths listed in #160, not chat or the two human non-owner rehearsals required by #167.
 
 ## API clients
 
