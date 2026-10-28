@@ -334,8 +334,25 @@ PAID=$ERRAND_ID
   fail "after creating: errand '$(errand "$REQUESTER_TOKEN" "$PAID")', requester $(balance "$REQUESTER_TOKEN")"
 call courier GET "$ORDER_PORT" "/orders?status=OPEN" "$COURIER_TOKEN"
 [[ "$BODY" == *"$PAID"* ]] && pass "the courier sees it among the open errands" || fail "the errand is not in the courier's open list"
+# N1.4 (ADR 0011): the requester's page holds a live-update stream through the edge, as the web
+# app does, and hears of the accept at once instead of at its next poll.
+live=$(mktemp)
+command curl -sN --max-time 30 "http://localhost:${WEB_PORT}/api/order/live" \
+  -H "Authorization: Bearer $REQUESTER_TOKEN" >"$live" 2>/dev/null &
+live_pid=$!
+for _ in $(seq 1 30); do grep -q '^event: ready' "$live" && break; sleep 0.1; done
 act courier "$PAID" accept "$COURIER_TOKEN" 2
 [[ "$CODE" == "201" ]] && pass "the courier accepts it (ACCEPTED)" || fail "accept returned $CODE $(error_code)"
+heard=""
+for _ in $(seq 1 20); do
+  grep -q "\"orderId\":\"$PAID\"" "$live" && heard=yes && break
+  sleep 0.1
+done
+[[ -n "$heard" ]] && pass "the requester's open page hears of it within 2 s, through the edge (N1.4)" ||
+  fail "the requester's live-update stream heard nothing of the accept in 2 s: '$(head -c 200 "$live")'"
+kill "$live_pid" 2>/dev/null || true
+wait "$live_pid" 2>/dev/null || true
+rm -f "$live"
 act courier "$PAID" pickup "$COURIER_TOKEN" 3
 act courier "$PAID" deliver "$COURIER_TOKEN" 4
 [[ "$CODE" == "200" && "$(errand "$REQUESTER_TOKEN" "$PAID")" == "DELIVERED 5" ]] &&

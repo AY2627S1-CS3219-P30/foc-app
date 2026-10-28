@@ -325,6 +325,60 @@ done
 # Let the limit refill before anything else writes through the edge.
 sleep 4
 
+# ---- live-update streams through the edge (N1.4, ADR 0011) ------------------
+# A page holds a stream of nudges at /api/order/live. The edge must pass each event on as it is
+# written (buffered, `ready` would wait inside nginx), and it holds at most ten per client
+# address. Two students hold five each, the Order Service's own cap per user, so the eleventh is
+# refused by the edge itself: its answer has no x-correlation-id header, which a service's has.
+live_dir=$(mktemp -d)
+open_stream() { # token name → a stream in the background, written to $live_dir/name as it arrives
+  command curl -sN --max-time 30 "$EDGE/api/order/live" -H "Authorization: Bearer $1" \
+    >"$live_dir/$2" 2>/dev/null &
+}
+streams_ready() { # count seconds → whether that many streams have said `ready` in time
+  for _ in $(seq 1 "$(($2 * 10))"); do
+    (($(grep -l '^event: ready' "$live_dir"/* 2>/dev/null | wc -l) >= $1)) && return 0
+    sleep 0.1
+  done
+  return 1
+}
+# Another throwaway student, active and signed in. Prints its access token, or nothing.
+second_student() {
+  local email="smoke-live-$(date +%s)-$RANDOM@u.nus.edu" out token
+  out=$(mktemp)
+  post_json /auth/register "{\"email\":\"$email\",\"password\":\"$SMOKE_PASSWORD\",\"displayName\":\"Smoke test\"}" "$out" >/dev/null
+  token=$(curl -fsS "http://localhost:${USER_PORT}/dev/mailbox?to=$email" 2>/dev/null | json_field token) || true
+  post_json /auth/activate "{\"token\":\"$token\"}" "$out" >/dev/null
+  post_json /auth/login "{\"email\":\"$email\",\"password\":\"$SMOKE_PASSWORD\"}" "$out" \
+    -H "Origin: http://localhost:${WEB_PORT}" >/dev/null
+  json_field accessToken <"$out"
+  rm -f "$out"
+}
+if [[ -z "$access_token" ]]; then
+  fail "live updates: no signed-in student to open a stream with (see activation → wallet above)"
+else
+  open_stream "$access_token" first
+  streams_ready 1 2 && pass "the edge streams /api/order/live unbuffered: ready within 2 s" ||
+    fail "/api/order/live sent no ready within 2 s: '$(head -c 200 "$live_dir/first")'"
+  second=$(second_student)
+  for i in 2 3 4 5; do open_stream "$access_token" "a$i"; done
+  [[ -n "$second" ]] && for i in 1 2 3 4 5; do open_stream "$second" "b$i"; done
+  if [[ -z "$second" ]] || ! streams_ready 10 5; then
+    fail "could not hold ten streams open through the edge (second student: ${second:+signed in}${second:-none})"
+  else
+    eleventh=$(curl -s --max-time 5 -D - "$EDGE/api/order/live" -H "Authorization: Bearer $second" 2>/dev/null || true)
+    if [[ "$eleventh" == *" 429 "* && "$eleventh" == *"from this address"* ]] &&
+      ! grep -qi '^x-correlation-id:' <<<"$eleventh"; then
+      pass "the 11th stream from one address is refused (429)"
+    else
+      fail "the 11th stream from one address answered: '$(head -c 200 <<<"$eleventh" | tr -d '\r' | tr '\n' ' ')'"
+    fi
+  fi
+fi
+kill $(jobs -p) 2>/dev/null || true
+wait 2>/dev/null || true
+rm -rf "$live_dir"
+
 # ---- metrics reach the dashboard (PLT-04) ------------------------------------
 METRICS_AUTH="Authorization: Bearer ${METRICS_TOKEN:?}"
 for pair in "user-service:$USER_PORT" "supplier-service:$SUPPLIER_PORT" \
