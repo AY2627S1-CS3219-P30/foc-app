@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { AppBar } from "@/components/AppBar";
-import { buttonClass } from "@/components/Button";
+import { Button, buttonClass } from "@/components/Button";
 import { DesktopShell } from "@/components/DesktopShell";
 import { ErrandCard, ErrandGrid } from "@/components/ErrandCard";
 import { Screen, ScreenContent } from "@/components/Screen";
@@ -14,6 +14,7 @@ import { useAuth } from "@/lib/auth";
 import { STUDENT_NAV } from "@/lib/nav";
 import { listMyOrders, type MyOrder } from "@/lib/order-api";
 import { isFinal, PENDING_POLL_MS, statusWording, waitsOnCredit } from "@/lib/order-status";
+import { appendPage, refreshPage, type PagedOrders } from "@/lib/paged-orders";
 import type { PreferredMode } from "@/lib/user-api";
 import { usePoll } from "@/lib/use-poll";
 import { vars } from "@/styles/tokens";
@@ -76,12 +77,12 @@ export default function OrderHistoryPage() {
   const mode = user?.profile.preferredMode;
   const [history, setHistory] = useState<{
     mode: PreferredMode;
-    items: MyOrder[];
-    truncated: boolean;
-    activeRequests: MyOrder[];
-    requestsTruncated: boolean;
+    deliveries: PagedOrders<MyOrder>;
+    requests: PagedOrders<MyOrder> | null;
   } | null>(null);
   const [failure, setFailure] = useState<{ mode: PreferredMode; message: string } | null>(null);
+  const [moreFailure, setMoreFailure] = useState<{ mode: PreferredMode; kind: "deliveries" | "requests"; message: string } | null>(null);
+  const [moreInFlight, setMoreInFlight] = useState<string | null>(null);
   const read = useCallback(
     async (signal: AbortSignal) => {
       if (!mode) return null;
@@ -95,17 +96,15 @@ export default function OrderHistoryPage() {
           ]),
         );
         if (signal.aborted) return null;
-        const items = next.items;
-        const activeRequests = requests?.items ?? [];
-        setHistory({
+        setHistory((current) => ({
           mode,
-          items,
-          truncated: next.truncated,
-          activeRequests,
-          requestsTruncated: requests?.truncated ?? false,
-        });
+          deliveries: refreshPage(current?.mode === mode ? current.deliveries : null, next),
+          requests: requests
+            ? refreshPage(current?.mode === mode ? current.requests : null, requests)
+            : null,
+        }));
         setFailure(null);
-        return nextRead([...items, ...activeRequests]);
+        return nextRead([...next.items, ...(requests?.items ?? [])]);
       } catch (err) {
         if (signal.aborted) return null;
         setFailure({ mode, message: err instanceof ApiError ? err.message : "Something went wrong." });
@@ -115,8 +114,45 @@ export default function OrderHistoryPage() {
     [authed, mode],
   );
   const reload = usePoll(read);
+  const loadMore = useCallback(async (kind: "deliveries" | "requests") => {
+    const current = history?.mode === mode ? history : null;
+    const cursor = current?.[kind]?.nextCursor;
+    const flightKey = `${mode}:${kind}`;
+    if (!mode || !cursor || moreInFlight === flightKey) return;
+    setMoreInFlight(flightKey);
+    setMoreFailure(null);
+    try {
+      const next = await authed((token) =>
+        listMyOrders(token, {
+          role: kind === "deliveries" ? mode : "REQUESTER",
+          ...(kind === "requests" ? { active: true } : {}),
+          cursor,
+        }),
+      );
+      setHistory((existing) => {
+        if (existing?.mode !== mode) return existing;
+        if (kind === "deliveries" && existing.deliveries.nextCursor === cursor) {
+          return { ...existing, deliveries: appendPage(existing.deliveries, next) };
+        }
+        if (kind === "requests" && existing.requests?.nextCursor === cursor) {
+          return { ...existing, requests: appendPage(existing.requests, next) };
+        }
+        return existing;
+      });
+    } catch (err) {
+      setMoreFailure({
+        mode,
+        kind,
+        message: err instanceof ApiError ? err.message : "Something went wrong.",
+      });
+    } finally {
+      setMoreInFlight((current) => (current === flightKey ? null : current));
+    }
+  }, [authed, history, mode, moreInFlight]);
   const mine = history?.mode === mode ? history : null;
   const problem = failure && failure.mode === mode ? failure.message : null;
+  const items = mine?.deliveries.items ?? [];
+  const activeRequests = mine?.requests?.items ?? [];
 
   const content = !mine ? (
     problem ? (
@@ -133,7 +169,7 @@ export default function OrderHistoryPage() {
           Showing the last loaded history. {problem}
         </ErrorState>
       )}
-      {mine.items.length === 0 && mine.activeRequests.length === 0 ? (
+      {items.length === 0 && activeRequests.length === 0 ? (
         <EmptyState title="No errands yet">
           {mode === "REQUESTER"
             ? "Requests you place will show up here."
@@ -141,18 +177,29 @@ export default function OrderHistoryPage() {
         </EmptyState>
       ) : (
         <>
-          {mode === "COURIER" && <Section title="Requests you placed" orders={mine.activeRequests} />}
-          <Section title={mode === "COURIER" ? "Active deliveries" : "Active"} orders={mine.items.filter((o) => !isFinal(o.status))} />
-          <Section title={mode === "COURIER" ? "Past deliveries" : "Past"} orders={mine.items.filter((o) => isFinal(o.status))} />
-          {mine.requestsTruncated && (
-            <p style={{ fontSize: vars.text.sm, color: vars.color.textSubtle }}>
-              Showing the 100 most recently updated requests you placed.
-            </p>
+          {mode === "COURIER" && <Section title="Requests you placed" orders={activeRequests} />}
+          {mine.requests?.nextCursor && (
+            <Button
+              variant="outline"
+              disabled={moreInFlight === `${mode}:requests`}
+              onClick={() => loadMore("requests")}
+            >
+              {moreInFlight === `${mode}:requests` ? "Loading…" : "Load more requests"}
+            </Button>
           )}
-          {mine.truncated && (
-            <p style={{ fontSize: vars.text.sm, color: vars.color.textSubtle }}>
-              Showing your 100 most recent errands.
-            </p>
+          <Section title={mode === "COURIER" ? "Active deliveries" : "Active"} orders={items.filter((o) => !isFinal(o.status))} />
+          <Section title={mode === "COURIER" ? "Past deliveries" : "Past"} orders={items.filter((o) => isFinal(o.status))} />
+          {mine.deliveries.nextCursor && (
+            <Button
+              variant="outline"
+              disabled={moreInFlight === `${mode}:deliveries`}
+              onClick={() => loadMore("deliveries")}
+            >
+              {moreInFlight === `${mode}:deliveries` ? "Loading…" : "Load more errands"}
+            </Button>
+          )}
+          {moreFailure && moreFailure.mode === mode && (
+            <p role="alert">Could not load more {moreFailure.kind === "requests" ? "requests" : "errands"}. {moreFailure.message}</p>
           )}
         </>
       )}

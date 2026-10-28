@@ -67,7 +67,7 @@ describe('my errands', () => {
       .send({ expectedVersion: 3 })
       .expect(200);
     const withdrawn = await mine(asStranger);
-    expect(withdrawn.body).toEqual({ items: [], truncated: false });
+    expect(withdrawn.body).toEqual({ items: [], nextCursor: null, truncated: false });
   });
 
   it('lets a student with an open errand of their own deliver someone else’s', async () => {
@@ -137,7 +137,7 @@ describe('my errands', () => {
     await advance(t, 'ACCEPTED');
 
     const { body } = await mine(asBystander);
-    expect(body).toEqual({ items: [], truncated: false });
+    expect(body).toEqual({ items: [], nextCursor: null, truncated: false });
   });
 
   it('shows an admin only their own errands, not ones referred to them', async () => {
@@ -149,7 +149,7 @@ describe('my errands', () => {
 
     // ...but it is not theirs, so it stays out of their list.
     const { body } = await mine(asAdmin);
-    expect(body).toEqual({ items: [], truncated: false });
+    expect(body).toEqual({ items: [], nextCursor: null, truncated: false });
   });
 
   it('caps the list at 100 and says when older errands were left out', async () => {

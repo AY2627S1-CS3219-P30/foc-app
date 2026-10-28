@@ -27,10 +27,16 @@ export interface paths {
         /**
          * List the caller's own errands.
          * @description Errands the caller requested or is the current courier of, in any status, most recently
-         *     changed first, at most 100 (no paging yet); `truncated` is true when more were left out. Each
-         *     carries the caller's private projection and `myRole`. A courier who withdrew or timed out no
-         *     longer holds the errand and does not see it. Filter by `role` before the limit; `active=true`
-         *     includes only errands that have not reached a final status.
+         *     changed first, a page at a time: `limit` errands (100 by default), then `nextCursor` for the
+         *     next page, null on the last. `truncated` is `nextCursor !== null`, kept for older clients.
+         *     Each carries the caller's private projection and `myRole`. A courier who withdrew or timed
+         *     out no longer holds the errand and does not see it. Filter by `role` before paging;
+         *     `active=true` includes only errands that have not reached a final status.
+         *
+         *     Pages are a keyset on the last change, which moves: an errand that changes while the caller
+         *     is paging moves ahead of their cursor, so no later page repeats it, and reading the first
+         *     page again (as polling does) picks it up. A client keeping several pages replaces its copy
+         *     of that errand by `orderId`.
          */
         get: operations["listMyOrders"];
         put?: never;
@@ -73,7 +79,17 @@ export interface paths {
         };
         /**
          * Discover currently acceptable errands.
-         * @description Returns only unexpired OPEN orders, leaves out the caller's own errands, and never exposes delivery instructions or participant IDs.
+         * @description Returns only unexpired OPEN orders, leaves out the caller's own errands, and never exposes
+         *     delivery instructions or participant IDs. Ordered by acceptance deadline, then posting
+         *     time, a page at a time: `limit` errands (100 by default). The body stays a bare array, so
+         *     the next page's cursor comes in the `Next-Cursor` header, absent on the last page. These
+         *     keys never change while an errand is open, so errands posted between pages are never
+         *     repeated and never push one off a page; a new errand that sorts before the cursor shows on
+         *     the first page.
+         *
+         *     `pickupBuilding` keeps errands whose supplier is in that building, in any case;
+         *     `minReward` keeps those paying at least that much. Filters combine with the cursor: pass
+         *     the same ones with it. Unknown parameters are ignored, as they always have been.
          */
         get: operations["listOpenOrders"];
         put?: never;
@@ -656,7 +672,9 @@ export interface components {
                 /** @enum {string} */
                 myRole: "REQUESTER" | "COURIER";
             })[];
-            /** @description True when the caller has more than 100 errands and the oldest were left out. */
+            /** @description The cursor for the next page, or null on the last. */
+            nextCursor: string | null;
+            /** @description True when there is another page; the same as `nextCursor !== null`. */
             truncated: boolean;
         };
         CreateOrder: {
@@ -930,6 +948,24 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
+        /** @description The cursor is not one this list returned (`INVALID_CURSOR`). */
+        InvalidCursor: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description A parameter out of range or of the wrong type, or on `/orders/mine` an unknown one (`VALIDATION_FAILED`). */
+        ListQueryInvalid: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
         /** @description The order ID is not a UUID. */
         InvalidOrderId: {
             headers: {
@@ -1095,9 +1131,16 @@ export interface components {
             };
         };
     };
-    parameters: never;
+    parameters: {
+        /** @description Opaque cursor returned by the previous page. */
+        Cursor: string;
+        Limit: number;
+    };
     requestBodies: never;
-    headers: never;
+    headers: {
+        /** @description Opaque cursor for the next page, as the `cursor` parameter. Absent on the last page. */
+        NextCursor: string;
+    };
     pathItems: never;
 }
 export type $defs = Record<string, never>;
@@ -1136,6 +1179,9 @@ export interface operations {
             query?: {
                 role?: "REQUESTER" | "COURIER";
                 active?: boolean;
+                /** @description Opaque cursor returned by the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
             };
             header?: never;
             path?: never;
@@ -1152,7 +1198,9 @@ export interface operations {
                     "application/json": components["schemas"]["MyOrders"];
                 };
             };
+            400: components["responses"]["InvalidCursor"];
             401: components["responses"]["Unauthenticated"];
+            422: components["responses"]["ListQueryInvalid"];
         };
     };
     getOrder: {
@@ -1186,7 +1234,13 @@ export interface operations {
     };
     listOpenOrders: {
         parameters: {
-            query?: never;
+            query?: {
+                pickupBuilding?: string;
+                minReward?: number;
+                /** @description Opaque cursor returned by the previous page. */
+                cursor?: components["parameters"]["Cursor"];
+                limit?: components["parameters"]["Limit"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1196,13 +1250,16 @@ export interface operations {
             /** @description Privacy-safe open-order summaries ordered by acceptance deadline. */
             200: {
                 headers: {
+                    "Next-Cursor": components["headers"]["NextCursor"];
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["OpenOrderSummary"][];
                 };
             };
+            400: components["responses"]["InvalidCursor"];
             401: components["responses"]["Unauthenticated"];
+            422: components["responses"]["ListQueryInvalid"];
         };
     };
     createOrder: {

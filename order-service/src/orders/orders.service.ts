@@ -7,17 +7,18 @@ import {
   OrdersRepository,
   type TransitionCommand,
 } from './orders.repository.js';
+import { encodeCursor } from './cursor.js';
 import { RESOLVE_ACTIONS, SUSPENSION_EFFECTS, type OrderAction } from './order-state-machine.js';
 import { SupplierClient } from './supplier.client.js';
-import type { OpenOrderSummary, OrderReceipt, OrderRow, OrderStatus, OrderView } from './types.js';
+import type { OrderReceipt, OrderRow, OrderStatus, OrderView } from './types.js';
 import type {
   AdminOrdersQuery,
   CreateOrderInput,
   MyOrdersQuery,
+  OpenOrdersQuery,
   ResolveOrderInput,
 } from './validation.js';
 
-const MY_ERRANDS_LIMIT = 100;
 const SUSPENSION_REASONS = new Set(
   Object.values(SUSPENSION_EFFECTS).map((effect) => effect.reason),
 );
@@ -146,27 +147,29 @@ export class OrdersService {
     @Inject(SupplierClient) private readonly suppliers: SupplierClient,
   ) {}
 
-  async listOpen(callerId: string): Promise<OpenOrderSummary[]> {
-    return this.orders.listOpen(callerId);
+  async listOpen(callerId: string, query: OpenOrdersQuery) {
+    const { items, next } = await this.orders.listOpen(callerId, query);
+    return { items, nextCursor: next && encodeCursor(next) };
   }
 
-  /** The caller's own errands, each in their private projection, with `truncated` past the cap. */
+  /** The caller's own errands, each in their private projection, a page at a time. */
   async listMine(
     caller: AuthContext,
-    query: MyOrdersQuery = {},
+    query: MyOrdersQuery,
   ): Promise<{
     items: Array<OrderView & { myRole: 'REQUESTER' | 'COURIER' }>;
+    nextCursor: string | null;
     truncated: boolean;
   }> {
-    // One extra row tells us whether the cap cut the list off.
-    const orders = await this.orders.listMine(caller.userId, MY_ERRANDS_LIMIT + 1, query);
+    const { rows, next } = await this.orders.listMine(caller.userId, query);
     return {
-      items: orders.slice(0, MY_ERRANDS_LIMIT).flatMap((order) => {
+      items: rows.flatMap((order) => {
         const view = projectOrder(order, caller);
         if (!view) return [];
         return [{ ...view, myRole: order.requesterId === caller.userId ? 'REQUESTER' : 'COURIER' }];
       }),
-      truncated: orders.length > MY_ERRANDS_LIMIT,
+      nextCursor: next && encodeCursor(next),
+      truncated: next !== null,
     };
   }
 

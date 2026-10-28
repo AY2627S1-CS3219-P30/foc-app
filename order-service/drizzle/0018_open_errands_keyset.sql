@@ -1,0 +1,2 @@
+DROP INDEX "orders_open_deadline_idx";--> statement-breakpoint
+CREATE INDEX "orders_open_keyset_idx" ON "orders" USING btree ("acceptance_deadline_at","created_at","order_id") WHERE "orders"."status" = 'OPEN';

@@ -1,5 +1,6 @@
 import { ApiException } from '@foc/platform';
 import { z } from 'zod';
+import { decodeCursor } from './cursor.js';
 import { ORDER_STATUSES } from './types.js';
 
 const item = z
@@ -83,14 +84,38 @@ export function parseOrderId(id: string): string {
   return parsed.data;
 }
 
+const exactTime = z.iso.datetime();
+
+/** Where a page of open errands ended, in their order: deadline, then posting time, then ID. */
+const openCursorSchema = z
+  .object({ deadline: exactTime, createdAt: exactTime, orderId: z.uuid() })
+  .strict();
+
+/** Where a page of the caller's errands ended, in their order: last change, then ID. */
+const mineCursorSchema = z.object({ updatedAt: exactTime, orderId: z.uuid() }).strict();
+
+export type OpenCursor = z.infer<typeof openCursorSchema>;
+export type MineCursor = z.infer<typeof mineCursorSchema>;
+
+const page = {
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(100),
+};
+
 const myOrdersQuerySchema = z
   .object({
     role: z.enum(['REQUESTER', 'COURIER']).optional(),
     active: z.enum(['true', 'false']).optional(),
+    ...page,
   })
   .strict();
 
-export type MyOrdersQuery = { role?: 'REQUESTER' | 'COURIER'; active?: boolean };
+export type MyOrdersQuery = {
+  role?: 'REQUESTER' | 'COURIER';
+  active?: boolean;
+  limit: number;
+  after?: MineCursor;
+};
 
 export function parseMyOrdersQuery(value: unknown): MyOrdersQuery {
   const result = myOrdersQuerySchema.safeParse(value);
@@ -102,10 +127,45 @@ export function parseMyOrdersQuery(value: unknown): MyOrdersQuery {
       result.error.issues,
     );
   }
+  const { role, active, limit, cursor } = result.data;
   return {
-    role: result.data.role,
-    active: result.data.active === undefined ? undefined : result.data.active === 'true',
+    role,
+    active: active === undefined ? undefined : active === 'true',
+    limit,
+    after: decodeCursor(mineCursorSchema, cursor),
   };
+}
+
+/** Not strict: `GET /orders` has always ignored parameters it does not know. */
+const openOrdersQuerySchema = z.object({
+  pickupBuilding: z.string().trim().min(1).max(200).optional(),
+  minReward: z.coerce.number().int().min(1).optional(),
+  ...page,
+});
+
+export type OpenOrdersQuery = {
+  pickupBuilding?: string;
+  minReward?: number;
+  limit: number;
+  after?: OpenCursor;
+};
+
+export function parseOpenOrdersQuery(value: unknown): OpenOrdersQuery {
+  const result = openOrdersQuerySchema.safeParse(value);
+  if (!result.success) {
+    throw new ApiException(
+      422,
+      'VALIDATION_FAILED',
+      'The open errands query is invalid.',
+      result.error.issues.map((issue) => ({
+        field: issue.path.join('.') || 'query',
+        code: issue.code,
+        message: issue.message,
+      })),
+    );
+  }
+  const { cursor, ...query } = result.data;
+  return { ...query, after: decodeCursor(openCursorSchema, cursor) };
 }
 
 export function parseIdempotencyKey(value: string | undefined): string {

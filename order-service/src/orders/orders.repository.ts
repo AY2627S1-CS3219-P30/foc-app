@@ -22,7 +22,13 @@ import type {
   OrderItem,
 } from './types.js';
 import { TERMINAL_ORDER_STATUSES } from './types.js';
-import type { CreateOrderInput } from './validation.js';
+import type {
+  CreateOrderInput,
+  MineCursor,
+  MyOrdersQuery,
+  OpenCursor,
+  OpenOrdersQuery,
+} from './validation.js';
 
 type StoredOrder = Row & {
   order_id: string;
@@ -64,6 +70,10 @@ const iso = (value: Date | string): string =>
   value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 
 const nullableIso = (value: Date | string | null): string | null => (value ? iso(value) : null);
+
+/** A timestamp to the microsecond, as a cursor must hold it to resume exactly after its row. */
+const exactTime = (column: string) =>
+  `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 
 const mapOrder = (row: StoredOrder): OrderRow => ({
   orderId: row.order_id,
@@ -155,53 +165,106 @@ export class OrdersRepository {
     return result.rows[0] ? mapOrder(result.rows[0]) : undefined;
   }
 
-  async listOpen(callerId: string, now = new Date()): Promise<OpenOrderSummary[]> {
-    const result = await this.db.query<StoredOrder>(
-      `SELECT ${ORDER_COLUMNS}
+  /**
+   * Unexpired open errands but the caller's own, soonest deadline first, narrowed to a pickup
+   * building (in any case) or a minimum reward when given. `after` resumes past a previous page's
+   * last errand: these keys never change while an errand is open, so a page never repeats or skips
+   * one.
+   */
+  async listOpen(
+    callerId: string,
+    { pickupBuilding, minReward, limit, after }: OpenOrdersQuery,
+    now = new Date(),
+  ): Promise<{ items: OpenOrderSummary[]; next: OpenCursor | null }> {
+    const result = await this.db.query<StoredOrder & { deadline_key: string; created_key: string }>(
+      `SELECT ${ORDER_COLUMNS}, ${exactTime('acceptance_deadline_at')} AS deadline_key,
+              ${exactTime('created_at')} AS created_key
          FROM orders
         WHERE status = 'OPEN' AND acceptance_deadline_at > $1 AND requester_id <> $2
+          AND ($3::text IS NULL OR lower(supplier_snapshot->>'building') = lower($3))
+          AND ($4::int IS NULL OR reward >= $4)
+          AND ($5::timestamptz IS NULL
+            OR (acceptance_deadline_at, created_at, order_id) > ($5, $6::timestamptz, $7::uuid))
         ORDER BY acceptance_deadline_at, created_at, order_id
-        LIMIT 100`,
-      [now.toISOString(), callerId],
+        LIMIT $8`,
+      [
+        now.toISOString(),
+        callerId,
+        pickupBuilding ?? null,
+        minReward ?? null,
+        after?.deadline ?? null,
+        after?.createdAt ?? null,
+        after?.orderId ?? null,
+        limit + 1,
+      ],
     );
-    return result.rows.map((stored) => {
-      const order = mapOrder(stored);
-      return {
-        orderId: order.orderId,
-        supplier: order.supplierSnapshot,
-        itemSummary: order.items.map(({ name, quantity }) => ({ name, quantity })),
-        deliveryZone: order.deliveryZone,
-        reward: order.reward,
-        status: 'OPEN',
-        version: order.version,
-        acceptanceDeadlineAt: order.acceptanceDeadlineAt!,
-        timeRemainingSeconds: Math.max(
-          0,
-          Math.ceil((new Date(order.acceptanceDeadlineAt!).getTime() - now.getTime()) / 1000),
-        ),
-        createdAt: order.createdAt,
-      };
-    });
+    const rows = result.rows.slice(0, limit);
+    const last = rows.at(-1);
+    return {
+      items: rows.map((stored) => {
+        const order = mapOrder(stored);
+        return {
+          orderId: order.orderId,
+          supplier: order.supplierSnapshot,
+          itemSummary: order.items.map(({ name, quantity }) => ({ name, quantity })),
+          deliveryZone: order.deliveryZone,
+          reward: order.reward,
+          status: 'OPEN',
+          version: order.version,
+          acceptanceDeadlineAt: order.acceptanceDeadlineAt!,
+          timeRemainingSeconds: Math.max(
+            0,
+            Math.ceil((new Date(order.acceptanceDeadlineAt!).getTime() - now.getTime()) / 1000),
+          ),
+          createdAt: order.createdAt,
+        };
+      }),
+      next:
+        result.rows.length > limit && last
+          ? { deadline: last.deadline_key, createdAt: last.created_key, orderId: last.order_id }
+          : null,
+    };
   }
 
-  /** The user's errands, optionally limited to one role or active states. */
+  /**
+   * The user's errands, most recently changed first, optionally limited to one role or active
+   * states. `after` resumes past a previous page's last errand. A change moves an errand to the
+   * top, ahead of any cursor, so a later page never repeats it; the first page shows it again.
+   */
   async listMine(
     userId: string,
-    limit = 100,
-    filter: { role?: 'REQUESTER' | 'COURIER'; active?: boolean } = {},
-  ): Promise<OrderRow[]> {
-    const result = await this.db.query<StoredOrder>(
-      `SELECT ${ORDER_COLUMNS}
+    { role, active, limit, after }: MyOrdersQuery,
+  ): Promise<{ rows: OrderRow[]; next: MineCursor | null }> {
+    const result = await this.db.query<StoredOrder & { updated_key: string }>(
+      `SELECT ${ORDER_COLUMNS}, ${exactTime('updated_at')} AS updated_key
          FROM orders
         WHERE (($3::text = 'REQUESTER' AND requester_id = $1)
             OR ($3::text = 'COURIER' AND courier_id = $1)
             OR ($3::text IS NULL AND (requester_id = $1 OR courier_id = $1)))
           AND ($4::boolean IS NULL OR (status <> ALL($5::text[])) = $4)
+          AND ($6::timestamptz IS NULL
+            OR updated_at < $6 OR (updated_at = $6 AND order_id > $7::uuid))
         ORDER BY updated_at DESC, order_id
         LIMIT $2`,
-      [userId, limit, filter.role ?? null, filter.active ?? null, [...TERMINAL_ORDER_STATUSES]],
+      [
+        userId,
+        limit + 1,
+        role ?? null,
+        active ?? null,
+        [...TERMINAL_ORDER_STATUSES],
+        after?.updatedAt ?? null,
+        after?.orderId ?? null,
+      ],
     );
-    return result.rows.map(mapOrder);
+    const rows = result.rows.slice(0, limit);
+    const last = rows.at(-1);
+    return {
+      rows: rows.map(mapOrder),
+      next:
+        result.rows.length > limit && last
+          ? { updatedAt: last.updated_key, orderId: last.order_id }
+          : null,
+    };
   }
 
   /**
