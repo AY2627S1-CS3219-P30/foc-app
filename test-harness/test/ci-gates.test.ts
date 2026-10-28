@@ -88,9 +88,9 @@ describe('the browser journeys job', () => {
     'web-app',
   ];
 
-  it('gives up within 20 minutes rather than GitHub’s six hours', () => {
+  it('bounds each smoke or twice-clean release job to 40 minutes', () => {
     expect(e2e['timeout-minutes']).toBeGreaterThan(0);
-    expect(e2e['timeout-minutes']).toBeLessThanOrEqual(20);
+    expect(e2e['timeout-minutes']).toBeLessThanOrEqual(40);
   });
 
   it('drives the runner’s own Google Chrome, so nothing is downloaded or installed with apt', () => {

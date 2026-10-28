@@ -73,12 +73,20 @@ export const ERRAND_STUDENTS = { requester: "E2E Requester", winner: "E2E Winner
 export const errandEmail = (who: keyof typeof ERRAND_STUDENTS) =>
   `e2e-errand-${who}-${process.env.E2E_RUN}@u.nus.edu`;
 
+/** Release actors are shared across widths; suspension tests must restore their account. */
+export const RELEASE_STUDENTS = { requester: "Release Requester", courier: "Release Courier", replacement: "Release Replacement" };
+export const releaseEmail = (who: keyof typeof RELEASE_STUDENTS) =>
+  `e2e-release-${who}-${process.env.E2E_RUN}@u.nus.edu`;
+
 /** The signed-in student's wallet as the Credit Service reports it. */
 export async function wallet(
   request: APIRequestContext,
   token: string,
 ): Promise<{ available: number; reserved: number }> {
-  return (await request.get(`${CREDIT}/wallets/me`, { headers: { authorization: `Bearer ${token}` } })).json();
+  const response = await request.get(`${CREDIT}/wallets/me`, { headers: { authorization: `Bearer ${token}` } });
+  expect(response.status()).toBe(200);
+  const { available, reserved } = await response.json();
+  return { available, reserved };
 }
 
 /** The first pickup point the picker lists, since both read the same default order. */
