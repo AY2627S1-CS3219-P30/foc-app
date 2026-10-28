@@ -1009,15 +1009,19 @@ to all four, because it can break any of them. So does any path the filter does
 not recognise, such as a new package: it fails closed, running everything rather
 than nothing.
 
-| Job               | Runs when                                                  | What it does                                                                                                            |
-| ----------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `Detect changes`  | always                                                     | Works out what is affected                                                                                              |
-| `Lint and format` | any Node code changed                                      | `eslint`, `prettier --check`, the contract compatibility check, and a vulnerability scan of the production dependencies |
-| `Shared packages` | any Node code changed                                      | Build and test every shared package, with real RabbitMQ and PostgreSQL, and report their coverage                       |
-| `<service>`       | that service or shared code changed                        | Typecheck, test and report coverage, build its image, and scan the image for vulnerabilities                            |
-| `web-app`         | `web-app/**`, a contract, or what builds its image changed | `bun install`, lint, test with coverage; then build its image, which builds the app, and scan it                        |
-| `Compose smoke`   | container wiring changed, or any push to `main`            | Brings the whole stack up and runs the smoke checks                                                                     |
-| **`CI`**          | **always**                                                 | The gate — fails if anything above failed                                                                               |
+| Job                          | Runs when                                                  | What it does                                                                                                                        |
+| ---------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `Detect changes`             | always                                                     | Works out what is affected                                                                                                          |
+| `Lint and format`            | any Node code changed                                      | `eslint`, `prettier --check`, the contract compatibility check, and a vulnerability scan of the production dependencies             |
+| `Shared packages`            | any Node code changed                                      | Build and test every shared package, with real RabbitMQ and PostgreSQL, and report their coverage                                   |
+| `<service>`                  | that service or shared code changed                        | Typecheck, test and report coverage, build its image, and scan the image for vulnerabilities                                        |
+| `web-app`                    | `web-app/**`, a contract, or what builds its image changed | `bun install`, lint, test with coverage; then build its image, which builds the app, and scan it                                    |
+| `Compose smoke (core)`       | container wiring changed, or any push to `main`            | The alert rules, the secret scan of the repository and the images, the smoke checks, forced messaging failures and the credits walk |
+| `Compose smoke (resilience)` | the same                                                   | The restart check, the demo journey with its redrive, and the D4 demo seeded twice                                                  |
+| `Compose smoke (recovery)`   | the same                                                   | Back up, restore onto fresh volumes, and roll back to the last published images                                                     |
+| `Browser journeys (smoke)`   | the web app, a service or container wiring changed         | The browser journeys on one stack                                                                                                   |
+| `Browser journeys (release)` | the same                                                   | The full release suite from clean containers: once on a pull request, twice on a push to `main`                                     |
+| **`CI`**                     | **always**                                                 | The gate — fails if anything above failed                                                                                           |
 
 ### Why there is a separate `CI` job
 
@@ -1175,4 +1179,5 @@ Run `./scripts-e2e-release.sh --twice` from the repository root to prove the cri
 twice from clean containers. It resets only the dedicated `foc-e2e-release` project on ports
 14500–14509. Setup, coverage, clock isolation and retained evidence are documented in the
 [web app release suite](web-app/README.md#full-release-suite-tst-02-160). CI requires both its ordinary
-browser smoke and the full release runs.
+browser smoke and the full release suite, which it runs once on a pull request and twice on a push
+to `main`.
