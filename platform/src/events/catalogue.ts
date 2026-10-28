@@ -53,8 +53,9 @@ export type EventType = (typeof EVENTS)[keyof typeof EVENTS];
  * queue (EI-NFR1).
  *
  * Left out on purpose: the cache invalidations (`user.suspended`, `user.reactivated`,
- * `user.role-changed`) go to whichever instances are running, and `order.status-changed` has no
- * reader yet. An event gains an entry here with its first durable consumer.
+ * `user.role-changed`) go to whichever instances are running, and so does `order.status-changed`,
+ * whose only readers are each Order Service instance's live-update queue (N1.4), which hold nothing
+ * durable. An event gains an entry here with its first durable consumer.
  */
 export const REQUIRES_CONSUMER: ReadonlySet<string> = new Set<EventType>([
   EVENTS.USER_ACTIVATED,

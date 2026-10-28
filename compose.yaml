@@ -229,6 +229,8 @@ services:
       CREDIT_SERVICE_URL: http://credit-service:4004
       RECONCILE_INTERVAL_MS: ${ORDER_RECONCILE_INTERVAL_MS:-60000}
       RECONCILE_RETRY_MS: ${ORDER_RECONCILE_RETRY_MS:-300000}
+      # N1.4 (#329): `false` refuses every live-update stream, and every page polls as before.
+      LIVE_UPDATES_ENABLED: ${ORDER_LIVE_UPDATES_ENABLED:-true}
     ports: ['127.0.0.1:${ORDER_SERVICE_PORT:-3003}:3003']
     depends_on:
       <<: *consumer-deps

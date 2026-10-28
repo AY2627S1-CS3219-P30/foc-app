@@ -612,6 +612,7 @@ yourself, `curl -H "Authorization: Bearer $METRICS_TOKEN" localhost:3001/metrics
 | Oldest errand waiting for Credit  | how long the oldest `PENDING_CREDIT` errand has waited for its reservation                                                                         | `foc_orders_pending_credit_oldest_age_seconds`                                      |
 | Firing alerts                     | the rules in `observability/alerts.yml` that are firing now                                                                                        | Prometheus `ALERTS`                                                                 |
 | Repeated, stale and waiting steps | deliveries already applied, steps older than a change already applied, and steps retried while an earlier one is missing                           | `foc_events_duplicate_total`, `foc_events_stale_total`, `foc_events_deferred_total` |
+| Live-update streams and nudges    | pages holding a live-update stream, and the nudges sent to them, by kind (N1.4)                                                                    | `foc_live_streams`, `foc_live_nudges_total`, `foc_live_refused_total`               |
 
 - **Follow one request.** Its correlation ID is in the `x-correlation-id`
   response header. `docker compose logs | grep <id>` then shows every service it
@@ -620,14 +621,15 @@ yourself, `curl -H "Authorization: Bearer $METRICS_TOKEN" localhost:3001/metrics
   credit reconciliation run is `reconcile-<runId>`. Two limits: identity checks
   that arrive together share one call to the User Service, logged there under the
   first caller's ID, and a cached check makes no call at all.
-- **Per-instance queues** (each service's `auth-status` cache queue) carry a
-  random suffix; their metrics are labelled without it, so a restart continues
-  the same series.
+- **Per-instance queues** (each service's `auth-status` cache queue, and the
+  Order Service's `live` queue) carry a random suffix; their metrics are
+  labelled without it, so a restart continues the same series.
 - **Rates need traffic.** A rate panel shows a request once Prometheus has
   scraped before and after it (every 15 s), so give a demo a minute of traffic.
-- **Add a metric.** Inject `METRICS` from `@foc/platform` and call `addGauge`;
-  Order's `foc_orders` in `order-service/src/orders/order.metrics.ts` is the
-  example. Every series carries a `service` label.
+- **Add a metric.** Inject `METRICS` from `@foc/platform` and call `addGauge`
+  (or `addCounter`); Order's `foc_orders` in
+  `order-service/src/orders/order.metrics.ts` is the example. Every series
+  carries a `service` label.
 - **Change the dashboard** in `observability/grafana/dashboards/foc-platform.json`.
   Grafana reloads it within seconds; edits made in the UI are not saved.
 
