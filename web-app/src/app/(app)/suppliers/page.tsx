@@ -19,7 +19,8 @@ import {
   type SupplierListing,
   type SupplierType,
 } from '@/lib/supplier-api';
-import { BUILDINGS, SUPPLIER_TYPES, TYPE_LABELS } from '@/lib/supplier-display';
+import { SUPPLIER_TYPES, TYPE_LABELS } from '@/lib/supplier-display';
+import { useBuildings } from '@/lib/use-buildings';
 import { SupplierForm } from './SupplierForm';
 import styles from './suppliers.module.css';
 
@@ -48,6 +49,7 @@ export default function SuppliersPage() {
   const [search, setSearch] = useState('');
   const [type, setType] = useState<SupplierType | ''>('');
   const [building, setBuilding] = useState('');
+  const buildings = useBuildings(true);
   const [sort, setSort] = useState<Sort>('name');
   const [order, setOrder] = useState<'asc' | 'desc'>('asc');
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -356,13 +358,16 @@ export default function SuppliersPage() {
                 ))}
               </Select>
             </Field>
-            <Field label="Building">
+            <Field
+              label="Building"
+              hint={buildings.status === 'error' ? 'Buildings could not be loaded.' : undefined}
+            >
               <Select
                 value={building}
                 onChange={(event) => changeFilter(() => setBuilding(event.target.value))}
               >
                 <option value="">All buildings</option>
-                {BUILDINGS.map((value) => (
+                {buildings.items.map((value) => (
                   <option key={value} value={value}>
                     {value}
                   </option>

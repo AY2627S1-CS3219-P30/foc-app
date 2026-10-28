@@ -4,6 +4,7 @@ import { LOGGER, PgDb, type PgDbOptions } from '@foc/platform';
 import { env } from '../config.js';
 import { DB, RAW_DB } from '../db/db.js';
 import * as schema from '../db/schema.js';
+import { BuildingsController } from './buildings.controller.js';
 import { SuppliersController } from './suppliers.controller.js';
 import { SuppliersService } from './suppliers.service.js';
 
@@ -12,7 +13,7 @@ export class SuppliersModule {
   static forRoot(): DynamicModule {
     return {
       module: SuppliersModule,
-      controllers: [SuppliersController],
+      controllers: [SuppliersController, BuildingsController],
       providers: [
         SuppliersService,
         {

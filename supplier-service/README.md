@@ -1,4 +1,4 @@
-# Supplier Service (SUP-01, SUP-02, SUP-04)
+# Supplier Service (SUP-01, SUP-02, SUP-04, SUP-05)
 
 Owned by **Patrick** (Catalogue & Frontend). The campus supplier **catalogue**:
 the stores, cafés, printing points, shops and landmarks a student can request an
@@ -33,15 +33,16 @@ constraints, not only the validator — see the schema doc.
 
 ## API
 
-Base path `/suppliers`. All errors use the shared envelope.
+All errors use the shared envelope.
 
-| Method   | Path             | Who           | Notes                                                           |
-| -------- | ---------------- | ------------- | --------------------------------------------------------------- |
-| `GET`    | `/suppliers`     | any signed-in | Active suppliers only. Paged, filterable, searchable, sortable. |
-| `GET`    | `/suppliers/:id` | any signed-in | Resolves any supplier by id, **including deactivated** ones.    |
-| `POST`   | `/suppliers`     | **admin**     | Create. Honors `Idempotency-Key`. `201` created / `200` replay. |
-| `PUT`    | `/suppliers/:id` | **admin**     | Partial update. Requires `If-Match: <version>`.                 |
-| `DELETE` | `/suppliers/:id` | **admin**     | Soft deactivation (`active = false`). Requires `If-Match`.      |
+| Method   | Path             | Who           | Notes                                                             |
+| -------- | ---------------- | ------------- | ----------------------------------------------------------------- |
+| `GET`    | `/suppliers`     | any signed-in | Active suppliers only. Paged, filterable, searchable, sortable.   |
+| `GET`    | `/suppliers/:id` | any signed-in | Resolves any supplier by id, **including deactivated** ones.      |
+| `POST`   | `/suppliers`     | **admin**     | Create. Honors `Idempotency-Key`. `201` created / `200` replay.   |
+| `PUT`    | `/suppliers/:id` | **admin**     | Partial update. Requires `If-Match: <version>`.                   |
+| `DELETE` | `/suppliers/:id` | **admin**     | Soft deactivation (`active = false`). Requires `If-Match`.        |
+| `GET`    | `/buildings`     | any signed-in | The campus building list; `?inUse=true` for those with suppliers. |
 
 ### Permission table (enforced server-side)
 
@@ -51,6 +52,7 @@ a header, a body, or the token.
 | Action      | Anonymous | Student (signed-in) | Admin |
 | ----------- | :-------: | :-----------------: | :---: |
 | List active |  ✗ (401)  |          ✓          |   ✓   |
+| Buildings   |  ✗ (401)  |          ✓          |   ✓   |
 | View by id  |  ✗ (401)  |          ✓          |   ✓   |
 | Create      |  ✗ (401)  |       ✗ (403)       |   ✓   |
 | Update      |  ✗ (401)  |       ✗ (403)       |   ✓   |
@@ -64,8 +66,9 @@ direct API call in `test/suppliers.test.ts`).
 Create/update bodies are validated with zod. **Every** invalid field is returned at
 once as `422` with `details: [{ field, code, message }, …]`. Rejected: an invalid
 `type`, a blank required field, a malformed or unpaired coordinate, an unknown
-field, and a case-insensitive duplicate of `name`+`building` among active
-suppliers (`DUPLICATE_NAME_BUILDING`).
+field, a `building` not on the campus list (`UNKNOWN_BUILDING`), and a
+case-insensitive duplicate of `name`+`building` among active suppliers
+(`DUPLICATE_NAME_BUILDING`).
 
 ### Retry safety
 
@@ -82,6 +85,22 @@ suppliers (`DUPLICATE_NAME_BUILDING`).
   at all, and a failure surfaces through the error envelope with nothing
   half-written.
 
+## Campus buildings (SUP-05)
+
+`src/suppliers/campus-buildings.ts` holds `CAMPUS_BUILDINGS`, the one sorted list
+of buildings a supplier may be in (SS-FR1.1.2), seeded from the buildings the two
+seed CSVs normalize to. A `building` on create, or on update when sent, is resolved
+onto it by `normalizeBuilding`: an alias first (`Com 2`→`COM2`), then a match
+ignoring case and spacing (`central library`→`Central Library`). It is stored in
+the listed spelling; anything else is `422` with `UNKNOWN_BUILDING` on `building`.
+
+`GET /buildings` returns `{ items }`, sorted. With no parameters it is the whole
+list, for the admin form; `?inUse=true` narrows it to the listed buildings with at
+least one active supplier, read live, for the web app's building filter.
+
+**To add a building**, add its name to `CAMPUS_BUILDINGS`, keeping the list
+sorted; the unit tests check the order. No migration or web-app change is needed.
+
 ## Listing, search, filtering & sorting (SUP-02)
 
 `GET /suppliers` returns a **page of active suppliers**. All parameters are
@@ -90,15 +109,15 @@ optional; an unmatched query is a `200` empty page (`total: 0`), never a `404`, 
 
 ### Query parameters
 
-| Parameter  | Default | Notes                                                                                         |
-| ---------- | ------- | --------------------------------------------------------------------------------------------- |
-| `page`     | `1`     | 1-based. Clamped up to `1`, never rejected.                                                   |
-| `pageSize` | `20`    | **Clamped to 1–100** (not rejected); anything but a plain integer falls back to `20`.         |
-| `type`     | —       | Case-insensitive match on the type enum (`FOOD \| CAFE \| PRINTING \| SHOPPING \| LANDMARK`). |
-| `building` | —       | Case-insensitive; canonicalized the same way create is, so `com2` matches stored `COM2`.      |
-| `q`        | —       | Case-insensitive substring search across **name, building, location description, tags**.      |
-| `sort`     | `name`  | One of `name`, `type`, `building`, `updatedAt` (last-updated). Unknown → default.             |
-| `order`    | `asc`   | `asc` or `desc`, any case. Unknown → default.                                                 |
+| Parameter  | Default | Notes                                                                                          |
+| ---------- | ------- | ---------------------------------------------------------------------------------------------- |
+| `page`     | `1`     | 1-based. Clamped up to `1`, never rejected.                                                    |
+| `pageSize` | `20`    | **Clamped to 1–100** (not rejected); anything but a plain integer falls back to `20`.          |
+| `type`     | —       | Case-insensitive match on the type enum (`FOOD \| CAFE \| PRINTING \| SHOPPING \| LANDMARK`).  |
+| `building` | —       | Canonicalized the same way create is, so `com2` matches `COM2`. Off-list values match nothing. |
+| `q`        | —       | Case-insensitive substring search across **name, building, location description, tags**.       |
+| `sort`     | `name`  | One of `name`, `type`, `building`, `updatedAt` (last-updated). Unknown → default.              |
+| `order`    | `asc`   | `asc` or `desc`, any case. Unknown → default.                                                  |
 
 An empty or whitespace-only `type`, `building` or `q` is ignored, so a cleared
 search box lists everything. An unknown `type`, a repeated `type`/`building`/`q`,
@@ -127,10 +146,10 @@ opening hours and coordinates are returned only by `GET /suppliers/:id`.
 ### Location-query decision
 
 The **building filter is how a supplier is found "by location"**. Buildings come
-from a fixed, canonicalized list (the seed normalizes spellings onto one name per
-building), so filtering by building has no duplicates and needs no proximity or
-coordinate search. Coordinates remain stored for map pins but are **not** a query
-axis; there is deliberately no radius/nearest search in this service.
+from the campus list (one canonical name per building, see above), so filtering by
+building has no duplicates and needs no proximity or coordinate search.
+Coordinates remain stored for map pins but are **not** a query axis; there is
+deliberately no radius/nearest search in this service.
 
 ### Indexes and tag constraint
 
@@ -151,7 +170,7 @@ an admin's later edits are never overwritten. Source data:
   and all) so the normalizer is exercised against the real thing.
 - **`data/csv/supplier-seed-additions.csv`** — this team's 12 supplementary
   records, including the LANDMARK pickup points the template lacks, taking the
-  corpus to **33 active suppliers across 20 buildings and all five types** — past
+  corpus to **33 active suppliers across 19 buildings and all five types** — past
   SS-FR4.1.1's floor of ≥30 across ≥10 buildings.
 
 ## Running this service
@@ -226,7 +245,7 @@ CSVs under `data/csv/`. The image runs as a non-root user and declares a
 ### `requests.http`
 
 `supplier-service/requests.http` exercises **list, filter, sort, search,
-get-by-ID, create, update and deactivate** with both a student and an admin
+get-by-ID, create, update, deactivate and the building list** with both a student and an admin
 token, end to end against the Compose stack with no UI running (D2 §3). See the
 header of that file for how to obtain the two bearer tokens.
 

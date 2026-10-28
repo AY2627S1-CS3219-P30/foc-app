@@ -110,7 +110,7 @@ export const asStudent = 'Bearer student';
 export const validSupplier = (over: Record<string, unknown> = {}) => ({
   name: 'Test Kopitiam',
   type: 'FOOD',
-  building: 'COM1',
+  building: 'COM3',
   floor: '1',
   locationDescription: 'Near the entrance',
   openingHours: [{ day: 'MON', opens: '09:00', closes: '18:00' }],

@@ -79,7 +79,7 @@ Content-Type: application/json
 # 2 · Create (admin) — a small demo catalogue to list/filter/sort/search over
 # ─────────────────────────────────────────────────────────────
 
-### 2a · Admin creates a FOOD supplier in COM1 (Idempotency-Key makes a retry safe)
+### 2a · Admin creates a FOOD supplier in COM3 (Idempotency-Key makes a retry safe)
 # @name createFood
 POST {{supplierBase}}/suppliers
 Authorization: Bearer {{adminToken}}
@@ -89,7 +89,7 @@ Idempotency-Key: sup02-demo-food
 {
   "name": "Demo Kopitiam",
   "type": "FOOD",
-  "building": "COM1",
+  "building": "COM3",
   "floor": "1",
   "locationDescription": "Near the north entrance",
   "openingHours": [{ "day": "MON", "opens": "08:00", "closes": "20:00" }],
@@ -116,7 +116,7 @@ Idempotency-Key: sup02-demo-cafe
   "imageUrl": "https://example.com/cafe.jpg"
 }
 
-### 2c · Admin creates a PRINTING supplier in COM1
+### 2c · Admin creates a PRINTING supplier in COM3
 # @name createPrint
 POST {{supplierBase}}/suppliers
 Authorization: Bearer {{adminToken}}
@@ -126,7 +126,7 @@ Idempotency-Key: sup02-demo-print
 {
   "name": "Demo Print Shop",
   "type": "PRINTING",
-  "building": "COM1",
+  "building": "COM3",
   "floor": "1",
   "locationDescription": "Photocopier corner"
 }
@@ -140,7 +140,18 @@ POST {{supplierBase}}/suppliers
 Authorization: Bearer {{studentToken}}
 Content-Type: application/json
 
-{ "name": "Should Fail", "type": "FOOD", "building": "COM1", "floor": "1", "locationDescription": "x" }
+{ "name": "Should Fail", "type": "FOOD", "building": "COM3", "floor": "1", "locationDescription": "x" }
+
+### 2e · A building off the campus list is refused — expect 422 UNKNOWN_BUILDING on `building`
+POST {{supplierBase}}/suppliers
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{ "name": "Nowhere Stall", "type": "FOOD", "building": "Atlantis", "floor": "1", "locationDescription": "x" }
+
+### 2f · The campus building list (any signed-in user)
+GET {{supplierBase}}/buildings
+Authorization: Bearer {{studentToken}}
 
 # ─────────────────────────────────────────────────────────────
 # 3 · List, filter, sort, search (SUP-02) — as a student, then admin
@@ -162,12 +173,12 @@ Authorization: Bearer {{studentToken}}
 GET {{supplierBase}}/suppliers?type=FOOD
 Authorization: Bearer {{studentToken}}
 
-### 3e · Filter by building — case-insensitive, canonicalized like create (com1 → COM1)
-GET {{supplierBase}}/suppliers?building=com1
+### 3e · Filter by building — case-insensitive, canonicalized like create (com3 → COM3)
+GET {{supplierBase}}/suppliers?building=com3
 Authorization: Bearer {{studentToken}}
 
-### 3f · Combined filter: PRINTING in COM1
-GET {{supplierBase}}/suppliers?type=PRINTING&building=COM1
+### 3f · Combined filter: PRINTING in COM3
+GET {{supplierBase}}/suppliers?type=PRINTING&building=COM3
 Authorization: Bearer {{studentToken}}
 
 ### 3g · Sort by name descending
@@ -236,7 +247,7 @@ Authorization: Bearer {{adminToken}}
 If-Match: {{printVersion}}
 
 ### 6b · It is gone from the listing …
-GET {{supplierBase}}/suppliers?building=COM1
+GET {{supplierBase}}/suppliers?building=COM3
 Authorization: Bearer {{studentToken}}
 
 ### 6c · … but still fetchable by ID (active: false)

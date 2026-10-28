@@ -27,6 +27,17 @@ describe('supplier-service honours its published contract', () => {
     contract.assert('get', '/health', await http(app).get('/health'));
   });
 
+  it('GET /buildings, in full and in use', async () => {
+    for (const query of ['', '?inUse=true']) {
+      contract.assert(
+        'get',
+        '/buildings',
+        await http(app).get(`/buildings${query}`).set('Authorization', asStudent),
+      );
+    }
+    contract.assert('get', '/buildings', await http(app).get('/buildings'));
+  });
+
   it('POST, GET, PUT and DELETE /suppliers with success and error responses', async () => {
     const created = await http(app)
       .post('/suppliers')
@@ -42,6 +53,14 @@ describe('supplier-service honours its published contract', () => {
       'post',
       '/suppliers',
       await http(app).post('/suppliers').set('Authorization', asAdmin).send({}),
+    );
+    contract.assert(
+      'post',
+      '/suppliers',
+      await http(app)
+        .post('/suppliers')
+        .set('Authorization', asAdmin)
+        .send(validSupplier({ building: 'Atlantis' })),
     );
 
     contract.assert(

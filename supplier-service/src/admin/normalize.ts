@@ -4,6 +4,7 @@ import {
   type SupplierInput,
   type SupplierType,
 } from '../suppliers/types.js';
+import { CAMPUS_BUILDINGS } from '../suppliers/campus-buildings.js';
 import { uuidv5 } from './uuid.js';
 
 /** Namespace for the supplier seed's deterministic ids. Fixed forever; changing it re-keys every row. */
@@ -33,12 +34,13 @@ export function normalizeType(raw: string): SupplierType {
 }
 
 /** Collapses apostrophe variants and whitespace so two spellings compare equal. */
-const buildingKey = (raw: string): string =>
+const tidyBuilding = (raw: string): string =>
   raw
     .replace(/[‘’`´]/g, "'")
     .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
+    .trim();
+
+const buildingKey = (raw: string): string => tidyBuilding(raw).toLowerCase();
 
 /**
  * Collapses the source's inconsistent building spellings onto one canonical name
@@ -59,14 +61,18 @@ const BUILDING_MAP: Record<string, string> = {
   'the terrace': 'Terrace',
 };
 
+const CANONICAL_BUILDINGS = new Map<string, string>([
+  ...CAMPUS_BUILDINGS.map((b) => [buildingKey(b), b] as const),
+  ...Object.entries(BUILDING_MAP),
+]);
+
+/**
+ * Resolves a spelling onto its campus building: an alias first, then a case- and
+ * spacing-insensitive match on {@link CAMPUS_BUILDINGS}. A building off the list
+ * comes back tidied but unresolved, for validation to refuse.
+ */
 export function normalizeBuilding(raw: string): string {
-  const key = buildingKey(raw);
-  if (BUILDING_MAP[key]) return BUILDING_MAP[key];
-  // Unknown building: keep the original casing but with apostrophes and spacing tidied.
-  return raw
-    .replace(/[‘’`´]/g, "'")
-    .replace(/\s+/g, ' ')
-    .trim();
+  return CANONICAL_BUILDINGS.get(buildingKey(raw)) ?? tidyBuilding(raw);
 }
 
 /** `0900hrs` → `09:00`; also accepts an already-formatted `HH:MM`. Empty → null. */
