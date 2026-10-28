@@ -948,7 +948,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
-        /** @description The cursor is not one this list returned (`INVALID_CURSOR`). */
+        /** @description The cursor is malformed or belongs to another list (`INVALID_CURSOR`). */
         InvalidCursor: {
             headers: {
                 [name: string]: unknown;
