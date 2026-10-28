@@ -1,5 +1,8 @@
 # Stack recovery evidence — 27 October 2026
 
+Historical local evidence. The subsequent [28 October CI report](2026-10-28-stack-recovery.md)
+records successful published-image rollback and completion of #284.
+
 Status: **backup/restore proved locally; published-image rollback NOT RUN**. This is partial #284
 evidence, not a claim that the issue's complete Definition of Done has been met.
 
