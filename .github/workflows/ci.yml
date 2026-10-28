@@ -600,17 +600,18 @@ jobs:
             credit-service
             web-app
           load: true
+          # Every line of `set` is an override; a comment there would be text bake cannot parse.
+          # The cache is written back from main, whose cache every later run can read; a pull
+          # request's is its own. The per-service job writes the same scopes, so a PR starts from this.
           set: |
             *.labels.org.opencontainers.image.source=https://github.com/${{ github.repository }}
             *.labels.org.opencontainers.image.revision=${{ github.sha }}
-            web-app.labels.org.opencontainers.image.description=For the local stack only: it calls the services at localhost on compose.yaml's default ports, and links sign-up to the dev mailbox.
+            web-app.labels.org.opencontainers.image.description=Runs behind the edge: it calls the services at /api/<service> on its own origin. Links sign-up to the dev mailbox and the admin console to Grafana on localhost:3005.
             user-service.cache-from=type=gha,scope=user-service
             supplier-service.cache-from=type=gha,scope=supplier-service
             order-service.cache-from=type=gha,scope=order-service
             credit-service.cache-from=type=gha,scope=credit-service
             web-app.cache-from=type=gha,scope=web-app
-            # Written back from main, whose cache every later run can read; a pull request's is
-            # its own. The per-service job writes the same scopes, so a PR starts from this.
             user-service.cache-to=type=gha,mode=max,scope=user-service
             supplier-service.cache-to=type=gha,mode=max,scope=supplier-service
             order-service.cache-to=type=gha,mode=max,scope=order-service
