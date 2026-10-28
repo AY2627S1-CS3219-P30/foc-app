@@ -76,8 +76,9 @@ describe('the publish job', () => {
     expect(workflow.permissions).toEqual({ contents: 'read' });
     expect(publish.permissions).toEqual({ contents: 'read', packages: 'write' });
     for (const [name, job] of Object.entries(workflow.jobs)) {
-      if (name !== 'publish') expect(job.permissions?.packages, name).toBeUndefined();
+      if (name !== 'publish') expect(job.permissions?.packages, name).not.toBe('write');
     }
+    expect(workflow.jobs.stack!.permissions?.packages).toBe('read');
   });
 
   const steps = publish.steps!;
