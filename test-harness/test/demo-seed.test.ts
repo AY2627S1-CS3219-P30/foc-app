@@ -84,4 +84,24 @@ with tempfile.TemporaryDirectory() as folder:
     }
     expect(existsSync(envPath)).toBe(existed);
   });
+
+  it('accepts a real zero-credit wallet without issuing or repairing credits during a check', () => {
+    const result = python(`
+class Api:
+    def call(self,method,path,*args,**kwargs):
+        if (method,path)==('POST','/api/user/auth/login'):
+            return {'accessToken':'fixture-token','user':{'roles':['STUDENT']}}
+        if (method,path)==('GET','/api/user/users/me'):
+            return {'id':'student','status':'ACTIVE','profile':{'displayName':'Alyssa Tan'}}
+        if (method,path)==('GET','/api/credit/wallets/me'):
+            return {'userId':'student','available':0,'reserved':0,'total':0}
+        raise AssertionError('unexpected mutation or repair')
+def no_wait(_): raise AssertionError('a valid zero wallet must not wait for a top-up')
+demo.time.sleep=no_wait
+person={'name':'Alyssa Tan','email':'fixture@u.nus.edu','password':'unused-fixture'}
+token,me=demo.ensure_person(Api(),'requester',person,False)
+assert token=='fixture-token' and me['id']=='student'
+`);
+    expect(result.status, result.stderr).toBe(0);
+  });
 });

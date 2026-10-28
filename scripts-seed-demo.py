@@ -148,7 +148,7 @@ def ensure_person(api, key, person, create):
         raise ValueError(f"Wrong name/status for {key}")
     if student:
         wait_for(lambda: api.call("GET", "/api/credit/wallets/me", token=token),
-                 lambda wallet: wallet["total"] > 0, f"{key}'s issued wallet")
+                 lambda wallet: wallet["userId"] == me["id"], f"{key}'s issued wallet")
     return token, me
 
 
@@ -160,7 +160,7 @@ def main():
     wait_for(lambda: api.call("GET", "/edge/ready"), lambda _result: True, "the full application")
     # Before registering anyone, prove this is the local development mailbox, not a real mail flow.
     api.call("GET", "/api/user/dev/mailbox")
-    people = credentials(os.environ["ALLOWED_EMAIL_DOMAINS"].split(",")[0], create)
+    people = credentials(os.environ["ALLOWED_EMAIL_DOMAINS"].split(",")[0].strip().lower(), create)
     sessions = {key: ensure_person(api, key, person, create) for key, person in people.items()}
     requester = sessions["requester"][0]
     suppliers = api.call("GET", "/api/supplier/suppliers?pageSize=100", token=requester)
