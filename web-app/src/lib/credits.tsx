@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { ApiError } from "./api-client";
 import { useAuth } from "./auth";
+import { useLive } from "./live/live";
 import { getMyWallet, type Wallet } from "./order-api";
 import { usePoll } from "./use-poll";
 
@@ -20,7 +21,8 @@ const CreditsContext = createContext<Credits | null>(null);
 
 /**
  * The student's wallet, shared across screens. Credits move on the server (reservations, releases,
- * payouts), so it is read again on a timer and on return. A failed read keeps the last wallet.
+ * payouts), so it is read again on a timer, on return, and on an errand's live update. A failed read
+ * keeps the last wallet.
  */
 export function CreditsProvider({
   children,
@@ -50,6 +52,10 @@ export function CreditsProvider({
     [authed, enabled],
   );
   const refresh = usePoll(read);
+  // N1.4: credits move only with an errand, so any errand nudge may have moved them.
+  useLive((nudge) => {
+    if (nudge.kind !== "board") refresh();
+  });
   const value = useMemo(
     () => ({ wallet, problem, available: wallet?.available ?? null, refresh }),
     [wallet, problem, refresh],

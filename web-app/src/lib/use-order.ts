@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import { ApiError } from "./api-client";
 import { useAuth } from "./auth";
+import { useLive } from "./live/live";
 import { getOrder, type Order, type OrderStatus } from "./order-api";
 import { isFinal, waitsOnCredit } from "./order-status";
 import { useOnReturn } from "./use-on-return";
@@ -82,6 +83,15 @@ export function useOrder(orderId: string) {
   const readNow = usePoll(read);
   useOnReturn(() => {
     since.current = Date.now();
+  });
+  // N1.4: read again at once when the stream says this errand moved past what is shown. A courier
+  // who withdrew or missed the pickup deadline is no longer named on it, so hears only that it went
+  // back on the board.
+  useLive((nudge) => {
+    if (nudge.kind === "ready") readNow();
+    else if (nudge.kind === "errand" && nudge.orderId === orderId) {
+      if ((nudge.version ?? Number.POSITIVE_INFINITY) > version.current) readNow();
+    } else if (nudge.kind === "board" && status.current === "ACCEPTED") readNow();
   });
 
   /** Shows `latest` (a command's answer) at once, then reads again. */
