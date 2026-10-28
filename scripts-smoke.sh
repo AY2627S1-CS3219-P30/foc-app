@@ -27,6 +27,8 @@ DEADLINE="${SMOKE_DEADLINE_SECONDS:-90}"
 # stack that never became healthy has nothing to probe.
 pass() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; FAILURES=$((FAILURES + 1)); }
+# A check that does not apply to the images running, said so rather than passed or failed.
+skip() { printf '  \033[33mSKIP\033[0m  %s\n' "$1"; }
 FAILURES=0
 TEARDOWN=0
 
@@ -358,21 +360,30 @@ if [[ -z "$access_token" ]]; then
   fail "live updates: no signed-in student to open a stream with (see activation → wallet above)"
 else
   open_stream "$access_token" first
-  streams_ready 1 2 && pass "the edge streams /api/order/live unbuffered: ready within 2 s" ||
-    fail "/api/order/live sent no ready within 2 s: '$(head -c 200 "$live_dir/first")'"
-  second=$(second_student)
-  for i in 2 3 4 5; do open_stream "$access_token" "a$i"; done
-  [[ -n "$second" ]] && for i in 1 2 3 4 5; do open_stream "$second" "b$i"; done
-  if [[ -z "$second" ]] || ! streams_ready 10 5; then
-    fail "could not hold ten streams open through the edge (second student: ${second:+signed in}${second:-none})"
-  else
-    eleventh=$(curl -s --max-time 5 -D - "$EDGE/api/order/live" -H "Authorization: Bearer $second" 2>/dev/null || true)
-    if [[ "$eleventh" == *" 429 "* && "$eleventh" == *"from this address"* ]] &&
-      ! grep -qi '^x-correlation-id:' <<<"$eleventh"; then
-      pass "the 11th stream from one address is refused (429)"
+  if streams_ready 1 2; then
+    pass "the edge streams /api/order/live unbuffered: ready within 2 s"
+    second=$(second_student)
+    for i in 2 3 4 5; do open_stream "$access_token" "a$i"; done
+    [[ -n "$second" ]] && for i in 1 2 3 4 5; do open_stream "$second" "b$i"; done
+    if [[ -z "$second" ]]; then
+      fail "could not sign a second student in, to hold ten streams open through the edge"
+    elif ! streams_ready 10 5; then
+      fail "could not hold ten streams open through the edge"
     else
-      fail "the 11th stream from one address answered: '$(head -c 200 <<<"$eleventh" | tr -d '\r' | tr '\n' ' ')'"
+      eleventh=$(curl -s --max-time 5 -D - "$EDGE/api/order/live" -H "Authorization: Bearer $second" 2>/dev/null || true)
+      if [[ "$eleventh" == *" 429 "* && "$eleventh" == *"from this address"* ]] &&
+        ! grep -qi '^x-correlation-id:' <<<"$eleventh"; then
+        pass "the 11th stream from one address is refused (429)"
+      else
+        fail "the 11th stream from one address answered: '$(head -c 200 <<<"$eleventh" | tr -d '\r' | tr '\n' ' ')'"
+      fi
     fi
+  elif grep -q '"message":"Cannot GET /live"' "$live_dir/first"; then
+    # An Order Service image from before N1.4 has no stream to check, as when the recovery drill
+    # (#314) rolls back to an earlier release. A stream that is there must still work.
+    skip "this image set's Order Service has no live-update stream (it predates N1.4)"
+  else
+    fail "/api/order/live sent no ready within 2 s: '$(head -c 200 "$live_dir/first")'"
   fi
 fi
 kill $(jobs -p) 2>/dev/null || true
