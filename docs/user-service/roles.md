@@ -227,5 +227,5 @@ without first appointing and seeding a successor — which is the behaviour we w
 
 - Suspending another admin: restricted to seeded admins here; the backlog is silent (US-FR3.1.2 only says "an administrator").
 - The controls on administrators (two-person rule, password re-entry, alerts, the suspension limit) are
-  ADR 0008, status *Proposed* until the group approves it.
+  ADR 0008, status *Accepted*.
 - Order and Credit rows above are the agreed design; each service's own matrix test must confirm them once its endpoints land.

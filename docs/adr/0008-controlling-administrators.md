@@ -1,6 +1,6 @@
 # ADR 0008 — How administrators are controlled
 
-- **Status:** Proposed; implementation basis
+- **Status:** Accepted
 - **Date:** 2026-10-08
 - **Deciders:** Group 30; approvals tracked in [the ADR index](README.md)
 - **Ticket:** [ADM-01 #218](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/218)
