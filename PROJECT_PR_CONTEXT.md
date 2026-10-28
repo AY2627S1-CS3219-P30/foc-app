@@ -62,6 +62,12 @@ checks as test-only; main now includes the runtime audit through merged #313.
   └── #167 final acceptance + two non-owner rehearsals
        (seed, tabs and narrative merged in #322; live chat also remains gated)
 
+#281 participant dispute outcome/reason [open; blocker implementation in progress]
+  └── #160 complete dispute journey (its D4 audit explicitly requires WEB-06)
+
+#145 / #157 / #158 [closed]
+  └── #160 listed prerequisites are satisfied; remaining implemented-feature tests can proceed
+
 #238 shared ADR acceptance
   ├── Isaac approval [merged #300]
   ├── Zhang Yuan / Anselm approvals [recorded on main]
@@ -282,6 +288,30 @@ the team must validate it and disclose AI use according to course policy before 
   A pending asynchronous question asks which two non-owners can perform the required rehearsals.
 - #238 waits only for Patrick's actual approval. #254 merged with Anselm's recorded review and
   code-checked amendments; no teammate approval was invented.
+
+### Technical blocker work — 28 October
+
+The earlier conclusion that no independent technical action remained was too broad. The user
+authorized resolving blockers as well as assigned work. #160 is assigned to Patrick, but all
+three of its listed prerequisites (#145 TST-01, #157 WEB-02, #158 WEB-03) are CLOSED. Its D4 audit
+explicitly requires #281's student dispute outcome, which is still missing on main. These are
+blocker tickets, not additional issues assigned to Isaac.
+
+- `test/160-release-journeys`, local commit `1234e65`, scaffolds the missing release journeys and
+  a dedicated `foc-e2e-release` runner. It is not merged or acceptance evidence. The initial debug
+  run found driver assumptions (withdrawal consumes its URL flag; wallet timestamps change), and
+  confirmed that the current student screen lacks #281's decision/reason. Supplier filtering and
+  the existing mobile journeys passed. Controlled server-clock coverage, suspension/reassignment,
+  all clean release runs and chat coverage still need completion; do not close #160 from this run.
+- `feat/281-participant-dispute-history` implements that concrete UI prerequisite before the
+  release suite is finalized. The existing Order history contract already carries decision reasons
+  to participants and refuses outsiders, so no backend field or contract change is required.
+  Relevant code: `web-app/src/lib/order-api.ts`, `use-order-history.ts`,
+  `web-app/src/components/ErrandHistory.tsx` and `request/[id]/OrderDetail.tsx`; tests cover both
+  outcomes, identity/order changes and late replies, escaping, and real public-route decisions.
+  Merge/closure still require passing CI and the actual PR merge; recheck GitHub.
+- The two real non-owner rehearsals and Patrick's ADR decision remain external gates. An agent
+  may complete technical blocker code but cannot supply those people's participation or decisions.
 
 ### Completion audit — 28 October, after #322
 

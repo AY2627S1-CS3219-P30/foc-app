@@ -7,6 +7,7 @@ export default tseslint.config(
       '**/dist/**',
       '**/node_modules/**',
       '**/coverage/**',
+      '.release-results/**',
       // web-app has its own bun toolchain and its own eslint config.
       'web-app/**',
     ],
