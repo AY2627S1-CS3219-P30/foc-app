@@ -113,6 +113,6 @@ restore, health, smoke and audit; more than 3600 seconds fails. Teardown removes
 
 The private `.recovery-results/drill.json` records elapsed seconds, commit/dirty state and which
 checks really ran. Without a tag it explicitly says rollback `NOT_RUN`; this is not complete #284
-acceptance. Backups remain private there for inspection. CI's required Compose smoke job runs the
-backup/restore drill and uploads only its summary JSON, never dumps. Dated reviewed evidence belongs
+acceptance. Backups remain private there for inspection. CI's required Compose smoke (recovery) job runs
+the backup/restore drill and uploads only its summary JSON, never dumps. Dated reviewed evidence belongs
 under `docs/reports/`; do not claim a rollback drill succeeded until it ran on published images.
