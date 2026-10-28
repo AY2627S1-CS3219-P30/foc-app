@@ -9,3 +9,7 @@
 **/dist
 **/coverage
 **/*.tsbuildinfo
+# Local demo identities/browser sessions and recovery dumps never enter an image build context.
+.demo-state
+backups
+.recovery-results

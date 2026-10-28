@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -24,6 +24,15 @@ ${program}
   );
 
 describe('D4 seed boundaries and private credentials', () => {
+  it('excludes credentials, browser sessions and recovery dumps from the image build context', () => {
+    const ignored = readFileSync(
+      fileURLToPath(new URL('../../.dockerignore', import.meta.url)),
+      'utf8',
+    ).split('\n');
+    for (const directory of ['.demo-state', 'backups', '.recovery-results']) {
+      expect(ignored).toContain(directory);
+    }
+  });
   it('refuses remote targets and direct production/default-project invocation before any API call', () => {
     const result = python(`
 for edge in ['https://localhost:14000','http://example.com','http://localhost.example.com']:
