@@ -23,7 +23,8 @@ curl -s localhost:3000/edge/ready       # 200 once every page can work; 503 nami
 docker compose ps edge                  # "healthy" means ready: its health check asks /edge/ready
 ```
 
-An **unhealthy edge is usually not a broken edge**: it means something behind it is down, and
+An **unhealthy edge is usually not a broken edge**: it means something behind it has been down for
+a minute (a service being recreated under it, as a second `up --build` does, is not), and
 `/edge/ready` names it, for example `{"status":"unavailable","down":["supplier-service"],…}`. Look
 at that service (`docker compose ps`, `docker compose logs <service>`) before the edge.
 
