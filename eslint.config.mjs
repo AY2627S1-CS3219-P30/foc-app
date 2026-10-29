@@ -34,6 +34,24 @@ export default tseslint.config(
     rules: { 'no-console': 'off' },
   },
   {
+    // load/live.mjs runs in Node 22 beside them (N1.4, #332): the globals it uses, and its summary.
+    files: ['load/**/*.mjs'],
+    languageOptions: {
+      globals: Object.fromEntries(
+        [
+          'AbortController',
+          'TextDecoder',
+          'console',
+          'fetch',
+          'performance',
+          'process',
+          'setTimeout',
+        ].map((name) => [name, 'readonly']),
+      ),
+    },
+    rules: { 'no-console': 'off' },
+  },
+  {
     // Tests may reach for `any` and log freely.
     files: ['**/*.test.ts'],
     rules: { '@typescript-eslint/no-explicit-any': 'off', 'no-console': 'off' },
