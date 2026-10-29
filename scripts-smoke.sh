@@ -174,7 +174,7 @@ done
 
 # ---- an activation reaches the Credit Service --------------------------------
 # The queues above can exist with nothing flowing through them. This signs up a
-# throwaway student, activates them through the dev mailbox, and waits for the
+# throwaway student, activates them through the emailed link (Mailpit), and waits for the
 # wallet the Credit Service issues on `user.activated`: User Service, outbox
 # relay, broker and Credit Service, end to end.
 #
@@ -199,12 +199,19 @@ response=$(mktemp)
 registered=$(post_json /auth/register "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"$SMOKE_PASSWORD\",\"displayName\":\"Smoke test\"}" "$response")
 [[ "$registered" == 2* ]] || wallet_step="registering returned ${registered:-no answer}"
 
+# The token in the newest activation email to an address. The stack mails every link to Mailpit,
+# so no email is a failure, not a skip. Images from before USR-09, which the recovery drill rolls
+# back to, kept the link in the User Service's dev mailbox instead; a current one has no such
+# route (404), so this falls back to it only on those images.
+activation_token_for() {
+  ./scripts-activation-token.sh "$1" ||
+    curl -fsS "http://localhost:${USER_PORT}/dev/mailbox?to=$1" 2>/dev/null | json_field token
+}
+
 activation_token=""
 if [[ -z "$wallet_step" ]]; then
-  activation_token=$(curl -fsS "http://localhost:${USER_PORT}/dev/mailbox?to=$SMOKE_EMAIL" 2>/dev/null | json_field token) || true
-  # The dev mailbox exists only outside production. A stack this script can check is not in
-  # production, so no token means the mailbox or the registration is broken: a failure, not a skip.
-  [[ -n "$activation_token" ]] || wallet_step="the dev mailbox gave no activation token (is NODE_ENV production?)"
+  activation_token=$(activation_token_for "$SMOKE_EMAIL") || true
+  [[ -n "$activation_token" ]] || wallet_step="no activation email reached Mailpit"
 fi
 if [[ -z "$wallet_step" ]]; then
   activated=$(post_json /auth/activate "{\"token\":\"$activation_token\"}" "$response" -H 'x-correlation-id: smoke-wallet')
@@ -349,7 +356,7 @@ second_student() {
   local email="smoke-live-$(date +%s)-$RANDOM@u.nus.edu" out token
   out=$(mktemp)
   post_json /auth/register "{\"email\":\"$email\",\"password\":\"$SMOKE_PASSWORD\",\"displayName\":\"Smoke test\"}" "$out" >/dev/null
-  token=$(curl -fsS "http://localhost:${USER_PORT}/dev/mailbox?to=$email" 2>/dev/null | json_field token) || true
+  token=$(activation_token_for "$email") || true
   post_json /auth/activate "{\"token\":\"$token\"}" "$out" >/dev/null
   post_json /auth/login "{\"email\":\"$email\",\"password\":\"$SMOKE_PASSWORD\"}" "$out" \
     -H "Origin: http://localhost:${WEB_PORT}" >/dev/null

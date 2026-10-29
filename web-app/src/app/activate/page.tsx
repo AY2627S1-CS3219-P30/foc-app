@@ -11,6 +11,7 @@ import { ApiError, userApi } from "@/lib/user-api";
 import { vars } from "@/styles/tokens";
 
 type State = "idle" | "working" | "done" | "error";
+type ResendState = "idle" | "sending" | "sent" | "error";
 
 export default function ActivatePage() {
   const hydrated = useHydrated();
@@ -20,6 +21,7 @@ export default function ActivatePage() {
   const [message, setMessage] = useState<string | null>(null);
   const [fieldError, setFieldError] = useState<string | undefined>();
   const autoSubmitted = useRef(false);
+  const resendEmail = useRef<HTMLInputElement>(null);
 
   async function activate(value: string) {
     setState("working");
@@ -33,14 +35,14 @@ export default function ActivatePage() {
     } catch (err) {
       setState("error");
       if (err instanceof ApiError && err.code === "ACTIVATION_TOKEN_EXPIRED") {
-        // There is no way to send a fresh link yet, and registering again is refused (the email is
-        // taken), so say so plainly. See "Waiting on the User Service" in the web-app README.
-        setMessage(
-          "This activation link has expired, and the app can't send a new one yet. " +
-            "Contact support to activate your account.",
-        );
+        setMessage("This activation link has expired. Ask for a new one below.");
+        resendEmail.current?.focus();
       } else if (err instanceof ApiError && err.code === "ACTIVATION_TOKEN_INVALID") {
-        setMessage("This activation link isn't valid. Check you copied all of it.");
+        // Also what an older link says once a newer one has been sent.
+        setMessage(
+          "This activation link isn't valid. Check you copied all of it, " +
+            "or use the newest email we sent. You can ask for a new link below.",
+        );
       } else if (err instanceof ApiError && err.details.length > 0) {
         setFieldError("Paste the whole code from the email.");
         setMessage("Check the highlighted field.");
@@ -104,6 +106,85 @@ export default function ActivatePage() {
           </div>
         </form>
       )}
+      {!done && <ResendForm inputRef={resendEmail} />}
     </AuthCard>
+  );
+}
+
+/** "Send a new link": the service answers the same whether or not the address has an account. */
+function ResendForm({ inputRef }: { inputRef: React.Ref<HTMLInputElement> }) {
+  const hydrated = useHydrated();
+  const [email, setEmail] = useState("");
+  const [state, setState] = useState<ResendState>("idle");
+  const [message, setMessage] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<string | undefined>();
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    const value = email.trim();
+    if (!value) {
+      setFieldError("Enter the email you signed up with.");
+      return;
+    }
+    setFieldError(undefined);
+    setState("sending");
+    setMessage(null);
+    try {
+      await userApi.resendActivation(value);
+      setState("sent");
+      setMessage(
+        `If ${value} has an account waiting for activation, a new link is on its way. ` +
+          "Earlier links no longer work.",
+      );
+    } catch (err) {
+      setState("error");
+      if (err instanceof ApiError && err.code === "RATE_LIMITED") {
+        setMessage("Too many requests for a new link. Try again later.");
+      } else if (err instanceof ApiError && err.details.length > 0) {
+        setFieldError("Enter a valid email address.");
+        setMessage("Check the highlighted field.");
+      } else {
+        setMessage(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+      }
+    }
+  }
+
+  return (
+    <form
+      method="post"
+      onSubmit={onSubmit}
+      noValidate
+      aria-busy={state === "sending"}
+      aria-labelledby="resend-heading"
+      style={{ marginTop: vars.space[6] }}
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: vars.space[4] }}>
+        <h2 id="resend-heading" style={{ fontSize: vars.text.md, margin: 0 }}>
+          Didn&apos;t get the email, or the link expired?
+        </h2>
+        <FormAlert tone="success">{state === "sent" && message}</FormAlert>
+        <FormAlert>{state === "error" && message}</FormAlert>
+        <FormField
+          ref={inputRef}
+          label="NUS email"
+          type="email"
+          name="email"
+          autoComplete="email"
+          inputMode="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          error={fieldError}
+          required
+        />
+        <Button
+          type="submit"
+          variant="outline"
+          full
+          disabled={!hydrated || state === "sending"}
+        >
+          {state === "sending" ? "Sending…" : "Send a new link"}
+        </Button>
+      </div>
+    </form>
   );
 }

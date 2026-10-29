@@ -1,11 +1,11 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { ApiException, EVENTS } from '@foc/platform';
 import { hashPassword } from '../auth/passwords.js';
 import { sessionsRepository as sessions } from '../auth/sessions.repository.js';
 import { newOpaqueToken, sha256Hex } from '../auth/tokens.js';
 import { DB, type Database } from '../db/db.js';
-import { MAILER, type Mailer } from '../mail/mailer.js';
+import { MAILER, type ActivationEmail, type Mailer } from '../mail/mailer.js';
 import { isAllowedDomain, normalizeEmail } from './email.js';
 import { usersRepository as repo, type AccountStatus, type Role } from './users.repository.js';
 import { validationFailed } from './validation.js';
@@ -45,13 +45,19 @@ export interface PermissionsLookup {
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     @Inject(DB) private readonly db: Database,
     @Inject(MAILER) private readonly mailer: Mailer,
     @Inject(USER_SETTINGS) private readonly settings: UserSettings,
   ) {}
 
-  /** US-FR1.1.1 — reject off-domain and duplicate emails without creating an account. */
+  /**
+   * US-FR1.1.1 — reject off-domain and duplicate emails without creating an account. An address
+   * that never activated and whose links have all expired is not a duplicate: registering again
+   * replaces its password and sends a new link, so a lapsed sign-up does not lock the address.
+   */
   async register(input: {
     email: string;
     password: string;
@@ -70,27 +76,21 @@ export class UsersService {
 
     // Hashed before the transaction: Argon2id is deliberately slow and must not hold a DB connection.
     const passwordHash = await hashPassword(input.password);
-    const userId = randomUUID();
     const token = newOpaqueToken();
 
-    const created = await this.db.transaction(async (tx) => {
-      const inserted = await repo.insertUser(tx, {
-        id: userId,
-        email,
-        passwordHash,
-        displayName: input.displayName,
-      });
-      if (!inserted) return false;
-      await repo.insertActivationToken(tx, {
-        id: randomUUID(),
-        userId,
-        tokenHash: sha256Hex(token),
-        ttlHours: this.settings.activationTokenTtlHours,
-      });
-      return true;
+    const userId = await this.db.transaction(async (tx) => {
+      const id = randomUUID();
+      const user = { email, passwordHash, displayName: input.displayName };
+      if (await repo.insertUser(tx, { id, ...user })) {
+        await this.issueActivationToken(tx, id, token);
+        return id;
+      }
+      const revived = await repo.reviveExpiredRegistration(tx, user);
+      if (revived) await this.issueActivationToken(tx, revived, token);
+      return revived;
     });
 
-    if (!created) {
+    if (!userId) {
       throw new ApiException(
         409,
         'EMAIL_ALREADY_REGISTERED',
@@ -98,9 +98,52 @@ export class UsersService {
       );
     }
 
-    // After commit: a mail failure must not roll back an account that already exists.
-    await this.mailer.sendActivation({ to: email, userId, token });
+    // After commit, in the background as resend does, so a slow relay cannot hold the answer; and
+    // never failing the request: the account exists either way, and
+    // `POST /auth/activation/resend` is how the student gets a link that did not arrive.
+    void this.sendActivation({ to: email, userId, token });
     return { userId, status: 'PENDING_ACTIVATION' };
+  }
+
+  /**
+   * Sends a new link to a pending account and invalidates the old ones. The caller learns nothing:
+   * an unknown, off-domain, active or suspended address gets the same answer and no email. Never
+   * throws, so the controller can answer before this finishes and timing reveals nothing either.
+   */
+  async resendActivation(rawEmail: string): Promise<void> {
+    try {
+      const email = normalizeEmail(rawEmail);
+      if (!isAllowedDomain(email, this.settings.allowedEmailDomains)) return;
+      const token = newOpaqueToken();
+      const userId = await this.db.transaction(async (tx) => {
+        const id = await repo.lockPendingUser(tx, email);
+        if (id) await this.issueActivationToken(tx, id, token);
+        return id;
+      });
+      if (userId) await this.sendActivation({ to: email, userId, token });
+    } catch (err) {
+      this.logger.error({ err, msg: 'activation resend failed' });
+    }
+  }
+
+  /** The new token replaces any the account still holds, so only the latest link works. */
+  private async issueActivationToken(tx: Database, userId: string, token: string): Promise<void> {
+    await repo.deleteUnconsumedActivationTokens(tx, userId);
+    await repo.insertActivationToken(tx, {
+      id: randomUUID(),
+      userId,
+      tokenHash: sha256Hex(token),
+      ttlHours: this.settings.activationTokenTtlHours,
+    });
+  }
+
+  /** Never throws, so a caller may leave it running without an unhandled rejection. */
+  private async sendActivation(email: ActivationEmail): Promise<void> {
+    try {
+      await this.mailer.sendActivation(email);
+    } catch (err) {
+      this.logger.error({ err, userId: email.userId, msg: 'activation email not sent' });
+    }
   }
 
   /**
@@ -115,6 +158,7 @@ export class UsersService {
     const tokenHash = sha256Hex(token);
 
     return this.db.transaction(async (tx) => {
+      await repo.lockUserOfToken(tx, tokenHash);
       const userId = await repo.consumeActivationToken(tx, tokenHash);
 
       if (userId) {

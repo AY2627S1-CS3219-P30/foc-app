@@ -107,6 +107,10 @@ export const alertsQuerySchema = z.object({
     .optional(),
 });
 
+export const resendActivationSchema = z.strictObject({
+  email: z.string().trim().pipe(z.email().max(254)),
+});
+
 export const activateSchema = z.strictObject({
   token: z.string().min(20).max(200),
 });

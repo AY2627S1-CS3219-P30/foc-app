@@ -7,7 +7,8 @@ import { ADMIN_SETTINGS, type AdminSettings } from '../../src/admin/admin.servic
 import { RATE_LIMITERS, RateLimiter, type AuthRateLimiters } from '../../src/auth/rate-limiter.js';
 import { DB, RAW_DB, type Database } from '../../src/db/db.js';
 import * as schema from '../../src/db/schema.js';
-import { DevMailbox } from '../../src/mail/dev-mailbox.js';
+import { MAILER } from '../../src/mail/mailer.js';
+import { MemoryMailbox } from '../../src/mail/memory-mailbox.js';
 import { UsersModule } from '../../src/users/users.module.js';
 import { applyMigrations } from './migrate.js';
 import { PgliteDb } from './pglite-db.js';
@@ -20,7 +21,8 @@ export interface TestApp {
   db: PgliteDb;
   /** The Drizzle handle the service queries through, for driving a repository or the seed directly. */
   orm: Database;
-  mailbox: DevMailbox;
+  /** Where the service's activation email lands, so a test can read the token. */
+  mailbox: MemoryMailbox;
   close(): Promise<void>;
 }
 
@@ -39,6 +41,7 @@ export async function createTestApp(
   const db = options.db ?? (await PgliteDb.create());
   await applyMigrations(db);
   const orm = drizzle(db.client, { schema });
+  const mailbox = new MemoryMailbox();
 
   const moduleRef = await Test.createTestingModule({
     imports: [
@@ -55,6 +58,8 @@ export async function createTestApp(
     .useValue(db)
     .overrideProvider(DB)
     .useValue(orm)
+    .overrideProvider(MAILER)
+    .useValue(mailbox)
     // Generous by default: the suite shares one client IP and registers far more than a person would.
     .overrideProvider(RATE_LIMITERS)
     .useValue(options.rateLimiters ?? openLimiters())
@@ -78,7 +83,7 @@ export async function createTestApp(
     app,
     db,
     orm,
-    mailbox: app.get(DevMailbox),
+    mailbox,
     close: async () => {
       await app.close();
       await db.close();
@@ -106,4 +111,6 @@ export const openLimiters = (): AuthRateLimiters => ({
   loginPerIp: new RateLimiter(1_000_000, 60_000),
   registerPerIp: new RateLimiter(1_000_000, 60_000),
   stepUpPerUser: new RateLimiter(1_000_000, 60_000),
+  resendPerEmail: new RateLimiter(1_000_000, 60_000),
+  resendPerIp: new RateLimiter(1_000_000, 60_000),
 });

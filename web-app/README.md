@@ -87,22 +87,23 @@ not displayed. Administrative decisions show their actual reason and recorded ti
 cancellation or completion is not labelled as an administrative decision.
 
 `e2e/account-journey.e2e.ts` runs the account journey (USR-05) in Chromium at 360, 768 and 1440 px against
-the real User Service: sign-up with a failed submit, activation through the dev mailbox, sign-in with a
-rejected password, the mode switch and log-out. Only the keyboard drives the forms, and every focus stop
+the real User Service: sign-up with a failed submit, activation from the link in the email (read from
+Mailpit), sign-in with a rejected password, the mode switch and log-out. A second test asks for a new
+link on `/activate`, then checks the old link is refused and the new one activates. Only the keyboard drives the forms, and every focus stop
 must show a ring. Every screen must not scroll sideways and must have no critical axe issue; serious axe
 issues are listed in the test annotations without failing. CI runs it in the `e2e` job.
 
 ```bash
-docker compose up -d --build   # from the repo root; serves :3000 with the dev mailbox
+docker compose up -d --build   # from the repo root; serves :3000, and Mailpit on :8025
 cd web-app
 bunx playwright install chromium   # once
 bun run e2e
 ```
 
-`E2E_BASE_URL` points it elsewhere. The specs call the services through the edge too, at
+`E2E_BASE_URL` points it elsewhere, and `E2E_MAILPIT_URL` the inbox. The specs call the services through the edge too, at
 `$E2E_BASE_URL/api/<service>`, as the page does: a sign-in there sets the refresh cookie for
 `/api/user/auth`, where the page refreshes (`E2E_USER_SERVICE_URL` and the like override one). Each run
-registers one account per width, well inside the sign-up limit of 20 an hour per address. Specs are
+registers two accounts per width, well inside the sign-up limit of 20 an hour per address. Specs are
 named `*.e2e.ts` so `bun test` leaves them alone.
 
 `E2E_BROWSER_CHANNEL=chrome` drives an installed Google Chrome instead of Playwright's Chromium, so
@@ -125,7 +126,7 @@ npm ci
 ./scripts-e2e-release.sh --stop
 ```
 
-This resets **only `foc-e2e-release` and its volumes**, on ports 14500–14509 (override with
+This resets **only `foc-e2e-release` and its volumes**, on ports 14500–14510 (override with
 `E2E_PORT_BASE`). It generates `.env` if absent, builds the stack, runs its API smoke, and creates
 activated test identities through public APIs for each clean run. It does not reset `foc` or
 `foc-d4-demo`. There are 42 browser cases across 360, 768 and 1440 px, with no retries in release mode.
@@ -367,16 +368,14 @@ holds the React state around them.
   are one origin, so this always holds; the edge serves the cookie at `/api/user/auth`, the path
   the browser sends it to. The User Service's `CORS_ORIGINS` must also list the web app's origin,
   which its sign-in checks.
-- `NEXT_PUBLIC_DEV_MAILBOX=true` lets a production build use the User Service's development mailbox
-  (the Compose stack does, since its User Service runs in development mode). A development build
-  always may; nothing else calls it.
 
-### Waiting on the User Service
+### Activation email
 
-- **Resend activation.** There is no endpoint to send a fresh activation link, and registering again
-  is refused (`409 EMAIL_ALREADY_REGISTERED`), so an expired link is a dead end: the activate screen
-  can only say to contact support. It needs something like `POST /auth/activation/resend` (rate
-  limited, answering the same whether or not the email exists).
+The activation email is real: the User Service sends it over SMTP, and in the Compose stack it lands in
+Mailpit's inbox at <http://localhost:8025>. Its link opens `/activate?token=…`, which activates at once.
+`/activate` also offers **Send a new link** (`POST /auth/activation/resend`) for an email that never
+came or a link that expired or was replaced. Its confirmation reads the same whether or not the address
+has an account, as the service's answer does.
 
 ### Tests
 
@@ -390,8 +389,8 @@ in the `web-app` job.
 ### Integration tests
 
 `test/suppliers.integration.test.tsx` renders the supplier page against the real Supplier Service,
-which verifies tokens with the real User Service. A fresh student (registered and activated through the
-User Service's development mailbox) browses the seeded suppliers and is refused `POST /suppliers` with
+which verifies tokens with the real User Service. A fresh student (registered, then activated with the token from the
+email Mailpit caught) browses the seeded suppliers and is refused `POST /suppliers` with
 `403`; the seeded admin creates, edits and deletes a supplier through the page. It is skipped unless
 `SUPPLIER_SERVICE_URL` is set, so a plain `bun test` passes without a stack.
 
@@ -406,8 +405,8 @@ docker compose -p foc-it down -v   # from the repository root
 ```
 
 Run the file on its own: the page's client reads its base URL when it is first imported, and another
-test file may import it first. `USER_SERVICE_URL` defaults to `http://localhost:3001`. The User Service
-must run in development mode (the Compose default), which mounts the mailbox.
+test file may import it first. `USER_SERVICE_URL` defaults to `http://localhost:3001`, and `MAILPIT_URL`, where the
+activation email is read, to `http://localhost:8025`.
 
 The admin is `ADMIN_EMAIL` (default `admin@u.nus.edu`). On a fresh stack the test claims it, replacing
 the bootstrap `ADMIN_SEED_PASSWORD` with `ADMIN_PASSWORD` (default `supplier-integration-admin`), as an

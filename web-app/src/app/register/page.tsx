@@ -5,9 +5,8 @@ import { useState, type FormEvent } from "react";
 import { AuthCard } from "@/components/AuthCard";
 import { Button, buttonClass } from "@/components/Button";
 import { FormAlert, FormField } from "@/components/FormField";
-import { newCorrelationId } from "@/lib/api-client";
 import { useHydrated } from "@/lib/use-hydrated";
-import { ApiError, DEV_MAILBOX_ENABLED, userApi } from "@/lib/user-api";
+import { ApiError, userApi } from "@/lib/user-api";
 import { PASSWORD_MIN, validateRegistration, type Errors } from "@/lib/validation";
 import { vars } from "@/styles/tokens";
 
@@ -18,7 +17,6 @@ export default function RegisterPage() {
   const [alert, setAlert] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [registered, setRegistered] = useState<string | null>(null);
-  const [devToken, setDevToken] = useState<string | null>(null);
 
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -33,17 +31,12 @@ export default function RegisterPage() {
     setSubmitting(true);
     const email = form.email.trim();
     try {
-      // Registering and fetching the dev activation link are one action (PLT-04).
-      const action = newCorrelationId();
-      await userApi.register(
-        { email, password: form.password, displayName: form.displayName.trim() },
-        action,
-      );
+      await userApi.register({
+        email,
+        password: form.password,
+        displayName: form.displayName.trim(),
+      });
       setRegistered(email);
-      if (DEV_MAILBOX_ENABLED) {
-        const mail = await userApi.devMailbox(email, action).catch(() => null);
-        if (mail && "token" in mail) setDevToken(mail.token);
-      }
     } catch (err) {
       if (!(err instanceof ApiError)) {
         setAlert("Something went wrong. Please try again.");
@@ -90,16 +83,6 @@ export default function RegisterPage() {
           <>
             We sent an activation link to <strong>{registered}</strong>. Open it to activate your
             account, then sign in.
-          </>
-        )}
-      </FormAlert>
-      <FormAlert tone="info">
-        {devToken && (
-          <>
-            Development mailbox:{" "}
-            <Link href={`/activate?token=${encodeURIComponent(devToken)}`}>
-              open the activation link
-            </Link>
           </>
         )}
       </FormAlert>

@@ -19,8 +19,8 @@ to the requester stream's nudge under 200 open streams, not end-to-end browser r
 
 Prerequisites: Docker Desktop running; Git, Python 3 and npm installed; the current repository
 checked out. All services run as **local Compose containers**, behind the edge (PLT-11 #286).
-The dedicated project is `foc-d4-demo`; ports 14000–14009 leave the ordinary `foc` project alone.
-`D4_PORT_BASE=15000` selects another contiguous ten ports if needed.
+The dedicated project is `foc-d4-demo`; ports 14000–14010 leave the ordinary `foc` project alone.
+`D4_PORT_BASE=15000` selects another contiguous eleven ports if needed.
 
 From the repository root:
 
@@ -179,8 +179,8 @@ runs it once on each pull request, and twice from clean volumes on every push to
 
 For a 429 during repeated practice, respect Retry-After and stop creating extra accounts. For
 401/403, use the correct persona's own profile and current session; do not copy a token between
-actors. If a seed was interrupted during activation and the dev mailbox was lost on restart,
-use `--fresh` on this disposable project. If a deadline expired while preparing, use `--fresh`;
+actors. If a seed was interrupted during activation, run it again: it asks for a new link and
+reads it from the project's Mailpit. If no email arrives, use `--fresh` on this disposable project. If a deadline expired while preparing, use `--fresh`;
 the seed does not reset a persisted deadline or undo a terminal transition.
 
 ## Rehearsal acceptance — actual non-owners only

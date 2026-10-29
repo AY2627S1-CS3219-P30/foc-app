@@ -32,6 +32,11 @@ export interface paths {
          * @description Normalizes the email, rejects addresses outside the configured NUS domain allowlist, rejects a
          *     duplicate without creating anything, and sends a one-time activation link. The account is
          *     `PENDING_ACTIVATION` until activated.
+         *
+         *     An address that was registered but never activated, and whose every link has expired, is not
+         *     a duplicate: registering it again keeps the account, replaces its password and display name,
+         *     and sends a new link. A failure to send the email does not fail the request; the student can
+         *     ask for the link again with `POST /auth/activation/resend`.
          */
         post: operations["register"];
         delete?: never;
@@ -56,6 +61,31 @@ export interface paths {
          *     `UserActivated` event. The first successful call publishes exactly one.
          */
         post: operations["activate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/activation/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Email a new activation link to a pending account
+         * @description If the address has an account waiting for activation, emails it a new link and invalidates
+         *     every earlier one. The answer is the same `202` whether or not that is so, and is sent before
+         *     the email, so neither the body nor the timing says whether the address has an account.
+         *
+         *     Rate limited per IP and per normalized address. Both limits count every request, whatever
+         *     the address, so a `429` reveals nothing either.
+         */
+        post: operations["resendActivation"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1401,6 +1431,47 @@ export interface operations {
             404: components["responses"]["TokenInvalid"];
             410: components["responses"]["TokenExpired"];
             422: components["responses"]["ValidationFailed"];
+        };
+    };
+    resendActivation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "email": "e0123456@u.nus.edu"
+                 *     }
+                 */
+                "application/json": {
+                    /** Format: email */
+                    email: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Accepted. A link is sent only if the address has a pending account. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "message": "If that address has an account waiting for activation, a new link is on its way."
+                     *     }
+                     */
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
         };
     };
     login: {

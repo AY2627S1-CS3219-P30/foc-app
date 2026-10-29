@@ -13,8 +13,9 @@ import { SERVICE_KEYS, ServiceKeyGuard } from '../auth/service-key.guard.js';
 import { env } from '../config.js';
 import { DB, RAW_DB } from '../db/db.js';
 import * as schema from '../db/schema.js';
-import { DevMailbox, DevMailboxController } from '../mail/dev-mailbox.js';
-import { MAILER } from '../mail/mailer.js';
+import { MAILER, type Mailer } from '../mail/mailer.js';
+import { MemoryMailbox } from '../mail/memory-mailbox.js';
+import { SmtpMailer } from '../mail/smtp-mailer.js';
 import { AUTH_COOKIE_SETTINGS, AuthController } from './auth.controller.js';
 import { InternalController } from './internal.controller.js';
 import { MeController } from './me.controller.js';
@@ -23,16 +24,8 @@ import { USER_SETTINGS, UsersService } from './users.service.js';
 @Module({})
 export class UsersModule {
   static forRoot(): DynamicModule {
-    // The dev mailbox exposes activation tokens to anyone who can read it, so it
-    // must never run in production. Refuse at boot rather than ship it silently.
     const isProduction = env.NODE_ENV === 'production';
-    if (isProduction) {
-      throw new Error(
-        'No production mail adapter is configured: only the development mailbox exists. ' +
-          'Implement Mailer for a real provider before running with NODE_ENV=production.',
-      );
-    }
-    const mailbox = new DevMailbox();
+    assertMailConfig(isProduction);
 
     return {
       module: UsersModule,
@@ -42,7 +35,6 @@ export class UsersModule {
         MeController,
         AdminController,
         JwksController,
-        DevMailboxController,
       ],
       providers: [
         UsersService,
@@ -100,8 +92,7 @@ export class UsersModule {
           useFactory: (raw: PgDb) => drizzle(raw.pool, { schema }),
           inject: [RAW_DB],
         },
-        { provide: MAILER, useValue: mailbox },
-        { provide: DevMailbox, useValue: mailbox },
+        { provide: MAILER, useFactory: createMailer, inject: [LOGGER] },
         { provide: SERVICE_KEYS, useValue: env.INTERNAL_SERVICE_KEYS },
         {
           provide: USER_SETTINGS,
@@ -115,4 +106,47 @@ export class UsersModule {
       exports: [DB, RAW_DB, UsersService],
     };
   }
+}
+
+/**
+ * Activation proves the student owns the address only if the token reaches that inbox and nowhere
+ * else, so production must deliver real mail. Refuse at boot rather than run without it.
+ */
+function assertMailConfig(isProduction: boolean): void {
+  if (!env.SMTP_HOST) {
+    if (isProduction) {
+      throw new Error('SMTP_HOST is not set: production must deliver activation email over SMTP.');
+    }
+    return;
+  }
+  if (!env.ACTIVATION_URL) {
+    throw new Error('ACTIVATION_URL is required with SMTP_HOST: the email links to it.');
+  }
+  if (Boolean(env.SMTP_USER) !== Boolean(env.SMTP_PASSWORD)) {
+    throw new Error('Set SMTP_USER and SMTP_PASSWORD together, or neither.');
+  }
+}
+
+function createMailer(logger: { warn(msg: string): void }): Mailer {
+  if (!env.SMTP_HOST) {
+    logger.warn('SMTP_HOST is not set: activation email is kept in memory and never delivered.');
+    return new MemoryMailbox();
+  }
+  if (env.NODE_ENV === 'production' && env.SMTP_REQUIRE_TLS === 'false') {
+    logger.warn(
+      'SMTP_REQUIRE_TLS=false in production: activation links may cross the network in clear.',
+    );
+  }
+  return SmtpMailer.connect(
+    {
+      host: env.SMTP_HOST,
+      port: env.SMTP_PORT,
+      user: env.SMTP_USER,
+      password: env.SMTP_PASSWORD,
+      requireTls: env.SMTP_REQUIRE_TLS
+        ? env.SMTP_REQUIRE_TLS === 'true'
+        : env.NODE_ENV === 'production',
+    },
+    { from: env.MAIL_FROM, activationUrl: env.ACTIVATION_URL! },
+  );
 }

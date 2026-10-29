@@ -1,5 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
+import { activationLink } from "./mailpit";
+import { USER } from "./request-helpers";
 
 /**
  * USR-05 acceptance criteria, end to end, once per breakpoint (see playwright.config.ts):
@@ -51,9 +53,8 @@ test("account journey: register, activate, sign in, profile, mode switch, log ou
     await checkScreen(page, testInfo, "register (sent)");
   });
 
-  await test.step("activate from the dev mailbox link", async () => {
-    await tabTo(page, page.getByRole("link", { name: "open the activation link" }));
-    await page.keyboard.press("Enter");
+  await test.step("activate from the link in the email", async () => {
+    await page.goto(await activationLink(page.request, email));
     await expect(page.getByRole("heading", { name: "Account activated" })).toBeVisible();
     await checkScreen(page, testInfo, "activate");
     await tabTo(page, page.getByRole("link", { name: "Sign in", exact: true }));
@@ -120,6 +121,39 @@ test("account journey: register, activate, sign in, profile, mode switch, log ou
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/profile$/);
     await expect(page.getByRole("heading", { name: "Your details" })).toBeVisible();
+  });
+});
+
+test("an activation link that was replaced is refused, and the new one from the activate screen works", async ({
+  page,
+}, testInfo) => {
+  const email = `e2e-resend-${testInfo.project.name}-${Date.now()}@u.nus.edu`;
+  const registered = await page.request.post(`${USER}/auth/register`, {
+    data: { email, password: PASSWORD, displayName: "E2E Resend" },
+  });
+  expect(registered.ok(), await registered.text()).toBe(true);
+  const first = await activationLink(page.request, email);
+
+  await test.step("ask for a new link by keyboard", async () => {
+    await page.goto("/activate");
+    const send = page.getByRole("button", { name: "Send a new link" });
+    await hydrated(send);
+    await typeInto(page, field(page, "NUS email"), email);
+    await page.keyboard.press("Enter");
+    await expect(page.getByText(/a new link is on its way/)).toBeVisible();
+    await checkScreen(page, testInfo, "activate (resent)");
+  });
+
+  const second = await activationLink(page.request, email, first);
+
+  await test.step("the old link is refused and points to a new one", async () => {
+    await page.goto(first);
+    await expect(page.getByText(/This activation link isn't valid/)).toBeVisible();
+  });
+
+  await test.step("the new link activates", async () => {
+    await page.goto(second);
+    await expect(page.getByRole("heading", { name: "Account activated" })).toBeVisible();
   });
 });
 
