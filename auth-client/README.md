@@ -173,8 +173,10 @@ them needs `USER_SERVICE_URL` and `INTERNAL_SERVICE_KEY` exported (or in `.env`)
 
 ## Key rotation
 
-Keys come from `GET /.well-known/jwks.json` and are cached. A token naming an unknown key triggers a refetch
-(rate-limited, `jwksCooldownMs`, default 10 s), so rotating the User Service's signing key needs no redeploy.
+Keys come from `GET /.well-known/jwks.json` and are cached for ten minutes. A token naming an unknown key triggers a
+refetch (rate-limited, `jwksCooldownMs`, default 10 s), so rotating the User Service's signing key needs no redeploy.
+The User Service owns that key (`JWT_PRIVATE_KEY`). This is the one place these rules are written down; other documents
+link here.
 
 ## Configuration
 

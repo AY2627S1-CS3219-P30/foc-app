@@ -12,13 +12,79 @@ withdrawn, or exchanged for money, and only circulate within the platform.
 
 ## Team Members
 
-| Name           | Role                               |
-| -------------- | ---------------------------------- |
-| Anselm Long    | Developer/LinkedInfluencer         |
-| Zhang Yuan     | Developer/Hasn't showered in weeks |
-| Jonus Ho       | Developer/BTS 8th member           |
-| Isaac Chua     | Developer/Goat                     |
-| Patrick Thomas | Developer/Diversity hire           |
+| Name           | GitHub                | Owns                                                        | Nice-to-have                                                                |
+| -------------- | --------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Anselm Long    | `@anselmlong`         | User Service: identity and access                           | N1.1 the User Service side; N1.2 chat access and retention                  |
+| Zhang Yuan     | `@volleyballkickedme` | Order Service: the errand lifecycle                         | N1.1 dispute referral and decision; N1.2 the chat lifecycle                 |
+| Jonus Ho       | `@jonushzw`           | Integration and platform: events, containers, observability | N1.1 the admin console and operations; N1.4 live errand updates; N4.1 CI/CD |
+| Isaac Chua     | `@isaacchua0309`      | Credit Service: the credit economy                          | N3.1 conservation evidence; N3.2 credit reconciliation                      |
+| Patrick Thomas | `@pastchum`           | Supplier Service and the web app                            | N1.2 the chat interface                                                     |
+
+What each nice-to-have is, and how the work on it is shared, is in
+[docs/nice-to-haves.md](docs/nice-to-haves.md).
+
+---
+
+## How it fits together
+
+```mermaid
+flowchart TB
+  browser["Students and administrators, in a browser"]
+  edge["<b>Edge</b> · nginx<br/>the one origin: routes, security headers, write limits"]
+  web["<b>Web app</b> · Next.js<br/>every page, and the admin console"]
+
+  browser -->|":3000"| edge
+  edge -->|"/"| web
+  edge -->|"/api/user, /api/supplier,<br/>/api/order, /api/credit"| services
+
+  subgraph services["Four NestJS services"]
+    direction LR
+    order["<b>Order Service</b><br/>the errand lifecycle"]
+    credit["<b>Credit Service</b><br/>wallets and the ledger"]
+    supplier["<b>Supplier Service</b><br/>pickup points and items"]
+    user["<b>User Service</b><br/>accounts, tokens, roles"]
+    mq{{"<b>RabbitMQ</b><br/>events"}}
+
+    order -->|"credit status"| credit
+    order -->|"pickup point and items"| supplier
+    supplier & order & credit -->|"is this account active?"| user
+    order <-.-> mq
+    mq <-.->|"reserve, transfer, release<br/>and their results"| credit
+    user -.->|"activated, suspended,<br/>role changed"| mq
+  end
+
+  services -->|"each to its own database, with its own login"| db[("<b>PostgreSQL</b>")]
+```
+
+Solid arrows are HTTP calls; dashed ones are events through RabbitMQ. The account and credit-status
+checks are on the User and Credit Services' internal ports, which the edge never routes to; the
+pickup-point lookup is the Supplier Service's public API. Where each part runs, and what can reach
+what, is in the [deployment diagram](#networks-and-ports).
+
+- **A web app and four services, behind one edge.** The web app (Next.js) is what students and
+  administrators use. Its pages call the four services' APIs, with the signed-in user's token,
+  through the edge (nginx), which serves the web app and the APIs on one origin
+  ([ADR 0010](docs/adr/0010-api-edge.md)): the [User](user-service), [Supplier](supplier-service),
+  [Order](order-service) and [Credit](credit-service) Services, each a NestJS application in a
+  container of its own ([Ports and ownership](#ports-and-ownership)).
+- **Each service owns its data.** One PostgreSQL server holds four databases, one per service, and
+  each service has a login to its own alone. No service reads another's tables
+  ([ADR 0003](docs/adr/0003-service-boundaries-and-data-ownership.md)).
+- **Who you are is checked everywhere.** The User Service signs short-lived access tokens; every
+  service verifies them itself and asks the User Service, on an internal port, whether the account is
+  still active ([ADR 0004](docs/adr/0004-authentication-and-trust.md)).
+- **The credit workflow is asynchronous.** An errand's credits are reserved, transferred and returned
+  through RabbitMQ: the Order Service asks, the Credit Service answers, and each change is saved
+  with its message so neither is lost or applied twice
+  ([Asynchronous workflows](#asynchronous-workflows),
+  [ADR 0002](docs/adr/0002-asynchronous-order-credit-saga.md),
+  [ADR 0009](docs/adr/0009-messaging-rabbitmq-events-and-ordering.md)).
+- **It can be watched and run anywhere Docker runs.** Prometheus and Grafana show latency, queues
+  and alerts ([Observability](#observability)); one `docker compose up` starts all of it
+  ([Containers](#containers-secrets-networks-and-restarts)), and CI runs the whole stack on every push
+  to `main` and on a pull request that touches it ([Continuous integration](#continuous-integration)).
+
+Every design decision and its reasons are in the [decision records](docs/adr/README.md).
 
 ---
 
@@ -44,13 +110,22 @@ nvm use       # in every new terminal
 node --version   # expect v22.x
 ```
 
+On an older Node, `npm install` only warns (`EBADENGINE`) and carries on. Use 22, as the images
+do.
+
 ### 2. Clone and install
 
 ```bash
 git clone https://github.com/AY2627S1-CS3219-P30/foc-app.git
 cd foc-app
 npm install
+npm run build
 ```
+
+> **Build once after installing, and again after pulling a change to `platform/` or
+> `auth-client/`.** The services import those packages' compiled output, which a fresh clone does
+> not have yet: without it a service stops with
+> `Cannot find package '…/node_modules/@foc/platform/dist/index.js'`.
 
 > **Run `npm install` once, from the root.** This is an npm workspace, so a
 > single install covers `platform/` and all four services. Running `npm install`
@@ -75,45 +150,49 @@ shared key and default passwords. The script names them and stops. Delete
 volumes hold the old passwords too:
 `docker compose down -v && docker compose up -d --build`. That deletes local data.
 
-The services read `.env` automatically. Real environment variables always win,
-so Docker and CI are unaffected. A missing required variable stops a service at
-boot and tells you which one — nothing falls back to a default.
+Compose reads `.env` for the stack. A service run from source reads a `.env` only in the folder
+it runs in, which for the `npm run dev:*` scripts is the service's own, so step 4 exports yours
+first. Real environment variables always win, so Docker and CI are unaffected. A missing required
+variable stops a service at boot and tells you which one: nothing falls back to a default.
 
-### 4. Run a service
+### 4. Run a service from source
 
-Each `dev` script supplies its own `SERVICE_NAME` and `PORT`, so nothing needs
-exporting first. Code changes reload automatically.
-
-```bash
-npm run dev:user       # http://localhost:3001
-npm run dev:supplier   # http://localhost:3002
-npm run dev:order      # http://localhost:3003
-npm run dev:credit     # http://localhost:3004
-```
-
-Supplier, Order and Credit verify callers through the User Service, so they also
-need `USER_SERVICE_URL` and `INTERNAL_SERVICE_KEY`. Every service owns
-persistence and requires its own `DATABASE_URL` too. Your `.env` has both ready
-for the Compose stack's Postgres, under other names so that Compose ignores them:
+To work on one service, run it from source against the rest of the stack in Docker. It needs the
+stack's database and its own variables. Compose gives them to the containers; a service run from
+source gets them from your shell. `.env` has them ready under other names (`HOST_*`, `ORDER_*`), so
+that Compose ignores them.
 
 ```bash
-docker compose -f compose.yaml -f compose.dev.yaml up -d   # the others, internal ports on 127.0.0.1
+# 1. The stack, also publishing each service's internal port on 127.0.0.1, where a service checks
+#    its callers with the User Service (/internal/introspect is not served on 3001).
+docker compose -f compose.yaml -f compose.dev.yaml up -d --build
+# 2. Stop the stack's own copy of the service you will run. On macOS your server can start on the
+#    same port anyway, and localhost:3003 goes on reaching the container: you would test old code.
+docker compose stop order-service
+# 3. Your .env in this shell, then the service with its variables. Code changes reload.
 set -a; . ./.env; set +a
-DATABASE_URL=$HOST_ORDER_DATABASE_URL INTERNAL_SERVICE_KEY=$ORDER_INTERNAL_KEY \
-  USER_SERVICE_URL=http://localhost:4001 npm run dev:order
+SERVICE_NAME=order-service PORT=3003 DATABASE_URL=$HOST_ORDER_DATABASE_URL \
+  USER_SERVICE_URL=http://localhost:4001 INTERNAL_SERVICE_KEY=$ORDER_INTERNAL_KEY \
+  SUPPLIER_SERVICE_URL=http://localhost:3002 CREDIT_SERVICE_URL=http://localhost:3004 \
+  CREDIT_WAIT_TIMEOUT_MS=300000 ACCEPTANCE_WINDOW_MS=3600000 PICKUP_TIMEOUT_MS=1800000 \
+  DELIVERY_PERIOD_MS=7200000 AUTO_CONFIRM_MS=86400000 LIFECYCLE_SWEEP_INTERVAL_MS=10000 \
+  RECONCILE_INTERVAL_MS=60000 RECONCILE_RETRY_MS=300000 \
+  npm run dev:order
 ```
-
-The override matters: a service checks its callers through the User Service's
-`/internal/introspect`, which the stack serves on an internal port and not on 3001. [`compose.dev.yaml`](compose.dev.yaml) publishes those ports on
-`127.0.0.1`; plain `docker compose up` does not publish them at all. A missing
-value stops the service at boot and names it.
-
-Check it is alive:
 
 ```bash
-curl -i http://localhost:3001/health
-# {"status":"ok","service":"user-service","version":"0.1.0","uptimeSeconds":3}
+curl -i http://localhost:3003/health
+# {"status":"ok","service":"order-service","version":"0.1.0","uptimeSeconds":3}
 ```
+
+The other services run the same way: `npm run dev:user`, `dev:supplier` and `dev:credit`, on 3001,
+3002 and 3004. Each stops at boot naming every variable it is missing; `compose.yaml` shows the
+value the stack gives each, with `localhost` and the published port in place of a container's
+name. Without `RABBITMQ_URL` a service runs without the broker, so it neither sends nor receives
+events.
+
+When you are done, `docker compose up -d` puts the stack back as step 6 leaves it, with the
+internal ports unpublished again, which the smoke test checks.
 
 ### 5. Run the web app
 
@@ -136,7 +215,13 @@ docker compose up -d --build
 docker compose ps        # every row should read healthy
 ```
 
-Then open <http://localhost:3000>.
+Then open <http://localhost:3000>. That is the edge
+([ADR 0010](docs/adr/0010-api-edge.md)): the web app and every API on one origin, the APIs under
+`/api/user/`, `/api/supplier/`, `/api/order/` and `/api/credit/`.
+
+**This is how FoC is deployed for D4:** the whole stack in local containers, which the D3
+instructions accept. There is no hosted deployment
+([PLT-11 #286](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/286)).
 
 | Command                               | What it does                                  |
 | ------------------------------------- | --------------------------------------------- |
@@ -152,6 +237,17 @@ Then open <http://localhost:3000>.
 | `./scripts-demo-credits.sh`           | Walk credits through an errand, with balances |
 | `./scripts-restart-check.sh`          | Restart, recreate and take Postgres away      |
 | `./scripts-demo-journey.sh`           | A student, an errand and its credits, by API  |
+
+For the named D4 demonstration on a separate local stack, run `./scripts-seed-demo.sh --fresh`.
+It prepares five personas, three errands and a clean financial audit on ports 14000–14010.
+Use `./scripts-seed-demo.sh --check` for the demo smoke check, and follow the
+[D4 runbook](docs/demo/d4-runbook.md) for all browser profiles/tabs, the 30-minute script and
+the outstanding real-rehearsal gates.
+
+For a consistent four-database backup, fresh-stack restore, timed disposable drill and prior-image
+rollback, follow the [recovery runbook](docs/runbooks/backup-restore-rollback.md). Start a backup
+with `./scripts-backup.sh`; it briefly stops application writers and resumes them after the dump.
+Restore refuses existing tables and validates every table before smoke and the financial audit.
 
 `docker compose down` keeps your data. Use `-v` only when you want a clean
 database — it is also the only way to re-run `postgres-init.sh`, which runs
@@ -182,27 +278,30 @@ the newest one, for scripts.
 
 **Connections.** Compose gives each service its own `DATABASE_URL` and its own
 `RABBITMQ_URL`: a database role and a broker account per service. Each applies
-its own migrations through a one-shot container before starting. Services talk
-to the browser directly with CORS, and to each other on a second port that is
-not published; see [Containers](#containers-secrets-networks-and-restarts).
+its own migrations through a one-shot container before starting. The browser
+reaches every service through the edge, on one origin; the services talk to each
+other on a second port that is not published; see
+[Containers](#containers-secrets-networks-and-restarts).
 
 ### 7. Check your setup
 
 ```bash
-npm run build       # compile every service
-npm test            # no env vars needed
+npm run build          # compile every service
+npm test               # no env vars needed
 npm run lint
 npm run typecheck
-npm run format      # apply Prettier
+npm run format:check   # `npm run format` applies Prettier instead
 ```
 
-All four should pass on a fresh clone. For the containerized stack:
+All five should pass on a fresh clone. Then check the stack from step 6, as it is running:
 
 ```bash
-./scripts-smoke.sh --up
+./scripts-smoke.sh
 ```
 
-If that prints `All smoke checks passed`, you are set up correctly.
+If that prints `All smoke checks passed`, you are set up correctly. `./scripts-smoke.sh --up`
+checks a separate copy instead, and refuses while your own stack is running, since it would need
+its ports.
 
 To see the system do its job rather than only start, run the journey the D3 demo
 uses: a student registers and gets a wallet, an errand is created, accepted,
@@ -213,8 +312,9 @@ is printed as it is made.
 ./scripts-demo-journey.sh
 ```
 
-The demo itself, part by part with who presents what, is
-[docs/demo/d3-runbook.md](docs/demo/d3-runbook.md).
+The demo itself, part by part with who presents what, is the
+[D4 runbook](docs/demo/d4-runbook.md) (the D3 one is [docs/demo/d3-runbook.md](docs/demo/d3-runbook.md)). The nice-to-have features we chose, with the
+problem each solves, its design and its owners, are in [docs/nice-to-haves.md](docs/nice-to-haves.md).
 
 ---
 
@@ -222,6 +322,7 @@ The demo itself, part by part with who presents what, is
 
 | Service            | Port | Owner      | Dev command             |
 | ------------------ | ---- | ---------- | ----------------------- |
+| `edge`             | 3000 | Jonus      | Compose only            |
 | `web-app`          | 3000 | Patrick    | `cd web-app && bun dev` |
 | `user-service`     | 3001 | Anselm     | `npm run dev:user`      |
 | `supplier-service` | 3002 | Patrick    | `npm run dev:supplier`  |
@@ -229,6 +330,18 @@ The demo itself, part by part with who presents what, is
 | `credit-service`   | 3004 | Isaac      | `npm run dev:credit`    |
 | `grafana`          | 3005 | Jonus      | Compose only            |
 | `prometheus`       | 9090 | Jonus      | Compose only            |
+
+In Compose, port 3000 is the edge, which serves the web app and the four APIs on one origin; the
+web app's container has no port of its own. What its answers mean, how to follow a request through
+it, and how to change its configuration are in the [edge runbook](docs/runbooks/edge.md). `bun dev` serves the web app on 3000 itself, calling
+the services on their own ports, so run one or the other.
+
+**Is the stack ready?** `curl -s localhost:3000/edge/ready` answers `200` once the web app and all
+four services answer their health checks, so every page can work, and `503` naming each one that
+does not, such as `{"status":"unavailable","down":["order-service"],…}` (PLT-13). The edge's own
+health check asks it, so `docker compose ps` shows the edge `healthy`, and `docker compose up -d
+--wait` returns, only once the whole stack is ready. `/edge/health` says only that the edge itself
+is running.
 
 ---
 
@@ -329,6 +442,42 @@ image the stack builds.
 
 ### Networks and ports
 
+```mermaid
+flowchart TB
+  browser["Browsers, from any machine"]
+  ghcr[("<b>GitHub Container Registry</b><br/>tagged sha-&lt;commit&gt; and main")]
+
+  subgraph host["One Docker host · docker compose up"]
+    edge["<b>edge</b> · nginx, unprivileged, read-only<br/>:3000 on every interface"]
+    web["<b>web-app</b><br/>no published port"]
+    svc["<b>user-, supplier-, order-, credit-service</b><br/>public :3001–3004 on 127.0.0.1 only<br/>internal :4001–4004 to each other, never published"]
+    mig["<b>four migrate jobs</b><br/>run once, then exit"]
+    pg[("<b>postgres</b> · 127.0.0.1 only<br/>volume postgres-data")]
+    mq[("<b>rabbitmq</b> · 127.0.0.1 only<br/>volume rabbitmq-data")]
+    prom["<b>prometheus</b> · 127.0.0.1:9090"]
+    graf["<b>grafana</b> · 127.0.0.1:3005"]
+  end
+
+  browser -->|":3000"| edge
+  edge -->|"web"| web
+  edge -->|"gateway"| svc
+  svc -->|"db"| pg
+  mig -->|"db"| pg
+  svc -->|"broker"| mq
+  prom -->|"services: /metrics"| svc
+  prom -->|"broker: queue depths"| mq
+  graf -->|"observability"| prom
+  ghcr -.->|"images, by FOC_IMAGE_TAG"| svc
+  ghcr -.-> mig
+  ghcr -.-> web
+```
+
+Each arrow is labelled with the Docker network it crosses. `web`, `gateway`, `db`, `broker` and
+`services` are internal: nothing outside the stack can use them. Only the edge is published beyond
+this machine; everything else that has a port is published on `127.0.0.1` alone. The images are
+built and published by CI ([Pre-built images](#pre-built-images)); `docker compose up --build`
+builds them locally instead.
+
 A container joins only the networks of what it depends on (PL-NFR2.1.2):
 
 | Network         | On it                                               | For                                    |
@@ -336,26 +485,31 @@ A container joins only the networks of what it depends on (PL-NFR2.1.2):
 | `db`            | Postgres, the four services, the migrate containers | each service's own database            |
 | `broker`        | RabbitMQ, the four services, Prometheus             | events; queue depths for the dashboard |
 | `services`      | the four services, Prometheus                       | service-to-service calls; scraping     |
+| `gateway`       | the edge, the four services                         | the edge's routes to them              |
+| `web`           | the edge, the web app                               | the edge's route to the web app        |
+| `edge`          | the edge                                            | publishing port 3000                   |
 | `public`        | the four services                                   | publishing ports 3001-3004             |
-| `web`           | the web app                                         | publishing port 3000                   |
 | `local`         | Postgres, RabbitMQ                                  | publishing their ports on `127.0.0.1`  |
 | `observability` | Prometheus, Grafana                                 | the dashboard's queries; their ports   |
 
-The first three are `internal`: containers talk on them, they have no route
+The first five are `internal`: containers talk on them, they have no route
 out, and no port can be published through them. Publishing a port needs an
 ordinary network, and each container has exactly one, because with two Docker
 can publish the port on one and send the replies out of the other. So the web
-app's container cannot open a connection to Postgres, and Grafana cannot reach
-a service.
+app's container cannot open a connection to Postgres, RabbitMQ or any service,
+and Grafana cannot reach a service.
 
-| From this machine                                             | Reachable on     |
-| ------------------------------------------------------------- | ---------------- |
-| The web app (3000) and each service's public port (3001-3004) | every interface  |
-| Postgres, RabbitMQ and its management UI, Grafana, Prometheus | `127.0.0.1` only |
-| Each service's internal port (4001-4004)                      | not published    |
+| From this machine                                                | Reachable on     |
+| ---------------------------------------------------------------- | ---------------- |
+| The edge (3000): the web app and the four APIs                   | every interface  |
+| Each service's public port (3001-3004), for the scripts          | `127.0.0.1` only |
+| Postgres, RabbitMQ and its management UI, Grafana, Prometheus    | `127.0.0.1` only |
+| The web app's own port, each service's internal port (4001-4004) | not published    |
 
-**External and internal communication.** A browser reaches a service on its
-public port. `/internal/**` (token introspection, Credit's reconciliation
+**External and internal communication.** A browser reaches a service through the
+edge, at `/api/<service>/` on the one origin; the edge never routes `/internal/**`
+or `/metrics`, adds the security headers and limits writes per client address
+([ADR 0010](docs/adr/0010-api-edge.md)). `/internal/**` (token introspection, Credit's reconciliation
 read) is for other services: each service listens on a second port that is not
 published, so only a container that shares a network with it can connect, and
 on the public port an internal route answers `404`, exactly as a route that
@@ -378,8 +532,9 @@ permissions, [`sender.ts`](platform/src/events/sender.ts) the check, and
 [ADR 0004](docs/adr/0004-authentication-and-trust.md) the reasoning.
 
 **Privileges.** Every container's main process is unprivileged. The services,
-their migrate containers and the web app also drop every Linux capability and
-cannot gain one (`no-new-privileges`). The four pre-built images (Postgres,
+their migrate containers, the web app and the edge also drop every Linux
+capability and cannot gain one (`no-new-privileges`); the edge's nginx also runs
+on a read-only file system. The four other pre-built images (Postgres,
 RabbitMQ, Prometheus, Grafana) keep their publishers' defaults: they are not
 given `cap_drop` or `no-new-privileges`, because their entrypoints were not
 tested under them here. RabbitMQ is started as its own user; Postgres starts as
@@ -432,27 +587,40 @@ consumer has ever started stays in the outbox until the consumer's queue exists.
 
 ### Pre-built images
 
-Seven images are pulled as published; everything else is built from this
+Eight images are pulled as published; everything else is built from this
 repository. Each is pinned to an exact version and digest, in `compose.yaml` and
 the Dockerfiles, so two builds of one commit use the same bytes.
 
-| Image                              | Used for                             | Published by                                              | Licence of the software |
-| ---------------------------------- | ------------------------------------ | --------------------------------------------------------- | ----------------------- |
-| `node:22.23.3-alpine3.24`          | base of the four services, web app   | Docker Official Image, by the Node.js Docker team         | MIT                     |
-| `oven/bun:1.4.2-alpine`            | building the web app                 | Oven, the makers of Bun                                   | MIT                     |
-| `postgres:17.11-alpine3.24`        | the database server                  | Docker Official Image, by the PostgreSQL Docker community | PostgreSQL Licence      |
-| `rabbitmq:4.3.6-management-alpine` | the message broker                   | Docker Official Image, by the Docker community            | MPL 2.0                 |
-| `prom/prometheus:v3.13.4`          | metrics and alert rules              | The Prometheus project                                    | Apache 2.0              |
-| `grafana/grafana-oss:12.4.3`       | the dashboard                        | Grafana Labs                                              | AGPL 3.0                |
-| `axllent/mailpit:v1.31.6`          | the local inbox for activation email | Ralph Slooten, the Mailpit author                         | MIT                     |
+| Image                                       | Used for                             | Published by                                              | Licence of the software |
+| ------------------------------------------- | ------------------------------------ | --------------------------------------------------------- | ----------------------- |
+| `node:22.23.3-alpine3.24`                   | base of the four services, web app   | Docker Official Image, by the Node.js Docker team         | MIT                     |
+| `oven/bun:1.4.2-alpine`                     | building the web app                 | Oven, the makers of Bun                                   | MIT                     |
+| `postgres:17.11-alpine3.24`                 | the database server                  | Docker Official Image, by the PostgreSQL Docker community | PostgreSQL Licence      |
+| `rabbitmq:4.3.6-management-alpine`          | the message broker                   | Docker Official Image, by the Docker community            | MPL 2.0                 |
+| `prom/prometheus:v3.13.4`                   | metrics and alert rules              | The Prometheus project                                    | Apache 2.0              |
+| `grafana/grafana-oss:12.4.3`                | the dashboard                        | Grafana Labs                                              | AGPL 3.0                |
+| `nginxinc/nginx-unprivileged:1.30.6-alpine` | the edge (ADR 0010)                  | NGINX, Inc. (F5)                                          | BSD 2-Clause            |
+| `axllent/mailpit:v1.31.6`                   | the local inbox for activation email | Ralph Slooten, the Mailpit author                         | MIT                     |
 
 Two more are run as tools, not as part of the stack: `ghcr.io/gitleaks/gitleaks:v8.30.0`
 (the Gitleaks project, MIT), by `./scripts-scan-secrets.sh`, and `aquasec/trivy:0.58.1` (Aqua
 Security, Apache 2.0), by `./scripts-scan-vulnerabilities.sh`.
 
-The Alpine Linux base of the first four carries its own packages under their
+The Alpine Linux base of the first four, and of the edge, carries its own packages under their
 own licences. To update an image, change its version and its digest together;
 a test fails if either is missing.
+
+### Seed data
+
+The supplier catalogue the stack starts with is partly the course's and partly ours. The Supplier
+Service loads both files at start-up ([its README](supplier-service/README.md)).
+
+| File                                                                             | Where it comes from                                                                                                                                                                                | Licence                |
+| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| `data/csv/supplier-seed-data.csv` (21 suppliers) and `data/images/` (six photos) | The course's template, [`CS3219-AY2627S1/FoC-Template`](https://github.com/CS3219-AY2627S1/FoC-Template), copied byte for byte. The CSV's photo links point at the template's own copies on GitHub | MIT, the template's    |
+| `data/csv/supplier-seed-additions.csv` (12 suppliers)                            | Written by this team for SUP-01 (#187), adding the landmark pickup points the template lacks                                                                                                       | MIT, this repository's |
+
+The named D4 demo's people and errands (`./scripts-seed-demo.sh`) are invented for the demo.
 
 ---
 
@@ -479,6 +647,7 @@ yourself, `curl -H "Authorization: Bearer $METRICS_TOKEN" localhost:3001/metrics
 | Oldest errand waiting for Credit  | how long the oldest `PENDING_CREDIT` errand has waited for its reservation                                                                         | `foc_orders_pending_credit_oldest_age_seconds`                                      |
 | Firing alerts                     | the rules in `observability/alerts.yml` that are firing now                                                                                        | Prometheus `ALERTS`                                                                 |
 | Repeated, stale and waiting steps | deliveries already applied, steps older than a change already applied, and steps retried while an earlier one is missing                           | `foc_events_duplicate_total`, `foc_events_stale_total`, `foc_events_deferred_total` |
+| Live-update streams and nudges    | pages holding a live-update stream, and the nudges sent to them, by kind (N1.4)                                                                    | `foc_live_streams`, `foc_live_nudges_total`, `foc_live_refused_total`               |
 
 - **Follow one request.** Its correlation ID is in the `x-correlation-id`
   response header. `docker compose logs | grep <id>` then shows every service it
@@ -487,14 +656,15 @@ yourself, `curl -H "Authorization: Bearer $METRICS_TOKEN" localhost:3001/metrics
   credit reconciliation run is `reconcile-<runId>`. Two limits: identity checks
   that arrive together share one call to the User Service, logged there under the
   first caller's ID, and a cached check makes no call at all.
-- **Per-instance queues** (each service's `auth-status` cache queue) carry a
-  random suffix; their metrics are labelled without it, so a restart continues
-  the same series.
+- **Per-instance queues** (each service's `auth-status` cache queue, and the
+  Order Service's `live` queue) carry a random suffix; their metrics are
+  labelled without it, so a restart continues the same series.
 - **Rates need traffic.** A rate panel shows a request once Prometheus has
   scraped before and after it (every 15 s), so give a demo a minute of traffic.
-- **Add a metric.** Inject `METRICS` from `@foc/platform` and call `addGauge`;
-  Order's `foc_orders` in `order-service/src/orders/order.metrics.ts` is the
-  example. Every series carries a `service` label.
+- **Add a metric.** Inject `METRICS` from `@foc/platform` and call `addGauge`
+  (or `addCounter`); Order's `foc_orders` in
+  `order-service/src/orders/order.metrics.ts` is the example. Every series
+  carries a `service` label.
 - **Change the dashboard** in `observability/grafana/dashboards/foc-platform.json`.
   Grafana reloads it within seconds; edits made in the UI are not saved.
 
@@ -520,9 +690,14 @@ operator works with them:
   waiting, reconciliation, alerts and dead letters from both services, in order.
 
 A `dead_letters` row cannot be deleted, and changes once, to record its redrive
-(a database trigger refuses anything else). The Credit Service's one HTTP write
-is this redrive; it moves no credit itself, so a balance still changes only
+(a database trigger refuses anything else). Credit's HTTP writes redrive unchanged inputs or
+append a financial audit result; a balance still changes only
 through the four event subscriptions in `credit-service/src/closed-economy.ts`.
+
+Credit also runs a daily wallet-versus-ledger audit (#283). **Admin → Operations** shows the latest
+result and can run it on demand; `npm run audit:credits` does the same from the terminal. Immutable
+findings, mismatch/failure/overdue alerts and recovery steps are in the
+[financial audit runbook](docs/runbooks/credit-ledger-audit.md). The audit never repairs a balance.
 
 Prometheus evaluates `observability/alerts.yml`. A firing alert shows on the
 dashboard's **Firing alerts** panel and at <http://localhost:9090/alerts>; no
@@ -553,14 +728,18 @@ docker run --rm -v "$PWD/observability:/rules:ro" --entrypoint promtool prom/pro
 4. Redrive it with a reason, then watch the trace: the consumer handles it, or
    it fails again and comes back as a new dead letter with the new reason.
 
+The [dead-letter runbook](docs/runbooks/dead-letters.md) has the whole procedure: the API calls,
+which failure reasons to redrive and which never to, and how to check the outcome.
+
 ---
 
 ## Troubleshooting
 
 **`Invalid environment configuration. The service cannot start.`**
-Working as intended — it names the missing variable. Create `.env` with
-`./scripts-init-env.sh`, or use a `npm run dev:*` script, which supplies its own
-values.
+Working as intended: it names each missing variable. In Docker, create `.env` with
+`./scripts-init-env.sh`. For a service run from source, export your `.env` and give the service
+its variables, as in [Run a service from source](#4-run-a-service-from-source); the `npm run dev:*`
+scripts supply only its name and port.
 
 **`required variable ... is missing a value: run ./scripts-init-env.sh`**
 Compose has no fallback for a secret. Run the script; it creates `.env`, or adds
@@ -571,6 +750,9 @@ Your volumes are older than your `.env`: Postgres keeps the role passwords it
 was first started with, and RabbitMQ the queues it first declared. After pulling
 PLT-06, or after deleting `.env`, start both afresh once:
 `docker compose down -v && docker compose up -d --build`. This deletes local data.
+A **second clone** on the same machine has the same cause: every clone's stack is the Compose
+project `foc`, so it starts on the first clone's volumes. Give the second one a project of its own,
+with `COMPOSE_PROJECT_NAME=foc-other` in its `.env`, rather than deleting the first one's data.
 
 **`EADDRINUSE` / port already taken**
 Another service or an old process holds the port. Find it with
@@ -582,9 +764,9 @@ NestJS 12 ships no CommonJS build. Relative imports need an explicit `.js`
 extension — `import { env } from './config.js'` — even though the file on disk
 is `.ts`. That is correct, not a typo.
 
-**`Cannot find module '@foc/platform'`**
-Run `npm install` from the **root**, then `npm run build -w @foc/platform`.
-Services import the compiled output.
+**`Cannot find module '@foc/platform'`, or `Cannot find package '…/@foc/platform/dist/index.js'`**
+Run `npm install` from the **root**, then `npm run build`. Services import the
+compiled output of `platform/` and `auth-client/`.
 
 **`Cannot connect to the Docker daemon`**
 Start Docker Desktop and wait for the whale icon to settle.
@@ -822,7 +1004,42 @@ set -a; . ./.env; set +a   # the stack's addresses and logins, from your .env
 TEST_POSTGRES_URL=$HOST_POSTGRES_URL npm test -w @foc/platform
 ```
 
-Not done yet: published outbox rows and old inbox rows are never pruned.
+**Pruning** (PLT-12, [#287](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/287)). Neither
+table grows for ever. Each service with event tables registers an `EventTablePruner`
+([`pruner.ts`](platform/src/events/pruner.ts)), with or without a broker. On a timer of its own,
+right after start and then hourly, it deletes, in batches of 1,000, published outbox rows more than
+30 days old and inbox rows more than 30 days old (`pruneEventTables` in
+[`retention.ts`](platform/src/events/retention.ts)). It never deletes an unpublished row, however
+old, nor an inbox row whose event still waits as a dead letter, which an operator may redrive at
+any time. Thirty days is far longer than any copy of an event can take to arrive; it is also how far
+back the admin console's errand trace sees an errand's events. It runs apart from the relay, so even
+a first prune of a long backlog never holds up a publish, and a service shutting down stops it after
+the batch in hand. It finds its rows through two indexes each service's migrations create
+(`outbox_events_published_idx`, `processed_events_processed_idx`). A failed prune is logged with
+its error (`pruning the event tables failed; will retry`) and tried again an hour later;
+`foc_event_rows_pruned_total{table}` counts what went, batch by batch. Pass `retention` or
+`intervalMs` to `provideEventTablePruner` to change either.
+
+## What is kept about a person, and for how long
+
+FoC stores what its features need and keeps it for the life of the deployment: there is no account
+deletion (an administrator suspends an account instead), and history that settles credits or
+disputes is append-only by design ([ADR 0007](docs/adr/0007-credit-invariant-and-double-entry-ledger.md),
+[ADR 0008](docs/adr/0008-controlling-administrators.md)).
+
+| Where                         | About a person                                                                                                       | Kept                                                                        | Who can read it                                                                                                               |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| User Service (`foc_user`)     | NUS email, password hash (Argon2id), display name, faculty, avatar, contact preference, mode, roles, status          | for the life of the account                                                 | the person; administrators, each opening of an account recorded                                                               |
+|                               | Sign-in sessions (a hash of the refresh token), activation tokens (hashed)                                           | until they expire; expired rows are not yet removed                         | nobody through the API                                                                                                        |
+|                               | The audit trail: who suspended, reactivated or changed whose role, and why                                           | for ever (append-only)                                                      | administrators                                                                                                                |
+| Order Service (`foc_order`)   | Errands: requester and courier ids, items and notes, delivery zone and instructions, status history, dispute reasons | for ever                                                                    | the requester and courier; an administrator only once a dispute is referred to them (ADR 0008); others see public fields only |
+| Credit Service (`foc_credit`) | Wallet balances and the ledger, by user id                                                                           | for ever (append-only)                                                      | the person; administrators, every read recorded                                                                               |
+| Events (each service)         | Ids (user, errand) in event payloads; no email or name                                                               | outbox 30 days once published, inbox 30 days (above); dead letters for ever | operators, in the Operations tab                                                                                              |
+| Logs                          | User and correlation ids; never an email, password or token (redacted)                                               | as long as Docker keeps the container's log                                 | whoever runs the stack                                                                                                        |
+| Supplier Service, metrics     | Nothing about a person                                                                                               | —                                                                           | —                                                                                                                             |
+
+Personal data never leaves the stack: no service calls a third party, and no secret or personal
+value is written to an image ([Secrets](#secrets)).
 
 ## Continuous integration
 
@@ -833,15 +1050,19 @@ to all four, because it can break any of them. So does any path the filter does
 not recognise, such as a new package: it fails closed, running everything rather
 than nothing.
 
-| Job               | Runs when                                                  | What it does                                                                                                            |
-| ----------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `Detect changes`  | always                                                     | Works out what is affected                                                                                              |
-| `Lint and format` | any Node code changed                                      | `eslint`, `prettier --check`, the contract compatibility check, and a vulnerability scan of the production dependencies |
-| `Shared packages` | any Node code changed                                      | Build and test every shared package, with real RabbitMQ and PostgreSQL, and report their coverage                       |
-| `<service>`       | that service or shared code changed                        | Typecheck, test and report coverage, build its image, and scan the image for vulnerabilities                            |
-| `web-app`         | `web-app/**`, a contract, or what builds its image changed | `bun install`, lint, test with coverage; then build its image, which builds the app, and scan it                        |
-| `Compose smoke`   | container wiring changed, or any push to `main`            | Brings the whole stack up and runs the smoke checks                                                                     |
-| **`CI`**          | **always**                                                 | The gate — fails if anything above failed                                                                               |
+| Job                          | Runs when                                                  | What it does                                                                                                                        |
+| ---------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `Detect changes`             | always                                                     | Works out what is affected                                                                                                          |
+| `Lint and format`            | any Node code changed                                      | `eslint`, `prettier --check`, the contract compatibility check, and a vulnerability scan of the production dependencies             |
+| `Shared packages`            | any Node code changed                                      | Build and test every shared package, with real RabbitMQ and PostgreSQL, and report their coverage                                   |
+| `<service>`                  | that service or shared code changed                        | Typecheck, test and report coverage, build its image, and scan the image for vulnerabilities                                        |
+| `web-app`                    | `web-app/**`, a contract, or what builds its image changed | `bun install`, lint, test with coverage; then build its image, which builds the app, and scan it                                    |
+| `Compose smoke (core)`       | container wiring changed, or any push to `main`            | The alert rules, the secret scan of the repository and the images, the smoke checks, forced messaging failures and the credits walk |
+| `Compose smoke (resilience)` | the same                                                   | The restart check, the demo journey with its redrive, and the D4 demo seeded twice                                                  |
+| `Compose smoke (recovery)`   | the same                                                   | Back up, restore onto fresh volumes, and roll back to the last published images                                                     |
+| `Browser journeys (smoke)`   | the web app, a service or container wiring changed         | The browser journeys on one stack                                                                                                   |
+| `Browser journeys (release)` | the same                                                   | The full release suite from clean containers: once on a pull request, twice on a push to `main`                                     |
+| **`CI`**                     | **always**                                                 | The gate — fails if anything above failed                                                                                           |
 
 ### Why there is a separate `CI` job
 
@@ -914,7 +1135,9 @@ npm run test:contract        # contract compatibility + provider checks
 ```
 
 Every test suite, its naming convention and the variables that switch on the real-PostgreSQL and
-RabbitMQ suites are described in [docs/testing.md](docs/testing.md).
+RabbitMQ suites are described in [docs/testing.md](docs/testing.md). Which tests prove which
+requirement is the [traceability matrix](docs/traceability.md): every Must requirement of the D1
+backlog, its tests, and the gaps still open. CI fails if a test it names disappears (PL-NFR4.1.1).
 
 ### Published images
 
@@ -936,14 +1159,13 @@ FOC_IMAGE_TAG=sha-<commit> docker compose -f compose.yaml -f compose.images.yaml
 [#284](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/284)). CI builds with the same file
 through `docker buildx bake`, so a published image has exactly `compose.yaml`'s build arguments.
 
-- **The web app's image is for this local stack only.** `next build` inlines its build arguments,
-  so it calls the services at `localhost` on `compose.yaml`'s default ports (3001 to 3004); its
-  image label says so. A stack on other ports keeps the published
-  services and builds the web app from its own `.env` first:
-  `docker compose -f compose.yaml -f compose.images.yaml build web-app`, then `up -d --no-build`.
-  A web app image that can be deployed elsewhere waits for the edge proxy (PLT-10,
-  [#285](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/285)), which puts it and the APIs
-  on one origin.
+- **The web app's image runs behind the edge, on any host and port.** `next build` inlines its
+  build arguments, and since the edge (PLT-10,
+  [#285](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/285)) they are paths: it calls the
+  services at `/api/<service>` on whatever origin serves it. One link in it is still this
+  stack's, and its image label says so: the admin console links to Grafana at `localhost:3005`. With another `GRAFANA_PORT`, build the web app from your own `.env`
+  first: `docker compose -f compose.yaml -f compose.images.yaml build web-app`, then
+  `up -d --no-build`.
 - **Every merged commit is published, unless its scan fails.** Each run on `main` has a concurrency
   group of its own, so none is dropped or cancelled while another runs; only a pull request's
   superseded run is cancelled. As runs can then finish out of order, a run moves `main` only while
@@ -967,19 +1189,37 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
 
 ```text
 .
-├── user-service/
-├── supplier-service/
-├── order-service/
-├── credit-service/
-├── <n2h-service>/
-└── README.md
+├── user-service/        identity, sign-in, roles, the audit trail
+├── supplier-service/    the campus supplier catalogue
+├── order-service/       errands: their lifecycle, disputes, reconciliation
+├── credit-service/      wallets and the double-entry ledger
+├── web-app/             the Next.js front end, students' and administrators'
+├── platform/            what every service shares: config, logging, health, events
+├── auth-client/         how a service verifies a caller with the User Service
+├── contracts/           the OpenAPI and event contracts, checked for breaking changes
+├── test-harness/        shared test fixtures, contract and deployment-file checks
+├── system-tests/        Order and Credit run together: races, faults, conservation
+├── observability/       Prometheus rules and the Grafana dashboard
+├── data/                the supplier seed data (see Seed data, above)
+├── docs/                decision records, runbooks, reports, the plan
+├── compose*.yaml        the stack, and its overrides
+└── scripts-*.sh         start, smoke-test, demo and check the stack
 ```
 
 - Any **nice-to-have (N2H)** feature that warrants its own service should
   be added as an **additional folder** at the same level, following the
-  same per-service structure.
+  same per-service structure (the chat service, N1.2, would be one).
 - Files for agentic coding tools (e.g. agent configs, prompts, skills)
   may be added as needed, but must still **respect the
   one-service-per-folder skeleton** for core implementation.
 
 ---
+
+## Full browser release check
+
+Run `./scripts-e2e-release.sh --twice` from the repository root to prove the critical user journeys
+twice from clean containers. It resets only the dedicated `foc-e2e-release` project on ports
+14500–14510. Setup, coverage, clock isolation and retained evidence are documented in the
+[web app release suite](web-app/README.md#full-release-suite-tst-02-160). CI requires both its ordinary
+browser smoke and the full release suite, which it runs once on a pull request and twice on a push
+to `main`.

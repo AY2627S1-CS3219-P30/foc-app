@@ -8,6 +8,7 @@ import styles from "../_components/admin.module.css";
 import { DeadLetters } from "./DeadLetters";
 import { ErrandTrace } from "./ErrandTrace";
 import { OperationalAlerts } from "./OperationalAlerts";
+import { LedgerAudit } from "./LedgerAudit";
 
 /**
  * PLT-05 (#154) — the operator's tab: what needs attention, each service's dead letters with the
@@ -26,6 +27,7 @@ export default function OperationsPage() {
 
   return (
     <AdminShell active="/admin/operations" heading="Operations">
+      <LedgerAudit />
       <OperationalAlerts reloadKey={reloadKey} onTrace={trace} />
       <div id="dead-letters">
         <DeadLetters onTrace={trace} onRedriven={() => setReloadKey((k) => k + 1)} />

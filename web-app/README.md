@@ -68,6 +68,24 @@ instructions and records pickup and delivery, and the requester confirms receipt
 complete. The requester then opens the receipt, follows it to the payment in their wallet and back,
 and the courier follows the same payment from their receipt to their wallet and back.
 
+`e2e/live-journey.e2e.ts` (N1.4) checks what only the live-update stream can do, since a settled
+page polls every 30 seconds: a new errand reaches a courier's open board within 3 s, and the
+courier's accept reaches the requester's open errand page within 3 s. Refused its stream first, the
+page says *Updating every 30 s* and still works, at every width.
+
+`e2e/dispute-outcome.e2e.ts` covers both administrative dispute decisions at all three widths.
+The requester reports non-receipt, the referred administrator decides through the console, and
+both participants read the outcome, reason and time on their errand page and expand its status
+history. The test also verifies the actual transfer/refund and an outsider's HTTP refusal and
+absence of private history in the page.
+
+The participant history panel (WEB-06, #281) reads the existing authenticated
+`GET /orders/{id}/history`; no new backend route or contract field is needed. It shows only the
+server's participant projection, hides cached history immediately when the identity or errand
+changes, ignores stale replies, and offers retry on failure. System causes and raw actor IDs are
+not displayed. Administrative decisions show their actual reason and recorded time; an ordinary
+cancellation or completion is not labelled as an administrative decision.
+
 `e2e/account-journey.e2e.ts` runs the account journey (USR-05) in Chromium at 360, 768 and 1440 px against
 the real User Service: sign-up with a failed submit, activation from the link in the email (read from
 Mailpit), sign-in with a rejected password, the mode switch and log-out. A second test asks for a new
@@ -82,8 +100,70 @@ bunx playwright install chromium   # once
 bun run e2e
 ```
 
-`E2E_BASE_URL` points it elsewhere, and `E2E_MAILPIT_URL` the inbox. Each run registers two accounts per width, well inside the sign-up
-limit of 20 an hour per address. Specs are named `*.e2e.ts` so `bun test` leaves them alone.
+`E2E_BASE_URL` points it elsewhere, and `E2E_MAILPIT_URL` the inbox. The specs call the services through the edge too, at
+`$E2E_BASE_URL/api/<service>`, as the page does: a sign-in there sets the refresh cookie for
+`/api/user/auth`, where the page refreshes (`E2E_USER_SERVICE_URL` and the like override one). Each run
+registers two accounts per width, well inside the sign-up limit of 20 an hour per address. Specs are
+named `*.e2e.ts` so `bun test` leaves them alone.
+
+`E2E_BROWSER_CHANNEL=chrome` drives an installed Google Chrome instead of Playwright's Chromium, so
+nothing needs installing. CI does that: GitHub's Ubuntu runners come with Chrome and its system
+libraries, which keeps the `e2e` job from downloading a browser or running `apt` each time. The job
+builds the stack's images from CI's shared layer cache; each smoke/release matrix job has a
+40-minute ceiling.
+
+### Full release suite (TST-02 #160)
+
+From the repository root, with Docker running, Node and Bun 1.4.2 installed:
+
+```bash
+npm ci
+(cd web-app && bun install --frozen-lockfile && bunx playwright install chromium)
+./scripts-e2e-release.sh --twice
+# One clean run while debugging:
+./scripts-e2e-release.sh --once
+# Stop only this test project, preserving its last data and evidence:
+./scripts-e2e-release.sh --stop
+```
+
+This resets **only `foc-e2e-release` and its volumes**, on ports 14500–14510 (override with
+`E2E_PORT_BASE`). It generates `.env` if absent, builds the stack, runs its API smoke, and creates
+activated test identities through public APIs for each clean run. It does not reset `foc` or
+`foc-d4-demo`. There are 42 browser cases across 360, 768 and 1440 px, with no retries in release mode.
+CI requires both `Browser journeys (smoke)` (18 baseline cases, release-only cases skipped) and
+`Browser journeys (release)` (all 42 cases twice from clean volumes). The latter reuses the job's
+baked images with `E2E_IMAGE_TAG=ci`; leave that unset for local source builds.
+
+`release-journeys.e2e.ts` covers the composer, withdrawal/reacceptance and cancellation before
+pickup, both participants' order history, a non-receipt dispute, courier suspension/reassignment
+with exact wallet checks, supplier search/filters, and login/opening every admin area. Withdrawal
+keeps the reservation for a replacement courier; cancellation releases it. That is the implemented
+state-machine contract, clarifying the audit checklist's ambiguous “with credits returned.”
+`zz-release-clock.e2e.ts` covers server expiry/refund, automatic confirmation/payment without a
+requester click, and non-delivery reporting only after its period followed by an admin decision.
+The existing suites supply registration, the acceptance race, receipt/ledger navigation, both
+dispute outcomes and outsider denial, reconnection idempotency and the admin financial audit.
+
+The explicit `compose.e2e.yaml` override mounts `test-harness/e2e-clock.mjs` into the four backend
+services. A guarded non-secret offset file advances implicit Node time and explicit SQL `now()` /
+`clock_timestamp()` reads together. Ordinary PostgreSQL defaults and the browser clock are not
+rewritten. Tests read each order's actual server deadline, advance beyond it, wait until each container observes the mounted offset, and sign in normally
+again (old tokens can expire), and wait for real lifecycle workers and RabbitMQ credit replies.
+No application data is injected or modified directly, and no HTTP clock-control endpoint exists.
+The fixture requires the disposable development configuration and is not baked into any image.
+Release-only login budgets accommodate the repeated independent sessions; normal smoke and User
+Service tests retain the default rate limits. Auth, activation, roles and step-up remain enabled.
+Clock cases run last in each width with one worker; changing parallelism would race the shared clock.
+
+Each successful JSON report must have zero failures, flakes, skips and runner errors. Reports are
+in `.release-results/run-1.json` and `run-2.json`, with HTML in `html-1/` and `html-2/`. Failures retain
+screenshots/traces under `web-app/test-results` and bounded container logs under `.release-results`.
+CI uploads release evidence even on success, and failure traces/screenshots separately. Treat those
+artifacts as private test data: they can include disposable credentials and session contents.
+They are ignored by Git and excluded from Docker build contexts.
+
+Chat has no implementation yet; #161 owns its future chat browser journey. This suite certifies the
+implemented paths listed in #160, not chat or the two human non-owner rehearsals required by #167.
 
 ## API clients
 
@@ -217,6 +297,31 @@ reserved its reward once.
 Every state's label and plain-language explanation is in `src/lib/order-status.ts`, typed from the
 generated contract so all twelve are covered.
 
+### Live updates (N1.4)
+
+Every page above polls, and still does. On top of that, each tab holds one live-update stream,
+`GET /api/order/live` ([ADR 0011](../docs/adr/0011-live-updates.md)), so a change shows at once
+instead of at the next poll. The stream sends nudges, never an errand: on one, a page reads again
+through the endpoints above, under their rules.
+
+| Page | Reads again on |
+| --- | --- |
+| errand page (`useOrder`) | `errand` for its errand at a newer version than shown; `board` while it is `ACCEPTED`, since a courier who withdrew or missed the pickup deadline is no longer named on it |
+| feed, courier mode | `board`, after a random wait of up to a second, so open feeds do not all read at once |
+| feed, requester mode; order history; wallet; the credits pill | any `errand` |
+| all of them | `ready`, sent each time the stream (re)opens: the catch-up |
+
+- `src/lib/live/sse.ts` parses the stream; `src/lib/live/connection.ts` keeps it open. It is read with
+  `fetch`, not `EventSource`, which cannot send the `Authorization` header (a token in the URL
+  would be written to the edge's log). It reconnects after 1, 2, 4, 8, then every 10 seconds,
+  closes while the tab is hidden, and retries at once when the network is back. The stream's own
+  refusals (`429`, `503 LIVE_UNAVAILABLE`) leave the page polling, asking again a minute later.
+- `src/lib/live/live.tsx` is the `LiveProvider` in `(app)/layout.tsx` (the student's pages; the
+  console polls) and `useLive`, which does nothing outside it.
+- `LiveLabel` says *Live*, *Reconnecting…* or *Updating every 30 s* in every header: the top bar,
+  the phone's app bar, and the errand page's own headers. Text, not only colour, as a polite status.
+- Turned off on the server (`ORDER_LIVE_UPDATES_ENABLED=false`), every page behaves as before.
+
 ### Sessions
 
 The rules live in `src/lib/session.ts` (no React, so they are unit-tested); `src/lib/auth.tsx`
@@ -242,21 +347,27 @@ holds the React state around them.
 ### Configuration
 
 - `NEXT_PUBLIC_USER_SERVICE_URL` is inlined at **build** time, so set it where the app is built:
-  the Vercel project's environment, or the `web-app` build args in `compose.yaml` (the Dockerfile
+  the `web-app` build args in `compose.yaml` (the Dockerfile
   takes it as an `ARG`; setting it on a running container does nothing). Unset, a development build
   uses `http://localhost:3001`; a production build shows a configuration error on the account
   screens rather than calling localhost. The build itself still succeeds.
 - `NEXT_PUBLIC_SUPPLIER_SERVICE_URL` is also inlined at build time. Local development defaults
-  to `http://localhost:3002`; production builds require it. The Compose build already supplies
-  the browser-facing address. To try the full stack, run `docker compose up --build` at the
-  repository root, open `http://localhost:3000/suppliers`, and sign in. Rebuild after changing
-  either service URL. The Supplier Service must allow the web app origin in `CORS_ORIGINS`.
+  to `http://localhost:3002`; production builds require it. Rebuild after changing either service
+  URL.
+- **In Compose every service address is a path on the one origin** (`/api/user`, `/api/supplier`,
+  `/api/order`, `/api/credit`): the edge in front of the stack routes each to its service
+  ([ADR 0010](../docs/adr/0010-api-edge.md)), so the same image works on any host and port. To
+  try the full stack, run `docker compose up --build` at the repository root, open
+  `http://localhost:3000/suppliers`, and sign in. A web app run with `bun dev` calls each service
+  on its own port instead, so each service must allow `http://localhost:3000` in `CORS_ORIGINS`.
 - **The web app and the User Service must be same-site** (same registrable domain, e.g.
   `app.example.com` and `api.example.com`; the port does not matter, so `localhost:3000` and
   `localhost:3001` are fine). The refresh cookie is `SameSite=Strict`
   (`user-service/src/auth/cookies.ts`), so across sites the browser never sends it and every reload
-  signs the user out. Note that each `*.vercel.app` subdomain is its own site. The User Service's
-  `CORS_ORIGINS` must also list the web app's origin.
+  signs the user out. Note that each `*.vercel.app` subdomain is its own site. Behind the edge they
+  are one origin, so this always holds; the edge serves the cookie at `/api/user/auth`, the path
+  the browser sends it to. The User Service's `CORS_ORIGINS` must also list the web app's origin,
+  which its sign-in checks.
 
 ### Activation email
 
@@ -345,7 +456,7 @@ refuses a student with `403` on its own.
 | Admin activity | `GET /admin/alerts`, `GET /admin/reads` |
 | Errands | Disputes: `GET /admin/orders/referred`, and `GET /admin/orders/decisions` for the latest decisions. One dispute (`/admin/errands/{orderId}`): `GET /orders/{orderId}?view=private`, which only the referred administrator is given, and `POST /admin/orders/{orderId}/resolve` with a reason (ORD-11, #271). Also `GET /admin/orders/pending-credit` and `GET /admin/orders/reconciliation-attempts` |
 | Wallets | `GET /admin/wallets/{userId}` and its ledger (Credit Service; read-only, every read recorded) |
-| Operations | Placeholder until PLT-05 (#154) |
+| Operations | Dead letters on either service: `GET /admin/dead-letters`, one with `GET /admin/dead-letters/{id}`, and `POST /admin/dead-letters/{id}/redrive` with a reason. An errand's trace: `GET /admin/orders/{orderId}/timeline` (Order Service) and `GET /admin/orders/{orderId}/credit` (Credit Service). Operator alerts: `GET /admin/orders/alerts` (PLT-05, #154) |
 
 **Controls on administrators** ([ADR 0008](../docs/adr/0008-controlling-administrators.md)). Every
 write asks for a reason first. Requesting or approving a role change, and suspending an administrator,
@@ -360,9 +471,13 @@ name, roles and status, which is not recorded per account. Opening an account, o
 records, is.
 
 `NEXT_PUBLIC_ORDER_SERVICE_URL` and `NEXT_PUBLIC_CREDIT_SERVICE_URL` work like the User Service's
-address: inlined at build time, with `http://localhost:3003` and `:3004` as the development defaults.
+address: inlined at build time, with `http://localhost:3003` and `:3004` as the development defaults,
+and `/api/order` and `/api/credit` behind the edge in Compose.
 
 ## Deployment
 
-Pushes to `main` that touch `web-app/**` deploy to Vercel via
-[`.github/workflows/deploy-web-app.yml`](../.github/workflows/deploy-web-app.yml).
+The web app is deployed with the rest of the stack, in local containers (`docker compose up`, see
+the [repository README](../README.md#6-run-the-whole-stack-in-docker)). That is the D4 deployment
+mode. There is no hosted deployment: the Vercel workflow was removed in
+[PLT-11 #286](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/286), because a hosted web app
+had no hosted back end to call, and its `SameSite=Strict` refresh cookie is not sent across sites.

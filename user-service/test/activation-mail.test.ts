@@ -169,3 +169,27 @@ describe('registering again', () => {
     expect((await register().expect(409)).body.error.code).toBe('EMAIL_ALREADY_REGISTERED');
   });
 });
+
+describe('a mail relay that never answers', () => {
+  const hang = () =>
+    vi.spyOn(t.mailbox, 'sendActivation').mockReturnValue(new Promise<void>(() => {}));
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+  afterAll(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('does not hold up sign-up', { timeout: 3_000 }, async () => {
+    const sent = hang();
+    await register().expect(201);
+    expect(sent).toHaveBeenCalledOnce();
+  });
+
+  it('does not hold up a resend', { timeout: 3_000 }, async () => {
+    await register().expect(201);
+    const sent = hang();
+    await resend(EMAIL).expect(202, RESENT);
+    await vi.waitFor(() => expect(sent).toHaveBeenCalledOnce());
+  });
+});

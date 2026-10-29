@@ -121,14 +121,7 @@ export class SessionsService {
         return { kind: 'passwordChangeRequired' as const };
       }
       await sessions.markRotated(tx, row.id);
-      await sessions.insert(tx, {
-        id: nextId,
-        familyId: row.familyId,
-        userId: row.userId,
-        tokenHash: sha256Hex(nextToken),
-        ttlDays: REFRESH_TTL_DAYS,
-        continues: row.id,
-      });
+      await sessions.rotate(tx, { id: nextId, tokenHash: sha256Hex(nextToken), continues: row.id });
       return { kind: 'ok' as const, userId: row.userId };
     });
 

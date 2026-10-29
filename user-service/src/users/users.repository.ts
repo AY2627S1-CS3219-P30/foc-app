@@ -74,23 +74,30 @@ export const usersRepository = {
    * Re-registration of an address that never activated and whose every link has expired: the new
    * registrant sets the password and display name, and must still prove the inbox. A pending
    * account with a live link, or any activated one, is left alone. Returns the account's id.
+   *
+   * Locks the account first, then looks for a live link in a statement of its own: under READ
+   * COMMITTED that statement sees a link a concurrent re-register committed while this one waited
+   * on the lock, which a single UPDATE re-checked after the wait would not.
    */
   async reviveExpiredRegistration(db: Database, user: Omit<NewUser, 'id'>): Promise<string | null> {
-    const rows = await db
-      .update(users)
-      .set({ passwordHash: user.passwordHash, updatedAt: sql`now()` })
+    const id = await usersRepository.lockPendingUser(db, user.email);
+    if (!id) return null;
+    const live = await db
+      .select({ id: activationTokens.id })
+      .from(activationTokens)
       .where(
         and(
-          sql`lower(${users.email}) = lower(${user.email})`,
-          eq(users.status, 'PENDING_ACTIVATION'),
-          sql`NOT EXISTS (SELECT 1 FROM ${activationTokens} t
-                          WHERE t.user_id = ${users.id} AND t.consumed_at IS NULL
-                            AND t.expires_at > now())`,
+          eq(activationTokens.userId, id),
+          isNull(activationTokens.consumedAt),
+          sql`${activationTokens.expiresAt} > now()`,
         ),
       )
-      .returning({ id: users.id });
-    const id = rows[0]?.id;
-    if (!id) return null;
+      .limit(1);
+    if (live.length > 0) return null;
+    await db
+      .update(users)
+      .set({ passwordHash: user.passwordHash, updatedAt: sql`now()` })
+      .where(eq(users.id, id));
     await db.update(profiles).set({ displayName: user.displayName }).where(eq(profiles.userId, id));
     return id;
   },

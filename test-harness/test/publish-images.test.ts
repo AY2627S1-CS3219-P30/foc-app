@@ -69,14 +69,16 @@ describe('the publish job', () => {
     expect(publish.if).toContain("github.event_name == 'push'");
     expect(publish.if).toContain("github.ref == 'refs/heads/main'");
     expect(publish.if).toContain("needs.ci.result == 'success'");
+    expect(publish.if).toContain('always()');
   });
 
   it('is the only job that may write to the registry', () => {
     expect(workflow.permissions).toEqual({ contents: 'read' });
     expect(publish.permissions).toEqual({ contents: 'read', packages: 'write' });
     for (const [name, job] of Object.entries(workflow.jobs)) {
-      if (name !== 'publish') expect(job.permissions?.packages, name).toBeUndefined();
+      if (name !== 'publish') expect(job.permissions?.packages, name).not.toBe('write');
     }
+    expect(workflow.jobs.stack!.permissions?.packages).toBe('read');
   });
 
   const steps = publish.steps!;
@@ -132,12 +134,16 @@ describe('the publish job', () => {
     expect(bake.with!.set).not.toContain(':main');
   });
 
-  it('labels the web app’s image as one for the local stack', () => {
+  it('labels the web app’s image as one that runs behind the edge, on any host and port', () => {
     const set = bake.with!.set!.split('\n').map((line) => line.trim());
     const label = set.find((line) =>
       line.startsWith('web-app.labels.org.opencontainers.image.description='),
     );
-    expect(label).toMatch(/local stack/);
+    // Its build has paths, not addresses, in it since PLT-10 (#285).
+    expect(label).toContain('/api/<service>');
+    expect(label).toContain('Grafana');
+    expect(label).not.toContain('dev mailbox');
+    expect(label).not.toMatch(/local stack only|default ports/);
   });
 
   it('gives every run but a pull request’s a group of its own, so none is dropped while it waits', () => {
@@ -148,5 +154,23 @@ describe('the publish job', () => {
     expect(String(workflow.concurrency['cancel-in-progress'])).toBe(
       "${{ github.event_name == 'pull_request' }}",
     );
+  });
+});
+
+describe('every bake step', () => {
+  // A `set` block is a literal string: a `#` line in it is not a YAML comment but text that bake
+  // refuses to parse, which once failed every publish from main.
+  it('passes only overrides in its `set`: target.key=value on every line', () => {
+    const bakes = Object.entries(workflow.jobs).flatMap(([name, job]) =>
+      (job.steps ?? [])
+        .filter((step) => step.uses?.startsWith('docker/bake-action@'))
+        .map((step) => [name, step.with?.set ?? ''] as const),
+    );
+    expect(bakes.length).toBeGreaterThan(0);
+    for (const [name, set] of bakes) {
+      for (const line of set.split('\n').filter((line) => line.trim())) {
+        expect(line.trim(), name).toMatch(/^[\w*-]+\.[\w.-]+=\S/);
+      }
+    }
   });
 });

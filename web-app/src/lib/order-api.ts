@@ -21,6 +21,7 @@ export type CreateOrder = components["schemas"]["CreateOrder"];
 export type OpenOrder = components["schemas"]["OpenOrderSummary"];
 export type MyOrder = components["schemas"]["MyOrders"]["items"][number];
 export type Receipt = components["schemas"]["OrderReceipt"];
+export type OrderHistory = components["schemas"]["OrderHistory"];
 export type Wallet = CreditComponents["schemas"]["Wallet"];
 export type LedgerItem = CreditComponents["schemas"]["LedgerItem"];
 
@@ -61,6 +62,16 @@ export const getReceipt = (token: string, orderId: string) =>
     orderApi.GET("/orders/{orderId}/receipt", {
       params: { path: { orderId } },
       headers: bearer(token),
+    }),
+  );
+
+/** The service authorizes and redacts this participant projection; the browser never reconstructs it. */
+export const getOrderHistory = (token: string, orderId: string, signal?: AbortSignal) =>
+  unwrap(
+    orderApi.GET("/orders/{orderId}/history", {
+      params: { path: { orderId } },
+      headers: bearer(token),
+      signal,
     }),
   );
 

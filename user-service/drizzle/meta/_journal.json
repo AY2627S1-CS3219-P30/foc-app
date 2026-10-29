@@ -36,6 +36,13 @@
       "when": 1791451788912,
       "tag": "0004_admin_review_controls",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792727101370,
+      "tag": "0005_event_retention_indexes",
+      "breakpoints": true
     }
   ]
 }

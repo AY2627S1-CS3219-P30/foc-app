@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page, type TestInfo } from "@playwright/test";
 import { activationLink } from "./mailpit";
+import { USER } from "./request-helpers";
 
 /**
  * USR-05 acceptance criteria, end to end, once per breakpoint (see playwright.config.ts):
@@ -103,7 +104,12 @@ test("account journey: register, activate, sign in, profile, mode switch, log ou
   });
 
   await test.step("log out, then signing in again returns to the page asked for", async () => {
-    await tabTo(page, page.getByRole("button", { name: "Log out" }));
+    // From 768 px the sidebar has its own Log out (WEB-07); a phone uses the profile page's.
+    const logOut =
+      testInfo.project.name === "360px"
+        ? page.getByRole("button", { name: "Log out" })
+        : page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "Log out" });
+    await tabTo(page, logOut);
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/login$/);
     await page.goto("/profile");
@@ -118,12 +124,10 @@ test("account journey: register, activate, sign in, profile, mode switch, log ou
   });
 });
 
-/** A form control by its accessible name; the visible label also carries the required marker. */
 test("an activation link that was replaced is refused, and the new one from the activate screen works", async ({
   page,
 }, testInfo) => {
   const email = `e2e-resend-${testInfo.project.name}-${Date.now()}@u.nus.edu`;
-  const USER = process.env.E2E_USER_SERVICE_URL ?? "http://localhost:3001";
   const registered = await page.request.post(`${USER}/auth/register`, {
     data: { email, password: PASSWORD, displayName: "E2E Resend" },
   });
@@ -153,6 +157,7 @@ test("an activation link that was replaced is refused, and the new one from the 
   });
 });
 
+/** A form control by its accessible name; the visible label also carries the required marker. */
 const field = (page: Page, name: string) => page.getByRole("textbox", { name, exact: true });
 
 /** The submit button is disabled until React hydrates; typing before that would be lost. */

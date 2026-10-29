@@ -98,9 +98,10 @@ export class UsersService {
       );
     }
 
-    // After commit, and never failing the request: the account exists either way, and
+    // After commit, in the background as resend does, so a slow relay cannot hold the answer; and
+    // never failing the request: the account exists either way, and
     // `POST /auth/activation/resend` is how the student gets a link that did not arrive.
-    await this.sendActivation({ to: email, userId, token });
+    void this.sendActivation({ to: email, userId, token });
     return { userId, status: 'PENDING_ACTIVATION' };
   }
 
@@ -136,6 +137,7 @@ export class UsersService {
     });
   }
 
+  /** Never throws, so a caller may leave it running without an unhandled rejection. */
   private async sendActivation(email: ActivationEmail): Promise<void> {
     try {
       await this.mailer.sendActivation(email);

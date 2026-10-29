@@ -90,15 +90,18 @@ are is the Order Service's call (`order-service/README.md`).
 
 ## 3. API contract
 
-### C1. Contract lives in `contracts/`, not `packages/contracts` — 🟡
+### C1. Contract lives in `contracts/`, not `packages/contracts` — ✅ (settled 22 Oct)
 The FND-03 ticket text says `packages/contracts`; the execution plan (§3.1, §8.1) and the root README use a flat layout.
 - **Chosen:** follow the plan. **Trade-off:** it contradicts a ticket body, so Jonus should confirm; it is a `git mv` if not.
+- **Settled:** Jonus confirmed it: `contracts/` stays at the root (§8).
 
-### C2. The contract is a proposal until the consumers sign off — ❓
+### C2. The contract is a proposal until the consumers sign off — ✅ (settled 22 Oct)
 FND-03 asked for a workshop with Patrick. There is no evidence it happened, so the cross-service
 conventions (error envelope, pagination, auth header, IDs, timestamps, event envelope) are written as a
 proposal in `contracts/README.md` for review in #176.
 - **Trade-off:** faster to review than a meeting, but nothing is frozen until Jonus and Patrick approve.
+- **Settled:** every contract is implemented and checked: each service has a provider test, and CI
+  fails a change that breaks a contract against the branch's merge base (`contracts/README.md`).
 
 ### C3. Events follow the submitted backlog — 🟡
 `UserActivated`, `UserSuspended`, `UserReactivated` — not the plan's `UserActivated` + `UserStatusChanged` (§3.2).
@@ -173,7 +176,8 @@ Claims: `sub`, `sid`, `iss`, `jti`, `iat`, `exp`. Services learn role and status
   `kid` support is in, but rotation is not automated.
 - **Dev convenience:** outside production, if `JWT_PRIVATE_KEY` is unset a throwaway key is generated,
   so no key is ever committed. Every restart then invalidates access tokens; refresh sessions survive.
-  In production the key is required. ❓ JWKS caching and key distribution to other services is an open question (contracts/README.md).
+  In production the key is required. ~~❓ JWKS caching and key distribution to other services is an open question~~ — settled:
+  see [auth-client: Key rotation](../../auth-client/README.md#key-rotation).
 
 ### A3. Access token lives in memory; refresh token lives in an `HttpOnly` cookie — ✅
 Cookie: `foc_refresh; HttpOnly; SameSite=Strict; Path=/auth` (`Secure` in production).
@@ -199,7 +203,11 @@ whole family. The lookup uses `SELECT … FOR UPDATE`, so simultaneous use of on
 - **Trade-off — the two-tab problem:** two tabs refreshing at the same instant look like a replay and
   end the session. Because reloads always refresh (A3.2), restoring two tabs together is common.
   **USR-05 must make refresh single-flight across tabs** (a shared lock or `BroadcastChannel`).
-- **Trade-off — sliding lifetime:** each rotation grants a fresh 7 days; there is no absolute cap.
+- **Lifetime — fixed at login (USR-10, #275):** a session ends 7 days after login, however often it
+  refreshes (US-FR1.1.2). Each rotation copies the family's `expires_at` instead of granting a fresh 7 days,
+  so a refresh after it is refused and clears the cookie. *First built as a sliding 7 days with no absolute
+  cap, which let a session that refreshed weekly live for ever.* There is no separate idle limit: at 7 days it
+  could never end a session earlier than the absolute one.
 - The ticket marks reuse detection as "cut order #4". It is built; it is the first thing to drop under time pressure.
 
 ### A6. The access-token guard checks the session in the database on every request — ✅
@@ -247,8 +255,12 @@ published port, and production refused to boot because no other adapter existed.
   after answering, so neither the body nor the timing shows whether an account exists. It is limited
   per address (3 an hour, which stops inbox flooding) and per IP, counting every request.
 - **Re-register:** an address that never activated, and whose every link has expired, can be
-  registered again, keeping its id. **Trade-off:** until an address is proven, the last registrant
-  sets the password. That is no weaker than a first sign-up, since only the inbox owner can activate.
+  registered again, keeping its id. A re-register locks the pending account before it looks for a
+  live link, so of two at once only the first revives it. **Trade-off:** until an address is proven,
+  the last registrant sets the password. Once a real student's link lapses, someone else can
+  re-register the address with their own password; the student then gets an ordinary-looking
+  activation email, and clicking it activates the other person's password, with no reset to recover.
+  This is the pre-registration hijack below by a second route, and closes with it (#309).
 - **Open risk, pre-registration hijack:** the password is chosen at sign-up, before the inbox is
   proven. Someone can register a student's address with their own password and keep it pending by
   resending before each link expires, so the student's own sign-up gets `409`, and the only way on
@@ -302,22 +314,22 @@ Recorded because they are the honest answer to "what went wrong?" and each has a
 ## 8. Open questions and known limitations
 
 **Needs a teammate or mentor**
-- ❓ Jonus: review the `platform` changes (O3) and the `compose.yaml` additions; confirm `contracts/` vs `packages/contracts`; decide whether `aggregateVersion` is in the envelope.
-- ❓ Patrick: is `preferredMode` on the profile the right home for the toggle? Will the gateway or dev proxy keep web and API on one site?
-- ❓ Everyone: how do other services get and cache the JWKS, and who owns key rotation?
+- ~~❓ Jonus: review the `platform` changes (O3) and the `compose.yaml` additions; confirm `contracts/` vs `packages/contracts`; decide whether `aggregateVersion` is in the envelope~~ — settled: merged; `contracts/` at the root; no `aggregateVersion` in the envelope, and an event that needs one carries its own (`orderVersion`, ADR 0009).
+- ~~❓ Patrick: is `preferredMode` on the profile the right home for the toggle? Will the gateway or dev proxy keep web and API on one site?~~ — settled: see [contracts/README.md, questions 1 and 2](../../contracts/README.md#questions-settled-during-the-build).
+- ~~❓ Everyone: how do other services get and cache the JWKS, and who owns key rotation?~~ — settled: see [auth-client: Key rotation](../../auth-client/README.md#key-rotation).
 
 **Deferred, with an owner**
 - ~~Bootstrap secret stays valid; bootstrap unaudited~~ — fixed in §11 (D1 feedback on USR-03).
 - ~~USR-03~~ — built: admin endpoints, suspension revoking sessions, audit table, seeded admins, profile edits (see §9).
 - ~~USR-05 — single-flight refresh across tabs~~ — built (§14).
 - ~~USR-06~~ — built (see §10). Consuming services must still add the dependency, the two env vars and the Dockerfile lines.
-- PLT-06 — remove the dev default `INTERNAL_SERVICE_KEYS`.
+- ~~PLT-06 — remove the dev default `INTERNAL_SERVICE_KEYS`~~ — done in PLT-06 (#240): Compose has no default for it, and `./scripts-init-env.sh` generates one.
 - ~~EVT-02 — drain `outbox_events`~~ — the platform relay publishes it (S6).
-- Gateway work — configure `trust proxy` so per-IP limits mean per client.
+- Gateway work — configure `trust proxy` so per-IP limits mean per client (now the edge proxy, PLT-10 #285).
 
 **Not yet automated**
 - The real-Postgres concurrency checks (O4, and the demotion race in M2) were run by hand.
-- The full `docker compose up` (all services and web-app) has not been run; only Postgres and the User Service.
+- ~~The full `docker compose up` (all services and web-app) has not been run; only Postgres and the User Service~~ — done: CI's Compose smoke job runs the whole stack.
 
 ---
 
@@ -655,7 +667,7 @@ a message is announced when it arrives. The server's `details[]` map onto fields
 
 ### W6. Verification — ✅ (browser run by hand, not in CI)
 26 checks in Chromium against the real User Service code (on PGlite, since this environment has no Docker daemon): signed-out
-redirect with `next`, register with client and server errors and input preserved, activation via the dev mailbox link,
+redirect with `next`, register with client and server errors and input preserved, activation via the dev mailbox link (since replaced by real email, USR-09),
 **keyboard-only** login with a visible focus outline, wrong-password alert, profile edit, the mode switch persisting across a
 reload, two-tab restore, logout propagating to another tab, the bootstrap-admin flow, and **axe: 0 critical and 0 serious** on
 login, register, activate, change-password and profile at 360, 768 and 1440 px.

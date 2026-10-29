@@ -21,11 +21,16 @@ export default defineConfig({
   // limits sign-ups and logins per IP, whatever the worker count; staying inside them is up to the specs.
   workers: 1,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  retries: process.env.E2E_RELEASE === "1" ? 0 : process.env.CI ? 1 : 0,
+  maxFailures: process.env.E2E_RELEASE === "1" ? 1 : undefined,
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000",
+    // CI drives the runner's installed Google Chrome ("chrome"), so nothing is downloaded there;
+    // unset, Playwright uses its own Chromium (`bunx playwright install chromium`).
+    channel: process.env.E2E_BROWSER_CHANNEL || undefined,
     trace: "retain-on-failure",
+    screenshot: "only-on-failure",
   },
   projects: [
     { name: "360px", use: at(360, 780) },

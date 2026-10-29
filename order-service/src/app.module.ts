@@ -1,9 +1,16 @@
 import { Module } from '@nestjs/common';
 import { authStatusEvents, AuthModule } from '@foc/auth-client';
-import { EVENTS, EventsModule, PlatformModule, provideOutboxRelay } from '@foc/platform';
+import {
+  EVENTS,
+  EventsModule,
+  PlatformModule,
+  provideEventTablePruner,
+  provideOutboxRelay,
+} from '@foc/platform';
 import { authConfig, env, SERVICE_NAME, SERVICE_VERSION } from './config.js';
 import { OrdersModule } from './orders/orders.module.js';
 import { CREDIT_RECONCILER_OPTIONS, CreditReconciler } from './orders/credit-reconciler.js';
+import { liveEvents } from './orders/live/live-events.js';
 import { LIFECYCLE_SCHEDULER_OPTIONS, LifecycleScheduler } from './orders/lifecycle.scheduler.js';
 import { ORDER_DB } from './db/db.js';
 import {
@@ -25,6 +32,9 @@ import { USER_SUSPENSIONS_QUEUE, UserSuspensionsConsumer } from './user-suspensi
  */
 const status = authStatusEvents('order', authConfig);
 
+/** N1.4: each instance's own queue of status changes, for the live-update streams it holds. */
+const live = liveEvents();
+
 /**
  * EventsModule is imported only when a broker URL is configured, so the service still runs locally
  * without the stack up; it then relies on the 5 s cache window alone. Compose always supplies it.
@@ -44,6 +54,7 @@ const eventModules = env.RABBITMQ_URL
           // Durable and shared, unlike the identity-cache queue: each suspension is applied once.
           { queue: USER_SUSPENSIONS_QUEUE, routingKeys: [EVENTS.USER_SUSPENDED] },
           status.subscription,
+          live.subscription,
         ],
       }),
     ]
@@ -71,6 +82,8 @@ const eventModules = env.RABBITMQ_URL
         intervalMs: env.LIFECYCLE_SWEEP_INTERVAL_MS,
       },
     },
+    // PLT-12: the outbox and inbox are pruned with or without a broker.
+    provideEventTablePruner({ db: ORDER_DB }),
     // Re-issued requests wait in the outbox like any other until the relay can publish them.
     CreditReconciler,
     {
@@ -88,6 +101,7 @@ const eventModules = env.RABBITMQ_URL
           UserSuspensionsConsumer,
           provideOutboxRelay({ db: ORDER_DB }),
           ...status.providers,
+          ...live.providers,
         ]
       : []),
   ],

@@ -24,6 +24,7 @@ export {
   creditsReservedPayload,
   creditsTransferredPayload,
   orderCompletionRequestedPayload,
+  orderStatusChangedPayload,
   userActivatedPayload,
   userRoleChangedPayload,
   userStatusChangedPayload,
@@ -35,6 +36,7 @@ export {
   type CreditsTransferredPayload,
   type EventType,
   type OrderCompletionRequestedPayload,
+  type OrderStatusChangedPayload,
   type UserActivatedPayload,
   type UserRoleChangedPayload,
   type UserStatusChangedPayload,
@@ -85,6 +87,21 @@ export {
   type OutboxRowValues,
   type OutboxRelayStats,
 } from './outbox.js';
+export {
+  DEFAULT_EVENT_RETENTION,
+  INBOX_RETENTION_INDEX_SQL,
+  OUTBOX_RETENTION_INDEX_SQL,
+  pruneEventTables,
+  type EventRetention,
+  type PruneOptions,
+  type PrunedTable,
+} from './retention.js';
+export {
+  EVENT_TABLE_PRUNER,
+  EventTablePruner,
+  provideEventTablePruner,
+  type EventTablePrunerOptions,
+} from './pruner.js';
 export {
   DEAD_LETTERS,
   DEAD_LETTERS_TABLE_SQL,

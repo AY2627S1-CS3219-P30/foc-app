@@ -316,15 +316,29 @@ jobs:
   # containers actually talk to each other — database isolation, CORS, health.
   # ---------------------------------------------------------------------------
   stack:
-    name: Compose smoke
+    name: Compose smoke (${{ matrix.part }})
     needs: detect
     if: needs.detect.outputs.stack == 'true'
     runs-on: ubuntu-latest
+    # Three runners at once, each building the images it starts, so the slowest part sets how long
+    # CI takes rather than all of them in a row. Each runs to its end even when another fails.
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [core, resilience, recovery]
+    permissions:
+      contents: read
+      actions: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+      # compose.yaml refuses to load without its secrets: generated and thrown away, in every part.
+      - name: Generate a throwaway .env
+        run: ./scripts-init-env.sh
       # PLT-05: the alert rules fire when they should (observability/alerts.test.yml).
       - name: Test the alert rules
+        if: matrix.part == 'core'
         run: |
           docker run --rm -v "$PWD/observability:/rules:ro" --entrypoint promtool \
             prom/prometheus:v3.13.4@sha256:87861b8cf91579109319ebc300f3f1060e6da9c05d6ae8ad15a20c879e84e32e test rules /rules/alerts.test.yml
@@ -333,29 +347,99 @@ jobs:
       # PLT-06: no secret in any file git tracks, and none in an image this repository builds.
       # First, so that it builds the images the steps below then start from cache.
       - name: Scan the repository and the images for secrets
-        run: |
-          ./scripts-init-env.sh
-          ./scripts-scan-secrets.sh
+        if: matrix.part == 'core'
+        run: ./scripts-scan-secrets.sh
       - name: Start the stack and smoke it
+        if: matrix.part == 'core'
         run: ./scripts-smoke.sh --up
       # EVT-03: a duplicate, a killed consumer, a stale reply and an unsupported version, on a
       # stack of its own (the smoke run has removed its copy), ending with credits conserved.
       - name: Force messaging failures and check the outcome
+        if: matrix.part == 'core'
         run: ./scripts-demo-failures.sh --up
       # CRD-09: reserve, transfer and release through the public API, with both wallets before and
       # after each, ending with the closed-economy invariants checked on the live database.
       - name: Walk the credits through an errand
+        if: matrix.part == 'core'
         run: ./scripts-demo-credits.sh --up
       # PLT-06: stop and start every container, remove and recreate them, and take Postgres away
       # under the running services. Nothing committed is lost, a waiting message is handled once,
       # and a service without its database says 503 instead of accepting a write.
       - name: Restart, recreate and lose a dependency
+        if: matrix.part == 'resilience'
         run: ./scripts-restart-check.sh --up
       # PLT-07: the D3 demo's journey through the public API. A student registers and gets a
       # wallet; an errand is created, accepted, delivered and paid; one is cancelled; six actions
       # are refused; and a dead letter left by a database outage is redriven by an administrator.
       - name: The demo journey, end to end
+        if: matrix.part == 'resilience'
         run: ./scripts-demo-journey.sh --up --redrive
+      # PLT-09: a quiescent four-database dump, fresh volumes, exact row fingerprints, smoke
+      # and CRD-10 financial audit. The drill creates/deletes only its own unique project.
+      - uses: docker/login-action@v3
+        if: matrix.part == 'recovery'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Back up, restore and roll back the stack
+        if: matrix.part == 'recovery'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          rollback_tag=""
+          candidates=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=20" \
+            --jq '.workflow_runs[] | [.id,.head_sha] | @tsv')
+          while IFS=$'\t' read -r run sha; do
+            [[ -n "$run" ]] || continue
+            published=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" \
+              --jq '.jobs[] | select(.name == "Publish images") | .conclusion')
+            if [[ "$published" == success ]]; then rollback_tag="sha-$sha"; break; fi
+          done <<<"$candidates"
+          [[ -n "$rollback_tag" ]] || { echo 'No successful prior published release set exists; finish NTH-04 first.' >&2; exit 1; }
+          # #284 adds no service schema changes. Every later release must preserve the documented
+          # additive-migration rule and review compatibility before exercising this rollback.
+          ./scripts-recovery-drill.sh --rollback-tag "$rollback_tag"
+      - uses: actions/upload-artifact@v4
+        if: always() && matrix.part == 'recovery'
+        with:
+          name: recovery-drill
+          path: .recovery-results/drill.json
+          include-hidden-files: true
+          retention-days: 14
+      # REL-01: the same named people/errands survive check + repeated seed; no secret is printed.
+      - name: Seed and smoke the named D4 demo twice
+        if: matrix.part == 'resilience'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cleanup_demo() {
+            status=$?
+            if [[ -f .demo-state/foc-d4-demo/ports.sh ]]; then
+              . ./.demo-state/foc-d4-demo/ports.sh
+              docker compose -p foc-d4-demo down -v || true
+            fi
+            exit "$status"
+          }
+          trap cleanup_demo EXIT
+          ./scripts-seed-demo.sh --fresh
+          cp .demo-state/foc-d4-demo/overview.json /tmp/d4-seed-before.json
+          ./scripts-seed-demo.sh --check
+          ./scripts-seed-demo.sh --up
+          python3 - <<'PY'
+          import json,stat
+          from pathlib import Path
+          before=json.loads(Path('/tmp/d4-seed-before.json').read_text())
+          after=json.loads(Path('.demo-state/foc-d4-demo/overview.json').read_text())
+          assert before['personas']==after['personas'], 'seed duplicated or changed identities'
+          assert before['orders']==after['orders'], 'seed duplicated or changed errands'
+          assert len(after['personas'])==5 and len(after['orders'])==3
+          assert all(x['status']=='OPEN' for x in after['orders'].values())
+          assert stat.S_IMODE(Path('.demo-state/foc-d4-demo/credentials.json').stat().st_mode)==0o600
+          print('Named D4 seed is stable; five identities, three OPEN errands, private credentials.')
+          PY
+          python3 scripts-demo-tabs.py --print
 
   # ---------------------------------------------------------------------------
   # The supplier page against the real Supplier Service, verifying tokens with
@@ -416,7 +500,7 @@ jobs:
   # cannot race it.
   # ---------------------------------------------------------------------------
   e2e:
-    name: Browser journeys (Playwright)
+    name: Browser journeys (${{ matrix.suite }})
     needs: detect
     if: >-
       needs.detect.outputs.web == 'true' ||
@@ -426,50 +510,88 @@ jobs:
       contains(needs.detect.outputs.services, 'order-service') ||
       contains(needs.detect.outputs.services, 'credit-service')
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [smoke, release]
+    # Release proves the complete suite from clean containers: once on a pull request, and twice,
+    # each time after deleting its own test volumes, on a push to main.
+    timeout-minutes: 40
+    env:
+      # The images the bake step below builds and names (compose.images.yaml gives a service and
+      # its migrate container one image), for every docker compose call, the smoke test's included.
+      COMPOSE_FILE: compose.yaml:compose.images.yaml
+      FOC_IMAGE_TAG: ci
+      # GitHub's Ubuntu runners come with Google Chrome and its system libraries; Playwright drives
+      # it, so nothing is downloaded, or installed with apt, while the job runs.
+      E2E_BROWSER_CHANNEL: chrome
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
+      # compose.yaml refuses to load without its secrets: generated and thrown away.
+      - name: Generate a throwaway .env
+        run: ./scripts-init-env.sh
+      # From the layer cache the per-service jobs and the publish job fill, rather than from scratch.
+      - name: Build the stack's images
+        uses: docker/bake-action@v6
+        with:
+          source: .
+          files: |
+            compose.yaml
+            compose.images.yaml
+          targets: |
+            user-service
+            supplier-service
+            order-service
+            credit-service
+            web-app
+          load: true
+          set: |
+            user-service.cache-from=type=gha,scope=user-service
+            supplier-service.cache-from=type=gha,scope=supplier-service
+            order-service.cache-from=type=gha,scope=order-service
+            credit-service.cache-from=type=gha,scope=credit-service
+            web-app.cache-from=type=gha,scope=web-app
       - name: Start the stack
+        if: matrix.suite == 'smoke'
         run: |
-          ./scripts-init-env.sh
-          docker compose up -d --build
+          docker compose up -d --no-build
           ./scripts-smoke.sh
       - run: bun install --frozen-lockfile
         working-directory: web-app
-      # The browser build is fixed by the Playwright version, so key the cache on it.
-      - name: Playwright version
-        id: playwright
-        working-directory: web-app
-        run: echo "version=$(jq -r '.devDependencies["@playwright/test"]' package.json)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
-        id: playwright-cache
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}-chromium
-      - name: Install Chromium
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-        working-directory: web-app
-        run: bunx playwright install --with-deps chromium
-      # A cached browser still needs the system libraries, which live outside the cache.
-      - name: Install Chromium system dependencies
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
-        working-directory: web-app
-        run: bunx playwright install-deps chromium
+      - name: The runner's Chrome
+        run: google-chrome --version
       - name: Run the browser journeys
+        if: matrix.suite == 'smoke'
         working-directory: web-app
         run: bun run e2e
+      - name: Run the full release suite from clean containers
+        if: matrix.suite == 'release'
+        env:
+          E2E_IMAGE_TAG: ci
+        run: ./scripts-e2e-release.sh "${{ github.event_name == 'push' && '--twice' || '--once' }}"
       - name: Container logs
-        if: failure()
+        if: failure() && matrix.suite == 'smoke'
         run: docker compose logs --no-color --tail=100
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: playwright-report
-          path: web-app/playwright-report
+          name: playwright-report-${{ matrix.suite }}
+          path: |
+            web-app/playwright-report
+            web-app/test-results
           retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        if: always() && matrix.suite == 'release'
+        with:
+          name: release-journeys
+          path: .release-results
+          include-hidden-files: true
+          retention-days: 14
 
   # ---------------------------------------------------------------------------
   # Required status check.
@@ -515,7 +637,9 @@ jobs:
   publish:
     name: Publish images
     needs: [ci]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.ci.result == 'success'
+    # Explicit status function prevents intentionally skipped upstream jobs propagating their
+    # skip through CI into this job. Publishing still requires the aggregate CI to pass.
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.ci.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -547,17 +671,18 @@ jobs:
             credit-service
             web-app
           load: true
+          # Every line of `set` is an override; a comment there would be text bake cannot parse.
+          # The cache is written back from main, whose cache every later run can read; a pull
+          # request's is its own. The per-service job writes the same scopes, so a PR starts from this.
           set: |
             *.labels.org.opencontainers.image.source=https://github.com/${{ github.repository }}
             *.labels.org.opencontainers.image.revision=${{ github.sha }}
-            web-app.labels.org.opencontainers.image.description=For the local stack only: it calls the services at localhost on compose.yaml's default ports.
+            web-app.labels.org.opencontainers.image.description=Runs behind the edge: it calls the services at /api/<service> on its own origin. Links the admin console to Grafana on localhost:3005.
             user-service.cache-from=type=gha,scope=user-service
             supplier-service.cache-from=type=gha,scope=supplier-service
             order-service.cache-from=type=gha,scope=order-service
             credit-service.cache-from=type=gha,scope=credit-service
             web-app.cache-from=type=gha,scope=web-app
-            # Written back from main, whose cache every later run can read; a pull request's is
-            # its own. The per-service job writes the same scopes, so a PR starts from this.
             user-service.cache-to=type=gha,mode=max,scope=user-service
             supplier-service.cache-to=type=gha,mode=max,scope=supplier-service
             order-service.cache-to=type=gha,mode=max,scope=order-service

@@ -13,6 +13,7 @@ describe('identity-change invalidation is wired (USR-07)', () => {
   let app: INestApplication;
   let broker: BrokerConnection;
   const subscribed: string[] = [];
+  const schemas = new Map<string, { safeParse(value: unknown): { success: boolean } }>();
 
   beforeAll(async () => {
     vi.stubEnv('RABBITMQ_URL', 'amqp://broker.test');
@@ -28,6 +29,7 @@ describe('identity-change invalidation is wired (USR-07)', () => {
     const subscribe = consumer.subscribe.bind(consumer);
     vi.spyOn(consumer, 'subscribe').mockImplementation((options) => {
       subscribed.push(options.queue);
+      schemas.set(options.queue, options.payloadSchema);
       return subscribe(options);
     });
     app = moduleRef.createNestApplication();
@@ -69,5 +71,29 @@ describe('identity-change invalidation is wired (USR-07)', () => {
       routingKeys: ['user.suspended'],
     });
     expect(broker.subscription('foc.order.user-suspensions')?.exclusive).not.toBe(true);
+  });
+
+  it('subscribes a queue of its own to every errand status change, for its live streams (N1.4)', () => {
+    const queue = subscribed.find((q) => q.startsWith('foc.order.live.'));
+    expect(queue, `subscribed: ${subscribed.join(', ')}`).toBeDefined();
+
+    // Private to this instance and holding nothing durable, so the event's delivery is unchanged.
+    expect(broker.subscription(queue!)).toMatchObject({
+      routingKeys: ['order.status-changed'],
+      metricsLabel: 'foc.order.live',
+      exclusive: true,
+      autoDelete: true,
+      messageTtlMs: 30_000,
+      maxLength: 1_000,
+    });
+    // ... and its handler is given the status change's schema, so a change parses.
+    const parsed = schemas.get(queue!)?.safeParse({
+      orderId: '00000000-0000-4000-8000-000000000129',
+      previousStatus: 'OPEN',
+      newStatus: 'ACCEPTED',
+      occurredAt: new Date().toISOString(),
+      orderVersion: 3,
+    });
+    expect(parsed?.success).toBe(true);
   });
 });
