@@ -13,6 +13,7 @@ import { useAuth } from "@/lib/auth";
 import { useCredits } from "@/lib/credits";
 import { STUDENT_NAV } from "@/lib/nav";
 import { listMyLedger, type LedgerItem } from "@/lib/order-api";
+import { useLive } from "@/lib/live/live";
 import { usePoll } from "@/lib/use-poll";
 import { useQueryParam } from "@/lib/use-query-param";
 import { vars } from "@/styles/tokens";
@@ -80,6 +81,10 @@ export default function WalletPage() {
     [authed, target],
   );
   const reload = usePoll(read);
+  // N1.4: any errand nudge may have changed what this lists.
+  useLive((nudge) => {
+    if (nudge.kind !== "board") reload();
+  });
 
   function retry() {
     refreshWallet();

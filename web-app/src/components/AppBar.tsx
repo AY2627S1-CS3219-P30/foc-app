@@ -2,6 +2,7 @@
 
 import { useStore } from "@/lib/store";
 import styles from "./AppBar.module.css";
+import { LiveLabel } from "./LiveLabel";
 
 export function AppBar({
   title,
@@ -24,7 +25,10 @@ export function AppBar({
           ☰
         </button>
       )}
-      <span className={styles.title}>{title}</span>
+      <span className={styles.titleBlock}>
+        <span className={styles.title}>{title}</span>
+        <LiveLabel onBar />
+      </span>
       {onPlusClick ? (
         <button className={styles.iconBtn} aria-label="New request" onClick={onPlusClick}>
           +

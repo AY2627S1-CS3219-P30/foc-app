@@ -15,6 +15,7 @@ import { STUDENT_NAV } from "@/lib/nav";
 import { listMyOrders, type MyOrder } from "@/lib/order-api";
 import { isFinal, PENDING_POLL_MS, statusWording, waitsOnCredit } from "@/lib/order-status";
 import type { PreferredMode } from "@/lib/user-api";
+import { useLive } from "@/lib/live/live";
 import { usePoll } from "@/lib/use-poll";
 import { vars } from "@/styles/tokens";
 
@@ -115,6 +116,10 @@ export default function OrderHistoryPage() {
     [authed, mode],
   );
   const reload = usePoll(read);
+  // N1.4: any errand nudge may have changed what this lists.
+  useLive((nudge) => {
+    if (nudge.kind !== "board") reload();
+  });
   const mine = history?.mode === mode ? history : null;
   const problem = failure && failure.mode === mode ? failure.message : null;
 
