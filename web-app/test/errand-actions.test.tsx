@@ -971,6 +971,27 @@ describe('updates on a visible tab', () => {
     await clock.advance(60 * 60_000);
     expect(reads(service)).toBe(after);
   });
+
+  it('ties its retry button to the line it acts on, so a screen reader hears them together', async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    service.current = order({ status: 'DISPUTED', courierId: 'them' });
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+    const describing = (b: Element) =>
+      container.ownerDocument.getElementById(b.getAttribute('aria-describedby') ?? '')?.textContent;
+
+    await goIdle(clock);
+    expect(buttons(container, 'Refresh').length).toBeGreaterThan(0);
+    for (const refresh of buttons(container, 'Refresh'))
+      expect(describing(refresh)).toBe('Updates paused. Refresh to see the latest.');
+
+    service.read = () => failure(503, 'INTERNAL');
+    await act(async () => button(container, 'Refresh').click());
+    await flush();
+    expect(buttons(container, 'Try again').length).toBeGreaterThan(0);
+    for (const retry of buttons(container, 'Try again'))
+      expect(describing(retry)).toContain('Could not refresh this request.');
+  });
 });
 
 describe('credits', () => {

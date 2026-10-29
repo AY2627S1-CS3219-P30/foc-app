@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ActionDialog } from "@/components/ActionDialog";
@@ -106,6 +106,9 @@ function StatusBody({
   // The retry button goes once its read succeeds, so focus comes to the status if it went with it.
   const retried = useRef(false);
   const stale = paused || !!problem;
+  // The button names the line it acts on, the pause hint or the problem, for a screen reader.
+  const hint = useId();
+  const failed = useId();
   useEffect(() => {
     if (paused || !retried.current) return;
     retried.current = false;
@@ -132,18 +135,23 @@ function StatusBody({
         {stillWaiting && slow && <p style={muted}>{slow}</p>}
         {note && <p style={{ ...muted, fontWeight: vars.weight.semibold }}>{note}</p>}
         {order.status === "REJECTED" && <p style={muted}>{rejectionMessage(order)}</p>}
-        {paused && <p style={muted}>Updates paused. Refresh to see the latest.</p>}
+        {paused && (
+          <p id={hint} style={muted}>
+            Updates paused. Refresh to see the latest.
+          </p>
+        )}
       </div>
-      <FormAlert tone="info" takeFocus>{notice}</FormAlert>
+      {/* Straight after the status, so no notice comes between the hint and its button. */}
       {stale && (
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: vars.space[2] }}>
           {problem && (
-            <p role="alert" style={{ fontSize: vars.text.sm, color: vars.color.danger }}>
+            <p id={failed} role="alert" style={{ fontSize: vars.text.sm, color: vars.color.danger }}>
               Could not refresh this request. {problem.message}
             </p>
           )}
           <Button
             variant="outline"
+            aria-describedby={problem ? failed : hint}
             onClick={() => {
               retried.current = true;
               onRetry();
@@ -153,6 +161,7 @@ function StatusBody({
           </Button>
         </div>
       )}
+      <FormAlert tone="info" takeFocus>{notice}</FormAlert>
       {role && <NavRow label="Your part" value={ROLE_LABEL[role]} />}
       <NavRow
         label="Pickup"
