@@ -1,6 +1,6 @@
 # ADR 0009 — Messaging: RabbitMQ, what a message is, and ordering
 
-- **Status:** Accepted
+- **Status:** Proposed; implementation basis
 - **Date:** 2026-10-13
 - **Deciders:** Group 30; approvals tracked in [the ADR index](README.md)
 - **Ticket:** [EVT-03 #153](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/153)
