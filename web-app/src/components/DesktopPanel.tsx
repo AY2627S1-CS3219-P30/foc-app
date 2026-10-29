@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./DesktopPanel.module.css";
+import { LiveLabel } from "./LiveLabel";
 
 export function DesktopPanel({
   title,
@@ -24,6 +25,9 @@ export function DesktopPanel({
             ←
           </button>
           <span className={styles.title}>{title}</span>
+          <span className={styles.live}>
+            <LiveLabel />
+          </span>
         </div>
         <div className={styles.body}>{children}</div>
       </div>
