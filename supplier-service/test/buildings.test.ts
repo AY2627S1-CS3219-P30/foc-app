@@ -65,6 +65,14 @@ describe('GET /buildings', () => {
     expect(await buildings('?inUse=true')).toEqual(['COM2', 'The Deck']);
   });
 
+  it('counts an active supplier stored in another spelling under its listed building', async () => {
+    const s = await create({ name: 'Typed', building: 'Central Library' });
+    await t.db.query("UPDATE suppliers SET building = 'central  library' WHERE supplier_id = $1", [
+      s.supplierId,
+    ]);
+    expect(await buildings('?inUse=true')).toEqual(['Central Library']);
+  });
+
   it('leaves out an active supplier stored before its building left the list', async () => {
     const s = await create({ name: 'Legacy', building: 'COM2' });
     await t.db.query("UPDATE suppliers SET building = 'COM1' WHERE supplier_id = $1", [

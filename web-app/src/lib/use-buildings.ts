@@ -9,9 +9,10 @@ export type Buildings = { status: 'loading' | 'ready' | 'error'; items: string[]
 
 /**
  * The Supplier Service's campus buildings or, with `inUse`, only those with an active supplier.
- * `items` is empty until they load, and stays empty if they can't be.
+ * `items` is empty until they load, and stays empty if they can't be. A new `revision` reads them
+ * again, as after a save or a delete changes which buildings are in use.
  */
-export function useBuildings(inUse: boolean): Buildings {
+export function useBuildings(inUse: boolean, revision = 0): Buildings {
   const { authed } = useAuth();
   const [buildings, setBuildings] = useState<Buildings>({ status: 'loading', items: [] });
 
@@ -35,7 +36,7 @@ export function useBuildings(inUse: boolean): Buildings {
       }
     })();
     return () => controller.abort();
-  }, [authed, inUse]);
+  }, [authed, inUse, revision]);
 
   return buildings;
 }

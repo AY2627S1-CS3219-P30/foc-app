@@ -168,7 +168,7 @@ export interface components {
         SupplierInput: {
             name: string;
             type: components["schemas"]["SupplierType"];
-            /** @description A campus building from `GET /buildings`, matched ignoring case and spacing and stored in its listed spelling. Any other value is `422 UNKNOWN_BUILDING`. */
+            /** @description A campus building from `GET /buildings`, matched ignoring case and spacing and stored in its listed spelling. Any other value is `422 VALIDATION_FAILED`, with `UNKNOWN_BUILDING` on `building`. */
             building: string;
             floor: string;
             locationDescription: string;

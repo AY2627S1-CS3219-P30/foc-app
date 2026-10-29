@@ -412,6 +412,29 @@ describe('supplier page: buildings', () => {
     expect(service.buildingReads()).toEqual(['true', null]);
   });
 
+  it('reads the buildings in use again after a save or a delete', async () => {
+    const service = fakeService(2);
+    service.suppliers[1]!.building = 'The Deck';
+    const confirm = window.confirm;
+    window.confirm = () => true;
+    try {
+      const container = await renderPage(service);
+      const filter = () => options(container, `#${control(container, 'Building').id}`);
+      expect(filter()).toEqual(['', 'COM2', 'The Deck']);
+
+      await click(button(container, 'Add supplier'));
+      await setValue(control<HTMLInputElement>(form(container), 'Name'), 'New Stall');
+      await setValue(control<HTMLInputElement>(form(container), 'Building'), 'Frontier');
+      await submit(form(container));
+      expect(filter()).toEqual(['', 'COM2', 'Frontier', 'The Deck']);
+
+      await click(buttons(container, 'Delete')[1]!);
+      expect(filter()).toEqual(['', 'COM2', 'Frontier']);
+    } finally {
+      window.confirm = confirm;
+    }
+  });
+
   it('keeps listing and saving when the buildings cannot be loaded', async () => {
     const service = fakeService(2);
     service.override = (call) =>
@@ -466,7 +489,6 @@ describe('supplier page: admin writes', () => {
     expect(puts[0]!.body).toEqual({
       name: 'Renamed Café',
       type: target.type,
-      building: target.building,
       floor: target.floor,
       locationDescription: target.locationDescription,
       imageUrl: null,
@@ -478,6 +500,22 @@ describe('supplier page: admin writes', () => {
     expect(form(container)).toBeNull();
     expect(service.lists()).toHaveLength(2);
     expect(cards(container)[0]!.querySelector('h2')?.textContent).toBe('Renamed Café');
+  });
+
+  it('sends the building only when it changed, so a supplier off the campus list stays editable', async () => {
+    const service = fakeService(1);
+    service.suppliers[0]!.building = 'COM1';
+    const container = await renderPage(service);
+
+    await click(buttons(container, 'Edit')[0]!);
+    await setValue(control<HTMLInputElement>(form(container), 'Name'), 'Renamed Café');
+    await submit(form(container));
+    expect(service.writes('PUT')[0]!.body).not.toHaveProperty('building');
+
+    await click(buttons(container, 'Edit')[0]!);
+    await setValue(control<HTMLInputElement>(form(container), 'Building'), 'COM2');
+    await submit(form(container));
+    expect(service.writes('PUT')[1]!.body).toMatchObject({ building: 'COM2' });
   });
 
   it('deletes after confirming, with If-Match, then reloads the list', async () => {

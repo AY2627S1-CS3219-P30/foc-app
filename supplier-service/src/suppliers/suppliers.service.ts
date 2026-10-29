@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { ApiException } from '@foc/platform';
+import { normalizeBuilding } from '../admin/normalize.js';
 import { DB, type Database } from '../db/db.js';
 import { CAMPUS_BUILDINGS } from './campus-buildings.js';
 import { isUniqueViolation, suppliersRepository as repo } from './suppliers.repository.js';
@@ -83,10 +84,13 @@ export class SuppliersService {
     };
   }
 
-  /** The campus list or, with `inUse`, only its buildings that have an active supplier. */
+  /**
+   * The campus list or, with `inUse`, only its buildings that have an active supplier. A name
+   * stored before the list existed, such as `central library`, counts under its listed spelling.
+   */
   async buildings(inUse: boolean): Promise<readonly string[]> {
     if (!inUse) return CAMPUS_BUILDINGS;
-    const active = new Set(await repo.activeBuildings(this.db));
+    const active = new Set((await repo.activeBuildings(this.db)).map(normalizeBuilding));
     return CAMPUS_BUILDINGS.filter((b) => active.has(b));
   }
 

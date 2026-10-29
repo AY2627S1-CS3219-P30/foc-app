@@ -34,6 +34,14 @@ type FocusReturn = {
   afterReload: boolean;
 };
 
+/**
+ * An edit sends the building only when it changed. A supplier stored in one before the campus
+ * list, or off it, would otherwise be refused 422 `UNKNOWN_BUILDING` on a save of its hours alone.
+ */
+function edits(supplier: Supplier, { building, ...rest }: SupplierInput): Partial<SupplierInput> {
+  return building === supplier.building ? rest : { ...rest, building };
+}
+
 /** Brings the inline form into view and tells keyboard and screen-reader users it opened. */
 function revealForm(heading: HTMLElement | null) {
   if (!heading) return;
@@ -49,12 +57,13 @@ export default function SuppliersPage() {
   const [search, setSearch] = useState('');
   const [type, setType] = useState<SupplierType | ''>('');
   const [building, setBuilding] = useState('');
-  const buildings = useBuildings(true);
   const [sort, setSort] = useState<Sort>('name');
   const [order, setOrder] = useState<'asc' | 'desc'>('asc');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
+  // Read again with the list: a save or a delete can add a building to the filter or empty one.
+  const buildings = useBuildings(true, revision);
   const [listing, setListing] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(true);
   const [problem, setProblem] = useState('');
@@ -194,7 +203,7 @@ export default function SuppliersPage() {
                   header: { 'If-Match': String(editing.version) },
                 },
                 headers: bearer(token),
-                body,
+                body: edits(editing, body),
               }),
             )
           : unwrap(

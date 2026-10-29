@@ -397,7 +397,8 @@ components:
           maxLength: 200
           description: >-
             A campus building from `GET /buildings`, matched ignoring case and spacing and stored in
-            its listed spelling. Any other value is `422 UNKNOWN_BUILDING`.
+            its listed spelling. Any other value is `422 VALIDATION_FAILED`, with `UNKNOWN_BUILDING`
+            on `building`.
         floor: { type: string, minLength: 1, maxLength: 50 }
         locationDescription: { type: string, minLength: 1, maxLength: 500 }
         openingHours:
