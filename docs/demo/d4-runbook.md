@@ -11,14 +11,16 @@ The permanent conservation evidence is `docs/reports/credit-conservation-2026-10
 (generated report and accompanying JSON); recovery evidence is
 `docs/reports/2026-10-28-stack-recovery.md` after #284's merge. Open them from the repo's file
 viewer or GitHub alongside the live browser tabs. The former reports 804 generated errands,
-not 804 manually performed browser journeys.
+not 804 manually performed browser journeys. N1.4 live updates merged on 29 October; their
+measured evidence is `docs/reports/load-2026-10-29.md`. Its 492 ms p95 measures accept response
+to the requester stream's nudge under 200 open streams, not end-to-end browser rendering.
 
 ## Start from zero
 
 Prerequisites: Docker Desktop running; Git, Python 3 and npm installed; the current repository
 checked out. All services run as **local Compose containers**, behind the edge (PLT-11 #286).
-The dedicated project is `foc-d4-demo`; ports 14000–14009 leave the ordinary `foc` project alone.
-`D4_PORT_BASE=15000` selects another contiguous ten ports if needed.
+The dedicated project is `foc-d4-demo`; ports 14000–14010 leave the ordinary `foc` project alone.
+`D4_PORT_BASE=15000` selects another contiguous eleven ports if needed.
 
 From the repository root:
 
@@ -80,13 +82,47 @@ docker compose ps
 open "http://localhost:${PROMETHEUS_PORT}/alerts"
 open "http://localhost:${GRAFANA_PORT}"
 open "http://localhost:${RABBITMQ_MANAGEMENT_PORT}"
+open "https://github.com/AY2627S1-CS3219-P30/foc-app/blob/main/docs/reports/credit-conservation-2026-10-01.md"
+open "https://github.com/AY2627S1-CS3219-P30/foc-app/blob/main/docs/reports/2026-10-28-stack-recovery.md"
+open "https://github.com/AY2627S1-CS3219-P30/foc-app/blob/main/docs/reports/load-2026-10-29.md"
+open "https://github.com/AY2627S1-CS3219-P30/foc-app/actions/workflows/ci.yml"
 ```
 
-Those three tabs are Prometheus alerts, Grafana and RabbitMQ management. Use the configured private
+The first three tabs are Prometheus alerts, Grafana and RabbitMQ management; the remaining four
+are the conservation, recovery, live-update reports and CI evidence. Use the configured private
 operator credentials from `.env` locally, never place them in a command argument or screenshot.
 The exported ports also handle a non-default `D4_PORT_BASE`.
 Use `docker compose start rabbitmq` to recover a deliberately stopped broker. Keep this terminal
 in the repository root with the demo context selected.
+
+## N1.4 browser arrangement — before the timer
+
+Use the existing persona profiles from `scripts-demo-tabs.py`; no extra account or service is
+needed. Put Alyssa's window and Ben's window side by side, with both pages visible. A background
+tab closes its stream and catches up when shown again, so switching between hidden tabs alone
+does not demonstrate delivery to an already-visible page.
+
+1. Ben: select the existing **Feed** (`/feed`) tab; keep its **Live** label visible.
+2. Alyssa: select **Suppliers** for the minute-5 composer. On submission, keep the resulting
+   “D4 dispute example” detail page visible alongside Ben's feed. Do not accept that example yet;
+   its acceptance belongs to the later dispute segment.
+3. Before the prints acceptance at minute 8–13, select Alyssa's existing **prints** detail tab
+   and Ben's existing **prints** detail tab. Confirm **Live** on both, then leave Alyssa untouched
+   while Ben accepts. Show Alyssa changing from **Open** to **Accepted** without reloading.
+4. Keep only the windows needed on screen; close duplicate windows from earlier helper runs.
+   Each visible tab uses one stream; the service permits five per user and the edge ten per
+   address. A refused stream falls back to polling rather than breaking the ordinary APIs.
+
+Jonus says: “The server sends an authenticated one-way notification that an errand changed.
+The page reads the current data through the normal API. The notification cannot change the
+errand or a balance, and polling continues if the stream is unavailable.”
+
+The exact labels are **Live**, **Reconnecting…** and **Updating every 30 s**. A visible update
+only after a reload is not evidence of the live path. If the label is polling, disclose that and
+use the load report plus `web-app/e2e/live-journey.e2e.ts`: the browser test checks a new card and
+an acceptance arriving within three seconds without a reload, and a `503 LIVE_UNAVAILABLE`
+response displaying the polling fallback. Do not confuse browser offline mode (all requests
+fail) with disabling only the stream.
 
 ## Timed script and expected observations
 
@@ -98,13 +134,13 @@ claim that a failed live action succeeded.
 | --- | --- | --- | --- |
 | 00:00–02:00 | Jonus | Show `docker compose ps`, `/edge/ready` and the architecture diagram. “The browser has one origin; User, Supplier, Order and Credit own separate databases. This demonstration is local containers.” | If not ready, show which dependency is named, recover it, rerun `--check`; do not start transactions on a failed preflight. |
 | 02:00–05:00 | Anselm | Show Alyssa's profile, the dev activation flow and the private/role boundaries. “Activation creates the wallet through an event; the browser never sets a balance.” A new registration can use a clearly fictional extra address; the five core personas already exist. | If email is delayed, show the local mailbox and Credit's dead letters/audit evidence. Do not register repeatedly or display the passwords. |
-| 05:00–08:00 | Patrick | Alyssa: Suppliers → search for Printer @ Com 2 → compose one additional request, reward **1**, delivery PGP House 7. Name it “D4 dispute example”. Review the available/reserved projection and submit. Keep its resulting detail tab open for the dispute segment. | If composer fails, preserve the refusal/trace and use the preseeded prints errand for the core flow. The composer is covered by the merged release suite (#160, `release-journeys.e2e.ts`); do not mark a live failure passed from a seed API call. |
-| 08:00–13:00 | Zhang Yuan, Isaac | Ben and Chloe: open the preseeded **race** card in their separate feed tabs and both open Accept. Confirm Ben first, then Chloe's stale confirmation. Show one winner and the stale/refused loser. Ben withdraws before pickup; the same reward remains reserved while the errand returns OPEN. Separately, Ben accepts **prints**, records pickup, records delivery. Alyssa confirms receipt. Isaac shows both wallet ledgers. | If race timing is missed, use its recorded 409/domain-code response and the CI contention test. If a transition fails, refresh to get the current version; never force a backward status change. |
+| 05:00–08:00 | Patrick, Jonus | Alyssa: Suppliers → search for Printer @ Com 2 → compose one additional request, reward **1**, delivery PGP House 7. Name it “D4 dispute example”. Review the available/reserved projection and submit. Keep its resulting detail tab open for the dispute segment. **N1.4:** Ben already has Feed visible with **Live**; show the new card appearing without refresh, then leave it unaccepted. | If composer fails, preserve the refusal/trace and use the preseeded prints errand for the core flow. The composer is covered by the merged release suite (#160, `release-journeys.e2e.ts`); do not mark a live failure passed from a seed API call. |
+| 08:00–13:00 | Zhang Yuan, Isaac, Jonus | Ben and Chloe: open the preseeded **race** card in their separate feed tabs and both open Accept. Confirm Ben first, then Chloe's stale confirmation. Show one winner and the stale/refused loser. Ben withdraws before pickup; the same reward remains reserved while the errand returns OPEN. Separately, keep Alyssa’s **prints** detail page visible with **Live** beside Ben’s window. Ben accepts **prints**; Jonus points out Alyssa changing **Open → Accepted** without touching her page. Ben records pickup, records delivery. Alyssa confirms receipt. Isaac shows both wallet ledgers. | If race timing is missed, use its recorded 409/domain-code response and the CI contention test. If the live label falls back, disclose polling and show the dated N1.4 report/browser-test evidence. If a transition fails, refresh to get the current version; never force a backward status change. |
 | 13:00–16:00 | Isaac, Zhang Yuan | Alyssa cancels the preseeded **cancel** errand before pickup; show release pending then CANCELLED and +1 available/−1 reserved. Cancel the reopened **race** errand too, releasing its 1. “Withdraw removed the courier; cancellation returned the reward. Credit applied each once.” | If asynchronous release is delayed, show the errand trace/outbox and wait for the actual reply. Restart only the named demo dependency; no SQL credit edits. |
 | 16:00–20:00 | Jonus, Anselm, Zhang Yuan | Admin A opens Users, audit/activity and read-only Wallets. If demonstrating two-person role approval, Dina proposes ADMIN for **Chloe**, and Evan approves in his own session; neither approves a request about themselves. For the live dispute example from minute 5, Ben accepts/picks up/delivers; Alyssa reports non-receipt instead of confirming. Open Admin → Errands in both admin profiles, identify who it was actually referred to, and only that admin decides REQUESTER. Show the ordinary release completing. | If the extra composer errand is absent, disclose that the dispute segment is unavailable and use the linked real dispute test/recorded trace. Do not fake a referral, admin approval or second person's action. |
 | 20:00–23:00 | Isaac, Jonus | On the disposable demo only, `docker compose stop rabbitmq`; show readiness/outbox evidence. Post another **1-credit** request if the wallet can cover it. It stays pending while its outbox cannot publish. `docker compose start rabbitmq`; wait for readiness and the same errand to open once. Show Order's reconciliation/trace and the wallet's single reservation. | If too slow, bring RabbitMQ back immediately and show the existing `scripts-demo-failures.sh` CI evidence for duplicate, crash and replay. Distinguish normal outbox retry from the pending-saga reconciler; do not claim every fast recovery was the scheduled job. |
 | 23:00–25:00 | Isaac | Open the committed conservation report and current CI property/race test results. “N3.1 checks generated histories and real contention; N3.2 compares pending saga state with Credit's recorded operations and reissues the same idempotent command.” Run `npm run audit:credits` and show PASS/0 in Admin → Operations. | If the fresh audit fails, retain its run ID and investigate with the runbook. A failed audit is not zero mismatches; do not demonstrate corruption against this application DB. |
-| 25:00–27:00 | Patrick, Zhang Yuan, Anselm | **GATED: N1.2 chat.** Once its owner PRs are merged, show the accepted errand's two-participant channel, live message/history, outsider refusal and terminal closure. Rehearse against the actual channel/API first. | As of this preparation snapshot there is no implemented chat service. Show its explicitly proposed design and mark the live segment blocked; this cannot count as a completed N2H demo or final #167 acceptance. |
+| 25:00–27:00 | Patrick, Zhang Yuan, Anselm | **GATED: N1.2 chat.** Once its owner PRs are merged, show the accepted errand's two-participant channel, live message/history, outsider refusal and terminal closure. Rehearse against the actual channel/API first. The proposed owner contract (#344/#347) starts with polling; WebSocket #346 is a later enhancement. #347 proposes keeping history **90 days after the errand ends**; treat it as settled only once #347 merges. Demonstrate terminal read-only access once implemented; do not claim a live 90-day expiry test. | As of this preparation snapshot there is no implemented chat service. Show its explicitly proposed design and mark the live segment blocked; this cannot count as a completed N2H demo or final #167 acceptance. |
 | 27:00–29:00 | Jonus, Isaac | Show a green main CI run with all five images actually published. For recovery, show the genuine dated report/CI drill: four custom dumps, exact table fingerprints after fresh-volume restore, healthy prior-published-image rollback and measured RTO. | Do not destroy the live demo's volumes during this slot. Use `scripts-recovery-drill.sh` on its separate project in a prior rehearsal. If rollback is not proven, label that gap rather than showing a local retag as publication. |
 | 29:00–30:00 | Jonus, Isaac | Return to readiness, wallets, errand history and Operations. Name any intentionally outstanding reservation from the broker segment. “No administrator edited a balance; all changes have a normal transaction and ledger history.” | Preserve any pending state/trace; give the instructor the actual remaining issue instead of claiming the books or workflow are clean. |
 
@@ -137,14 +173,14 @@ docker compose logs --no-color --tail=80 order-service credit-service
 audit. It does not exercise every browser action. The full browser release suite (#160, merged in
 #325) runs on its own disposable project, never this demo fixture:
 `./scripts-e2e-release.sh --twice` from the repository root. It covers the composer, withdrawal and
-cancellation, disputes, suspension/reassignment, controlled-clock expiry/auto-confirmation and the
-admin console; see the [web README](../../web-app/README.md#full-release-suite-tst-02-160). CI
+cancellation, disputes, suspension/reassignment, controlled-clock expiry/auto-confirmation, the
+admin console and the subsequently merged N1.4 live-update/fallback journey; see the [web README](../../web-app/README.md#full-release-suite-tst-02-160). CI
 runs it once on each pull request, and twice from clean volumes on every push to `main`. Preserve traces/screenshots on failure and record run links.
 
 For a 429 during repeated practice, respect Retry-After and stop creating extra accounts. For
 401/403, use the correct persona's own profile and current session; do not copy a token between
-actors. If a seed was interrupted during activation and the dev mailbox was lost on restart,
-use `--fresh` on this disposable project. If a deadline expired while preparing, use `--fresh`;
+actors. If a seed was interrupted during activation, run it again: it asks for a new link and
+reads it from the project's Mailpit. If no email arrives, use `--fresh` on this disposable project. If a deadline expired while preparing, use `--fresh`;
 the seed does not reset a persisted deadline or undo a terminal transition.
 
 ## Rehearsal acceptance — actual non-owners only

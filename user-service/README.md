@@ -39,6 +39,18 @@ Run these from the repository root.
 | `ALLOWED_EMAIL_DOMAINS`      | `u.nus.edu,nus.edu.sg`                             | Registration is limited to these domains                      |
 | `INTERNAL_SERVICE_KEYS`      | (16+ chars each)                                   | Keys other services send as `X-Service-Key` on `/internal/**` |
 | `ACTIVATION_TOKEN_TTL_HOURS` | `24`                                               | Optional; 1–168                                               |
+| `SMTP_HOST`                  | `mailpit`                                          | Where activation email goes. Required in production           |
+| `SMTP_PORT`                  | `1025`                                             | Defaults to `587`; `465` means implicit TLS                   |
+| `SMTP_USER`, `SMTP_PASSWORD` | (secret store)                                     | Optional, both or neither. Never committed                    |
+| `SMTP_REQUIRE_TLS`           | `false`                                            | Defaults to required in production; `false` only for Mailpit  |
+| `MAIL_FROM`                  | `Friend on Campus <no-reply@foc.local>`            | Optional; the default is shown                                |
+| `ACTIVATION_URL`             | `http://localhost:3000/activate`                   | The web app page the email links to. Required with SMTP       |
+
+**Mail.** Compose sends activation email to Mailpit, a local inbox at <http://localhost:8025>.
+Without `SMTP_HOST`, outside production, each email is kept in memory where nobody receives it,
+and a warning at boot says so. Run `docker compose -f compose.yaml -f compose.dev.yaml up -d` and set
+`SMTP_HOST=localhost SMTP_PORT=1025` to send to the stack's inbox from `npm run dev:user`. With
+`NODE_ENV=production` the service refuses to start without `SMTP_HOST`. No route returns a token.
 
 Optional controls on administrators ([ADR 0008](../docs/adr/0008-controlling-administrators.md)), with
 their defaults: `ROLE_REQUEST_TTL_HOURS=24` (1–168), `STEP_UP_WINDOW_SECONDS=300` (30–3600),
@@ -72,13 +84,13 @@ user and declares a `HEALTHCHECK`. `compose.yaml` wiring arrives with PLT-02.
 
 ### What is implemented (USR-01)
 
-| Endpoint                              | Purpose                                                                                                                                  |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /auth/register`                 | Normalise the email, enforce the domain allowlist, reject duplicates, hash the password with Argon2id, issue a one-time activation token |
-| `POST /auth/activate`                 | Single-use, expiring, replay-idempotent; publishes exactly one `UserActivated` to the outbox                                             |
-| `GET /internal/users/:id`             | Least-data identity lookup (`X-Service-Key` required)                                                                                    |
-| `GET /internal/users/:id/permissions` | Effective permissions for admin authorisation (`X-Service-Key` required)                                                                 |
-| `GET /dev/mailbox?to=`                | **Development only.** Reads the activation token that would be emailed. Refused in production                                            |
+| Endpoint                              | Purpose                                                                                                                                 |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /auth/register`                 | Normalise the email, enforce the domain allowlist, reject duplicates, hash the password with Argon2id, email a one-time activation link |
+| `POST /auth/activate`                 | Single-use, expiring, replay-idempotent; publishes exactly one `UserActivated` to the outbox                                            |
+| `POST /auth/activation/resend`        | Mails a new link to a pending account and invalidates the old ones. Same `202` for any address; 3 per address and 20 per IP an hour     |
+| `GET /internal/users/:id`             | Least-data identity lookup (`X-Service-Key` required)                                                                                   |
+| `GET /internal/users/:id/permissions` | Effective permissions for admin authorisation (`X-Service-Key` required)                                                                |
 
 The contract is `contracts/user-service.openapi.yaml`; role and schema design are in
 `docs/user-service/`, and every decision with its trade-offs is in `docs/user-service/decisions.md`. Migrations are forward-only, live in `drizzle/`, and are applied by `npm run db:migrate -w @foc/user-service` before the service starts; the service never migrates at boot.
@@ -86,13 +98,18 @@ The contract is `contracts/user-service.openapi.yaml`; role and schema design ar
 **Tests run on PGlite** (PostgreSQL compiled to WASM), so `npm test -w @foc/user-service` needs no
 database server or Docker. Runtime uses `pg` against the Compose Postgres.
 
-**Try it** (needs the Compose stack): register, read the token from the dev mailbox, activate:
+A registration that never activated, and whose every link has expired, is not a duplicate:
+registering it again replaces its password and display name and emails a new link. Until the
+address is proven, whoever registers last sets the password, as for any new sign-up.
+
+**Try it** (needs the Compose stack): register, read the token from the email in Mailpit, activate.
+Or open <http://localhost:8025> and click the link.
 
 ```bash
 curl -s localhost:3001/auth/register -H 'content-type: application/json' \
   -d '{"email":"e0123456@u.nus.edu","password":"correct-horse-battery","displayName":"Alex"}'
-curl -s 'localhost:3001/dev/mailbox?to=e0123456@u.nus.edu'
-curl -s localhost:3001/auth/activate -H 'content-type: application/json' -d '{"token":"<token>"}'
+token=$(./scripts-activation-token.sh e0123456@u.nus.edu)
+curl -s localhost:3001/auth/activate -H 'content-type: application/json' -d "{\"token\":\"$token\"}"
 ```
 
 ### Sessions and tokens (USR-02)

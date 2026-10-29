@@ -122,8 +122,8 @@ reaches no service (PLT-13, #289).
 - The edge is one more container in the start-up order and one more thing that can fail. A failed
   edge stops the browser but not the services, which the scripts still reach on `127.0.0.1`.
 - The services still run with `NODE_ENV=development` in Compose. Production mode, which turns on
-  `Secure` cookies, waits for a real mail adapter (USR-09, #274), as the User Service refuses
-  production with only the dev mailbox.
+  `Secure` cookies, needs a real SMTP relay: since USR-09 (#274) the User Service sends real
+  activation email, and refuses production without `SMTP_HOST`.
 
 ## Revisit if
 

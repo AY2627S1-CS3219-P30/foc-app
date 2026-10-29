@@ -43,7 +43,7 @@ wait_for() { # seconds wanted command...
   return 1
 }
 
-# Signs up and activates a student through the dev mailbox, logs them in, and
+# Signs up and activates a student through the emailed link (Mailpit), logs them in, and
 # waits for their initial wallet. Sets STUDENT_ID, STUDENT_TOKEN and STUDENT_ISSUED
 # (the credits the service actually issued, read from the wallet's ISSUE row, so
 # nothing guesses the allocation from .env). Each student gets a password of its
@@ -66,9 +66,9 @@ signup() { # label [no-wallet]
     echo "  docker compose restart user-service" >&2
     exit 1
   fi
-  token=$(curl -fsS -G "http://localhost:${USER_PORT}/dev/mailbox" --data-urlencode "to=$email" 2>/dev/null | json 'd.get("token", "")') || true
+  token=$(./scripts-activation-token.sh "$email") || true
   if [[ -z "$token" ]]; then
-    echo "No activation token for $email: the dev mailbox exists only outside production." >&2
+    echo "No activation email for $email in Mailpit (http://localhost:${MAILPIT_PORT:-8025})." >&2
     exit 1
   fi
   curl -fsS -X POST "http://localhost:${USER_PORT}/auth/activate" -H 'content-type: application/json' \

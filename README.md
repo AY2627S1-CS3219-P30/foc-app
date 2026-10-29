@@ -239,7 +239,7 @@ instructions accept. There is no hosted deployment
 | `./scripts-demo-journey.sh`           | A student, an errand and its credits, by API  |
 
 For the named D4 demonstration on a separate local stack, run `./scripts-seed-demo.sh --fresh`.
-It prepares five personas, three errands and a clean financial audit on ports 14000–14009.
+It prepares five personas, three errands and a clean financial audit on ports 14000–14010.
 Use `./scripts-seed-demo.sh --check` for the demo smoke check, and follow the
 [D4 runbook](docs/demo/d4-runbook.md) for all browser profiles/tabs, the 30-minute script and
 the outstanding real-rehearsal gates.
@@ -269,6 +269,12 @@ at <http://localhost:15672>; sign in as `RABBITMQ_USER` with `RABBITMQ_PASSWORD`
 from your `.env`. The operator dashboard is
 Grafana at <http://localhost:3005>, open to view without signing in, with
 Prometheus behind it at <http://localhost:9090>; see [Observability](#observability).
+
+**Email.** Every email the stack sends, such as an activation link, lands in
+Mailpit's inbox at <http://localhost:8025> (`127.0.0.1` only). Nothing is
+delivered beyond this machine. Register in the web app, open the email there,
+and click its link. `./scripts-activation-token.sh <email>` prints the token from
+the newest one, for scripts.
 
 **Connections.** Compose gives each service its own `DATABASE_URL` and its own
 `RABBITMQ_URL`: a database role and a broker account per service. Each applies
@@ -581,19 +587,20 @@ consumer has ever started stays in the outbox until the consumer's queue exists.
 
 ### Pre-built images
 
-Seven images are pulled as published; everything else is built from this
+Eight images are pulled as published; everything else is built from this
 repository. Each is pinned to an exact version and digest, in `compose.yaml` and
 the Dockerfiles, so two builds of one commit use the same bytes.
 
-| Image                                       | Used for                           | Published by                                              | Licence of the software |
-| ------------------------------------------- | ---------------------------------- | --------------------------------------------------------- | ----------------------- |
-| `node:22.23.3-alpine3.24`                   | base of the four services, web app | Docker Official Image, by the Node.js Docker team         | MIT                     |
-| `oven/bun:1.4.2-alpine`                     | building the web app               | Oven, the makers of Bun                                   | MIT                     |
-| `postgres:17.11-alpine3.24`                 | the database server                | Docker Official Image, by the PostgreSQL Docker community | PostgreSQL Licence      |
-| `rabbitmq:4.3.6-management-alpine`          | the message broker                 | Docker Official Image, by the Docker community            | MPL 2.0                 |
-| `prom/prometheus:v3.13.4`                   | metrics and alert rules            | The Prometheus project                                    | Apache 2.0              |
-| `grafana/grafana-oss:12.4.3`                | the dashboard                      | Grafana Labs                                              | AGPL 3.0                |
-| `nginxinc/nginx-unprivileged:1.30.6-alpine` | the edge (ADR 0010)                | NGINX, Inc. (F5)                                          | BSD 2-Clause            |
+| Image                                       | Used for                             | Published by                                              | Licence of the software |
+| ------------------------------------------- | ------------------------------------ | --------------------------------------------------------- | ----------------------- |
+| `node:22.23.3-alpine3.24`                   | base of the four services, web app   | Docker Official Image, by the Node.js Docker team         | MIT                     |
+| `oven/bun:1.4.2-alpine`                     | building the web app                 | Oven, the makers of Bun                                   | MIT                     |
+| `postgres:17.11-alpine3.24`                 | the database server                  | Docker Official Image, by the PostgreSQL Docker community | PostgreSQL Licence      |
+| `rabbitmq:4.3.6-management-alpine`          | the message broker                   | Docker Official Image, by the Docker community            | MPL 2.0                 |
+| `prom/prometheus:v3.13.4`                   | metrics and alert rules              | The Prometheus project                                    | Apache 2.0              |
+| `grafana/grafana-oss:12.4.3`                | the dashboard                        | Grafana Labs                                              | AGPL 3.0                |
+| `nginxinc/nginx-unprivileged:1.30.6-alpine` | the edge (ADR 0010)                  | NGINX, Inc. (F5)                                          | BSD 2-Clause            |
+| `axllent/mailpit:v1.31.6`                   | the local inbox for activation email | Ralph Slooten, the Mailpit author                         | MIT                     |
 
 Two more are run as tools, not as part of the stack: `ghcr.io/gitleaks/gitleaks:v8.30.0`
 (the Gitleaks project, MIT), by `./scripts-scan-secrets.sh`, and `aquasec/trivy:0.58.1` (Aqua
@@ -1155,9 +1162,8 @@ through `docker buildx bake`, so a published image has exactly `compose.yaml`'s 
 - **The web app's image runs behind the edge, on any host and port.** `next build` inlines its
   build arguments, and since the edge (PLT-10,
   [#285](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/285)) they are paths: it calls the
-  services at `/api/<service>` on whatever origin serves it. Two links in it are still this
-  stack's, and its image label says so: sign-up links to the dev mailbox, and the admin console to
-  Grafana at `localhost:3005`. With another `GRAFANA_PORT`, build the web app from your own `.env`
+  services at `/api/<service>` on whatever origin serves it. One link in it is still this
+  stack's, and its image label says so: the admin console links to Grafana at `localhost:3005`. With another `GRAFANA_PORT`, build the web app from your own `.env`
   first: `docker compose -f compose.yaml -f compose.images.yaml build web-app`, then
   `up -d --no-build`.
 - **Every merged commit is published, unless its scan fails.** Each run on `main` has a concurrency
@@ -1213,7 +1219,7 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
 
 Run `./scripts-e2e-release.sh --twice` from the repository root to prove the critical user journeys
 twice from clean containers. It resets only the dedicated `foc-e2e-release` project on ports
-14500–14509. Setup, coverage, clock isolation and retained evidence are documented in the
+14500–14510. Setup, coverage, clock isolation and retained evidence are documented in the
 [web app release suite](web-app/README.md#full-release-suite-tst-02-160). CI requires both its ordinary
 browser smoke and the full release suite, which it runs once on a pull request and twice on a push
 to `main`.

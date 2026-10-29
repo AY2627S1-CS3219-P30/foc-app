@@ -141,7 +141,8 @@ describe('the publish job', () => {
     );
     // Its build has paths, not addresses, in it since PLT-10 (#285).
     expect(label).toContain('/api/<service>');
-    expect(label).toContain('dev mailbox');
+    expect(label).toContain('Grafana');
+    expect(label).not.toContain('dev mailbox');
     expect(label).not.toMatch(/local stack only|default ports/);
   });
 
