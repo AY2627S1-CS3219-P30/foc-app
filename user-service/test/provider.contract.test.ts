@@ -238,7 +238,7 @@ describe('user-service honours its published contract', () => {
         post(`/admin/users/${userId}/suspend`, { reason: 'contract' });
 
       // SELF_SUSPENSION_FORBIDDEN.
-      assertStatus('post', '/admin/users/{userId}/suspend', 409, await suspend(admin.id));
+      assertStatus('post', '/admin/users/{userId}/suspend', 403, await suspend(admin.id));
       // ACCOUNT_NOT_ACTIVE: there is no suspension to lift.
       assertStatus(
         'post',

@@ -342,7 +342,7 @@ export interface paths {
          * @description Records an audit row, revokes all of the user's refresh sessions, and publishes `UserSuspended`.
          *     New sessions are denied immediately; dependent services see the change within 10 seconds.
          *     Only an `ACTIVE` account can be suspended (`409 ACCOUNT_NOT_ACTIVE` otherwise). An admin cannot suspend
-         *     themselves (`409 SELF_SUSPENSION_FORBIDDEN`). Only a seeded admin may suspend another admin
+         *     themselves (`403 SELF_SUSPENSION_FORBIDDEN`). Only a seeded admin may suspend another admin
          *     (`403 ADMIN_ACTION_NOT_PERMITTED`), and only after a recent `POST /auth/step-up`
          *     (`401 STEP_UP_REQUIRED`); every such suspension raises an `ADMIN_SUSPENDED` alert.
          *
@@ -399,7 +399,7 @@ export interface paths {
          *     Rules, all enforced in one transaction with a row lock:
          *     - Any admin may appoint.
          *     - Only a **seeded** admin may downgrade an admin → otherwise `403 ADMIN_DOWNGRADE_NOT_PERMITTED`.
-         *     - No admin may downgrade themselves → `409 SELF_DEMOTION_FORBIDDEN`.
+         *     - No admin may downgrade themselves → `403 SELF_DEMOTION_FORBIDDEN`.
          *     - The last admin cannot be removed → `409 LAST_ADMIN`.
          *     - The caller must have re-entered their password recently (`POST /auth/step-up`) →
          *       otherwise `401 STEP_UP_REQUIRED`. Checked after the rules above.
@@ -457,7 +457,7 @@ export interface paths {
         /**
          * Approve a role change as the second admin (ADR 0008)
          * @description The only way a requested change applies. Only an eligible approver may approve: not the
-         *     requester (`409 SELF_APPROVAL_FORBIDDEN`) and not the target (`409 CONFLICT_OF_INTEREST`).
+         *     requester (`403 SELF_APPROVAL_FORBIDDEN`) and not the target (`403 CONFLICT_OF_INTEREST`).
          *     Needs a recent `POST /auth/step-up` (`401 STEP_UP_REQUIRED`).
          *
          *     Every rule of `PUT /admin/users/{userId}/role` is checked again now, for the requester: a
@@ -491,7 +491,7 @@ export interface paths {
         put?: never;
         /**
          * Reject a role change, or withdraw your own (ADR 0008)
-         * @description Any admin except the target may reject (`409 CONFLICT_OF_INTEREST`); the requester rejecting
+         * @description Any admin except the target may reject (`403 CONFLICT_OF_INTEREST`); the requester rejecting
          *     their own request withdraws it. Changes no role. Rejecting someone else's request needs a
          *     recent `POST /auth/step-up` (`401 STEP_UP_REQUIRED`), so a stolen access token cannot quietly
          *     reject pending demotions; withdrawing one's own does not. Audited as `ROLE_CHANGE_REJECTED`.
@@ -1187,7 +1187,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description The change violates a role-management rule. */
+        /** @description The change conflicts with the current state of the roles. */
         RoleConflict: {
             headers: {
                 [name: string]: unknown;
@@ -1197,9 +1197,8 @@ export interface components {
             };
         };
         /**
-         * @description The request cannot be decided by this caller, or no longer at all: `SELF_APPROVAL_FORBIDDEN`,
-         *     `CONFLICT_OF_INTEREST`, `ROLE_REQUEST_NOT_PENDING`, `ROLE_REQUEST_EXPIRED`, `ROLE_REQUEST_STALE`,
-         *     or a role rule that now fails (`ACCOUNT_NOT_ACTIVE`, `LAST_ADMIN`).
+         * @description The request can no longer be decided: `ROLE_REQUEST_NOT_PENDING`, `ROLE_REQUEST_EXPIRED`,
+         *     `ROLE_REQUEST_STALE`, or a role rule that now fails (`ACCOUNT_NOT_ACTIVE`, `LAST_ADMIN`).
          */
         RoleRequestConflict: {
             headers: {

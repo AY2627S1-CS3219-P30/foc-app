@@ -154,12 +154,12 @@ describe('suspend / reactivate (US-FR3.1.2, US-FR4.1.4)', () => {
   });
 
   it('will not let an admin suspend themselves', async () => {
-    const res = await as(root).suspend(root.id).expect(409);
+    const res = await as(root).suspend(root.id).expect(403);
     expect(res.body.error.code).toBe('SELF_SUSPENSION_FORBIDDEN');
   });
 
   it('will not let an admin suspend themselves by changing the case of the id', async () => {
-    const res = await as(root).suspend(root.id.toUpperCase()).expect(409);
+    const res = await as(root).suspend(root.id.toUpperCase()).expect(403);
     expect(res.body.error.code).toBe('SELF_SUSPENSION_FORBIDDEN');
   });
 
@@ -277,13 +277,13 @@ describe('roles (US-FR3.1.3, US-FR3.1.3.1)', () => {
   });
 
   it('forbids demoting yourself, seeded or appointed', async () => {
-    const seeded = await as(root).role(root.id, 'STUDENT').expect(409);
+    const seeded = await as(root).role(root.id, 'STUDENT').expect(403);
     expect(seeded.body.error.code).toBe('SELF_DEMOTION_FORBIDDEN');
-    const recased = await as(root).role(root.id.toUpperCase(), 'STUDENT').expect(409);
+    const recased = await as(root).role(root.id.toUpperCase(), 'STUDENT').expect(403);
     expect(recased.body.error.code).toBe('SELF_DEMOTION_FORBIDDEN');
     await changeRole(root, root2, student.id, 'ADMIN');
     const appointed = await login(t, student.email);
-    const own = await as(appointed).role(appointed.id, 'STUDENT').expect(409);
+    const own = await as(appointed).role(appointed.id, 'STUDENT').expect(403);
     expect(own.body.error.code).toBe('SELF_DEMOTION_FORBIDDEN');
   });
 
