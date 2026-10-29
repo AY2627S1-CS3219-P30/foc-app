@@ -1,6 +1,6 @@
 # ADR 0006 — UTC time and timer ownership
 
-- **Status:** Proposed; implementation basis; amended 2026-10-20 (see [Amendment](#amendment--doc-04-2026-10-20))
+- **Status:** Accepted; amended 2026-10-20 (see [Amendment](#amendment--doc-04-2026-10-20))
 - **Date:** 2026-10-01
 - **Deciders:** Group 30; approvals tracked in [the ADR index](README.md)
 - **Ticket:** [FND-02 #183](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/183)

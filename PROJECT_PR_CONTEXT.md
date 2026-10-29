@@ -1,7 +1,7 @@
 # Project and PR context for Isaac
 
 Living context for `isaacchua0309` in `AY2627S1-CS3219-P30/foc-app`.
-Refreshed 2026-10-28 against `origin/main` `6ef37ca` and live GitHub. Recheck GitHub before starting
+Refreshed 2026-10-29 against `origin/main` `ff65acc` and live GitHub. Recheck GitHub before starting
 another issue. This replaces the obsolete October 20 inventory; historical open/blocked claims
 from that inventory must not be used as current state.
 
@@ -32,14 +32,14 @@ private credentials, all browser-profile tabs and a 30-minute runbook. Local see
 credential/target guards and 34 page visits in five authenticated browser contexts passed; the
 required Compose CI job passed the named seed/check/rerun in run `40637011479` on feature head
 `5d2d545f1a8c77ad89162526fe27e5ae19fefba1`. #160 is now closed via #325. Remaining gates are
-missing live chat implementation and two actual non-owner rehearsals. #238 waits for Patrick.
+missing live chat implementation and two actual non-owner rehearsals. #238: Patrick's approval is recorded in #337.
 
-| Issue                                                             | Feature / classification                                        | Status                                                            | Dependencies                                                            | Blockers                                                                                     | Relevant code                                                                                                                                      |
-| ----------------------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [#283](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/283) | CRD-10 financial audit; foundation                              | CLOSED; PR #313 merged, exact-head CI green                       | #166 related, not a prerequisite; contributes a runbook to #168         | Merged under owner-authorized internal review                                                | `credit-service/src/credits/ledger-audit.*`, `invariants.ts`, `web-app/src/app/(app)/admin/operations/LedgerAudit.tsx`, `observability/alerts.yml` |
-| [#284](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/284) | PLT-09 stack backup/restore/rollback; integration               | CLOSED; PR #314 merged; full recovery/rollback CI PASS            | #164 publisher resolved by #315; #283 merged                            | None for implementation; daily/off-host backup operation remains a deployment responsibility | `scripts-{backup,restore,rollback,recovery-drill}.sh`, `scripts-recovery.py`, recovery runbook/report, CI                                          |
-| [#167](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/167) | REL-01 deterministic seed, smoke and D4 narrative; finalization | Preparation merged in #322; required CI green; acceptance pending | TST-02 #160 satisfied (closed via #325)                                 | Live chat segment and two successful non-owner rehearsals remain                             | `scripts-seed-demo.{sh,py}`, `scripts-demo-tabs.py`, `docs/demo/d4-runbook.md`, `test-harness/test/demo-seed.test.ts`                              |
-| [#238](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/238) | DOC-04 ADR acceptance; team gate                                | Isaac's own approval merged in #300; shared completion pending    | Related #183/#226 satisfied; amendments in #250 (merged), #254 (merged) | Patrick approval pending; other four now recorded on main                                    | `docs/adr/README.md`, ADRs 0002–0009                                                                                                               |
+| Issue                                                             | Feature / classification                                        | Status                                                               | Dependencies                                                            | Blockers                                                                                     | Relevant code                                                                                                                                      |
+| ----------------------------------------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [#283](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/283) | CRD-10 financial audit; foundation                              | CLOSED; PR #313 merged, exact-head CI green                          | #166 related, not a prerequisite; contributes a runbook to #168         | Merged under owner-authorized internal review                                                | `credit-service/src/credits/ledger-audit.*`, `invariants.ts`, `web-app/src/app/(app)/admin/operations/LedgerAudit.tsx`, `observability/alerts.yml` |
+| [#284](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/284) | PLT-09 stack backup/restore/rollback; integration               | CLOSED; PR #314 merged; full recovery/rollback CI PASS               | #164 publisher resolved by #315; #283 merged                            | None for implementation; daily/off-host backup operation remains a deployment responsibility | `scripts-{backup,restore,rollback,recovery-drill}.sh`, `scripts-recovery.py`, recovery runbook/report, CI                                          |
+| [#167](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/167) | REL-01 deterministic seed, smoke and D4 narrative; finalization | Preparation merged in #322; required CI green; acceptance pending    | TST-02 #160 satisfied (closed via #325)                                 | Live chat segment and two successful non-owner rehearsals remain                             | `scripts-seed-demo.{sh,py}`, `scripts-demo-tabs.py`, `docs/demo/d4-runbook.md`, `test-harness/test/demo-seed.test.ts`                              |
+| [#238](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/238) | DOC-04 ADR acceptance; team gate                                | Patrick/Jonus confirmations recorded in #337; partial ADR acceptance | Related #183/#226 satisfied; amendments in #250 (merged), #254 (merged) | Zhang Yuan confirmation of 0009 and #250's 0007 amendment remains missing                    | `docs/adr/README.md`, ADRs 0002–0009                                                                                                               |
 
 #167's original owner line still says Patrick; its D4 amendment and GitHub assignment supersede
 that line. #284's body still says no published images exist; #164 is now closed, so verify actual
@@ -70,9 +70,10 @@ checks as test-only; main now includes the runtime audit through merged #313.
 
 #238 shared ADR acceptance
   ├── Isaac approval [merged #300]
-  ├── Zhang Yuan / Anselm approvals [recorded on main]
+  ├── Anselm approval [recorded on main]
+  ├── Zhang Yuan: 0002–0008 recorded; 0009 and #250 amendment confirmation pending
   ├── Jonus amendment/approval [merged #254]
-  └── Patrick approval [pending]
+  └── Patrick approval [recorded in #337]
 ```
 
 Why these edges exist: #284 explicitly requires #164's published tags to start previous images;
@@ -218,11 +219,15 @@ on an agent execution or invented approval.
 
 ### #238 — shared ADR acceptance
 
-Goal/acceptance: required ADRs no longer Proposed and all five members recorded. Isaac's approval
-already exists in `docs/adr/README.md` via merged #300. Zhang Yuan and Anselm are recorded. Main
-now records Jonus's approval through merged #254 (`32aa950`); Patrick remains Pending. ADRs 0002–0009 remain
-`Proposed; implementation basis`; 0010 is a newer proposed edge ADR.
+Goal/acceptance: required ADRs no longer Proposed and all five members' approval scope recorded.
+Isaac and Anselm explicitly cover 0002–0009 and the #254/#250 amendments. Patrick supplied his
+own confirmation in #337. Jonus explicitly expanded his approval in his #337 review and requested
+a register date of 2026-10-29. Zhang Yuan's older #246 confirmation covers 0002–0008; his confirmation
+of 0009 and the later #250 amendment to 0007 is still missing, as Jonus and Anselm both noted.
 
+#337 records the actual confirmations and accepts 0002–0006/0008. It leaves 0007/0009 Proposed and
+keeps #238 open. ADRs 0010/0011 remain Proposed under their separate review. Do not equate five
+nonempty register rows with five approvals of every later amendment.
 Read #254's exact changes/reviews before any merge; never record another person's approval on
 their behalf. After real approvals exist, update status/register consistently in a reviewed PR.
 The obsolete #234 gate is satisfied: #234 closed, its PR #250 merged. No code tests are needed
@@ -234,7 +239,8 @@ solely for prose, but required repository checks/review still apply.
 2. #284 is complete via merged #314: backup/restore/rollback, CI and runbooks/report are proven.
 3. #167 preparation is merged via #322. Complete the remaining release acceptance only after
    live feature segments and both actual non-owner rehearsals are evidenced; #160 is satisfied.
-4. Finish shared #238 when teammate approvals/amendments are truly recorded; Isaac's part is done.
+4. Merge the supported approval records in #337, then finish shared #238 only after Zhang Yuan
+   confirms ADR 0009 and the #250 amendment to 0007 and their status lines are updated.
 
 ## 6. Shared technical decisions and constraints
 
@@ -261,7 +267,7 @@ solely for prose, but required repository checks/review still apply.
 ```ini
 [x] #234 — Credit D3 evidence — PR #250 merged; issue closed
 [x] #238 personal part — Isaac approval recorded in merged PR #300
-[ ] #238 team completion — Patrick pending; other four approvals recorded; #254 merged at 32aa950
+[ ] #238 team completion — Patrick/Jonus confirmations in #337; Zhang Yuan 0009/#250 confirmation pending
 [x] #283 — Daily financial audit — PR #313 merged at 0f938fa; issue closed; exact-head CI green
 [x] #284 — PR #314 merged at e5da74a; issue closed; exact-head CI proves 105-second restore and published-image rollback
 [x] #167 preparation — Seed/tabs/runbook merged in #322 at 462257f; exact-head CI 40637011479 passed
@@ -288,7 +294,7 @@ the team must validate it and disclose AI use according to course policy before 
   chat segment still needs implementation. Two real non-owner rehearsals remain unrecorded.
   A follow-up fixes the offline test's ambiguous retry selector found on the merged-main run;
   details and evidence are recorded below.
-- #238 waits only for Patrick's actual approval. #254 merged with Anselm's recorded review and
+- #238: Patrick's approval is recorded in #337. #254 merged with Anselm's recorded review and
   code-checked amendments; no teammate approval was invented.
 
 ### Technical blocker work — 28 October
@@ -318,22 +324,21 @@ blocker tickets, not additional issues assigned to Isaac.
   not an inferred prerequisite for the current core journeys. #167's live chat demo remains gated
   independently. Withdrawal retains reserved credits for reassignment; cancellation releases them,
   clarifying the audit checklist rather than changing production semantics.
-- The two real non-owner rehearsals and Patrick's ADR decision remain external gates. An agent
+- The two real non-owner rehearsals and Zhang Yuan’s outstanding ADR confirmation remain external gates. An agent
   may complete technical blocker code but cannot supply those people's participation or decisions.
 
 ### Completion audit — 28 October, after #325 and #326
 
-| Requirement                                                                                                     | Authoritative evidence                                                                                       | Result / next action                                                                |
-| --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| #283 runtime financial audit, tests, operator instructions and merge/closure                                    | Merged #313, closed #283, required CI and runtime evidence above                                             | Complete                                                                            |
-| #284 four-database restore, exact data, audit, timed RTO and real published-image rollback                      | Merged #314, closed #284, CI `40631924720`, `docs/reports/2026-10-28-stack-recovery.md`                      | Complete                                                                            |
-| #167 deterministic named personas, suppliers/errands, preflight, runbook, browser tabs and preparation pipeline | Merged #322; CI `40637011479`, Compose job `122646527466`; source paths above                                | Preparation complete; issue remains open                                            |
-| #167 explicit TST-02 dependency                                                                                 | Closed #160, merged #325; downloaded CI `40651088404` artifacts: 42 passed twice, zero failures/flakes/skips | Complete; maintain the release suite and investigate later failures                 |
-| #167 all live feature segments and two non-owner rehearsals                                                     | `docs/demo/d4-runbook.md` marks chat gated and both rehearsal rows Pending; #161 remains OPEN                | Incomplete; real owner implementation and rehearsal evidence needed                 |
-| #238 all five approvals and Accepted ADRs                                                                       | `docs/adr/README.md`: Patrick Pending; required ADRs still Proposed                                          | Incomplete; obtain Patrick's actual decision, then update ADR statuses consistently |
+| Requirement                                                                                                     | Authoritative evidence                                                                                       | Result / next action                                                |
+| --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| #283 runtime financial audit, tests, operator instructions and merge/closure                                    | Merged #313, closed #283, required CI and runtime evidence above                                             | Complete                                                            |
+| #284 four-database restore, exact data, audit, timed RTO and real published-image rollback                      | Merged #314, closed #284, CI `40631924720`, `docs/reports/2026-10-28-stack-recovery.md`                      | Complete                                                            |
+| #167 deterministic named personas, suppliers/errands, preflight, runbook, browser tabs and preparation pipeline | Merged #322; CI `40637011479`, Compose job `122646527466`; source paths above                                | Preparation complete; issue remains open                            |
+| #167 explicit TST-02 dependency                                                                                 | Closed #160, merged #325; downloaded CI `40651088404` artifacts: 42 passed twice, zero failures/flakes/skips | Complete; maintain the release suite and investigate later failures |
+| #167 all live feature segments and two non-owner rehearsals                                                     | `docs/demo/d4-runbook.md` marks chat gated and both rehearsal rows Pending; #161 remains OPEN                | Incomplete; real owner implementation and rehearsal evidence needed |
+| #238 all five approvals and Accepted ADRs                                                                       | `docs/adr/README.md` in #337: actual scopes recorded; 0007/0009 remain Proposed                              | Incomplete until Zhang Yuan confirms 0009 and the #250 amendment    |
 
-Live GitHub shows two assigned open issues (#167, #238), no assigned open PRs and no open PRs
-authored by Isaac. Completed implementation has been merged and its completed issues closed.
+Live GitHub shows two assigned open issues (#167, #238), no assigned open PRs. Isaac-authored #328 was closed without merging because the owners’ #344/#347 supersedes its draft. Completed implementation has been merged and its completed issues closed.
 The full goal remains incomplete because the two assigned issues still have the specific external
 acceptance gates above. Do not close them or treat agent/CI execution as a teammate decision.
 
@@ -350,7 +355,7 @@ acceptance gates above. Do not close them or treat agent/CI execution as a teamm
   #326 says not to implement their slices under Isaac's name without owners' agreement. An
   asynchronous scope question asks Isaac to resolve that new note against his earlier instruction
   to complete all technical blockers. No chat implementation or teammate agreement is claimed.
-- #238 waits only for Patrick's recorded approval.
+- #238: Patrick's approval is recorded in #337.
 
 ### Release CI follow-up — ambiguous offline retry selector
 
@@ -362,4 +367,17 @@ and published all five images, but a later pass does not repair the ambiguous se
 `fix/160-offline-retry-locator` scopes retry to the posting actions beside “Edit details” and
 deliberately fails the browser wallet read in the offline step so both controls are always present.
 It preserves the assertions that reconnect creates exactly one errand and reserves its reward once.
-Twice-clean local verification, required PR CI and merge are pending for this follow-up.
+PR #327 merged at `22d7eba2045e572a1a177dc04816c959461a3121`. Local runs and required CI
+`40689622039` each passed 42 cases twice with zero failures/flakes/skips/runner errors. This is
+historical evidence for that commit; newer main adds live-update journeys. Latest checked main
+`ff65acc` passed pipeline `40819818381`, including Publish images.
+
+### Chat owner work — 29 October
+
+The owners now track design/contract #344 in Patrick's open PR #347. It selects a fifth service,
+live Order lookup on every request, polling first, 90-day retention, 20 messages/minute, 280 Unicode
+code points, current-participant access with full history for a replacement courier, and read-only
+admin access. #345 adds fifth-service deployment/recovery wiring; #161/#162/#163 build their slices;
+#346 is a later notify-only WebSocket enhancement. Do not merge the obsolete WebSocket-first/event-
+projection handoff as if it were the owners' agreed design. #347 still has review points and is not
+an implemented chat service. #167 remains gated on the actual live chat feature and two rehearsals.

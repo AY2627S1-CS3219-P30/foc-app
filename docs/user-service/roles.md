@@ -179,14 +179,14 @@ one admin act alone.
 | --------------------------------------------------------------------- | --------------------------------------------------- |
 | Appointed admin demotes another admin                                 | `403 ADMIN_DOWNGRADE_NOT_PERMITTED` (US-FR3.1.3.1)  |
 | Seeded admin demotes an appointed admin or another seeded admin        | Allowed, if at least one admin remains              |
-| Any admin demotes **themselves**                                      | `409 SELF_DEMOTION_FORBIDDEN` — another seeded admin must do it |
+| Any admin demotes **themselves**                                      | `403 SELF_DEMOTION_FORBIDDEN` — another seeded admin must do it |
 | Demotion would leave zero admins                                      | `409 LAST_ADMIN` — checked inside the same transaction with a row lock so two simultaneous demotions cannot both succeed |
-| Admin suspends themselves                                             | `409 SELF_SUSPENSION_FORBIDDEN`                     |
+| Admin suspends themselves                                             | `403 SELF_SUSPENSION_FORBIDDEN`                     |
 | Suspending an account that is not `ACTIVE`                            | `409 ACCOUNT_NOT_ACTIVE` — so a never-activated account can never be "reactivated" past activation |
 | Reactivating an account that is not `SUSPENDED`                        | `200` if already `ACTIVE` (idempotent), `409 ACCOUNT_NOT_ACTIVE` if pending |
 | Suspending another admin                                              | Allowed only for a seeded admin, after re-entering the password; an appointed admin gets `403 ADMIN_ACTION_NOT_PERMITTED`; always raises an `ADMIN_SUSPENDED` alert |
 | Reactivating a suspended admin                                        | The same rules as suspending one, and an `ADMIN_REACTIVATED` alert, so a suspension cannot be undone quietly |
-| Approving your own role request, or one about yourself                | `409 SELF_APPROVAL_FORBIDDEN` / `409 CONFLICT_OF_INTEREST` |
+| Approving your own role request, or one about yourself                | `403 SELF_APPROVAL_FORBIDDEN` / `403 CONFLICT_OF_INTEREST` |
 | A 21st suspension by one admin within an hour                         | `429 RATE_LIMITED`, nothing changes, and a `SUSPENSION_LIMIT_REACHED` alert |
 
 **Why keep the seeded-vs-appointed tier (US-FR3.1.3.1)?** The D1 feedback asked us to reconsider it:
@@ -211,7 +211,7 @@ that takeover; the tier does.
   row — that is the same rule that stops a config line promoting a student.
 
 **The only admin tries to demote or delete their account (D2 §6, EC5).** Demotion → refused
-(`409 SELF_DEMOTION_FORBIDDEN`, and `LAST_ADMIN` underneath it). **Deletion does not exist, for anyone:**
+(`403 SELF_DEMOTION_FORBIDDEN`, and `LAST_ADMIN` underneath it). **Deletion does not exist, for anyone:**
 there is no account-deletion endpoint, by design (US-FR3.1.2.2). An account that should no longer be
 used is *suspended*. Deleting it would orphan the errands it requested or delivered, the credit ledger
 entries that moved its credits, and the audit rows that name it as actor or target — and the
@@ -227,5 +227,5 @@ without first appointing and seeding a successor — which is the behaviour we w
 
 - Suspending another admin: restricted to seeded admins here; the backlog is silent (US-FR3.1.2 only says "an administrator").
 - The controls on administrators (two-person rule, password re-entry, alerts, the suspension limit) are
-  ADR 0008, status *Proposed* until the group approves it.
+  ADR 0008, status *Accepted*.
 - Order and Credit rows above are the agreed design; each service's own matrix test must confirm them once its endpoints land.
