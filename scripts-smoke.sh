@@ -199,10 +199,18 @@ response=$(mktemp)
 registered=$(post_json /auth/register "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"$SMOKE_PASSWORD\",\"displayName\":\"Smoke test\"}" "$response")
 [[ "$registered" == 2* ]] || wallet_step="registering returned ${registered:-no answer}"
 
+# The token in the newest activation email to an address. The stack mails every link to Mailpit,
+# so no email is a failure, not a skip. Images from before USR-09, which the recovery drill rolls
+# back to, kept the link in the User Service's dev mailbox instead; a current one has no such
+# route (404), so this falls back to it only on those images.
+activation_token_for() {
+  ./scripts-activation-token.sh "$1" ||
+    curl -fsS "http://localhost:${USER_PORT}/dev/mailbox?to=$1" 2>/dev/null | json_field token
+}
+
 activation_token=""
 if [[ -z "$wallet_step" ]]; then
-  activation_token=$(./scripts-activation-token.sh "$SMOKE_EMAIL") || true
-  # The stack mails every activation link to Mailpit, so no email is a failure, not a skip.
+  activation_token=$(activation_token_for "$SMOKE_EMAIL") || true
   [[ -n "$activation_token" ]] || wallet_step="no activation email reached Mailpit"
 fi
 if [[ -z "$wallet_step" ]]; then
@@ -348,7 +356,7 @@ second_student() {
   local email="smoke-live-$(date +%s)-$RANDOM@u.nus.edu" out token
   out=$(mktemp)
   post_json /auth/register "{\"email\":\"$email\",\"password\":\"$SMOKE_PASSWORD\",\"displayName\":\"Smoke test\"}" "$out" >/dev/null
-  token=$(./scripts-activation-token.sh "$email") || true
+  token=$(activation_token_for "$email") || true
   post_json /auth/activate "{\"token\":\"$token\"}" "$out" >/dev/null
   post_json /auth/login "{\"email\":\"$email\",\"password\":\"$SMOKE_PASSWORD\"}" "$out" \
     -H "Origin: http://localhost:${WEB_PORT}" >/dev/null
