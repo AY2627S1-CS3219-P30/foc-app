@@ -57,6 +57,10 @@ describe('user-service honours its published contract', () => {
     );
     contract.assert('post', '/auth/register', await http(app).post('/auth/register').send({}));
 
+    const resend = (body: object) => http(app).post('/auth/activation/resend').send(body);
+    contract.assert('post', '/auth/activation/resend', await resend({ email: 'nobody@u.nus.edu' }));
+    contract.assert('post', '/auth/activation/resend', await resend({}));
+
     const token = app.mailbox.latestFor(email)!.token;
     contract.assert(
       'post',

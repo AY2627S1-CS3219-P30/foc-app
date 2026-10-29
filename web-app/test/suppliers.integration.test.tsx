@@ -10,6 +10,8 @@ import { Window } from 'happy-dom';
 
 const SUPPLIER_URL = process.env.SUPPLIER_SERVICE_URL;
 const USER_URL = process.env.USER_SERVICE_URL ?? 'http://localhost:3001';
+/** The stack's mail catcher, where the User Service sends the activation email. */
+const MAILPIT_URL = process.env.MAILPIT_URL ?? 'http://localhost:8025';
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? 'admin@u.nus.edu';
 /** The bootstrap password the stack seeds the admin with: ADMIN_SEED_PASSWORD from the stack's `.env`. */
 const ADMIN_SEED_PASSWORD = process.env.ADMIN_SEED_PASSWORD ?? '';
@@ -274,7 +276,7 @@ async function post(path: string, body: unknown) {
   return { status: response.status, body: text ? JSON.parse(text) : null };
 }
 
-/** A fresh student per run, activated through the User Service's development mailbox. */
+/** A fresh student per run, activated with the token from the email Mailpit caught. */
 async function signUpStudent(run: string): Promise<string> {
   const email = `supplier-it-${run}@u.nus.edu`;
   const password = 'supplier-integration-student';
@@ -285,12 +287,19 @@ async function signUpStudent(run: string): Promise<string> {
   });
   if (registered.status !== 201) throw new Error(`Register: ${JSON.stringify(registered)}`);
   let token: string | undefined;
+  const query = encodeURIComponent(`to:"${email}"`);
   for (let attempt = 0; !token && attempt < 50; attempt++) {
-    const mail = await fetch(`${USER_URL}/dev/mailbox?to=${encodeURIComponent(email)}`);
-    token = ((await mail.json()) as { token?: string }).token;
+    const found = (await (await fetch(`${MAILPIT_URL}/api/v1/search?query=${query}&limit=1`)).json()) as {
+      messages?: { ID: string }[];
+    };
+    const id = found.messages?.[0]?.ID;
+    if (id) {
+      const message = (await (await fetch(`${MAILPIT_URL}/api/v1/message/${id}`)).json()) as { Text: string };
+      token = message.Text.match(/[?&]token=([\w-]+)/)?.[1];
+    }
     if (!token) await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  if (!token) throw new Error('No activation email (is the User Service in development mode?)');
+  if (!token) throw new Error(`No activation email for ${email} in Mailpit (${MAILPIT_URL})`);
   const activated = await post('/auth/activate', { token });
   if (activated.status !== 200) throw new Error(`Activate: ${JSON.stringify(activated)}`);
   return logIn(email, password);

@@ -45,6 +45,20 @@ export const env = loadEnv({
   ADMIN_SEED_PASSWORD: z.string().min(12).max(128).optional(),
   ACTIVATION_TOKEN_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
   /**
+   * Where activation email goes. Required in production. Outside production, if unset, messages
+   * are kept in memory and nobody receives them; the local stack points this at Mailpit.
+   */
+  SMTP_HOST: z.string().min(1).optional(),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(587),
+  /** For a relay that needs them: both or neither, from the secret store. Never committed. */
+  SMTP_USER: z.string().min(1).optional(),
+  SMTP_PASSWORD: z.string().min(1).optional(),
+  /** STARTTLS is required unless this is `false`; it defaults to required in production only. */
+  SMTP_REQUIRE_TLS: z.enum(['true', 'false']).optional(),
+  MAIL_FROM: z.string().min(3).default('Friend on Campus <no-reply@foc.local>'),
+  /** The web app's activation page, which the emailed link opens. Required with SMTP_HOST. */
+  ACTIVATION_URL: z.url().optional(),
+  /**
    * Controls on administrators (ADR 0008). Defaults are the agreed policy; they are configuration so
    * an operator can tighten them without a code change.
    */
