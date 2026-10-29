@@ -13,7 +13,7 @@ scope freeze on Sat 31 Oct.
 | ------------------------------------------------ | --------------------------- | ------------------------------------------------------------------ |
 | N1.1 Admin operations and dispute console        | Jonus, Anselm, Zhang Yuan   | Merged: #226, #228, #229, #252, #273, #292, #293                   |
 | N1.2 Participant chat                            | Patrick, Zhang Yuan, Anselm | Sprint 4. Merged by Tue 3 Nov                                      |
-| N1.4 Live errand updates                         | Jonus                       | Added 28 Oct (#329–#332). By the freeze, Sat 31 Oct, or dropped    |
+| N1.4 Live errand updates                         | Jonus                       | Merged: #334, #335, #338. Under load: #343                         |
 | N3.1 Concurrency, load and conservation evidence | Isaac                       | Merged (#165)                                                      |
 | N3.2 Automated credit reconciliation             | Isaac                       | Merged (#152)                                                      |
 | N4.1 CI/CD pipeline                              | Jonus                       | Merged (#118, #296); the demo tag at the final commit (#169)       |
@@ -170,10 +170,12 @@ keeps its own transport.
 | The web app: the stream, the pages that use it, the label   | #331   | M    | Patrick    |
 | Under load: a dated report on how fast a change arrives     | #332   | S    | —          |
 
-**State.** Added on 28 Oct. #329 to #331 are merged by the scope freeze, Sat 31 Oct, or dropped.
-Each part is harmless alone: the route has no reader until the web app's part, and the web app
-polls as before wherever the route is missing or refused. #332 is evidence, not behaviour, and
-follows before RC1 on Tue 3 Nov.
+**State.** Added on 28 Oct, and merged on 29 Oct: the Order Service's stream (#334), the edge
+(#335) and the web app (#338). Under load ([the report of 29 Oct](reports/load-2026-10-29.md),
+#343), 200 streams were held while the load test ran, and every response-time target was still
+met. An accept reached its requester's stream in 290 ms at the median and 492 ms at the 95th
+percentile, against a target of under a second, and none was lost. Most of that time is the
+outbox relay's wait for its next poll, every 500 ms (`platform/src/events/outbox.ts`).
 
 ## N3.1 Concurrency, load and credit-conservation evidence
 
