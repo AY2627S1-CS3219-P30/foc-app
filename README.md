@@ -110,13 +110,22 @@ nvm use       # in every new terminal
 node --version   # expect v22.x
 ```
 
+On an older Node, `npm install` only warns (`EBADENGINE`) and carries on. Use 22, as the images
+do.
+
 ### 2. Clone and install
 
 ```bash
 git clone https://github.com/AY2627S1-CS3219-P30/foc-app.git
 cd foc-app
 npm install
+npm run build
 ```
+
+> **Build once after installing, and again after pulling a change to `platform/` or
+> `auth-client/`.** The services import those packages' compiled output, which a fresh clone does
+> not have yet: without it a service stops with
+> `Cannot find package '…/node_modules/@foc/platform/dist/index.js'`.
 
 > **Run `npm install` once, from the root.** This is an npm workspace, so a
 > single install covers `platform/` and all four services. Running `npm install`
@@ -141,45 +150,49 @@ shared key and default passwords. The script names them and stops. Delete
 volumes hold the old passwords too:
 `docker compose down -v && docker compose up -d --build`. That deletes local data.
 
-The services read `.env` automatically. Real environment variables always win,
-so Docker and CI are unaffected. A missing required variable stops a service at
-boot and tells you which one — nothing falls back to a default.
+Compose reads `.env` for the stack. A service run from source reads a `.env` only in the folder
+it runs in, which for the `npm run dev:*` scripts is the service's own, so step 4 exports yours
+first. Real environment variables always win, so Docker and CI are unaffected. A missing required
+variable stops a service at boot and tells you which one: nothing falls back to a default.
 
-### 4. Run a service
+### 4. Run a service from source
 
-Each `dev` script supplies its own `SERVICE_NAME` and `PORT`, so nothing needs
-exporting first. Code changes reload automatically.
-
-```bash
-npm run dev:user       # http://localhost:3001
-npm run dev:supplier   # http://localhost:3002
-npm run dev:order      # http://localhost:3003
-npm run dev:credit     # http://localhost:3004
-```
-
-Supplier, Order and Credit verify callers through the User Service, so they also
-need `USER_SERVICE_URL` and `INTERNAL_SERVICE_KEY`. Every service owns
-persistence and requires its own `DATABASE_URL` too. Your `.env` has both ready
-for the Compose stack's Postgres, under other names so that Compose ignores them:
+To work on one service, run it from source against the rest of the stack in Docker. It needs the
+stack's database and its own variables. Compose gives them to the containers; a service run from
+source gets them from your shell. `.env` has them ready under other names (`HOST_*`, `ORDER_*`), so
+that Compose ignores them.
 
 ```bash
-docker compose -f compose.yaml -f compose.dev.yaml up -d   # the others, internal ports on 127.0.0.1
+# 1. The stack, also publishing each service's internal port on 127.0.0.1, where a service checks
+#    its callers with the User Service (/internal/introspect is not served on 3001).
+docker compose -f compose.yaml -f compose.dev.yaml up -d --build
+# 2. Stop the stack's own copy of the service you will run. On macOS your server can start on the
+#    same port anyway, and localhost:3003 goes on reaching the container: you would test old code.
+docker compose stop order-service
+# 3. Your .env in this shell, then the service with its variables. Code changes reload.
 set -a; . ./.env; set +a
-DATABASE_URL=$HOST_ORDER_DATABASE_URL INTERNAL_SERVICE_KEY=$ORDER_INTERNAL_KEY \
-  USER_SERVICE_URL=http://localhost:4001 npm run dev:order
+SERVICE_NAME=order-service PORT=3003 DATABASE_URL=$HOST_ORDER_DATABASE_URL \
+  USER_SERVICE_URL=http://localhost:4001 INTERNAL_SERVICE_KEY=$ORDER_INTERNAL_KEY \
+  SUPPLIER_SERVICE_URL=http://localhost:3002 CREDIT_SERVICE_URL=http://localhost:3004 \
+  CREDIT_WAIT_TIMEOUT_MS=300000 ACCEPTANCE_WINDOW_MS=3600000 PICKUP_TIMEOUT_MS=1800000 \
+  DELIVERY_PERIOD_MS=7200000 AUTO_CONFIRM_MS=86400000 LIFECYCLE_SWEEP_INTERVAL_MS=10000 \
+  RECONCILE_INTERVAL_MS=60000 RECONCILE_RETRY_MS=300000 \
+  npm run dev:order
 ```
-
-The override matters: a service checks its callers through the User Service's
-`/internal/introspect`, which the stack serves on an internal port and not on 3001. [`compose.dev.yaml`](compose.dev.yaml) publishes those ports on
-`127.0.0.1`; plain `docker compose up` does not publish them at all. A missing
-value stops the service at boot and names it.
-
-Check it is alive:
 
 ```bash
-curl -i http://localhost:3001/health
-# {"status":"ok","service":"user-service","version":"0.1.0","uptimeSeconds":3}
+curl -i http://localhost:3003/health
+# {"status":"ok","service":"order-service","version":"0.1.0","uptimeSeconds":3}
 ```
+
+The other services run the same way: `npm run dev:user`, `dev:supplier` and `dev:credit`, on 3001,
+3002 and 3004. Each stops at boot naming every variable it is missing; `compose.yaml` shows the
+value the stack gives each, with `localhost` and the published port in place of a container's
+name. Without `RABBITMQ_URL` a service runs without the broker, so it neither sends nor receives
+events.
+
+When you are done, `docker compose up -d` puts the stack back as step 6 leaves it, with the
+internal ports unpublished again, which the smoke test checks.
 
 ### 5. Run the web app
 
@@ -259,27 +272,30 @@ Prometheus behind it at <http://localhost:9090>; see [Observability](#observabil
 
 **Connections.** Compose gives each service its own `DATABASE_URL` and its own
 `RABBITMQ_URL`: a database role and a broker account per service. Each applies
-its own migrations through a one-shot container before starting. Services talk
-to the browser directly with CORS, and to each other on a second port that is
-not published; see [Containers](#containers-secrets-networks-and-restarts).
+its own migrations through a one-shot container before starting. The browser
+reaches every service through the edge, on one origin; the services talk to each
+other on a second port that is not published; see
+[Containers](#containers-secrets-networks-and-restarts).
 
 ### 7. Check your setup
 
 ```bash
-npm run build       # compile every service
-npm test            # no env vars needed
+npm run build          # compile every service
+npm test               # no env vars needed
 npm run lint
 npm run typecheck
-npm run format      # apply Prettier
+npm run format:check   # `npm run format` applies Prettier instead
 ```
 
-All four should pass on a fresh clone. For the containerized stack:
+All five should pass on a fresh clone. Then check the stack from step 6, as it is running:
 
 ```bash
-./scripts-smoke.sh --up
+./scripts-smoke.sh
 ```
 
-If that prints `All smoke checks passed`, you are set up correctly.
+If that prints `All smoke checks passed`, you are set up correctly. `./scripts-smoke.sh --up`
+checks a separate copy instead, and refuses while your own stack is running, since it would need
+its ports.
 
 To see the system do its job rather than only start, run the journey the D3 demo
 uses: a student registers and gets a wallet, an errand is created, accepted,
@@ -290,8 +306,8 @@ is printed as it is made.
 ./scripts-demo-journey.sh
 ```
 
-The demo itself, part by part with who presents what, is
-[docs/demo/d3-runbook.md](docs/demo/d3-runbook.md). The nice-to-have features we chose, with the
+The demo itself, part by part with who presents what, is the
+[D4 runbook](docs/demo/d4-runbook.md) (the D3 one is [docs/demo/d3-runbook.md](docs/demo/d3-runbook.md)). The nice-to-have features we chose, with the
 problem each solves, its design and its owners, are in [docs/nice-to-haves.md](docs/nice-to-haves.md).
 
 ---
@@ -587,6 +603,18 @@ The Alpine Linux base of the first four, and of the edge, carries its own packag
 own licences. To update an image, change its version and its digest together;
 a test fails if either is missing.
 
+### Seed data
+
+The supplier catalogue the stack starts with is partly the course's and partly ours. The Supplier
+Service loads both files at start-up ([its README](supplier-service/README.md)).
+
+| File                                                                             | Where it comes from                                                                                                                                                                                | Licence                |
+| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| `data/csv/supplier-seed-data.csv` (21 suppliers) and `data/images/` (six photos) | The course's template, [`CS3219-AY2627S1/FoC-Template`](https://github.com/CS3219-AY2627S1/FoC-Template), copied byte for byte. The CSV's photo links point at the template's own copies on GitHub | MIT, the template's    |
+| `data/csv/supplier-seed-additions.csv` (12 suppliers)                            | Written by this team for SUP-01 (#187), adding the landmark pickup points the template lacks                                                                                                       | MIT, this repository's |
+
+The named D4 demo's people and errands (`./scripts-seed-demo.sh`) are invented for the demo.
+
 ---
 
 ## Observability
@@ -701,9 +729,10 @@ which failure reasons to redrive and which never to, and how to check the outcom
 ## Troubleshooting
 
 **`Invalid environment configuration. The service cannot start.`**
-Working as intended — it names the missing variable. Create `.env` with
-`./scripts-init-env.sh`, or use a `npm run dev:*` script, which supplies its own
-values.
+Working as intended: it names each missing variable. In Docker, create `.env` with
+`./scripts-init-env.sh`. For a service run from source, export your `.env` and give the service
+its variables, as in [Run a service from source](#4-run-a-service-from-source); the `npm run dev:*`
+scripts supply only its name and port.
 
 **`required variable ... is missing a value: run ./scripts-init-env.sh`**
 Compose has no fallback for a secret. Run the script; it creates `.env`, or adds
@@ -714,6 +743,9 @@ Your volumes are older than your `.env`: Postgres keeps the role passwords it
 was first started with, and RabbitMQ the queues it first declared. After pulling
 PLT-06, or after deleting `.env`, start both afresh once:
 `docker compose down -v && docker compose up -d --build`. This deletes local data.
+A **second clone** on the same machine has the same cause: every clone's stack is the Compose
+project `foc`, so it starts on the first clone's volumes. Give the second one a project of its own,
+with `COMPOSE_PROJECT_NAME=foc-other` in its `.env`, rather than deleting the first one's data.
 
 **`EADDRINUSE` / port already taken**
 Another service or an old process holds the port. Find it with
@@ -725,9 +757,9 @@ NestJS 12 ships no CommonJS build. Relative imports need an explicit `.js`
 extension — `import { env } from './config.js'` — even though the file on disk
 is `.ts`. That is correct, not a typo.
 
-**`Cannot find module '@foc/platform'`**
-Run `npm install` from the **root**, then `npm run build -w @foc/platform`.
-Services import the compiled output.
+**`Cannot find module '@foc/platform'`, or `Cannot find package '…/@foc/platform/dist/index.js'`**
+Run `npm install` from the **root**, then `npm run build`. Services import the
+compiled output of `platform/` and `auth-client/`.
 
 **`Cannot connect to the Docker daemon`**
 Start Docker Desktop and wait for the whale icon to settle.
@@ -1162,7 +1194,7 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
 ├── test-harness/        shared test fixtures, contract and deployment-file checks
 ├── system-tests/        Order and Credit run together: races, faults, conservation
 ├── observability/       Prometheus rules and the Grafana dashboard
-├── data/                the supplier seed data
+├── data/                the supplier seed data (see Seed data, above)
 ├── docs/                decision records, runbooks, reports, the plan
 ├── compose*.yaml        the stack, and its overrides
 └── scripts-*.sh         start, smoke-test, demo and check the stack
