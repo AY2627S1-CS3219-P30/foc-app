@@ -2,7 +2,8 @@
 
     python3 load/report.py OUT_DIR REPORT_PATH
 
-OUT_DIR holds k6's user.json, supplier.json and credit.json (see load/lib.js). The rest comes
+OUT_DIR holds k6's user.json, supplier.json and credit.json (see load/lib.js), and live.json from
+load/live.mjs, the live-update streams held while those ran (N1.4, #332). The rest comes
 from the environment: STUDENTS, SUPPLIERS, WALLETS (what the harness counted after seeding),
 USER_READY, SESSION, CREDIT_READY, WALLET, STABLE and OTHER_CONTAINERS (how many containers outside
 the load stack were running). Writes the report, then exits 3 if it says any target was missed.
@@ -17,6 +18,7 @@ import sys
 out, report = sys.argv[1], sys.argv[2]
 env = os.environ
 runs = {name: json.load(open(os.path.join(out, f"{name}.json"))) for name in ("user", "supplier", "credit")}
+live = json.load(open(os.path.join(out, "live.json")))
 REQUIREMENT = {
     "login": "US-NFR3.1.1",
     "profile": "US-NFR3.1.1",
@@ -63,6 +65,34 @@ def restarted(seconds, answered):
     return float(seconds) <= 60 and answered == "200"
 
 
+# N1.4 (#332): what load/live.mjs found while the scenarios ran.
+streams = live["students"] * live["streamsEach"]
+latency = live["latencyMs"]
+live_checks = [
+    (
+        "Streams held open, each saying `ready`",
+        "all of them",
+        f"{live['streamsReady']} of {streams} ({live['students']} students × {live['streamsEach']})",
+        live["streamsOpened"] == streams and live["streamsReady"] == streams,
+    ),
+    (
+        "An accept reaches its requester's stream, p95",
+        "< 1 s",
+        f"{ms(latency['p95'])} (p50 {ms(latency['p50'])}, max {ms(latency['max'])}; {live['timed']} accepts)",
+        live["timed"] > 0 and latency["p95"] is not None and latency["p95"] < 1000,
+    ),
+    ("Nudges lost: none within 5 s of the accept", "0", str(live["lost"]), live["lost"] == 0),
+    ("A sixth stream for one student", "refused, `429`", str(live["sixthStream"]), live["sixthStream"] == 429),
+    (
+        "Errands the client could not post, see open, or accept",
+        "0",
+        f"{live['failures']} of {live['errands'] + live['failures']}",
+        live["failures"] == 0,
+    ),
+]
+missed += sum(not ok for *_, ok in live_checks)
+live_rows = "\n".join(f"| {check} | {target} | {measured} | {verdict(ok)} |" for check, target, measured, ok in live_checks)
+
 user_ok = restarted(env["USER_READY"], env["SESSION"])
 credit_ok = restarted(env["CREDIT_READY"], env["WALLET"])
 ordering_ok = env["STABLE"] == "yes"
@@ -100,6 +130,18 @@ on a stack of its own, from commit `{commit()}`.
 | US-NFR3.1.2 | User Service ready after a restart (≤ 60 s), a session from before still valid | {env["USER_READY"]} s; the session answers {env["SESSION"]} | {verdict(user_ok)} |
 | CS-NFR3.1.2 | Credit Service ready after a restart (≤ 60 s) | {env["CREDIT_READY"]} s; a wallet read answers {env["WALLET"]} | {verdict(credit_ok)} |
 | SS-NFR2.1.2 | The same supplier query, twice, returns the same order | {env["STABLE"]} | {verdict(ordering_ok)} |
+
+## Live updates (N1.4)
+
+{live['students']} students each held {live['streamsEach']} live-update streams
+([ADR 0011](../adr/0011-live-updates.md)) straight to the Order Service while the scenarios above
+ran, so their response times were measured with {streams} streams open. Meanwhile an errand was
+posted and accepted at a steady rate, and each accept was timed from its answer to the nudge on
+the requester's stream ([#332](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/332)).
+
+| Check | Target | Measured | Result |
+| --- | --- | --- | --- |
+{live_rows}
 
 That transfers and returns requested before a restart complete without repair (CS-NFR3.1.2) is
 checked by `./scripts-restart-check.sh`, which CI runs. The Order Service's targets (OS-NFR2) and

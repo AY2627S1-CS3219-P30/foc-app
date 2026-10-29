@@ -994,8 +994,8 @@ Testing is part of each task's Definition of Done. A feature is not "backend com
   [ADR 0010](adr/0010-api-edge.md)). It is the browser's one origin: it routes `/api/<service>/` to
   each service and everything else to the web app, never routes `/internal` or `/metrics`, sets the
   security headers, and limits writes and request size. Each service still authenticates every
-  caller itself (ADR 0004). Correlation IDs pass through it; live streams were not built (see Live
-  updates).
+  caller itself (ADR 0004). Correlation IDs pass through it, and so does the live-update stream,
+  unbuffered (see Live updates).
 
 #### Live updates
 - **Alternatives considered:** Polling only; WebSocket everywhere; SSE status + WS chat
@@ -1004,6 +1004,10 @@ Testing is part of each task's Definition of Done. A feature is not "backend com
 - **As built (22 Oct):** polling only, no SSE (`web-app/src/lib/use-poll.ts`, `use-order.ts`). The
   plan's WEB-04 ticket (#159) became connectivity and conflict recovery instead. Chat (N1.2) chooses
   its own transport (#161-#163).
+- **As built (28 Oct):** SSE came back as N1.4, live errand updates
+  ([ADR 0011](adr/0011-live-updates.md), #329-#331): `GET /api/order/live` on the Order Service
+  sends nudges, not data, and the page reads again through the ordinary API. Polling stays as the
+  fallback, at the same intervals.
 
 #### Supplier history
 - **Alternatives considered:** Live lookup only; full replicated supplier

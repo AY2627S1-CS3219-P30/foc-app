@@ -11,7 +11,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "contracts:events": "tsx src/cli/write-event-schemas.ts",
-    "contracts:compat": "tsx src/cli/contract-compat.ts"
+    "contracts:compat": "tsx src/cli/contract-compat.ts",
+    "traceability": "tsx src/cli/write-traceability.ts"
   },
   "dependencies": {
     "@foc/platform": "*",

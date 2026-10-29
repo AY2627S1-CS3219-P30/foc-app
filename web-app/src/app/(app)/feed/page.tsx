@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ActionDialog } from "@/components/ActionDialog";
 import { AppBar } from "@/components/AppBar";
@@ -12,6 +12,7 @@ import { Screen, ScreenContent } from "@/components/Screen";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth";
+import { boardReadDelay, useLive } from "@/lib/live/live";
 import { STUDENT_NAV } from "@/lib/nav";
 import { listMyOrders, listOpenOrders, type MyOrder, type OpenOrder } from "@/lib/order-api";
 import { ORDER_ACTIONS } from "@/lib/order-actions";
@@ -132,6 +133,18 @@ function useFeed(mode: PreferredMode | undefined, pickupBuilding: string, minimu
         : current,
     );
   }, [key]);
+  // N1.4: a requester's errands change with their own errand nudges; the open list on the board,
+  // read a moment later by each feed, so they do not all read it at once.
+  const boardRead = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(boardRead.current), []);
+  useLive((nudge) => {
+    if (nudge.kind === "ready") reload();
+    else if (nudge.kind === "errand" && mode === "REQUESTER") reload();
+    else if (nudge.kind === "board" && mode === "COURIER") {
+      clearTimeout(boardRead.current);
+      boardRead.current = setTimeout(reload, boardReadDelay());
+    }
+  });
   return {
     result: result?.key === key ? result : null,
     problem: failure?.key === key ? failure.message : null,

@@ -16,6 +16,7 @@ import { listMyOrders, type MyOrder } from "@/lib/order-api";
 import { isFinal, PENDING_POLL_MS, statusWording, waitsOnCredit } from "@/lib/order-status";
 import { appendPage, refreshPage, type PagedOrders } from "@/lib/paged-orders";
 import type { PreferredMode } from "@/lib/user-api";
+import { useLive } from "@/lib/live/live";
 import { usePoll } from "@/lib/use-poll";
 import { vars } from "@/styles/tokens";
 
@@ -149,6 +150,10 @@ export default function OrderHistoryPage() {
       setMoreInFlight((current) => (current === flightKey ? null : current));
     }
   }, [authed, history, mode, moreInFlight]);
+  // N1.4: any errand nudge may have changed what this lists.
+  useLive((nudge) => {
+    if (nudge.kind !== "board") reload();
+  });
   const mine = history?.mode === mode ? history : null;
   const problem = failure && failure.mode === mode ? failure.message : null;
   const items = mine?.deliveries.items ?? [];

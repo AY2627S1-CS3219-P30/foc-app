@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ActionDialog } from "@/components/ActionDialog";
@@ -68,6 +68,7 @@ function StatusBody({
   passed,
   skew,
   stillWaiting,
+  paused,
   problem,
   notice,
   acted,
@@ -81,6 +82,8 @@ function StatusBody({
   passed: boolean;
   skew: number;
   stillWaiting: boolean;
+  /** Updates have stopped until the student refreshes, which `onRetry` does. */
+  paused: boolean;
   problem: ApiError | null;
   notice: string | null;
   /** Counts commands that went through. The button that sent one may be gone, so focus comes here. */
@@ -99,6 +102,18 @@ function StatusBody({
   useEffect(() => {
     if (acted) status.current?.focus();
   }, [acted]);
+
+  // The retry button goes once its read succeeds, so focus comes to the status if it went with it.
+  const retried = useRef(false);
+  const stale = paused || !!problem;
+  // The button names the line it acts on, the pause hint or the problem, for a screen reader.
+  const hint = useId();
+  const failed = useId();
+  useEffect(() => {
+    if (paused || !retried.current) return;
+    retried.current = false;
+    if (!problem && document.activeElement === document.body) status.current?.focus();
+  }, [paused, problem]);
 
   return (
     <>
@@ -120,23 +135,33 @@ function StatusBody({
         {stillWaiting && slow && <p style={muted}>{slow}</p>}
         {note && <p style={{ ...muted, fontWeight: vars.weight.semibold }}>{note}</p>}
         {order.status === "REJECTED" && <p style={muted}>{rejectionMessage(order)}</p>}
-      </div>
-      <FormAlert tone="info" takeFocus>
-        {notice}
-      </FormAlert>
-      {problem && (
-        <div
-          role="alert"
-          style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: vars.space[2] }}
-        >
-          <p style={{ fontSize: vars.text.sm, color: vars.color.danger }}>
-            Could not refresh this request. {problem.message}
+        {paused && (
+          <p id={hint} style={muted}>
+            Updates paused. Refresh to see the latest.
           </p>
-          <Button variant="outline" onClick={onRetry}>
-            Try again
+        )}
+      </div>
+      {/* Straight after the status, so no notice comes between the hint and its button. */}
+      {stale && (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: vars.space[2] }}>
+          {problem && (
+            <p id={failed} role="alert" style={{ fontSize: vars.text.sm, color: vars.color.danger }}>
+              Could not refresh this request. {problem.message}
+            </p>
+          )}
+          <Button
+            variant="outline"
+            aria-describedby={problem ? failed : hint}
+            onClick={() => {
+              retried.current = true;
+              onRetry();
+            }}
+          >
+            {problem ? "Try again" : "Refresh"}
           </Button>
         </div>
       )}
+      <FormAlert tone="info" takeFocus>{notice}</FormAlert>
       {role && <NavRow label="Your part" value={ROLE_LABEL[role]} />}
       <NavRow
         label="Pickup"
@@ -184,7 +209,7 @@ function StatusBody({
 export function OrderDetail({ orderId }: { orderId: string }) {
   const router = useRouter();
   const { user } = useAuth();
-  const { order, skew, problem, stillWaiting, refresh } = useOrder(orderId);
+  const { order, skew, problem, stillWaiting, paused, refresh } = useOrder(orderId);
   const [notice, setNotice] = useState<string | null>(null);
   const [acted, setActed] = useState(0);
   const { refresh: refreshCredits } = useCredits();
@@ -232,6 +257,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         passed={deadline !== null && now >= deadline}
         skew={skew}
         stillWaiting={stillWaiting}
+        paused={paused}
         problem={problem}
         notice={notice}
         acted={acted}

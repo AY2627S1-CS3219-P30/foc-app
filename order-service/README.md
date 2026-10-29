@@ -111,7 +111,8 @@ Each case has a test. The `*.postgres.test.ts` ones run against a real PostgreSQ
 Routing keys and executable payload schemas are in `platform/src/events/catalogue.ts`. Every
 message below is catalogued. Credit's replies and suspensions arrive on durable queues of this
 service's own (`foc.order.*`), shared by its instances, so each is handled once. Separately, each
-instance has a private queue that drops cached identities on any status or role change (USR-07).
+instance has a private queue that drops cached identities on any status or role change (USR-07),
+and another of its own status changes, for the live-update streams it holds (N1.4).
 
 | Message | Direction | Carries | Schema |
 | ----- | ----- | ----- | ----- |
@@ -122,7 +123,7 @@ instance has a private queue that drops cached identities on any status or role 
 | `credit.transferred` | Received | request facts, transfer reference, and both resulting wallet balances (D1 OS-FR5.1.3) | In catalogue |
 | `order.release-requested` | Sent | order, requester, amount | In catalogue |
 | `credit.released` | Received | request facts, release reference, and requester resulting balance | In catalogue |
-| `order.status-changed` | Sent | order, previous status, new status, when; no private fields | In catalogue |
+| `order.status-changed` | Sent; received by each instance's private `foc.order.live.*` queue | order, previous status, new status, when, the errand's version after it; no private fields | In catalogue |
 | `user.suspended` | Received, on `foc.order.user-suspensions` | user, status, audit reference; only the user is read, and the User Service is asked whether they are still suspended | In catalogue |
 
 ## Sending and receiving safely
@@ -563,6 +564,34 @@ stateDiagram-v2
   class REJECTED,COMPLETED,CANCELLED,EXPIRED final
 ```
 
+### Live errand updates (N1.4)
+
+`GET /live` (`/api/order/live` through the edge) is a Server-Sent Events stream of nudges about the
+caller's errands, so a page shows a change at once instead of at its next poll
+([ADR 0011](../docs/adr/0011-live-updates.md), #329). A nudge never carries an errand: the page
+reads it again through the endpoints above, under their rules.
+
+| Event | Sent to | Data |
+| ----- | ----- | ----- |
+| `ready` | the new stream, once | `{}`: read everything shown |
+| `errand` | the errand's requester and courier, when its status changes | `{"orderId", "version"}` |
+| `board` | every stream, at most once a second, when an errand joins or leaves the open list | `{}` |
+| `: keep-alive` | every stream, every 20 s | a comment |
+
+Each instance reads `order.status-changed` from a private queue (`foc.order.live.<random>`,
+exclusive, 30 s TTL, at most 1,000 messages), and reads the errand's row only when a stream is
+open. A change it misses is not retried: polling covers it.
+
+| Limit | Answer |
+| ----- | ----- |
+| 5 streams per user on an instance | `429 TOO_MANY_STREAMS`, `Retry-After: 60` |
+| 1,000 streams on an instance, or `LIVE_UPDATES_ENABLED=false` | `503 LIVE_UNAVAILABLE`, `Retry-After: 60` |
+| A stream's lifetime, `LIVE_STREAM_MAX_MS` | it ends; the page reconnects and authenticates again |
+
+The dashboard's live-update panels read `foc_live_streams`, `foc_live_nudges_total{kind}` and
+`foc_live_refused_total{reason}`. A stream is not timed as a request in
+`http_request_duration_seconds`.
+
 ---
 
 ## Running this service
@@ -614,6 +643,8 @@ errand from creation to payment, one cancelled, and the refused cases between.
 | `CREDIT_SERVICE_URL` | `http://localhost:3004` | Credit status reads for reconciliation |
 | `RECONCILE_INTERVAL_MS` | `60000` | How often reconciliation runs |
 | `RECONCILE_RETRY_MS` | `300000` | Least time between repair attempts for one order |
+| `LIVE_UPDATES_ENABLED` | `true` | Optional, `true` by default. `false` refuses every live-update stream; pages poll (N1.4) |
+| `LIVE_STREAM_MAX_MS` | `300000` | Optional, 5 minutes by default. A live-update stream's lifetime, 10 s to 15 min |
 
 A missing required variable stops the service at boot and names the variable.
 Nothing falls back to an insecure default.

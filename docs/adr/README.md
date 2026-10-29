@@ -15,6 +15,7 @@ record; it does not silently rewrite it.
 | [0008](0008-controlling-administrators.md) | How administrators are controlled | Proposed; implementation basis |
 | [0009](0009-messaging-rabbitmq-events-and-ordering.md) | Messaging: RabbitMQ, what a message is, and ordering | Proposed; implementation basis |
 | [0010](0010-api-edge.md) | The API edge: one origin, routed and protected by nginx | Proposed; implementation basis |
+| [0011](0011-live-updates.md) | Live updates: a nudge, not the data | Proposed; implementation basis |
 
 “Proposed; implementation basis” means the repository uses the decision while the required human
 review is collected. The author cannot record approval on another team member's behalf.

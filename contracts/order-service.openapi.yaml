@@ -706,6 +706,53 @@ paths:
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/PrivateForbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+  /live:
+    get:
+      operationId: openLiveUpdates
+      summary: Open a stream of nudges about the caller's errands (N1.4).
+      description: |
+        Server-Sent Events. A nudge never carries an errand: on one, the page reads again through
+        the ordinary endpoints, which apply their ordinary rules, so a lost, repeated or reordered
+        nudge costs at most one read. Events:
+
+        - `ready` (`{}`), once, on connect: read everything shown, to catch up.
+        - `errand` (`{"orderId", "version"}`), to the errand's requester and courier, when its
+          status changes. `version` is the errand's version after the change; it is absent for a
+          change recorded before versions were carried.
+        - `board` (`{}`), to every stream, when an errand joins or leaves the open list; at most
+          once a second.
+        - a `: keep-alive` comment every 20 seconds.
+
+        The caller is authenticated when the stream opens. It ends itself after
+        `LIVE_STREAM_MAX_MS` (5 minutes by default); the page reconnects with its current token.
+        Polling remains the fallback: a page that is refused keeps polling.
+      responses:
+        '200':
+          description: The stream, starting with `ready`.
+          headers:
+            X-Accel-Buffering:
+              description: '`no`: a proxy must pass each event on as it is written.'
+              schema: { type: string, const: 'no' }
+          content:
+            text/event-stream:
+              schema: { type: string }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '429':
+          description: '`TOO_MANY_STREAMS`: the caller already holds 5 streams on this instance.'
+          headers:
+            Retry-After: { schema: { type: string, const: '60' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '503':
+          description: >-
+            `LIVE_UNAVAILABLE`: live updates are switched off (`LIVE_UPDATES_ENABLED=false`), or
+            this instance holds 1,000 streams.
+          headers:
+            Retry-After: { schema: { type: string, const: '60' } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
 components:
   securitySchemes:
     bearerAuth:

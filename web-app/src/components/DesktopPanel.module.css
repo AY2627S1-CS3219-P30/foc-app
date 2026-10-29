@@ -48,3 +48,8 @@
   flex-direction: column;
   gap: var(--space-3);
 }
+
+/* Whether the page is live (N1.4), at the far end of the header. */
+.live {
+  margin-left: auto;
+}

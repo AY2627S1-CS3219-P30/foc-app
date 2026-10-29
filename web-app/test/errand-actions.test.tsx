@@ -23,9 +23,11 @@ mock.module('../src/components/DesktopShell', () => ({
 const { default: FeedPage } = await import('../src/app/(app)/feed/page');
 const { default: OrderHistoryPage } = await import('../src/app/(app)/order-history/page');
 const { OrderDetail } = await import('../src/app/(app)/request/[id]/OrderDetail');
+const { useOrder } = await import('../src/lib/use-order');
 const { StoreProvider } = await import('../src/lib/store');
 const { CreditsProvider } = await import('../src/lib/credits');
 const { TopBar } = await import('../src/components/TopBar');
+const { LiveProvider } = await import('../src/lib/live/live');
 
 afterAll(() => {
   for (const key of ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'])
@@ -107,7 +109,7 @@ function fakeOrderService() {
     history: (): Response => json(200, { items: [], truncated: false }),
     stamp: (o: Order): Order => ({ ...o, serverTime: new Date(Date.now() + service.serverAhead).toISOString() }),
     answer: (): Response => json(200, service.stamp({ ...service.current, version: 4 })),
-    read: (): Response => json(200, service.stamp(service.reads.shift() ?? service.current)),
+    read: (): Response | Promise<Response> => json(200, service.stamp(service.reads.shift() ?? service.current)),
     async fetch(request: Request): Promise<Response> {
       const { pathname, search } = new URL(request.url);
       if (pathname === `/orders/${ORDER_ID}/history`) return json(200, { orderId: ORDER_ID, entries: [] });
@@ -689,6 +691,362 @@ describe('requester', () => {
     expect(container.textContent).toContain('With an administrator');
     expect(container.textContent).toContain("There's nothing for you to do while they decide.");
     expect(container.querySelectorAll('button:not([aria-label="Back"])').length).toBe(0);
+  });
+});
+
+describe('updates on a visible tab', () => {
+  const reads = (service: ReturnType<typeof fakeOrderService>) =>
+    service.queries.filter((query) => query === `/orders/${ORDER_ID}`).length;
+  /** Ten minutes of settled polling, read by read, without the tab ever waking it. */
+  const goIdle = async (clock: ReturnType<typeof fakeClock>) => {
+    for (let i = 0; i < 20; i++) await clock.advance(30_000);
+  };
+
+  function Probe() {
+    const { order, problem, paused, refresh } = useOrder(ORDER_ID);
+    return (
+      <>
+        <p>{`${order?.status}: ${paused ? 'paused' : 'live'}${problem ? ` (${problem.code})` : ''}`}</p>
+        <button onClick={() => refresh()}>Refresh</button>
+      </>
+    );
+  }
+
+  for (const status of ['OPEN', 'DELIVERED', 'DISPUTED'] as const) {
+    it(`pauses settled polling on a ${status} errand after ten minutes, and says so`, async () => {
+      const clock = fakeClock();
+      const service = fakeOrderService();
+      service.current = order({ status, courierId: status === 'OPEN' ? undefined : 'them' });
+      const container = await render(<Probe />, service);
+      expect(container.textContent).toContain(`${status}: live`);
+
+      for (let i = 0; i < 19; i++) await clock.advance(30_000);
+      expect(reads(service)).toBe(20);
+      expect(container.textContent).toContain(`${status}: live`);
+
+      await clock.advance(30_000);
+      expect(reads(service)).toBe(21);
+      expect(container.textContent).toContain(`${status}: paused`);
+
+      await clock.advance(30 * 60_000);
+      expect(reads(service)).toBe(21);
+    });
+  }
+
+  it('reads once on refresh, then polls again for another ten minutes', async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    const container = await render(<Probe />, service);
+    await goIdle(clock);
+    await clock.advance(5 * 60_000);
+    expect(container.textContent).toContain('paused');
+    const before = reads(service);
+
+    service.current = order({ status: 'ACCEPTED', courierId: 'them', version: 4 });
+    await act(async () => button(container, 'Refresh').click());
+    await flush();
+    expect(reads(service)).toBe(before + 1);
+    expect(container.textContent).toContain('ACCEPTED: live');
+
+    await clock.advance(29_000);
+    expect(reads(service)).toBe(before + 1);
+    await clock.advance(1_000);
+    expect(reads(service)).toBe(before + 2);
+    await goIdle(clock);
+    expect(container.textContent).toContain('ACCEPTED: paused');
+  });
+
+  /** The tab's live-update stream (N1.4), driven by the test. */
+  function fakeStream() {
+    let handlers: { onEvent(e: { event: string; data: string }): void; onStatus(s: string): void };
+    return {
+      connect: (h: typeof handlers) => {
+        handlers = h;
+        return { start() {}, stop() {}, retryNow() {} };
+      },
+      status: async (status: 'live' | 'reconnecting' | 'polling') =>
+        act(async () => handlers.onStatus(status)),
+      emit: async (event: string, data = '{}') => {
+        await act(async () => handlers.onEvent({ event, data }));
+        await flush();
+      },
+    };
+  }
+
+  it('is not paused while its live-update stream is open, since a change still reaches it at once', async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    const stream = fakeStream();
+    const container = await render(
+      <LiveProvider connect={stream.connect as never}>
+        <Probe />
+      </LiveProvider>,
+      service,
+    );
+    await stream.status('live');
+    await goIdle(clock);
+    expect(container.textContent).toContain('OPEN: live');
+
+    // The stream is lost: settled polling has gone idle, so the page says so again.
+    await stream.status('reconnecting');
+    expect(container.textContent).toContain('OPEN: paused');
+  });
+
+  it("a nudge's read wakes settled polling, like a refresh", async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    const stream = fakeStream();
+    const container = await render(
+      <LiveProvider connect={stream.connect as never}>
+        <Probe />
+      </LiveProvider>,
+      service,
+    );
+    await stream.status('polling');
+    await goIdle(clock);
+    expect(container.textContent).toContain('OPEN: paused');
+    const before = reads(service);
+
+    // A newer version in the same status (its deadline was extended, say): no status change to wake it.
+    service.current = order({ version: 4 });
+    await stream.emit('errand', JSON.stringify({ orderId: ORDER_ID, version: 4 }));
+    expect(reads(service)).toBe(before + 1);
+    expect(container.textContent).toContain('OPEN: live');
+    await clock.advance(30_000);
+    expect(reads(service)).toBe(before + 2);
+  });
+
+  it('resumes when the tab comes back', async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    const container = await render(<Probe />, service);
+    await goIdle(clock);
+    const before = reads(service);
+
+    await act(async () => window.document.dispatchEvent(new window.Event('visibilitychange')));
+    await flush();
+    expect(reads(service)).toBe(before + 1);
+    expect(container.textContent).toContain('OPEN: live');
+    await clock.advance(30_000);
+    expect(reads(service)).toBe(before + 2);
+  });
+
+  it('never reports a final errand as paused', async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    service.current = order({ status: 'COMPLETED', courierId: 'them' });
+    const container = await render(<Probe />, service);
+    await goIdle(clock);
+    await clock.advance(30 * 60_000);
+    expect(reads(service)).toBe(1);
+    expect(container.textContent).toContain('COMPLETED: live');
+  });
+
+  for (const [code, shown] of [
+    [403, 'OPEN'],
+    [404, 'undefined'],
+  ] as const) {
+    it(`does not count a ${code} on an errand already paused as paused, and stops`, async () => {
+      const clock = fakeClock();
+      const service = fakeOrderService();
+      service.current = order({ acceptanceDeadlineAt: new Date(START + 30 * 60_000).toISOString() });
+      const container = await render(<Probe />, service);
+      await goIdle(clock);
+      expect(container.textContent).toContain('OPEN: paused');
+      const before = reads(service);
+
+      service.read = () => failure(code, code === 403 ? 'FORBIDDEN' : 'NOT_FOUND');
+      await clock.advance(20 * 60_000 + 1_000);
+      expect(reads(service)).toBe(before + 1);
+      expect(container.textContent).toContain(`${shown}: live (${code === 403 ? 'FORBIDDEN' : 'NOT_FOUND'})`);
+      await clock.advance(60 * 60_000);
+      expect(reads(service)).toBe(before + 1);
+    });
+  }
+
+  it('reports a failed idle read as a problem, not paused, and stops until asked', async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    service.current = order({ status: 'DISPUTED', courierId: 'them' });
+    const container = await render(<Probe />, service);
+    for (let i = 0; i < 19; i++) await clock.advance(30_000);
+
+    service.read = () => failure(503, 'INTERNAL');
+    await clock.advance(30_000);
+    expect(reads(service)).toBe(21);
+    expect(container.textContent).toContain('DISPUTED: live (INTERNAL)');
+    await clock.advance(60 * 60_000);
+    expect(reads(service)).toBe(21);
+
+    service.read = () => json(200, service.stamp(service.current));
+    await act(async () => button(container, 'Refresh').click());
+    await flush();
+    expect(reads(service)).toBe(22);
+    expect(container.textContent).toContain('DISPUTED: live');
+    expect(container.textContent).not.toContain('INTERNAL');
+  });
+
+  it("reads again at a deadline the server acts on, on the server's clock, while paused", async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    service.serverAhead = 10 * 60_000;
+    const autoConfirmAt = new Date(START + service.serverAhead + 25 * 60_000).toISOString();
+    service.current = order({ status: 'DELIVERED', courierId: 'them', autoConfirmAt });
+    const container = await render(<Probe />, service);
+    await goIdle(clock);
+    expect(container.textContent).toContain('DELIVERED: paused');
+    const before = reads(service);
+
+    service.current = order({ status: 'COMPLETION_PENDING_CREDIT', courierId: 'them', version: 4 });
+    await clock.advance(15 * 60_000);
+    expect(reads(service)).toBe(before);
+    expect(container.textContent).toContain('DELIVERED: paused');
+
+    await clock.advance(1_000);
+    expect(reads(service)).toBe(before + 1);
+    expect(container.textContent).toContain('COMPLETION_PENDING_CREDIT: live');
+  });
+
+  it('polls again after a deadline until the server has acted on it', async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    service.current = order({ acceptanceDeadlineAt: new Date(START + 30 * 60_000).toISOString() });
+    const container = await render(<Probe />, service);
+    await goIdle(clock);
+    const before = reads(service);
+
+    // The server's sweep has not run yet, so the first read still finds it open.
+    await clock.advance(20 * 60_000 + 1_000);
+    expect(reads(service)).toBe(before + 1);
+    expect(container.textContent).toContain('OPEN: live');
+
+    service.current = order({ status: 'EXPIRED', version: 5 });
+    await clock.advance(30_000);
+    expect(reads(service)).toBe(before + 2);
+    expect(container.textContent).toContain('EXPIRED: live');
+    await clock.advance(60 * 60_000);
+    expect(reads(service)).toBe(before + 2);
+  });
+
+  it('shows the pause on the errand, with a refresh that restarts updates', async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+    expect(container.textContent).not.toContain('Updates paused');
+
+    await goIdle(clock);
+    const status = container.querySelector('[role="status"]')!;
+    expect(status.textContent).toContain('Updates paused. Refresh to see the latest.');
+    // A live region announces its text, so the button stays out of it.
+    expect(buttons(status, 'Refresh')).toEqual([]);
+    expect(container.querySelectorAll('[role="status"] button, [role="alert"] button').length).toBe(0);
+    const before = reads(service);
+
+    const refresh = button(container, 'Refresh');
+    refresh.focus();
+    await act(async () => refresh.click());
+    await flush();
+    expect(reads(service)).toBe(before + 1);
+    expect(container.textContent).not.toContain('Updates paused');
+    expect(buttons(container, 'Refresh')).toEqual([]);
+    // The button is gone, so focus goes to the status rather than the page.
+    expect(container.ownerDocument.activeElement?.getAttribute('role')).toBe('status');
+    await clock.advance(30_000);
+    expect(reads(service)).toBe(before + 2);
+  });
+
+  it('keeps the pause shown until the refresh read answers', async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+    await goIdle(clock);
+    const ok = service.read;
+    let answer: () => void = () => {};
+    service.read = () => new Promise((resolve) => (answer = () => resolve(ok())));
+
+    await act(async () => button(container, 'Refresh').click());
+    await flush();
+    expect(container.textContent).toContain('Updates paused');
+    expect(buttons(container, 'Refresh').length).toBeGreaterThan(0);
+
+    await act(async () => answer());
+    await flush();
+    expect(container.textContent).not.toContain('Updates paused');
+  });
+
+  it('moves focus to the status when trying again clears the problem', async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+    const ok = service.read;
+    service.read = () => failure(503, 'INTERNAL');
+    await clock.advance(30_000);
+    expect(container.textContent).toContain('Could not refresh this request.');
+    expect(container.querySelectorAll('[role="status"] button, [role="alert"] button').length).toBe(0);
+
+    service.read = ok;
+    const retry = button(container, 'Try again');
+    retry.focus();
+    await act(async () => retry.click());
+    await flush();
+    expect(buttons(container, 'Try again')).toEqual([]);
+    expect(container.ownerDocument.activeElement?.getAttribute('role')).toBe('status');
+  });
+
+  it('leaves focus alone when a later read clears a problem that trying again did not', async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+    const ok = service.read;
+    service.read = () => failure(503, 'INTERNAL');
+    await clock.advance(30_000);
+    await act(async () => button(container, 'Try again').click());
+    await flush();
+    expect(container.textContent).toContain('Could not refresh this request.');
+
+    service.read = ok;
+    await clock.advance(30_000);
+    expect(buttons(container, 'Try again')).toEqual([]);
+    expect(container.ownerDocument.activeElement?.getAttribute('role')).not.toBe('status');
+  });
+
+  it('offers only the retry when a read fails as updates pause, and stops reading', async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    service.current = order({ status: 'DISPUTED', courierId: 'them' });
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+    for (let i = 0; i < 19; i++) await clock.advance(30_000);
+
+    service.read = () => failure(503, 'INTERNAL');
+    await clock.advance(30_000);
+    expect(container.textContent).toContain('Could not refresh this request.');
+    expect(container.textContent).not.toContain('Updates paused');
+    expect(buttons(container, 'Refresh')).toEqual([]);
+    expect(buttons(container, 'Try again').length).toBeGreaterThan(0);
+    const after = reads(service);
+    await clock.advance(60 * 60_000);
+    expect(reads(service)).toBe(after);
+  });
+
+  it('ties its retry button to the line it acts on, so a screen reader hears them together', async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    service.current = order({ status: 'DISPUTED', courierId: 'them' });
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+    const describing = (b: Element) =>
+      container.ownerDocument.getElementById(b.getAttribute('aria-describedby') ?? '')?.textContent;
+
+    await goIdle(clock);
+    expect(buttons(container, 'Refresh').length).toBeGreaterThan(0);
+    for (const refresh of buttons(container, 'Refresh'))
+      expect(describing(refresh)).toBe('Updates paused. Refresh to see the latest.');
+
+    service.read = () => failure(503, 'INTERNAL');
+    await act(async () => button(container, 'Refresh').click());
+    await flush();
+    expect(buttons(container, 'Try again').length).toBeGreaterThan(0);
+    for (const retry of buttons(container, 'Try again'))
+      expect(describing(retry)).toContain('Could not refresh this request.');
   });
 });
 
