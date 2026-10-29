@@ -990,9 +990,12 @@ Testing is part of each task's Definition of Done. A feature is not "backend com
 - **Alternatives considered:** Direct browser-to-services; full BFF; thin gateway
 - **Chosen approach and reasoning:** Thin gateway for routing/auth/correlation/rate limits/streams.
 - **Trade-offs:** Another container, but simplifies browser security and service exposure.
-- **As built (22 Oct):** no gateway yet. The browser calls each service directly, and each service
-  authenticates the caller itself (ADR 0004). The thin edge is PLT-10 (#285), after the D4 gap fixes,
-  with its own decision record to come (ADR 0010, in #285).
+- **As built (27 Oct):** a thin nginx edge, not a gateway that authenticates (PLT-10, #285;
+  [ADR 0010](adr/0010-api-edge.md)). It is the browser's one origin: it routes `/api/<service>/` to
+  each service and everything else to the web app, never routes `/internal` or `/metrics`, sets the
+  security headers, and limits writes and request size. Each service still authenticates every
+  caller itself (ADR 0004). Correlation IDs pass through it, and so does the live-update stream,
+  unbuffered (see Live updates).
 
 #### Live updates
 - **Alternatives considered:** Polling only; WebSocket everywhere; SSE status + WS chat
@@ -1001,6 +1004,10 @@ Testing is part of each task's Definition of Done. A feature is not "backend com
 - **As built (22 Oct):** polling only, no SSE (`web-app/src/lib/use-poll.ts`, `use-order.ts`). The
   plan's WEB-04 ticket (#159) became connectivity and conflict recovery instead. Chat (N1.2) chooses
   its own transport (#161-#163).
+- **As built (28 Oct):** SSE came back as N1.4, live errand updates
+  ([ADR 0011](adr/0011-live-updates.md), #329-#331): `GET /api/order/live` on the Order Service
+  sends nudges, not data, and the page reads again through the ordinary API. Polling stays as the
+  fallback, at the same intervals.
 
 #### Supplier history
 - **Alternatives considered:** Live lookup only; full replicated supplier

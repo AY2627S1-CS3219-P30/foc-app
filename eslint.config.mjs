@@ -7,6 +7,7 @@ export default tseslint.config(
       '**/dist/**',
       '**/node_modules/**',
       '**/coverage/**',
+      '.release-results/**',
       // web-app has its own bun toolchain and its own eslint config.
       'web-app/**',
     ],
@@ -30,6 +31,24 @@ export default tseslint.config(
     // The load scripts run in k6, not Node (TST-03): k6's globals, and the summary they print.
     files: ['load/**/*.js'],
     languageOptions: { globals: { __ENV: 'readonly', __VU: 'readonly', __ITER: 'readonly' } },
+    rules: { 'no-console': 'off' },
+  },
+  {
+    // load/live.mjs runs in Node 22 beside them (N1.4, #332): the globals it uses, and its summary.
+    files: ['load/**/*.mjs'],
+    languageOptions: {
+      globals: Object.fromEntries(
+        [
+          'AbortController',
+          'TextDecoder',
+          'console',
+          'fetch',
+          'performance',
+          'process',
+          'setTimeout',
+        ].map((name) => [name, 'readonly']),
+      ),
+    },
     rules: { 'no-console': 'off' },
   },
   {

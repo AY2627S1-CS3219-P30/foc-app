@@ -1,0 +1,972 @@
+# The requirements traceability matrix (REL-02, #168; PL-NFR4.1.1). Every Must requirement of the
+# D1 backlog (docs/Project D1 Submission.docx, as revised in #186), with the automated tests that
+# prove it. Rendered as docs/traceability.md: after editing, run `npm run traceability -w test-harness`.
+#
+# tests:    path::title, where title is the exact title of an it( or test( in that file, or the
+#           literal start of a `pass "` check in a bash script. CI checks every one exists.
+# areas:    PL-NFR4.1.1's areas (roles, transitions, reservations, returns, transfers, repeats).
+#           A requirement in one needs at least one test; evidence alone is not enough.
+# evidence: repository paths of what proves it when no test does, such as a measured report.
+# gap:      what is missing, when nothing automated proves it yet.
+
+requirements:
+  - id: US-FR1.1.1
+    text: "Registration shall treat email addresses that differ only in letter case or surrounding spaces as the same, refuse an address outside the NUS email domains the platform is configured to allow, and refuse an address that is already registered, without creating an account."
+    areas: [repeats]
+    tests:
+      - "user-service/test/registration.test.ts::rejects a duplicate email, including a case and whitespace variant, without a second row"
+      - "user-service/test/registration.test.ts::rejects an off-domain email and creates nothing"
+      - "user-service/test/registration.test.ts::lets exactly one of several simultaneous registrations for one email succeed"
+  - id: US-FR1.1.2
+    text: "Only an account with valid credentials shall be signed in, for a session of at most seven days; logging out shall end the current session."
+    tests:
+      - "user-service/test/sessions.test.ts::gives an unknown email and a wrong password the same response"
+      - "user-service/test/sessions.test.ts::ends a session seven days after login, however often it refreshes (US-FR1.1.2)"
+      - "user-service/test/sessions.test.ts::kills the refresh session and the access token immediately"
+  - id: US-FR2.1.1
+    text: "An active student shall be able to act as requester and as courier without a second account or a change of role by an administrator."
+    areas: [roles]
+    tests:
+      - "order-service/test/my-errands.test.ts::lets a student with an open errand of their own deliver someone else’s"
+      - "user-service/test/profile.test.ts::the requester↔courier switch changes the UI preference and no authorization decision (US-FR2.1.2)"
+      - "user-service/test/internal-lookup.test.ts::grants order permissions to an active student, and no admin rights"
+  - id: US-FR2.1.2
+    text: "The platform shall make every permission decision for a user's action itself; a displayed value, or a role or identity claimed by the user's device, shall never decide what a user may do."
+    areas: [roles]
+    tests:
+      - "user-service/test/matrix.test.ts::no client-supplied role, header or body field changes an outcome (US-NFR1.1.2)"
+      - "user-service/test/profile.test.ts::the requester↔courier switch changes the UI preference and no authorization decision (US-FR2.1.2)"
+      - "auth-client/test/nest-guards.test.ts::ignores any role a client claims in a header or body (US-NFR1.1.2)"
+  - id: US-FR3.1.1
+    text: "A student shall be able to view and update only their own display name, faculty, profile picture, contact preference, and preferred mode, and an update that tries to change a role, account status, identifier, or email shall be refused; an administrator may view any user's profile but not edit it, and only an administrator shall be able to change a user's account status."
+    areas: [roles]
+    tests:
+      - "user-service/test/profile.test.ts::edits the caller’s own fields and returns the new state"
+      - "user-service/test/profile.test.ts::rejects %s as not editable and changes nothing"
+      - "user-service/test/profile.test.ts::cannot touch another user: the target is always the token’s subject"
+  - id: US-FR3.1.2.1
+    text: "A user who is not an administrator shall not be permitted to perform any action on another user's account, including by putting another account's identifier in a request."
+    areas: [roles]
+    tests:
+      - "user-service/test/profile.test.ts::cannot touch another user: the target is always the token’s subject"
+      - "user-service/test/matrix.test.ts::no client-supplied role, header or body field changes an outcome (US-NFR1.1.2)"
+      - "user-service/test/matrix.test.ts::a well-formed but unknown id is refused before it is looked up, for a non-admin"
+  - id: US-FR3.1.2.2
+    text: "No account shall be deleted; an account that should no longer be used shall be suspended instead, so that every errand, credit entry, and audit record still resolves to the account it concerns."
+    tests:
+      - "user-service/test/matrix.test.ts::deny by default: every registered route is either in the matrix or explicitly public"
+      - "user-service/test/admin.test.ts::suspends: status changes, sessions die, the account is locked out, event and audit written"
+  - id: US-FR3.1.3.1
+    text: "Only a bootstrap administrator (US-FR3.1.3.2) may remove another administrator's role or suspend another administrator; no administrator may remove their own role or suspend themselves, and a change that would leave no active administrator shall be refused."
+    areas: [roles]
+    tests:
+      - "user-service/test/admin.test.ts::refuses an appointed admin who tries to downgrade another admin — even a seeded one"
+      - "user-service/test/admin.test.ts::forbids demoting yourself, seeded or appointed"
+      - "user-service/test/admin.test.ts::never leaves zero administrators, even when two seeded admins demote each other at once"
+  - id: US-FR3.1.3.2
+    text: "The first administrators (bootstrap administrators) shall be created from deployment configuration through the service's normal account provisioning, never by a direct database change. Running the bootstrap again, or twice at once, shall create no further accounts; each run shall be recorded in the audit trail without its secret; and no secret from the configuration shall remain usable after the administrator's first sign-in."
+    areas: [roles, repeats]
+    tests:
+      - "user-service/test/seed.test.ts::creates one account when two bootstraps overlap (interleaved, not truly parallel)"
+      - "user-service/test/seed.test.ts::writes one row per created admin, with the SYSTEM as actor and no secret"
+      - "user-service/test/seed.test.ts::after the change, the new password works and the bootstrap password never does again"
+  - id: US-FR3.1.3.3
+    text: "An administrator shall be able to appoint an active student as an administrator, with a reason, without any developer involvement."
+    areas: [roles]
+    tests:
+      - "user-service/test/admin.test.ts::appoints an admin, who can then use admin endpoints, and records who granted it"
+      - "user-service/test/admin.test.ts::refuses to appoint an account that is not active"
+      - "user-service/test/admin-controls.test.ts::changes nothing until a second admin approves; then applies once, with both names on record"
+  - id: US-FR4.1.1
+    text: "After a student's first activation, the service shall tell the Credit Service, so that the new account receives its initial credits."
+    areas: [repeats]
+    tests:
+      - "user-service/test/registration.test.ts::activates the account and publishes exactly one user.activated"
+      - "user-service/test/registration.test.ts::is idempotent on replay: 200, alreadyActivated, and no second event"
+      - "scripts-demo-journey.sh::the wallet arrived by itself: 10 available, 0 reserved"
+  - id: US-FR4.1.2
+    text: "A lookup by another verified platform service shall return only whether the account exists, its status, its roles, and its display name, and shall never return passwords, stored password values, or security tokens."
+    tests:
+      - "user-service/test/internal-lookup.test.ts::returns only existence, status, roles and display name"
+      - "user-service/test/internal-lookup.test.ts::never returns a hash, token or email, whatever the account state"
+      - "user-service/test/matrix.test.ts::internal endpoint %i refuses every user token, including an administrator’s"
+  - id: US-FR4.1.3
+    text: "The service shall expose a user's effective permissions to any service that requires administrator authorization before carrying out an action."
+    areas: [roles]
+    tests:
+      - "user-service/test/internal-lookup.test.ts::grants order permissions to an active student, and no admin rights"
+      - "user-service/test/internal-lookup.test.ts::reports admin only for an ACTIVE account holding ADMIN"
+      - "auth-client/test/integration.test.ts::rejects a real student token and accepts a real admin token on the admin route"
+  - id: US-FR4.1.4
+    text: "When an account is suspended or reactivated, the service shall tell dependent services which account changed, its new status, the reason, and when it happened, so that they can act on the change within 10 seconds."
+    tests:
+      - "user-service/test/admin.test.ts::suspends: status changes, sessions die, the account is locked out, event and audit written"
+      - "user-service/test/admin.test.ts::reactivates, allows login again, and records event and audit"
+      - "auth-client/test/integration.test.ts::a suspension is enforced no later than the window, and the answer is reused inside it"
+  - id: US-NFR1.1.1
+    text: "Automated tests shall cover every protected action for signed-out users, active students, suspended students, and administrators, including requests that name another user's account, with zero successful unauthorized actions."
+    areas: [roles]
+    tests:
+      - "user-service/test/matrix.test.ts::unauthenticated → 401"
+      - "user-service/test/matrix.test.ts::suspended student → refused, never a success"
+      - "user-service/test/matrix.test.ts::deny by default: every registered route is either in the matrix or explicitly public"
+  - id: US-NFR1.1.2
+    text: "All permission decisions shall be made by the platform services, which shall check the signature, issuer, and expiry of the caller's token on every request before making one; nothing supplied by the user's device shall decide what a user may do."
+    areas: [roles]
+    tests:
+      - "auth-client/test/authenticator.test.ts::a token signed by a different key, or with another issuer, → TOKEN_INVALID"
+      - "auth-client/test/authenticator.test.ts::an expired token → TOKEN_EXPIRED (401), distinct from malformed"
+      - "user-service/test/matrix.test.ts::no client-supplied role, header or body field changes an outcome (US-NFR1.1.2)"
+  - id: US-NFR2.1.1
+    text: "Passwords shall be stored only in a form that cannot be reversed and that makes guessing slow, with each password protected separately; no password, stored password value, or security token shall appear in application logs."
+    tests:
+      - "user-service/test/units.test.ts::hashes with Argon2id, verifies, and salts uniquely"
+      - "user-service/test/log-privacy.test.ts::writes no password, hash or token to any log line at any level"
+      - "user-service/test/log-privacy.test.ts::logs no email address, credential or token on any tested path"
+  - id: US-NFR2.1.2
+    text: "A session shall expire within seven days, shall be stored so that a copy of the stored data cannot be used to sign in, and shall stop granting access within 10 seconds of logout or suspension."
+    tests:
+      - "user-service/test/sessions.test.ts::ends a session seven days after login, however often it refreshes (US-FR1.1.2)"
+      - "user-service/test/sessions.test.ts::stores only a hash of the refresh token"
+      - "auth-client/test/authenticator.test.ts::a suspension or logout is enforced within the window — and not one tick earlier or later"
+  - id: US-NFR4.1.1
+    text: "Logs shall identify a user and a request only by platform identifiers, and shall never contain a user's email address, password, or security token in any tested path."
+    tests:
+      - "user-service/test/log-privacy.test.ts::logs no email address, credential or token on any tested path"
+      - "user-service/test/log-privacy.test.ts::logs an unhandled error without the row PostgreSQL quotes or the address a mailer names"
+      - "user-service/test/seed.test.ts::counts the admins created and lists the skipped entries"
+  - id: US-NFR4.1.2
+    text: "Each suspension, reactivation, and administrator role change shall record who acted, the affected account, the action, the reason, and the time, in a record that cannot be altered."
+    areas: [roles]
+    tests:
+      - "user-service/test/admin.test.ts::lists records newest first and filters by target"
+      - "user-service/test/admin.test.ts::appoints an admin, who can then use admin endpoints, and records who granted it"
+      - "user-service/test/admin.test.ts::is append-only: the database rejects UPDATE and DELETE"
+  - id: SS-FR1.1.1
+    text: "A supplier shall have a system-assigned identifier that never changes, a name, a type (food, café, printing, shopping, or landmark), a building from the campus building list, a floor, a location description saying where to find it in the building, and whether it is active, and shall record when it was created and last changed; opening hours, coordinates, an image, and tags are optional."
+    tests:
+      - "supplier-service/test/provider.contract.test.ts::POST, GET, PUT and DELETE /suppliers with success and error responses"
+      - "supplier-service/test/suppliers.test.ts::lets an admin create a supplier (201) and returns it"
+      - "supplier-service/test/seed.test.ts::gives every record all required fields, one allowed type and a stable id"
+    gap: "The service checks buildings against no campus list (normalizeBuilding keeps unknown buildings, and tests create suppliers in made-up buildings such as 'B0' and 'Zebra Hall'), so no test can prove a supplier's building comes from that list."
+  - id: SS-FR1.1.2
+    text: "The service shall reject a supplier with a missing or blank required field, a type or building not on its list, or malformed opening hours or coordinates, naming every field that failed and why, and shall save nothing. Two suppliers in one building may not share a name, ignoring letter case; branches of one brand in different buildings are separate suppliers."
+    tests:
+      - "supplier-service/test/suppliers.test.ts::reports an invalid type, a blank required field and a malformed coordinate together"
+      - "supplier-service/test/suppliers.test.ts::refuses a case-insensitive duplicate of name+building among active suppliers"
+      - "supplier-service/test/suppliers.test.ts::rejects latitude without longitude"
+    gap: "No test rejects a building that is not on a campus list (the service accepts any building), sends malformed opening hours to the API, or checks that nothing was saved after a 422."
+  - id: SS-FR1.1.3
+    text: "Opening hours, where given, shall be recorded for each day of the week as zero or more pairs of opening and closing times in 24-hour format, so that a closed day, a midday break, or a supplier open all day can be represented; a closing time earlier than its opening time means closing after midnight."
+    tests:
+      - "supplier-service/test/units.test.ts::treats 0000-2359 as an all-day window across every day"
+      - "supplier-service/test/units.test.ts::keeps a post-midnight close (opens > closes)"
+      - "supplier-service/test/units.test.ts::converts 0900hrs to 09:00"
+    gap: "Validation allows each day at most once ('split shifts are not supported'), so a day with two opening periods such as a midday break cannot be stored, and no test shows a closed day or 24-hour times through the API (these tests cover only seed normalization)."
+  - id: SS-FR2.1.1
+    text: "Any signed-in, active user may list, search, and view suppliers; only an administrator may create, update, or delete one, and each accepted change shall record when it was made."
+    areas: [roles]
+    tests:
+      - "supplier-service/test/auth-integration.test.ts::rejects a student token on create and accepts an admin token"
+      - "supplier-service/test/auth-integration.test.ts::lets a student read, and refuses a student on update and deactivate"
+      - "supplier-service/test/auth-integration.test.ts::refuses a suspended admin and a revoked session, whatever the token still says"
+    gap: "No test checks that an accepted update or deactivation moves updatedAt forward, or that a suspended user is refused a read."
+  - id: SS-FR2.1.2.1
+    text: "A supplier marked for deletion shall not be selectable for a new errand, and its record shall be retained until every errand referencing it has reached a terminal state, after which it may be removed."
+    tests:
+      - "order-service/test/order-creation.test.ts::rejects an inactive supplier without writing an order"
+      - "supplier-service/test/suppliers.test.ts::excludes a deactivated supplier from listings but keeps its row, fetchable by id"
+  - id: SS-FR2.1.3
+    text: "Repeating a create request with the same request key shall return the original supplier rather than create another or report a duplicate; an update made to an out-of-date copy of a supplier shall be refused rather than overwrite a newer change; and a failed write shall leave the supplier as it was and tell the caller that nothing was saved."
+    areas: [repeats]
+    tests:
+      - "supplier-service/test/suppliers.test.ts::returns the original supplier on a repeat, not a 409 or a second row"
+      - "supplier-service/test/suppliers.test.ts::rejects a stale version with 412 and changes nothing"
+      - "supplier-service/test/suppliers.test.ts::requires If-Match and refuses a stale version"
+    gap: "No test makes a supplier write fail in storage (for example the database unavailable) and checks the supplier is unchanged and the caller is told nothing was saved."
+  - id: SS-FR3.1.1
+    text: "The list shall show active suppliers a page at a time, each with its identifier, name, type, building, and image where there is one, and let the user filter by type and by building; a search or filter that matches nothing shall return an empty page rather than an error."
+    tests:
+      - "supplier-service/test/suppliers-listing.test.ts::returns a lean list item — name, type, building, image only"
+      - "supplier-service/test/suppliers-listing.test.ts::combines type and building filters"
+      - "supplier-service/test/suppliers-listing.test.ts::is a 200 empty page when nothing matches, not a 404"
+  - id: SS-FR3.1.2
+    text: "Search shall match a supplier's name, building, location description, or tags regardless of letter case, and may be combined with the filters in SS-FR3.1.1."
+    tests:
+      - "supplier-service/test/suppliers-listing.test.ts::matches the term in name, building, location description or tags"
+    gap: "No service test combines a search term with a type or building filter (only the web client's request building, in web-app/test/supplier-api.test.ts, sends them together)."
+  - id: SS-FR3.1.3
+    text: "The user shall be able to sort the list by name, type, building, or last update, ascending or descending, defaulting to name ascending; suppliers that tie shall always appear in the same order, so that paging never repeats or skips one."
+    tests:
+      - "supplier-service/test/suppliers-listing.test.ts::defaults to page 1, size 20, name ascending"
+      - "supplier-service/test/suppliers-listing.test.ts::pages the full set with no gaps or duplicates, ordered by name then ID"
+      - "supplier-service/test/suppliers-listing.test.ts::breaks equal-name ties by ID even when building order disagrees"
+  - id: SS-FR3.2.1
+    text: "A lookup by identifier shall return every stored field, including opening hours and the location description; an identifier that matches no supplier shall be reported as not found."
+    tests:
+      - "supplier-service/test/provider.contract.test.ts::POST, GET, PUT and DELETE /suppliers with success and error responses"
+    gap: "No test checks that GET /suppliers/{id} for an unknown id answers 404 NOT_FOUND (the contract check also accepts a 422 or 503 there), or that stored opening hours and location description come back unchanged."
+  - id: SS-FR4.1.1
+    text: "Seeding shall load the template data, with its building names made consistent, plus additions, for at least 30 active suppliers covering every type and at least 10 campus buildings; running it again shall not duplicate or change existing suppliers."
+    areas: [repeats]
+    tests:
+      - "supplier-service/test/seed.test.ts::holds ≥30 records across ≥10 buildings and every type"
+      - "supplier-service/test/seed.test.ts::has no building that appears under two spellings"
+      - "supplier-service/test/seed.test.ts::three consecutive runs keep the same count and identifiers"
+  - id: SS-NFR1.1.1
+    text: "Automated tests shall prove that every stored supplier has all required information, one allowed type, an unchanging identity, and no active duplicate with the same name and building, ignoring letter case."
+    tests:
+      - "supplier-service/test/seed.test.ts::gives every record all required fields, one allowed type and a stable id"
+      - "supplier-service/test/suppliers.test.ts::refuses a case-insensitive duplicate of name+building among active suppliers"
+      - "supplier-service/test/suppliers.test.ts::reports an invalid type, a blank required field and a malformed coordinate together"
+  - id: SS-NFR1.1.2
+    text: "Running the seed command three consecutive times shall produce the same record count and identifiers, with no duplicate or overwritten administrator edits."
+    areas: [repeats]
+    tests:
+      - "supplier-service/test/seed.test.ts::three consecutive runs keep the same count and identifiers"
+      - "supplier-service/test/seed.test.ts::never overwrites an admin edit made between runs"
+      - "supplier-service/test/seed.test.ts::leaves a supplier the admin deactivated deactivated on re-run"
+  - id: SS-NFR3.1.1
+    text: "Deactivating a supplier shall not remove information that errands in progress rely on, and a deactivated supplier shall disappear from requester search within five seconds."
+    tests:
+      - "order-service/test/order-creation.test.ts::keeps the errand’s pickup as it was when the supplier is renamed, moved or deactivated"
+      - "supplier-service/test/suppliers-listing.test.ts::are excluded from the listing but stay fetchable by id"
+      - "web-app/test/suppliers.integration.test.tsx::lets an admin create, edit and delete a supplier from the page"
+  - id: SS-NFR3.1.2
+    text: "A restart test shall show zero loss of saved supplier changes and readiness within 60 seconds once the service's storage is available."
+    tests:
+      - "scripts-restart-check.sh::no table in any of the four databases lost a row"
+      - "scripts-restart-check.sh::every service is healthy again once Postgres is back"
+    gap: "The CI restart check compares only row counts and saves no supplier edit before restarting, so a lost change would go unnoticed, and it allows 120–180 s for recovery instead of checking readiness within 60 s."
+  - id: OS-FR1.1.1
+    text: "If the reservation is refused, the errand shall be rejected with the reason and no credits held; for insufficient credits, the requester shall be told the amount required and their available balance."
+    areas: [reservations, transitions]
+    tests:
+      - "order-service/test/reservation-results.test.ts::moves a refusal to REJECTED with its actionable insufficient-credit details"
+      - "web-app/e2e/request-journey.e2e.ts::request journey: post, wait for credits, open; then an insufficient-credit rejection"
+      - "system-tests/test/races.test.ts::never lets concurrent reservations overspend one wallet"
+  - id: OS-FR1.1.2
+    text: "If the Credit Service is unavailable, the errand shall wait rather than be rejected, and shall open or be rejected once the Credit Service answers, without the requester resubmitting."
+    areas: [reservations, transitions]
+    tests:
+      - "order-service/test/order-credit-wait.test.ts::surfaces an order waiting over 5 minutes to an operator once, and it still opens later"
+      - "scripts-restart-check.sh::a second errand waits for Credit, which is stopped"
+      - "scripts-restart-check.sh::the errand that was waiting for Credit opened by itself"
+    gap: "No test lets Credit come back from an outage and then refuse, to show a waiting errand becomes REJECTED; only the late-OPEN path is proven."
+  - id: OS-FR1.1.3
+    text: "The request to reserve credits shall be saved together with the errand, so that no saved errand is left without one; an errand still waiting for credits after five minutes shall be surfaced to an operator."
+    areas: [reservations]
+    tests:
+      - "order-service/test/order-creation.test.ts::commits PENDING_CREDIT and both outbox facts while Credit is absent"
+      - "order-service/test/order-creation.test.ts::rolls back every write when creation fails after %s"
+      - "order-service/test/order-credit-wait.test.ts::surfaces an order waiting over 5 minutes to an operator once, and it still opens later"
+  - id: OS-FR1.2.1
+    text: "An errand shall have an acceptance deadline of 60 minutes from when it opens, and the interface shall show the time remaining."
+    tests:
+      - "order-service/test/reservation-results.test.ts::moves a pending order to OPEN once and starts its acceptance deadline"
+      - "order-service/test/order-acceptance.test.ts::lists only unexpired OPEN orders through a privacy-safe summary"
+      - "web-app/test/errand-actions.test.tsx::counts down from the time the server gave and removes the card at zero"
+    gap: "No test checks that the deadline is exactly 60 minutes after opening; tests only check it is in the future, and 60 minutes is just the ACCEPTANCE_WINDOW_MS config default (3600000)."
+  - id: OS-FR1.3.1
+    text: "A request shall specify one active supplier, one or more items, a delivery zone, exact delivery instructions, and a reward of one to five credits; a request missing any of these, naming an inactive supplier, or made by a suspended student shall be refused without saving an errand or reserving any credits."
+    areas: [roles, reservations]
+    tests:
+      - "order-service/test/order-creation.test.ts::rejects invalid input before contacting Supplier or entering the saga"
+      - "order-service/test/order-creation.test.ts::rejects an inactive supplier without writing an order"
+      - "system-tests/test/reward-bounds.test.ts::Order's largest reward is exactly the largest reservation Credit accepts"
+    gap: "No test posts an errand as a suspended student (suspension is only tested on other endpoints and in the auth guard), and no test sends a request missing only the delivery zone or only the delivery instructions."
+  - id: OS-FR2.1.1
+    text: "The open list shall include supplier, item summary, delivery zone, reward, and time remaining, but shall hide exact delivery instructions until the courier is assigned."
+    areas: [roles]
+    tests:
+      - "order-service/test/order-acceptance.test.ts::lists only unexpired OPEN orders through a privacy-safe summary"
+      - "order-service/test/order-privacy.test.ts::leaks nothing to a former courier, an unrelated student or an unreferred administrator"
+      - "web-app/e2e/errand-journey.e2e.ts::errand journey: a lost acceptance race, fulfilment, and the requester confirming"
+  - id: OS-FR2.1.2
+    text: "A requester or currently assigned courier shall see full errand details and status history, and an administrator may see those of an errand referred to them under OS-FR9.1.1; any other student, including a courier who withdrew or was removed, shall see only the open-list view and shall be denied access to private details."
+    areas: [roles]
+    tests:
+      - "order-service/test/order-privacy.test.ts::leaks nothing to a former courier, an unrelated student or an unreferred administrator"
+      - "order-service/test/order-privacy.test.ts::removes a timed-out courier from private access and keeps closed orders private"
+      - "order-service/test/order-privacy.test.ts::opens a dispute to its assigned administrator only, and moves that access on replacement"
+  - id: OS-FR2.1.3
+    text: "An errand's details shall show its supplier as it was when the errand was created, even after the supplier is changed or removed."
+    tests:
+      - "order-service/test/order-creation.test.ts::keeps the errand’s pickup as it was when the supplier is renamed, moved or deactivated"
+  - id: OS-FR3.1.1
+    text: "Acceptance shall be rejected if the actor is the requester, the actor is suspended, the errand is no longer open, or the acceptance deadline has passed."
+    areas: [roles, transitions]
+    tests:
+      - "order-service/test/order-acceptance.test.ts::refuses self, suspended, stale-version, expired and non-OPEN acceptance"
+      - "order-service/test/order-mutation-matrix.test.ts::in %s, every refused command is 403/409 and leaves no trace"
+      - "scripts-demo-journey.sh::a requester cannot accept their own errand (403 SELF_ACCEPTANCE_FORBIDDEN)"
+  - id: OS-FR3.1.2
+    text: "When several couriers try to accept the same errand at once, exactly one shall be assigned; every other courier shall be told the errand is no longer available, along with its current status."
+    areas: [transitions]
+    tests:
+      - "order-service/test/order-acceptance.postgres.test.ts::uses one conditional update to choose one winner among 100 couriers"
+      - "system-tests/test/races.test.ts::OS-FR3.1.2: 100 simultaneous acceptances yield one courier, who alone is paid"
+      - "web-app/e2e/errand-journey.e2e.ts::errand journey: a lost acceptance race, fulfilment, and the requester confirming"
+    evidence:
+      - "docs/reports/credit-conservation-2026-10-01.md"
+    gap: "No test checks that the losing courier's 409 ORDER_NOT_OPEN response includes the errand's current status (error.details.status), though the service sends it."
+  - id: OS-FR4.1.1
+    text: "The assigned courier may mark an accepted errand as picked up and a picked-up errand as delivered; any other actor, or an errand in any other status, shall be rejected without changing the errand."
+    areas: [roles, transitions]
+    tests:
+      - "order-service/test/order-fulfilment.test.ts::moves courier pickup and delivery, then requester confirmation, into COMPLETION_PENDING_CREDIT"
+      - "order-service/test/order-fulfilment.test.ts::refuses every invalid actor or source state without mutating anything"
+      - "order-service/test/order-mutation-matrix.test.ts::in %s, every refused command is 403/409 and leaves no trace"
+  - id: OS-FR4.1.2
+    text: "Only the requester may confirm a delivered errand, and confirmation shall ask the Credit Service to transfer the reserved reward to the courier."
+    areas: [roles, transitions, transfers]
+    tests:
+      - "order-service/test/order-fulfilment.test.ts::moves courier pickup and delivery, then requester confirmation, into COMPLETION_PENDING_CREDIT"
+      - "scripts-demo-journey.sh::the courier cannot confirm their own delivery (403 ACTION_FORBIDDEN)"
+      - "scripts-demo-journey.sh::3 credits moved from the requester's reserve to the courier: 7/0 and 13/0"
+  - id: OS-FR4.1.3
+    text: "Instead of confirming, the requester may report a delivered errand as not received, which shall refer it to an administrator under OS-FR9.1.1."
+    areas: [transitions]
+    tests:
+      - "order-service/test/order-outcomes.test.ts::refers a delivered errand the requester reports as not received"
+      - "order-service/test/admin-referral.test.ts::assigns a dispute on the next run, recorded in history without a status change or event"
+      - "order-service/test/order-outcomes.test.ts::report, then the timer: the errand stays with an administrator and nothing is paid"
+  - id: OS-FR4.1.4
+    text: "A delivered errand that the requester has neither confirmed nor reported as not received within 24 hours of delivery shall be confirmed automatically."
+    areas: [transitions, transfers]
+    tests:
+      - "order-service/test/order-outcomes.test.ts::auto-confirms a delivered errand once its period has passed, requesting the transfer once"
+      - "order-service/test/order-outcomes.test.ts::saves each deadline when its period starts and shows it to the participants in that status"
+      - "order-service/test/order-outcomes.postgres.test.ts::confirms each overdue errand once across many concurrent scheduler instances"
+  - id: OS-FR4.1.5
+    text: "If a picked-up errand has no delivery recorded 2 hours after pickup, the requester may refer it to an administrator under OS-FR9.1.1."
+    areas: [transitions]
+    tests:
+      - "order-service/test/order-outcomes.test.ts::refers the errand to an administrator once the delivery period has passed"
+      - "order-service/test/order-outcomes.test.ts::refuses a non-delivery report before the delivery period has passed"
+      - "order-service/test/order-outcomes.test.ts::saves each deadline when its period starts and shows it to the participants in that status"
+  - id: OS-FR5.1.1
+    text: "When the Credit Service confirms the reward transfer, the errand shall become completed and its completion time recorded; if the transfer fails, the errand shall stay pending for retry or support handling."
+    areas: [transfers, transitions]
+    tests:
+      - "order-service/test/order-fulfilment.test.ts::completes only on a matching transfer, once, and writes the immutable receipt"
+      - "system-tests/test/reconciliation.test.ts::converges after losing %s"
+      - "order-service/test/credit-reconciliation.test.ts::re-issues completion and release requests Credit can answer, and alerts on contradictions"
+  - id: OS-FR5.1.2
+    text: "A completed errand shall have a receipt that cannot be changed, showing the requester, courier, items, supplier details as they were when the errand was created, reward, the time of each status change, and a reference to the credit transfer."
+    areas: [transfers]
+    tests:
+      - "order-service/test/order-fulfilment.test.ts::completes only on a matching transfer, once, and writes the immutable receipt"
+      - "web-app/e2e/errand-journey.e2e.ts::errand journey: a lost acceptance race, fulfilment, and the requester confirming"
+    gap: "The receipt has no items field (OrderReceipt in order-service/src/orders/types.ts holds none, and nor does the order_receipts table), so items cannot be on it; and no test checks the receipt's supplier snapshot beyond supplierId."
+  - id: OS-FR6.1.1
+    text: "The requester may cancel an open or accepted errand before pickup, and an assigned courier may withdraw from an accepted errand before pickup; withdrawal reopens the errand if its deadline has not passed and otherwise expires it, while cancellation releases the reserved credits."
+    areas: [transitions, returns, roles]
+    tests:
+      - "order-service/test/order-cancel-expiry.test.ts::lets the requester cancel an ACCEPTED order before pickup, and never after"
+      - "order-service/test/order-cancel-expiry.test.ts::returns a withdrawn order to OPEN before its deadline and removes the courier"
+      - "order-service/test/order-cancel-expiry.test.ts::expires a withdrawal after the deadline and returns the credits exactly once"
+  - id: OS-FR6.1.2
+    text: "An open errand that passes its acceptance deadline shall expire automatically. A cancelled or expired errand shall be finalised only after the Credit Service confirms the credits were released. An errand that has been picked up shall not be cancelled directly."
+    areas: [transitions, returns]
+    tests:
+      - "order-service/test/order-cancel-expiry.test.ts::expires an overdue OPEN order once, even when sweeps overlap"
+      - "order-service/test/order-cancel-expiry.test.ts::lets the requester cancel an OPEN order and finalises CANCELLED on the release, once"
+      - "order-service/test/order-cancel-expiry.test.ts::lets the requester cancel an ACCEPTED order before pickup, and never after"
+  - id: OS-FR6.1.3
+    text: "If an accepted errand has no pickup recorded 30 minutes after acceptance, the courier shall be removed and the errand handled as a courier withdrawal under OS-FR6.1.1."
+    areas: [transitions, returns]
+    tests:
+      - "order-service/test/order-cancel-expiry.test.ts::removes a courier who has not picked up within the configured timeout"
+      - "order-service/test/order-cancel-expiry.test.ts::expires a timed-out pickup after the deadline and requests one release"
+      - "order-service/test/order-privacy.test.ts::removes a timed-out courier from private access and keeps closed orders private"
+  - id: OS-FR7.1.1
+    text: "Repeating the same request, for example after a network retry, shall return the original result without changing the errand again; repeating it with different content shall be rejected."
+    areas: [repeats]
+    tests:
+      - "order-service/test/order-creation.test.ts::returns the original result for repeated requests without rechecking Supplier"
+      - "order-service/test/order-creation.test.ts::refuses an idempotency key reused with different facts"
+      - "web-app/e2e/reconnect-journey.e2e.ts::reconnect journey: a lost or offline post creates one errand"
+  - id: OS-FR7.1.2
+    text: "Every status change shall be recorded with the previous and new status, who or what made the change, and when it happened."
+    areas: [transitions]
+    tests:
+      - "order-service/test/orders.test.ts::records who or what changed a status, the transition, version and timestamp"
+      - "order-service/test/order-cancel-expiry.test.ts::expires an overdue OPEN order once, even when sweeps overlap"
+      - "order-service/test/admin-referral.test.ts::refuses a stale or repeated decision with 409 and requests the transfer once"
+  - id: OS-FR7.1.3
+    text: "While the service is waiting for the Credit Service to confirm a reservation, transfer, or return of credits, no participant action, administrator action, or timer shall change the errand."
+    areas: [reservations, transfers, returns, transitions]
+    tests:
+      - "order-service/test/order-cancel-expiry.test.ts::holds RELEASE_PENDING_CREDIT against every participant, administrator and timer action"
+      - "order-service/test/order-fulfilment.test.ts::holds COMPLETION_PENDING_CREDIT against every participant, administrator and timer action"
+      - "order-service/test/order-mutation-matrix.test.ts::in %s, every refused command is 403/409 and leaves no trace"
+  - id: OS-FR8.1.1
+    text: "If an assigned courier is suspended before pickup, the errand shall return to open with its acceptance deadline extended by the time it was assigned, and the reason shall be recorded in its history."
+    areas: [transitions]
+    tests:
+      - "order-service/test/participant-suspension.test.ts::reopens an errand whose courier is suspended before pickup, extending its deadline by the time they held it"
+  - id: OS-FR8.1.2
+    text: "The requester's reserved credits shall stay held while the errand is reassigned, and the suspended courier shall be denied any further action on that errand."
+    areas: [reservations, roles]
+    tests:
+      - "order-service/test/participant-suspension.test.ts::reopens an errand whose courier is suspended before pickup, extending its deadline by the time they held it"
+      - "order-service/test/order-mutation-matrix.test.ts::in %s, every refused command is 403/409 and leaves no trace"
+      - "order-service/test/order-acceptance.test.ts::refuses self, suspended, stale-version, expired and non-OPEN acceptance"
+  - id: OS-FR8.1.3
+    text: "If an assigned courier is suspended after pickup and before delivery, the errand shall be referred to an administrator under OS-FR9.1.1."
+    areas: [transitions]
+    tests:
+      - "order-service/test/participant-suspension.test.ts::refers an errand whose courier is suspended after pickup, keeping them on it"
+      - "order-service/test/order-state-machine.test.ts::declares a System rule for every action a suspension takes, and none it leaves out"
+  - id: OS-FR8.2.1
+    text: "A suspended requester's errands that have not been picked up shall be cancelled and their reserved credits returned."
+    areas: [transitions, returns]
+    tests:
+      - "order-service/test/participant-suspension.test.ts::cancels an errand whose requester was suspended while it waited for its reservation"
+      - "order-service/test/participant-suspension.postgres.test.ts::never leaves the errand open, whichever of the two runs first"
+  - id: OS-FR8.2.2
+    text: "A suspended requester's picked-up and delivered errands shall continue, and a picked-up errand with no delivery recorded 2 hours after pickup shall be referred to an administrator automatically."
+    areas: [transitions]
+    tests:
+      - "order-service/test/participant-suspension.test.ts::lets a picked-up errand continue when its requester is suspended within the delivery period"
+      - "order-service/test/participant-suspension.test.ts::refers a picked-up errand when the delivery period ends after its requester was suspended"
+      - "order-service/test/participant-suspension.test.ts::leaves a delivered errand to be confirmed whoever is suspended, and auto-confirms it"
+  - id: OS-FR9.1.1
+    text: "An administrator shall decide a referred errand with a recorded reason, either completing it by transferring the reserved credits to the courier or cancelling it and returning them to the requester; no participant action or timer shall change the errand while it is referred."
+    areas: [roles, transitions, transfers, returns]
+    tests:
+      - "order-service/test/admin-referral.test.ts::refuses a stale or repeated decision with 409 and requests the transfer once"
+      - "order-service/test/admin-referral.test.ts::refuses every admin but the assigned one, and requests one release for the requester (from %s)"
+      - "order-service/test/order-outcomes.test.ts::a dispute raised from %s ignores every timer"
+  - id: OS-NFR1.1.1
+    text: "A test of 100 simultaneous acceptance requests for one open errand shall result in exactly one assigned courier and 99 rejections."
+    areas: [transitions]
+    tests:
+      - "order-service/test/order-acceptance.postgres.test.ts::uses one conditional update to choose one winner among 100 couriers"
+      - "system-tests/test/races.test.ts::OS-FR3.1.2: 100 simultaneous acceptances yield one courier, who alone is paid"
+    evidence:
+      - "docs/reports/credit-conservation-2026-10-01.md"
+  - id: OS-NFR1.1.2
+    text: "Automated tests shall try every combination of user, errand status, and action, allowed or not, and shall find no change that is not allowed."
+    areas: [roles, transitions]
+    tests:
+      - "order-service/test/order-state-machine.test.ts::tries every status/action/actor/context combination and permits only a declared rule"
+      - "order-service/test/order-mutation-matrix.test.ts::in %s, every refused command is 403/409 and leaves no trace"
+      - "order-service/test/order-state-machine.test.ts::never lets a requester accept their own errand or a non-admin resolve a dispute"
+  - id: OS-NFR3.1.1
+    text: "Each time-based rule (acceptance deadline, pickup timeout, auto-confirmation, and late-delivery referral for a suspended requester) shall take effect no later than 60 seconds after its time passes; one that fell due while the service was unavailable shall take effect within 60 seconds of the service becoming ready."
+    areas: [transitions]
+    tests:
+      - "order-service/test/order-cancel-expiry.test.ts::applies a timer that fell due during downtime as soon as the service is ready"
+      - "order-service/test/order-outcomes.test.ts::auto-confirms a delivered errand once its period has passed, requesting the transfer once"
+      - "order-service/test/participant-suspension.test.ts::refers a picked-up errand when the delivery period ends after its requester was suspended"
+    gap: "Only the acceptance deadline is timed against 60 s, and only after downtime. The other timers are shown to fire on the next sweep, but the 60 s limit on LIFECYCLE_SWEEP_INTERVAL_MS is enforced only by the config schema and no test checks it."
+  - id: OS-NFR3.1.2
+    text: "If a participant action and a time-based rule apply to the same errand at the same moment, only one shall take effect, so an errand is never, for example, both accepted and expired."
+    areas: [transitions]
+    tests:
+      - "order-service/test/order-expiry.postgres.test.ts::never both accepts and expires an order racing its deadline"
+      - "order-service/test/order-outcomes.postgres.test.ts::gives one outcome when a report, a confirmation and the timer land together"
+      - "order-service/test/order-outcomes.test.ts::the timer, then confirm: the confirmation is refused"
+  - id: OS-NFR3.1.3
+    text: "The acceptance period (default 60 minutes), pickup timeout (default 30 minutes), late-delivery period (default 2 hours), and auto-confirmation period (default 24 hours) shall be adjustable per deployment without code changes."
+    tests:
+      - "order-service/test/order-cancel-expiry.test.ts::removes a courier who has not picked up within the configured timeout"
+      - "order-service/test/order-outcomes.test.ts::saves each deadline when its period starts and shows it to the participants in that status"
+    gap: "No test sets ACCEPTANCE_WINDOW_MS, DELIVERY_PERIOD_MS or AUTO_CONFIRM_MS to a new value and shows it takes effect. Only the pickup timeout is shown adjustable, and through the scheduler option rather than PICKUP_TIMEOUT_MS. The 60-minute acceptance default is never asserted."
+  - id: OS-NFR4.1.1
+    text: "If the service crashes after saving a status change but before notifying other services, the notification shall be sent after restart without repeating the status change."
+    areas: [repeats]
+    tests:
+      - "order-service/test/order-recovery.postgres.test.ts::publishes every event committed before a SIGKILL, once, after restart, and the pending order reconciles"
+      - "order-service/test/order-recovery.postgres.test.ts::republishes an event under the same ID after a SIGKILL mid-publish, so a consumer applies it once"
+      - "order-service/test/order-creation.test.ts::delivers committed outbox rows after a simulated crash-before-publish restart"
+  - id: OS-NFR4.1.2
+    text: "Orders in a pending-credit terminal or completion state shall remain queryable after restart and shall be reconciled automatically or surfaced to an operator within five minutes."
+    areas: [reservations, transfers, returns]
+    tests:
+      - "order-service/test/credit-reconciliation.test.ts::re-issues completion and release requests Credit can answer, and alerts on contradictions"
+      - "order-service/test/order-recovery.postgres.test.ts::publishes every event committed before a SIGKILL, once, after restart, and the pending order reconciles"
+      - "order-service/test/order-credit-wait.test.ts::surfaces an order waiting over 5 minutes to an operator once, and it still opens later"
+    gap: "No test shows that a completion- or release-pending order is reconciled or surfaced within five minutes: the reconciliation tests age the order by an hour, and the 5-minute operator alert covers only PENDING_CREDIT."
+  - id: OS-NFR5.1.1
+    text: "Automated tests shall show that no unrelated student, including a courier who withdrew or was removed, can see exact delivery instructions, participant identities, or the private status history of an errand, and that an administrator can see them only for an errand referred to them."
+    areas: [roles]
+    tests:
+      - "order-service/test/order-privacy.test.ts::leaks nothing to a former courier, an unrelated student or an unreferred administrator"
+      - "order-service/test/order-privacy.test.ts::removes a timed-out courier from private access and keeps closed orders private"
+      - "order-service/test/order-privacy.test.ts::opens a dispute to its assigned administrator only, and moves that access on replacement"
+  - id: OS-NFR5.1.2
+    text: "Every unauthorised or invalid action shall be rejected with a clear reason and shall leave the errand unchanged."
+    areas: [roles, transitions]
+    tests:
+      - "order-service/test/order-mutation-matrix.test.ts::in %s, every refused command is 403/409 and leaves no trace"
+      - "order-service/test/order-fulfilment.test.ts::refuses every invalid actor or source state without mutating anything"
+      - "order-service/test/order-acceptance.test.ts::refuses self, suspended, stale-version, expired and non-OPEN acceptance"
+  - id: CS-FR1.1.1
+    text: "A new wallet shall hold 10 available credits and no reserved credits, and its history shall record the initial allocation."
+    tests:
+      - "credit-service/test/wallets.test.ts::turns 100 duplicate activation deliveries into one wallet and one balanced issuance"
+      - "scripts-demo-journey.sh::the wallet arrived by itself: 10 available, 0 reserved"
+      - "scripts-demo-journey.sh::its ledger has one entry: the initial issue"
+  - id: CS-FR1.1.2
+    text: "A repeated activation shall not create a second wallet or issue more credits; students shall have no way to purchase, withdraw, convert to cash, or directly adjust credits."
+    areas: [repeats]
+    tests:
+      - "credit-service/test/wallets.test.ts::turns 100 duplicate activation deliveries into one wallet and one balanced issuance"
+      - "credit-service/test/wallets.test.ts::also deduplicates distinct activation event ids by user id"
+      - "credit-service/test/closed-economy.test.ts::registers reads, redrive and ledger audit, with no balance mutation route"
+  - id: CS-FR1.2.1
+    text: "Suspending a student shall not stop credits moving into or out of their wallet for errands already in progress; new requests from a suspended student are refused under OS-FR1.3.1."
+    areas: [transfers, returns]
+    tests:
+      - "order-service/test/participant-suspension.test.ts::leaves a delivered errand to be confirmed whoever is suspended, and auto-confirms it"
+    gap: "No test suspends a user and then shows Credit applying the transfer or release to their wallet; only Order's side (it still sends the transfer request) is proven, and the requester-suspension release test uses a template-literal title."
+  - id: CS-FR2.1.1
+    text: "A student shall see their own available, reserved, and total credits; total shall equal available plus reserved and both values shall be whole numbers."
+    tests:
+      - "credit-service/test/wallets.test.ts::shows the owner whole-number available, reserved and derived total"
+      - "credit-service/test/provider.contract.test.ts::GET /wallets/me (200, 401, 404)"
+      - "credit-service/test/ledger.test.ts::returns immutable activity with resulting balances and a stable cursor"
+  - id: CS-FR2.1.2
+    text: "Each history entry shall show a reference, the kind of movement, the amount, the related errand where there is one, when it happened, and the resulting balances; an administrator may view any wallet read-only, but not the details of a related errand unless OS-FR2.1.2 allows it."
+    areas: [roles]
+    tests:
+      - "credit-service/test/provider.contract.test.ts::GET /wallets/me/ledger (200, 400)"
+      - "credit-service/test/ledger.test.ts::audits administrator ledger reads"
+      - "order-service/test/order-acceptance.test.ts::gives private detail only to participants or the specifically referred administrator"
+  - id: CS-FR3.1.1
+    text: "A reservation shall succeed only when the amount is one to five credits and the requester's available credits cover it; otherwise it shall be refused with the reason (for insufficient credits, with the available balance) and nothing shall change. A request for a requester whose wallet does not exist yet shall be retried under EI-NFR2.1.2 rather than refused."
+    areas: [reservations]
+    tests:
+      - "credit-service/test/reservations.test.ts::rejects an amount outside one to five without changing the wallet"
+      - "credit-service/test/reservations.test.ts::rejects insufficient credits with required and available amounts"
+      - "credit-service/test/reservations.test.ts::retries a missing wallet rather than recording a terminal rejection"
+  - id: CS-FR3.1.2
+    text: "A successful reservation shall move the amount from available to reserved and record it in the wallet's history as one indivisible change; a repeated request for the same reservation shall return the original result without reserving again."
+    areas: [reservations, repeats]
+    tests:
+      - "credit-service/test/reservations.test.ts::applies 100 repeated business requests once and reproduces their success outcome"
+      - "credit-service/test/reservations.test.ts::rolls back the complete reservation when %s fails"
+      - "credit-service/test/ledger.test.ts::returns immutable activity with resulting balances and a stable cursor"
+  - id: CS-FR3.1.3
+    text: "Only creating an errand shall require available credits: a student with none shall still be able to browse, accept, and deliver errands as a courier, which is how credits are earned back, and to view their wallet and history."
+    areas: [reservations, transitions]
+    tests:
+      - "order-service/test/order-acceptance.test.ts::lets exactly one repeated attempt accept without a Credit balance check"
+      - "web-app/test/wallet.test.tsx::explains that a student with nothing available can still earn as a courier"
+      - "web-app/test/request-composer.test.tsx::blocks a student with no credits and points them to courier work"
+    gap: "No test takes a student with 0 available credits through browsing, accepting and delivering, plus a wallet/history read; acceptance is only shown not to check Credit, and the zero-credit cases are UI-only."
+  - id: CS-FR4.1.1
+    text: "The transfer shall remove the matching reservation from the requester, add the same amount to the courier's available credits, and record linked entries in both wallets' histories; neither wallet shall show one side of the transfer without the other."
+    areas: [transfers]
+    tests:
+      - "credit-service/test/terminal-operations.test.ts::applies 100 repeated requests once and republishes one identical recorded result"
+      - "credit-service/test/terminal-operations.test.ts::rolls back the whole transfer when %s fails"
+      - "credit-service/test/ledger.test.ts::signs each row by how it moved the wallet total"
+  - id: CS-FR4.1.2
+    text: "A repeated completion request shall have no further effect, and the Order Service shall be told the outcome, with a reference to the transfer, only after the transfer is recorded."
+    areas: [transfers, repeats]
+    tests:
+      - "credit-service/test/terminal-operations.test.ts::applies 100 repeated requests once and republishes one identical recorded result"
+      - "credit-service/test/terminal-operations.test.ts::replays the recorded confirmation after the first confirmation is lost"
+      - "credit-service/test/terminal-operations.test.ts::rolls back the whole transfer when %s fails"
+    gap: "No Credit test explicitly asserts that the credit.transferred reply payload carries the transfer's transactionId; the tests only show replies are identical to the recorded result."
+  - id: CS-FR5.1.1
+    text: "A return shall move the matching amount from reserved to available once and record it in the wallet's history, and the Order Service shall be told only after it is recorded; a repeated return request shall give the recorded result."
+    areas: [returns, repeats]
+    tests:
+      - "credit-service/test/terminal-operations.test.ts::applies 100 repeated requests once and republishes the recorded release"
+      - "credit-service/test/terminal-operations.test.ts::rolls back the whole release when %s fails"
+      - "credit-service/test/ledger.test.ts::signs each row by how it moved the wallet total"
+  - id: CS-FR5.1.2
+    text: "For any errand, the Order Service and operators shall be able to find whether its credits are reserved, returned, or transferred, or that none are held, with references to the recorded movements, so that a pending errand can be reconciled."
+    areas: [reservations, returns, transfers]
+    tests:
+      - "credit-service/test/status.test.ts::returns %s with reservation and terminal references without changing storage"
+      - "credit-service/test/status.test.ts::returns NONE/UNKNOWN for an order Credit has never observed"
+      - "credit-service/test/operations.test.ts::traces Credit's half of an errand: operations, transactions, alerts and dead letters"
+  - id: CS-NFR1.1.1
+    text: "Fault-injection at every write boundary shall show either the complete operation or no operation, with no partially updated wallet or missing ledger entry."
+    areas: [reservations, transfers, returns]
+    tests:
+      - "credit-service/test/reservations.test.ts::rolls back the complete reservation when %s fails"
+      - "credit-service/test/terminal-operations.test.ts::rolls back the whole transfer when %s fails"
+      - "credit-service/test/terminal-operations.test.ts::rolls back the whole release when %s fails"
+  - id: CS-NFR1.1.2
+    text: "After any credit movement other than an initial allocation, no wallet balance shall be negative and the total of all available and reserved credits shall be unchanged."
+    areas: [reservations, transfers, returns]
+    tests:
+      - "system-tests/test/conservation.property.test.ts::seed %i"
+      - "system-tests/test/races.test.ts::never lets concurrent reservations overspend one wallet"
+      - "credit-service/test/reservations.postgres.test.ts::serializes transfer against release so exactly one terminal movement wins"
+    evidence:
+      - "docs/reports/credit-conservation-2026-10-01.md"
+  - id: CS-NFR2.1.1
+    text: "Sending the same reservation, transfer, or return request 100 times shall produce one balance change and return the recorded outcome for every repeat."
+    areas: [repeats, reservations, transfers, returns]
+    tests:
+      - "credit-service/test/reservations.test.ts::applies 100 repeated business requests once and reproduces their success outcome"
+      - "credit-service/test/terminal-operations.test.ts::applies 100 repeated requests once and republishes one identical recorded result"
+      - "credit-service/test/terminal-operations.test.ts::applies 100 repeated requests once and republishes the recorded release"
+  - id: CS-NFR2.1.2
+    text: "A request that reuses an errand with a different requester, courier, amount, or kind of movement shall be refused without changing any balance and shall alert an operator."
+    areas: [repeats, reservations, transfers, returns]
+    tests:
+      - "credit-service/test/reservations.test.ts::refuses conflicting facts for one order id and raises an audit alert"
+      - "credit-service/test/terminal-operations.test.ts::audits a requester or amount mismatch without changing either wallet"
+      - "credit-service/test/terminal-operations.test.ts::rejects release after transfer and transfer after release without a second effect"
+    gap: "No test reuses an errand with only a different courier, and the different-kind-of-movement test checks balances but not that an operator alert was raised."
+  - id: CS-NFR4.1.1
+    text: "A daily reconciliation shall verify wallet balances against ledger totals, one live reservation at most per order, and matched requester and courier entries for each transfer; any mismatch shall raise an operator-visible failure."
+    areas: [reservations, transfers]
+    tests:
+      - "credit-service/test/ledger-audit.test.ts::catches per-wallet drift even when platform conservation still holds; never repairs it"
+      - "credit-service/test/ledger-audit.test.ts::detects a ledger row corrupted by an operator in an isolated test"
+      - "credit-service/test/ledger-audit.test.ts::records at most one scheduled scan per UTC day, including across service instances"
+    gap: "No audit test injects a second live reservation for one order, or a transfer with only one side recorded, to show those specific checks fire."
+  - id: CS-NFR4.1.2
+    text: "Committed wallet, transaction, and ledger records shall survive container restart and restore from the documented backup with a recovery point of at most 24 hours and recovery time of at most 60 minutes."
+    tests:
+      - "scripts-restart-check.sh::no table in any of the four databases lost a row"
+      - "scripts-restart-check.sh::the errand from before is as it was (OPEN), read with the token issued before"
+      - "scripts-restart-check.sh::no table lost a row while Postgres was away"
+    gap: "Nothing automated restores from the documented backup or measures the 24 h recovery point and 60 min recovery time; only restart/recreate survival is checked (PLT-09, #284, adds the backup, restore and drill)."
+  - id: CS-NFR5.1.1
+    text: "A student may view only their own wallet and history; an administrator's access shall be read-only and recorded; only verified platform services may cause a credit movement."
+    areas: [roles]
+    tests:
+      - "credit-service/test/wallets.test.ts::exposes no route for a student to select another wallet"
+      - "credit-service/test/wallets.test.ts::allows an admin read and appends an audit record"
+      - "scripts-demo-failures.sh::and no wallet was created: no credits were minted"
+  - id: CS-NFR5.1.2
+    text: "The deployed system shall offer no way to purchase, withdraw, cash out, or set credits, or to move credits other than as part of an errand or an initial allocation."
+    tests:
+      - "credit-service/test/closed-economy.test.ts::contains only the four approved producer-scoped economic inputs"
+      - "credit-service/test/closed-economy.test.ts::registers reads, redrive and ledger audit, with no balance mutation route"
+      - "credit-service/test/operations.test.ts::moves no credit itself: a redrive only puts the stored message back on its queue"
+  - id: EI-FR1.1.1
+    text: "The asynchronous workflows shall be: creating a wallet after a student's first activation; sharing account suspensions and reactivations with the services that depend on them; reserving credits for a new errand before it opens; transferring credits after an errand is completed; returning credits after an errand is cancelled or expired; and sharing each errand status change with other services."
+    areas: [reservations, transfers, returns]
+    tests:
+      - "system-tests/test/broker-replay.test.ts::completes and cancels with one effect each under duplicate publication and full replay"
+      - "scripts-demo-journey.sh::the wallet arrived by itself: 10 available, 0 reserved"
+      - "auth-client/test/status-events.test.ts::a suspension is enforced on the very next request, not after the cache window"
+  - id: EI-FR1.1.2
+    text: "A user action that starts an asynchronous workflow shall return its own result without waiting for the workflow to finish."
+    tests:
+      - "order-service/test/order-creation.test.ts::commits PENDING_CREDIT and both outbox facts while Credit is absent"
+      - "scripts-demo-journey.sh::a student registered and activated while Credit was cut off: the User Service did not wait for it"
+      - "scripts-demo-failures.sh::it waits as PENDING_CREDIT, hidden from couriers, with no credits moved"
+  - id: EI-FR2.1.1
+    text: "A step delivered more than once shall take effect once, and every repeat shall give the recorded outcome."
+    areas: [repeats]
+    tests:
+      - "platform/src/events/inbox.test.ts::turns 100 deliveries of one event into one local effect"
+      - "credit-service/test/reservations.test.ts::applies 100 repeated business requests once and reproduces their success outcome"
+      - "credit-service/test/terminal-operations.test.ts::applies 100 repeated requests once and republishes one identical recorded result"
+  - id: EI-FR2.1.2
+    text: "A step that fails temporarily shall be retried automatically; a step that still fails, or that cannot be understood, shall be set aside for an operator with the reason it failed."
+    tests:
+      - "platform/src/events/broker.integration.test.ts::retries a transient failure, then succeeds"
+      - "platform/src/events/dead-letters.integration.test.ts::parks a message that failed every attempt, and redrives it unchanged"
+      - "platform/src/events/broker.integration.test.ts::sets a malformed message aside, with the reason, instead of crashing"
+  - id: EI-NFR1.1.1
+    text: "If a service stops while handling a step, the step shall be handled again after restart; if the service stops after the step took effect, the step shall not take effect a second time."
+    areas: [repeats]
+    tests:
+      - "credit-service/test/delivery.test.ts::a crash before the transfer commits is handled again after the restart, once"
+      - "credit-service/test/delivery.test.ts::a crash after the transfer commits, before it is acknowledged, moves no additional credits"
+      - "platform/src/events/outbox.test.ts::republishes after a crash between the broker’s confirmation and the commit, and the inbox applies it once"
+  - id: EI-NFR1.1.2
+    text: "A step that keeps failing shall be set aside for an operator, with the reason it failed, within 5 minutes of its first attempt."
+    tests:
+      - "platform/src/events/topology.test.ts::exhausts every attempt inside the five-minute bound in EI-NFR1.1.2"
+      - "scripts-demo-journey.sh::after five attempts the activation is on Credit's dead-letter queue"
+      - "platform/src/events/consumer.test.ts::still dead-letters a waiting step once its attempts are spent, with its reason"
+  - id: EI-NFR2.1.1
+    text: "A repeated step shall have no further effect, and a step older than a change already applied shall be ignored and recorded for operators rather than undo that change."
+    areas: [repeats, transitions]
+    tests:
+      - "order-service/test/reservation-results.test.ts::ignores a repeated confirmation that arrives after the errand has moved on, and changes nothing"
+      - "platform/src/events/consumer.test.ts::acknowledges and counts a stale step without retrying or dead-lettering it"
+      - "scripts-demo-failures.sh::Order counted it as stale and ignored it"
+  - id: EI-NFR2.1.2
+    text: "Where a step depends on an earlier step that has not happened yet, the service shall wait and retry, or set the step aside for review; it shall not infer a credit outcome from the order in which steps arrive."
+    areas: [reservations, transfers]
+    tests:
+      - "credit-service/test/delivery.test.ts::a completion that arrives before its reservation waits, then transfers once it lands"
+      - "credit-service/test/delivery.test.ts::a completion whose reservation never arrives is set aside for review, and moves no credits"
+      - "credit-service/test/reservations.test.ts::retries a missing wallet rather than recording a terminal rejection"
+  - id: EI-NFR3.1.1
+    text: "A change that removes information a receiving service relies on, or changes its meaning, shall be marked as incompatible and shall fail the automated checks before it is merged."
+    tests:
+      - "test-harness/test/compat.test.ts::fails when a required response field is removed"
+      - "test-harness/test/compat.test.ts::fails on a removed event, a removed or newly required field, or a redefined type"
+      - "test-harness/test/contracts.test.ts::contracts/events.schema.json is current with the event catalogue"
+    evidence:
+      - ".github/workflows/ci.yml"
+  - id: EI-NFR3.1.2
+    text: "A service that receives a step in a form it does not support shall not act on it, and shall set the whole step aside for an operator, stating that the form is unsupported."
+    tests:
+      - "platform/src/events/consumer.test.ts::sets an unsupported major version aside whole, without running the handler"
+      - "credit-service/test/delivery.test.ts::an unsupported major version of a completion request is set aside whole and moves no credits"
+      - "scripts-demo-failures.sh::it was set aside as a dead letter"
+  - id: PL-NFR1.1.1
+    text: "Every containerized part shall report whether it is healthy and shall become healthy within 90 seconds after the parts it depends on are available; the UI shall not report itself ready while a required part is unavailable."
+    tests:
+      - "scripts-smoke.sh::stack healthy in "
+      - "test-harness/test/stack-readiness.test.ts::answers 503 naming a service whose health check says it is unavailable"
+      - "scripts-smoke.sh::with the Order Service stopped, /edge/ready answers 503 naming it"
+  - id: PL-NFR1.1.2
+    text: "Each service shall be rebuildable and restartable on its own, without rebuilding another service or losing stored data."
+    tests:
+      - "scripts-restart-check.sh::the edge reaches the recreated Order Service without restarting"
+      - "scripts-smoke.sh::the Order Service started again makes the stack ready again, the edge not restarted"
+    gap: "No automated check rebuilds one service's image on its own, and none checks that a service recreated alone keeps its stored data: the recreate reuses the existing image, and the row-loss checks are aimed at whole-stack restarts and the Postgres outage."
+  - id: PL-NFR2.1.1
+    text: "Passwords, signing keys, and credentials for the platform's own infrastructure shall be supplied at deployment time and shall not appear in source control, the built application, code sent to browsers, or logs."
+    tests:
+      - "scripts-scan-secrets.sh::gitleaks finds no secret in the "
+      - "test-harness/test/compose-config.test.ts::the build context leaves .env out, so it cannot be copied into an image"
+      - "user-service/test/log-privacy.test.ts::writes no password, hash or token to any log line at any level"
+  - id: PL-NFR2.1.2
+    text: "Each running part shall have no more operating-system privilege than it needs, accept connections only for the functions it offers, and be able to reach only the parts it is documented to depend on."
+    tests:
+      - "scripts-smoke.sh::every container runs as non-root"
+      - "test-harness/test/compose-config.test.ts::puts no service on a network it has no dependency on"
+      - "platform/src/bootstrap.test.ts::hides internal routes from the public port and serves them on the internal one"
+  - id: PL-NFR3.1.1
+    text: "Restarting everything shall preserve all saved accounts, suppliers, errands, wallets, credit histories, and pending workflow steps, and pending steps shall resume without moving credits twice."
+    areas: [repeats]
+    tests:
+      - "scripts-restart-check.sh::no table in any of the four databases lost a row"
+      - "scripts-restart-check.sh::the errand that was waiting for Credit opened by itself"
+      - "scripts-restart-check.sh::its 3 credits were reserved exactly once (wallet "
+  - id: PL-NFR3.1.2
+    text: "If a required dependency is unavailable, the services that rely on it shall report themselves unhealthy and refuse, with a clear message, any change they cannot save reliably."
+    tests:
+      - "scripts-restart-check.sh::every service's health check fails with 503"
+      - "scripts-restart-check.sh::a write is refused with 503 and Retry-After: "
+      - "platform/src/errors.test.ts::answers 503 with Retry-After when the database is unreachable"
+  - id: PL-NFR4.1.1
+    text: "Every Must requirement affecting roles, errand transitions, reservations, returns, transfers, or repeated requests shall map to at least one automated test before the final demonstration."
+    tests:
+      - "test-harness/test/traceability.test.ts::has no problems: every test it names exists, and every PL-NFR4.1.1 requirement has one"
+  - id: PL-NFR4.1.2
+    text: "A change shall not be merged into the main branch while any documented test suite fails or an unresolved critical dependency vulnerability exists, and the project shall document how this condition is enforced; the final demonstration commit shall carry no known unresolved severity-one defect."
+    tests:
+      - "test-harness/test/ci-gates.test.ts::fails on a critical vulnerability that has a fix, with a pinned Trivy"
+      - "test-harness/test/scan-vulnerabilities.test.ts::fails on a critical vulnerability with a fix, and lists the findings"
+      - "test-harness/test/ci-gates.test.ts::scans each changed service’s image, the web app’s, and the production lockfile"
+    evidence:
+      - "README.md"
+    gap: "No automated check confirms that the aggregate CI job depends on every documented suite job or that branch protection requires it, and nothing automated tracks unresolved severity-one defects at the demonstration commit."
+  - id: UI-FR1.1.1
+    text: "Forms shall validate required fields before submission and display field-specific server errors without clearing valid input."
+    tests:
+      - "web-app/test/request-composer.test.tsx::marks the invalid fields and focuses the first one when review fails"
+      - "web-app/test/suppliers.test.tsx::keeps entered values and marks every field rejected by the service"
+      - "web-app/e2e/account-journey.e2e.ts::account journey: register, activate, sign in, profile, mode switch, log out"
+  - id: UI-FR1.1.2
+    text: "A signed-out user who opens a page that requires an account shall be taken to login; switching between requester and courier mode shall keep the user signed in and shall not change what the user is permitted to do."
+    areas: [roles]
+    tests:
+      - "web-app/e2e/account-journey.e2e.ts::account journey: register, activate, sign in, profile, mode switch, log out"
+      - "user-service/test/profile.test.ts::the requester↔courier switch changes the UI preference and no authorization decision (US-FR2.1.2)"
+      - "web-app/test/order-actions.test.ts::reads the role from the participant IDs only the private projection carries"
+  - id: UI-FR2.1.1
+    text: "The review step shall show the chosen supplier, all items, delivery zone and instructions, acceptance period, reward, current available balance, and projected balance after reservation."
+    areas: [reservations]
+    tests:
+      - "web-app/test/request-composer.test.tsx::shows the supplier, items, zone, open period, reward and both balances"
+      - "web-app/e2e/request-journey.e2e.ts::request journey: post, wait for credits, open; then an insufficient-credit rejection"
+      - "web-app/test/composer.test.ts::projects the available balance less exactly the reward"
+    gap: "No test asserts that the delivery instructions appear on the review step; the page renders them but no assertion checks it."
+  - id: UI-FR2.1.2
+    text: "The submit action shall ignore repeated clicks, show progress until the errand is open to couriers or refused, and show a refusal with a reason the requester can act on; a retried submission shall not create a second errand."
+    areas: [repeats, reservations]
+    tests:
+      - "web-app/test/request-composer.test.tsx::sends one POST with one key on a double click, then opens the order"
+      - "web-app/e2e/request-journey.e2e.ts::request journey: post, wait for credits, open; then an insufficient-credit rejection"
+      - "web-app/e2e/reconnect-journey.e2e.ts::reconnect journey: a lost or offline post creates one errand"
+  - id: UI-FR2.2.1
+    text: "A requester shall be able to cancel their errand before pickup, and to confirm receipt or report the items as not received once delivery is recorded."
+    areas: [transitions]
+    tests:
+      - "web-app/test/errand-actions.test.tsx::cancels an open errand, and re-reads it when the version was stale"
+      - "web-app/test/errand-actions.test.tsx::confirms or reports a delivered errand until it auto-confirms"
+      - "web-app/test/errand-actions.test.tsx::confirms receipt after asking, and offers nothing more"
+  - id: UI-FR2.2.2
+    text: "Once a picked-up errand has no delivery recorded 2 hours after pickup, the requester shall be offered the option to refer it to an administrator."
+    areas: [transitions]
+    tests:
+      - "web-app/test/errand-actions.test.tsx::offers to refer an undelivered errand at 2 hours after pickup, and not before"
+      - "web-app/test/errand-actions.test.tsx::measures the deadline on the server's clock when this device's is behind"
+      - "web-app/test/order-actions.test.ts::offers the non-delivery report from the moment the delivery period ends"
+  - id: UI-FR3.1.1
+    text: "Open cards shall show supplier, item summary, delivery zone, reward, and time remaining; the page shall remove or disable the current user's own requests."
+    areas: [roles]
+    tests:
+      - "web-app/test/errand-actions.test.tsx::counts down from the time the server gave and removes the card at zero"
+      - "web-app/e2e/errand-journey.e2e.ts::errand journey: a lost acceptance race, fulfilment, and the requester confirming"
+      - "order-service/test/order-acceptance.test.ts::leaves the caller's own errands out of discovery"
+    gap: "No feed test asserts that the item summary, delivery zone or reward appear on an open card; only the supplier name and time remaining are checked."
+  - id: UI-FR3.1.2
+    text: "The active-order view shall offer only the actions the current user may take in the errand's current state, ask for confirmation before any of them, and refresh when an action is refused because someone else changed the errand first."
+    areas: [roles, transitions]
+    tests:
+      - "web-app/test/order-actions.test.ts::asks for confirmation on every action"
+      - "web-app/test/errand-actions.test.tsx::records pickup after confirming, then offers delivery"
+      - "web-app/test/errand-actions.test.tsx::cancels an open errand, and re-reads it when the version was stale"
+  - id: UI-FR4.1.1
+    text: "The dashboard shall group active and past errands, display human-readable status explanations with timestamps, and link each completed order to its receipt."
+    tests:
+      - "web-app/test/order-history.test.tsx::splits active from past, with each errand's status, explanation, role and times"
+      - "web-app/test/order-history.test.tsx::links to the receipt from completed errands only"
+      - "web-app/e2e/errand-journey.e2e.ts::errand journey: a lost acceptance race, fulfilment, and the requester confirming"
+  - id: UI-FR4.1.2
+    text: "The wallet view shall show available, reserved, and total credits and the credit history, with each entry linked to its related errand."
+    areas: [reservations, returns, transfers]
+    tests:
+      - "web-app/test/wallet.test.tsx::shows available, reserved and total as separate figures"
+      - "web-app/test/wallet.test.tsx::signs each entry's change to the total, and labels it by type and direction"
+      - "web-app/e2e/errand-journey.e2e.ts::errand journey: a lost acceptance race, fulfilment, and the requester confirming"
+  - id: UI-FR5.1.1
+    text: "If the connection fails while a request is being created, the UI shall keep the draft on the device, check after reconnecting whether the errand was created, and resubmit only if it was not."
+    areas: [repeats]
+    tests:
+      - "web-app/e2e/reconnect-journey.e2e.ts::reconnect journey: a lost or offline post creates one errand"
+      - "web-app/test/request-composer.test.tsx::retries a failed send with the same key and keeps the draft until it lands"
+      - "web-app/test/request-composer.test.tsx::finds the errand an earlier version posted when its response was lost and the details changed"
+  - id: UI-FR5.1.2
+    text: "If an action fails because the errand was already accepted or has expired, or a request is refused, the UI shall show the actual result in place of what it had assumed and offer a relevant next action without resubmitting on the user's behalf."
+    areas: [transitions]
+    tests:
+      - "web-app/test/errand-actions.test.tsx::replaces the card after losing the race instead of leaving a dead button"
+      - "web-app/test/request-composer.test.tsx::offers an expired errand as a new request under a new key"
+      - "web-app/test/request-composer.test.tsx::explains a rejection with the balance the Credit Service reported"
+  - id: UI-FR6.1.1
+    text: "Supplier screens shall show live data from the Supplier Service, never built-in sample data, and a search that matches nothing shall say so and offer to clear the search and filters."
+    tests:
+      - "web-app/test/suppliers.integration.test.tsx::lets a student browse the seeded suppliers"
+      - "web-app/test/suppliers-page.test.tsx::shows the empty state when nothing matches"
+      - "web-app/test/supplier-picker.test.tsx::shows an empty state when nothing matches"
+    gap: "The empty state only says nothing matched; no action to clear the search and filters exists in the UI or is tested."
+  - id: UI-FR6.1.2
+    text: "Supplier forms shall show each field the service rejected beside that field; hiding administrator controls from other users shall be for clarity only, since the service refuses their changes regardless (SS-FR2.1.2)."
+    areas: [roles]
+    tests:
+      - "web-app/test/suppliers.test.tsx::keeps entered values and marks every field rejected by the service"
+      - "web-app/test/suppliers-page.test.tsx::marks each field the service rejects with a 422"
+      - "web-app/test/suppliers.integration.test.tsx::refuses a student who tries to create a supplier"
+  - id: UI-NFR1.1.1
+    text: "At 360, 768, and 1440 CSS-pixel widths, registration, supplier search, request creation, open errands, active order, and wallet screens shall have no horizontal page scroll or clipped control."
+    tests:
+      - "web-app/e2e/account-journey.e2e.ts::account journey: register, activate, sign in, profile, mode switch, log out"
+    gap: "Only the account screens (register, activate, login, profile) are checked for sideways scroll at 360/768/1440; supplier search, request creation, open errands, active order and wallet are never checked for overflow, and no screen is checked for clipped controls."
+  - id: UI-NFR1.1.2
+    text: "Interactive targets shall be at least 44 by 44 CSS pixels on mobile, and the primary next action shall remain visible without overlapping fixed navigation."
+    gap: "No automated test measures 44x44 CSS-px tap targets on mobile or checks that the primary action stays visible clear of the fixed navigation."
+  - id: UI-NFR2.1.1
+    text: "Automated accessibility scans of every core screen shall report zero critical violations, and text and control contrast shall meet 4.5 to 1 or 3 to 1 for large text."
+    tests:
+      - "web-app/e2e/account-journey.e2e.ts::account journey: register, activate, sign in, profile, mode switch, log out"
+    gap: "axe runs only on the account screens; the feed, request composer, active order, wallet, history, supplier and admin screens are never scanned."
+  - id: UI-NFR2.1.2
+    text: "A keyboard-only test shall complete login, request creation, order acceptance, pickup, delivery, confirmation, and wallet review with visible focus and no focus trap."
+    tests:
+      - "web-app/e2e/account-journey.e2e.ts::account journey: register, activate, sign in, profile, mode switch, log out"
+    gap: "No keyboard-only test covers request creation, order acceptance, pickup, delivery, confirmation and wallet review (the full keyboard errand journey is missing, ticket #166); only sign-up, activation, sign-in, the mode switch and log-out are keyboard-driven."
+  - id: UI-NFR4.1.1
+    text: "A failed request shall preserve valid user input and present the error near the affected field or action, plus a retry only when repeating the operation is safe."
+    areas: [repeats]
+    tests:
+      - "web-app/test/suppliers.test.tsx::keeps entered values and marks every field rejected by the service"
+      - "web-app/test/composer.test.ts::offers a retry with the same key when the service or network is down"
+      - "web-app/test/errand-actions.test.tsx::keeps a failed send in the dialog to try again"
+  - id: UI-NFR4.1.2
+    text: "A reconnect test during request submission shall create zero duplicate orders and restore either the saved draft or the authoritative created order within 10 seconds of connectivity returning."
+    areas: [repeats]
+    tests:
+      - "web-app/e2e/reconnect-journey.e2e.ts::reconnect journey: a lost or offline post creates one errand"
+      - "web-app/test/request-composer.test.tsx::retries a failed send with the same key and keeps the draft until it lands"
+
+edgeCases:
+  - id: EC1
+    title: "A user's account is invalidated while mid-action"
+    decision: "Before pickup, the errand is reassigned to reduce disruption to the other user; after pickup, it is referred to an administrator. The suspended user's access ends immediately."
+    requirements: [US-FR3.1.2, US-NFR2.1.2, OS-FR8.1.1, OS-FR8.1.2, OS-FR8.1.3, CS-FR1.2.1]
+    tests:
+      - "order-service/test/participant-suspension.test.ts::reopens an errand whose courier is suspended before pickup, extending its deadline by the time they held it"
+      - "order-service/test/participant-suspension.test.ts::refers an errand whose courier is suspended after pickup, keeping them on it"
+      - "auth-client/test/status-events.test.ts::a suspension is enforced on the very next request, not after the cache window"
+  - id: EC2
+    title: "A supplier is deleted or edited while active errands reference it"
+    decision: "Soft delete: a referenced supplier is deactivated rather than removed, disappearing from new searches; editing a supplier never changes an existing errand, which keeps the supplier's details as they were."
+    requirements: [SS-FR2.1.2, SS-FR2.1.2.1, SS-NFR3.1.1, OS-FR2.1.3]
+    tests:
+      - "order-service/test/order-creation.test.ts::keeps the errand’s pickup as it was when the supplier is renamed, moved or deactivated"
+      - "supplier-service/test/suppliers.test.ts::excludes a deactivated supplier from listings but keeps its row, fetchable by id"
+      - "order-service/test/order-creation.test.ts::rejects an inactive supplier without writing an order"
+  - id: EC3
+    title: "The acceptance deadline passes while a courier holds the errand"
+    decision: "A withdrawal or pickup timeout after the deadline expires the errand and returns the credits; a courier's suspension instead reopens it with the deadline extended by the time the courier held it."
+    requirements: [OS-FR6.1.1, OS-FR6.1.2, OS-FR6.1.3, OS-FR8.1.1, OS-NFR3.1.1]
+    tests:
+      - "order-service/test/order-cancel-expiry.test.ts::expires a withdrawal after the deadline and returns the credits exactly once"
+      - "order-service/test/order-cancel-expiry.test.ts::expires a timed-out pickup after the deadline and requests one release"
+      - "order-service/test/participant-suspension.test.ts::reopens an errand whose courier is suspended before pickup, extending its deadline by the time they held it"
+  - id: EC4
+    title: "A failure between delivery confirmation and the credit transfer"
+    decision: "The transfer is one database transaction, so a crash leaves both balances changed or neither; the completion request is redelivered until the transfer is recorded, and a repeat after a lost confirmation re-sends it without moving credits."
+    requirements: [CS-FR4.1.1, CS-FR4.1.2, CS-NFR1.1.1, CS-NFR2.1.1, OS-FR5.1.1, EI-NFR1.1.1]
+    tests:
+      - "credit-service/test/terminal-operations.test.ts::rolls back the whole transfer when %s fails"
+      - "credit-service/test/delivery.test.ts::a crash after the transfer commits, before it is acknowledged, moves no additional credits"
+      - "credit-service/test/terminal-operations.test.ts::replays the recorded confirmation after the first confirmation is lost"
+  - id: EC5
+    title: "The only administrator tries to remove their own access"
+    decision: "Refused: no administrator may remove their own role, accounts are suspended rather than deleted, and a change that would leave no active administrator is refused inside the same transaction."
+    requirements: [US-FR3.1.3, US-FR3.1.3.1, US-FR3.1.2.2, US-NFR4.1.2]
+    tests:
+      - "user-service/test/admin.test.ts::forbids demoting yourself, seeded or appointed"
+      - "user-service/test/admin.test.ts::never leaves zero administrators, even when two seeded admins demote each other at once"
+      - "user-service/test/matrix.test.ts::deny by default: every registered route is either in the matrix or explicitly public"
+
+feedback:
+  - point: "Supplier records should match the template seed data: its types, floor and location description, not an address."
+    answeredBy: [SS-FR1.1.1, SS-FR1.1.3, SS-FR4.1.1, "#125"]
+  - point: "Suppliers should be sortable and retrievable by their identifier (D2 §2)."
+    answeredBy: [SS-FR3.1.3, SS-FR3.2.1, "#117", "#126"]
+  - point: "Product catalogues are out of scope; teams that added them were criticised."
+    answeredBy: [SS-FR1.1.1, "#186"]
+  - point: "How administrators are created, appointed and removed should be controlled."
+    answeredBy: [US-FR3.1.3.1, US-FR3.1.3.2, US-FR3.1.3.3, docs/adr/0008-controlling-administrators.md, "#122"]
+  - point: "How credentials are kept out of the logs."
+    answeredBy: [US-NFR4.1.1, "#156"]
+  - point: "The Order Service should not be coupled to the Credit Service: creating an errand must not depend on Credit answering at once."
+    answeredBy: [OS-FR1.1.2, CS-FR3.1, docs/adr/0002-asynchronous-order-credit-saga.md, "#183"]
+  - point: "What a student with zero credits can still do."
+    answeredBy: [CS-FR3.1.3, "#138", "#158"]
+  - point: "Teams blurred available, reserved and total credits."
+    answeredBy: [CS-FR2.1.1, UI-FR4.1.2, "#158"]
+  - point: "Credits transfer once the items are delivered and the delivery is confirmed; any other route to completion needs justifying."
+    answeredBy: [OS-FR4.1.4, "#170"]
+  - point: "What happens when a transfer succeeds but its confirmation is lost?"
+    answeredBy: [CS-FR4.1.2, EI-NFR1.1.1, "#141", "#135"]
+  - point: "How the Credit Service checks that a transfer matches the right errand, users and amount."
+    answeredBy: [CS-NFR2.1.2, "#141"]
+  - point: "How the requester is not charged twice and the courier not paid twice (idempotency: processing the same operation again moves no more credits)."
+    answeredBy: [CS-NFR2.1.1, CS-FR4.1.2, "#141", "#153"]
+  - point: "Each credit operation's trigger, and who initiates it."
+    answeredBy: [EI-FR1.1.1, CS-FR1.1.1, "#133"]
+  - point: "Show the transitions, not just the states: the action, the condition that must hold, and who may perform it."
+    answeredBy: [order-service/README.md, "#129", "#130"]
+  - point: "Several couriers accepting at once, or a requester accepting their own errand, are alternative workflows, not edge cases."
+    answeredBy: [OS-FR3.1.1, OS-FR3.1.2, OS-NFR3.1.2, "#138"]
+  - point: "When an errand expires, and what happens when the deadline passes after a courier has accepted it."
+    answeredBy: [OS-FR6.1.1, OS-FR6.1.2, OS-FR8.1.1, "#148", "#149"]
+  - point: "Edge cases should be genuine, and mapped to specific functional or non-functional requirements."
+    answeredBy: ["#186", "#168"]

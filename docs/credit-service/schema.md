@@ -169,11 +169,21 @@ recomputing balances.
 | `credit_audit_alerts`   | refused conflicting request: an order id reused with different facts, a second terminal operation | append-only trigger (0001); shown at `GET /admin/credit-alerts` |
 | `admin_wallet_reads`    | administrator's read of another student's wallet or ledger    | append-only trigger (0001); `resource IN ('WALLET','LEDGER')`                  |
 | `admin_activity_alerts` | `BULK_WALLET_READS` alert about one administrator (ADM-04)    | append-only trigger (0006)                                                     |
+| `ledger_audit_runs`     | completed financial scan or failed attempt (CRD-10)                                               | migration 0008; UPDATE, DELETE and TRUNCATE refused                            |
 | `dead_letters`          | message that failed every retry (PLT-05), kept byte for byte  | custom migration 0004: never deleted, changes once, to record a redrive        |
 | `processed_events`      | message handled, per consumer: the **inbox**                  | PK (`consumer`, `event_id`), written in the transaction the message caused     |
 | `outbox_events`         | reply or fact to publish: the **outbox**                      | written in the same transaction as the movement; the relay sets `published_at` |
 
 ## 3. How the tables stay consistent
+
+`ledger_audit_runs` stores UUID `run_id`, origin (`SCHEDULED`, `MANUAL`, `CLI`), requesting admin ID
+when applicable, optional unique UTC `scheduled_day`, status (`PASS`, `MISMATCH`, `ERROR`), nullable
+finding count, JSON check names/detailed findings, a generic execution error and start/completion
+timestamps. PASS requires count 0; MISMATCH requires a positive count; ERROR requires null. A failed
+attempt has no scheduled day so the scheduler can retry. Detailed findings stay in the restricted
+database; the admin API returns counts and run metadata. See the
+[runbook](../runbooks/credit-ledger-audit.md). Migration 0007 adds inbox/outbox retention indexes;
+0008 is additive and does not rewrite existing credit history.
 
 The constraints above make most impossible states unwritable. The rest are invariants over many
 rows. They are stated once, in `credit-service/src/credits/invariants.ts`, and run after every
@@ -186,6 +196,7 @@ which the credit walkthrough ends with:
 | No balance is negative or fractional                                                         | `integer` columns, `CHECK (>= 0)`                                          | `balanceViolations`                                          |
 | Every transaction's debits equal its credits                                                 | the repository writes entries in pairs                                     | `unbalancedTransactionViolations`                            |
 | All wallets together hold exactly what was issued                                            | every non-issue movement is between two wallet accounts                    | `conservationViolations`                                     |
+| Each wallet's available/reserved agrees with its signed ledger movements                     | all economic writes are atomic                                             | `walletLedgerViolations` (daily/on-demand CRD-10 audit)      |
 | One reservation and at most one terminal outcome per order                                   | the unique keys above                                                      | `orderOutcomeViolations`                                     |
 | A wallet's `reserved` is the sum of its open reservations (RESERVE, no TRANSFER/RELEASE yet) | every change to `reserved` is a RESERVE, TRANSFER or RELEASE for one order | `reservedBackingViolations` (CRD-09)                         |
 | Order's and Credit's views of each errand agree once nothing is in flight                    | the saga (ADR 0002) and reconciliation (CRD-07)                            | `agreementViolations` (`system-tests`, needs both databases) |

@@ -103,7 +103,12 @@ test("account journey: register, activate, sign in, profile, mode switch, log ou
   });
 
   await test.step("log out, then signing in again returns to the page asked for", async () => {
-    await tabTo(page, page.getByRole("button", { name: "Log out" }));
+    // From 768 px the sidebar has its own Log out (WEB-07); a phone uses the profile page's.
+    const logOut =
+      testInfo.project.name === "360px"
+        ? page.getByRole("button", { name: "Log out" })
+        : page.getByRole("navigation", { name: "Main" }).getByRole("button", { name: "Log out" });
+    await tabTo(page, logOut);
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/login$/);
     await page.goto("/profile");

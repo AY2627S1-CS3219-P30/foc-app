@@ -1737,7 +1737,7 @@ components:
                 },
             }
     RoleConflict:
-      description: The change violates a role-management rule.
+      description: The change conflicts with the current state of the roles.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }

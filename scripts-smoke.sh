@@ -27,6 +27,8 @@ DEADLINE="${SMOKE_DEADLINE_SECONDS:-90}"
 # stack that never became healthy has nothing to probe.
 pass() { printf '  \033[32mPASS\033[0m  %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m  %s\n' "$1"; FAILURES=$((FAILURES + 1)); }
+# A check that does not apply to the images running, said so rather than passed or failed.
+skip() { printf '  \033[33mSKIP\033[0m  %s\n' "$1"; }
 FAILURES=0
 TEARDOWN=0
 
@@ -247,6 +249,153 @@ fi
 code=$(curl -fsS -o /dev/null -w '%{http_code}' "http://localhost:${WEB_PORT}/" 2>/dev/null || echo 000)
 [[ "$code" == "200" ]] && pass "web app responds 200" || fail "web app returned $code"
 
+# ---- the edge: one origin (PLT-10, ADR 0010) ---------------------------------
+EDGE="http://localhost:${WEB_PORT}"
+header() { tr -d '\r' | awk -v h="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]'):" 'tolower($1)==h{$1="";sub(/^ /,"");print;exit}'; }
+
+health=$(curl -fsS "$EDGE/edge/health" 2>/dev/null | tr -d '\n' || true)
+[[ "$health" == "ok" ]] && pass "the edge answers its health check" || fail "the edge's health check said '${health:-nothing}'"
+
+# Each service under its prefix, which comes off on the way.
+for pair in "user:user-service" "supplier:supplier-service" "order:order-service" "credit:credit-service"; do
+  prefix="${pair%%:*}"
+  name="${pair##*:}"
+  seen=$(curl -fsS "$EDGE/api/$prefix/health" 2>/dev/null | json_field service || true)
+  [[ "$seen" == "$name" ]] && pass "/api/$prefix/ reaches $name" || fail "/api/$prefix/health answered '${seen:-nothing}'"
+done
+
+# The security headers, on a page and on an API answer alike.
+for path in / /api/user/health; do
+  headers=$(curl -fsS -o /dev/null -D - "$EDGE$path" 2>/dev/null || true)
+  missing=""
+  for name in Content-Security-Policy X-Frame-Options X-Content-Type-Options Referrer-Policy; do
+    [[ -n "$(printf '%s' "$headers" | header "$name")" ]] || missing="$missing $name"
+  done
+  [[ -z "$missing" ]] && pass "the edge sets the security headers on $path" || fail "$path is missing:$missing"
+done
+
+# The internal API and the metrics are not routed, however the path is spelled. The edge answers
+# itself: a service would echo the correlation ID in a header, and the edge does not.
+for path in /api/user/internal/introspect /api/user/%69nternal/introspect /api/user//internal/introspect \
+  /api/user/Internal/introspect /api/credit/internal/orders/x/credit-status /api/order/metrics \
+  /api/order/Metrics /api/supplier/METRICS; do
+  response=$(curl -s -o /dev/null -D - -w '%{http_code}' "$EDGE$path" -H 'x-correlation-id: edge-probe' 2>/dev/null || echo 000)
+  code="${response: -3}"
+  echoed=$(printf '%s' "$response" | header x-correlation-id)
+  [[ "$code" == "404" && -z "$echoed" ]] && pass "the edge does not route $path" ||
+    fail "$path through the edge answered $code${echoed:+, from the service}"
+done
+
+# Only the edge is published beyond this machine.
+edge_port=$(docker compose port edge 8080 2>/dev/null | tr -d '\r' || true)
+[[ "$edge_port" == "0.0.0.0:${WEB_PORT}" ]] && pass "the edge is published on every interface ($edge_port)" ||
+  fail "the edge is published on '${edge_port:-nothing}'"
+for pair in "user-service:3001" "supplier-service:3002" "order-service:3003" "credit-service:3004"; do
+  bound=$(docker compose port "${pair%%:*}" "${pair##*:}" 2>/dev/null | tr -d '\r' || true)
+  [[ "$bound" == 127.0.0.1:* ]] && pass "${pair%%:*} is published on this machine only ($bound)" ||
+    fail "${pair%%:*} is published on '${bound:-nothing}'"
+done
+
+# The refresh cookie works on the one origin: set at /api/user/auth, and sent back there.
+if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
+  jar=$(mktemp)
+  cookie=$(curl -s -o /dev/null -D - -c "$jar" -X POST "$EDGE/api/user/auth/login" -H 'content-type: application/json' \
+    -H "Origin: $EDGE" -d "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"$SMOKE_PASSWORD\"}" 2>/dev/null | header set-cookie || true)
+  [[ "$cookie" == *"Path=/api/user/auth"* ]] && pass "signing in through the edge sets the refresh cookie for /api/user/auth" ||
+    fail "the refresh cookie through the edge was '${cookie:-missing}'"
+  refreshed=$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" -X POST "$EDGE/api/user/auth/refresh" \
+    -H 'content-type: application/json' -H "Origin: $EDGE" -d '{}' 2>/dev/null || echo 000)
+  [[ "$refreshed" == "200" ]] && pass "the browser's refresh through the edge sends the cookie back" ||
+    fail "a refresh through the edge answered $refreshed"
+  rm -f "$jar"
+fi
+
+# A request over the size limit is refused before it reaches a service.
+too_big=$(head -c 2000000 /dev/zero | tr '\0' a | curl -s -o /dev/null -w '%{http_code}' -X POST "$EDGE/api/supplier/suppliers" \
+  -H 'content-type: application/json' --data-binary @- 2>/dev/null || echo 000)
+[[ "$too_big" == "413" ]] && pass "the edge refuses a 2 MB request (413)" || fail "a 2 MB request answered $too_big"
+
+# Writes are limited per client address. Against a write no service limits by itself (an
+# unauthenticated supplier create answers 401), so no account's own limit is used up.
+limited=0
+for _ in $(seq 1 80); do
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$EDGE/api/supplier/suppliers" -H 'content-type: application/json' -d '{}' 2>/dev/null || echo 000)
+  [[ "$code" == "429" ]] && limited=$((limited + 1))
+done
+[[ $limited -gt 0 ]] && pass "a burst of writes is limited ($limited of 80 answered 429)" ||
+  fail "80 writes in a burst were all let through"
+# Let the limit refill before anything else writes through the edge.
+sleep 4
+
+# ---- live-update streams through the edge (N1.4, ADR 0011) ------------------
+# A page holds a stream of nudges at /api/order/live. The edge must pass each event on as it is
+# written (buffered, `ready` would wait inside nginx), and it holds at most ten per client
+# address. Two students hold five each, the Order Service's own cap per user, so the eleventh is
+# refused by the edge itself: its answer has no x-correlation-id header, which a service's has.
+live_dir=$(mktemp -d)
+open_stream() { # token name → a stream in the background, written to $live_dir/name as it arrives
+  command curl -sN --max-time 30 "$EDGE/api/order/live" -H "Authorization: Bearer $1" \
+    >"$live_dir/$2" 2>/dev/null &
+}
+streams_ready() { # count seconds → whether that many streams have said `ready` in time
+  for _ in $(seq 1 "$(($2 * 10))"); do
+    (($(grep -l '^event: ready' "$live_dir"/* 2>/dev/null | wc -l) >= $1)) && return 0
+    sleep 0.1
+  done
+  return 1
+}
+# Another throwaway student, active and signed in. Prints its access token, or nothing.
+second_student() {
+  local email="smoke-live-$(date +%s)-$RANDOM@u.nus.edu" out token
+  out=$(mktemp)
+  post_json /auth/register "{\"email\":\"$email\",\"password\":\"$SMOKE_PASSWORD\",\"displayName\":\"Smoke test\"}" "$out" >/dev/null
+  token=$(curl -fsS "http://localhost:${USER_PORT}/dev/mailbox?to=$email" 2>/dev/null | json_field token) || true
+  post_json /auth/activate "{\"token\":\"$token\"}" "$out" >/dev/null
+  post_json /auth/login "{\"email\":\"$email\",\"password\":\"$SMOKE_PASSWORD\"}" "$out" \
+    -H "Origin: http://localhost:${WEB_PORT}" >/dev/null
+  json_field accessToken <"$out"
+  rm -f "$out"
+}
+if [[ -z "$access_token" ]]; then
+  fail "live updates: no signed-in student to open a stream with (see activation → wallet above)"
+else
+  open_stream "$access_token" first
+  if streams_ready 1 2; then
+    pass "the edge streams /api/order/live unbuffered: ready within 2 s"
+    second=$(second_student)
+    for i in 2 3 4 5; do open_stream "$access_token" "a$i"; done
+    [[ -n "$second" ]] && for i in 1 2 3 4 5; do open_stream "$second" "b$i"; done
+    if [[ -z "$second" ]]; then
+      fail "could not sign a second student in, to hold ten streams open through the edge"
+    elif ! streams_ready 10 5; then
+      fail "could not hold ten streams open through the edge"
+    else
+      # The eleventh, by each spelling the Order Service's route accepts: it ignores case and a
+      # trailing slash, so the edge must cap every one of them, not only the exact path.
+      edge_refuses() { # path → whether the edge itself refused a stream there with its 429
+        eleventh=$(curl -s --max-time 5 -D - "$EDGE$1" -H "Authorization: Bearer $second" 2>/dev/null || true)
+        [[ "$eleventh" == *" 429 "* && "$eleventh" == *"from this address"* ]] &&
+          ! grep -qi '^x-correlation-id:' <<<"$eleventh"
+      }
+      answered() { head -c 200 <<<"$eleventh" | tr -d '\r' | tr '\n' ' '; }
+      edge_refuses /api/order/live && pass "the 11th stream from one address is refused (429)" ||
+        fail "the 11th stream from one address answered: '$(answered)'"
+      edge_refuses /api/order/LIVE/ &&
+        pass "so is one spelt /api/order/LIVE/: the cap covers every path the route accepts" ||
+        fail "an 11th stream spelt /api/order/LIVE/ answered: '$(answered)'"
+    fi
+  elif grep -q '"message":"Cannot GET /live"' "$live_dir/first"; then
+    # An Order Service image from before N1.4 has no stream to check, as when the recovery drill
+    # (#314) rolls back to an earlier release. A stream that is there must still work.
+    skip "this image set's Order Service has no live-update stream (it predates N1.4)"
+  else
+    fail "/api/order/live sent no ready within 2 s: '$(head -c 200 "$live_dir/first")'"
+  fi
+fi
+kill $(jobs -p) 2>/dev/null || true
+wait 2>/dev/null || true
+rm -rf "$live_dir"
+
 # ---- metrics reach the dashboard (PLT-04) ------------------------------------
 METRICS_AUTH="Authorization: Bearer ${METRICS_TOKEN:?}"
 for pair in "user-service:$USER_PORT" "supplier-service:$SUPPLIER_PORT" \
@@ -356,14 +505,19 @@ inside=$(docker compose exec -T order-service node -e "fetch('http://user-servic
 [[ "$inside" =~ ^[0-9]+$ && "$inside" != "404" ]] && pass "the Order Service reaches the User Service's internal routes ($inside without a key)" ||
   fail "from the Order Service, /internal/introspect was '${inside:-not tried}'"
 
-# The web app's container is on a network of its own: it has no route to the database.
-reach=$(docker compose exec -T web-app node -e "
-const s = require('net').connect({ host: 'postgres', port: 5432, timeout: 2000 });
+# The web app's container shares a network with the edge alone: it has no route to the
+# database, the broker, or any service, internal port or public.
+for target in postgres:5432 rabbitmq:5672 user-service:4001 supplier-service:4002 order-service:4003 \
+  credit-service:4004 user-service:3001; do
+  reach=$(docker compose exec -T web-app node -e "
+const [host, port] = process.argv[1].split(':');
+const s = require('net').connect({ host, port: Number(port), timeout: 2000 });
 const say = (w) => { console.log(w); process.exit(0); };
 s.on('connect', () => say('reached')); s.on('error', () => say('unreachable')); s.on('timeout', () => say('unreachable'));
-" 2>/dev/null | tr -d '\r' | tail -1 || true)
-[[ "$reach" == "unreachable" ]] && pass "the web app's container cannot reach Postgres" ||
-  fail "from the web app's container, Postgres was '${reach:-not tried}'"
+" "$target" 2>/dev/null | tr -d '\r' | tail -1 || true)
+  [[ "$reach" == "unreachable" ]] && pass "the web app's container cannot reach $target" ||
+    fail "from the web app's container, $target was '${reach:-not tried}'"
+done
 
 # ---- one broker account per service (PLT-06) ---------------------------------
 # What the broker says when a service, signed in as itself, does something on a
@@ -398,6 +552,40 @@ said=$(broker_says order-service "ch.publish('foc.events', 'order.smoke-probe', 
 said=$(broker_says supplier-service "ch.publish('foc.events', 'supplier.anything', Buffer.from('{}'))")
 [[ "$said" == "refused" ]] && pass "the Supplier Service, which publishes nothing, may publish nothing" ||
   fail "a publish by the Supplier Service was '${said:-not tried}'"
+
+# ---- the stack's readiness (PLT-13) ------------------------------------------
+# /edge/ready answers 200 only while the web app and all four services answer their health
+# checks, and names each that does not. Last, as it takes a service away and brings it back.
+ready_code() { curl -s -o /dev/null -w '%{http_code}' "$EDGE/edge/ready" 2>/dev/null || echo 000; }
+ready_down() { curl -s "$EDGE/edge/ready" 2>/dev/null | python3 -c 'import sys,json;print(",".join(json.load(sys.stdin)["down"]))' 2>/dev/null || true; }
+ready_becomes() { # seconds code
+  local _
+  for _ in $(seq 1 "$(($1 * 2))"); do
+    [[ "$(ready_code)" == "$2" ]] && return 0
+    sleep 0.5
+  done
+  return 1
+}
+code=$(ready_code)
+[[ "$code" == "200" && -z "$(ready_down)" ]] && pass "the stack reports ready at /edge/ready" ||
+  fail "/edge/ready answered $code, naming '$(ready_down)'"
+edge_started=$(docker inspect -f '{{.State.StartedAt}}' "$(docker compose ps -q edge)" 2>/dev/null || true)
+docker compose stop order-service >/dev/null 2>&1 || true
+if ready_becomes 30 503; then
+  down=$(ready_down)
+  [[ "$down" == "order-service" ]] && pass "with the Order Service stopped, /edge/ready answers 503 naming it" ||
+    fail "with the Order Service stopped, /edge/ready named '${down:-nothing}'"
+else
+  fail "with the Order Service stopped, /edge/ready still answered $(ready_code)"
+fi
+docker compose start order-service >/dev/null 2>&1 || true
+if ready_becomes 90 200; then
+  [[ "$(docker inspect -f '{{.State.StartedAt}}' "$(docker compose ps -q edge)" 2>/dev/null)" == "$edge_started" ]] &&
+    pass "the Order Service started again makes the stack ready again, the edge not restarted" ||
+    fail "the stack is ready again, but the edge was restarted"
+else
+  fail "with the Order Service started again, /edge/ready still answered $(ready_code), naming '$(ready_down)'"
+fi
 
 echo
 if [[ $FAILURES -eq 0 ]]; then

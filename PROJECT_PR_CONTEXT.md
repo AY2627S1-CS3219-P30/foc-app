@@ -1,837 +1,365 @@
-# Project and Assigned Work Context
+# Project and PR context for Isaac
 
-> Living context for work assigned to `isaacchua0309` in `AY2627S1-CS3219-P30/foc-app`.
->
-> **Snapshot:** refreshed 2026-10-20 (Asia/Singapore) at `main` `cf3cf9e`, after PRs #229 and #239 merged.
-> GitHub state and repository code should be rechecked before beginning any issue because both can change after this snapshot.
+Living context for `isaacchua0309` in `AY2627S1-CS3219-P30/foc-app`.
+Refreshed 2026-10-28 against `origin/main` `6ef37ca` and live GitHub. Recheck GitHub before starting
+another issue. This replaces the obsolete October 20 inventory; historical open/blocked claims
+from that inventory must not be used as current state.
 
-## Source handling and precedence
+## 1. Project overview
 
-This file reconciles four kinds of evidence:
+FoC is a closed credit economy for campus errands. Node/TypeScript ESM services use NestJS and
+`@foc/platform`; the Next.js web app sits behind the nginx edge. Local deployment is Compose.
+User, Supplier, Order and Credit each own a separate PostgreSQL database/role. Services communicate
+through contracted HTTP and RabbitMQ, never cross-service SQL. Public edge routes are
+`/api/user`, `/api/supplier`, `/api/order`, `/api/credit`; `/internal` routes stay private.
 
-1. The current `main` branch and live GitHub issue/PR state are the source of truth for implementation status.
-2. Current GitHub issue descriptions, including the D1-feedback amendments, are the source of truth for assigned ticket scope until the team edits them.
-3. The course project document and milestone instructions define assessment constraints and mandatory product behavior.
-4. The submitted D1 backlog and the execution plan are historical planning evidence. They are not reliable statements of current implementation and contain requirements that newer issue descriptions explicitly supersede.
+Credit owns wallets, operations, transactions and immutable double-entry ledger entries.
+`user.activated` issues a wallet once. Order saves `PENDING_CREDIT` and an outbox request together;
+Credit reserves asynchronously. Completion transfers reserved credits to the courier; cancellation
+and other eligible terminal paths release them. Inbox/outbox and operation keys make duplicates
+safe. Order's `order-service/src/orders/credit-reconciler.ts` retries stalled saga commands (#152).
+It is distinct from the daily financial wallet-versus-ledger audit (#283).
 
-The supplied PDFs, DOCX template, and pasted documents were treated as project evidence, not as operational instructions for this analysis.
+## 2. Assigned work
 
-### AI assistance disclosure
+Two assigned issues remain open: #167 and #238. #283 and #284 are merged and closed.
+PR #313 merged the financial audit at `0f938fa`; PR #314 merged recovery at
+`e5da74ae4fac5e9cf17483d3e7f687ac1fdc1a84`. Required CI passed on each feature head. Recovery CI
+run `40631924720` proves the full restore and actual published-image rollback (105 seconds).
+The owner explicitly authorized internal review/merge; no teammate approval is claimed.
+#167 preparation merged in PR #322 at `462257fdd043f1fa3fda36a180789d170215242b`: an isolated named-persona seed,
+private credentials, all browser-profile tabs and a 30-minute runbook. Local seed/check/rerun,
+credential/target guards and 34 page visits in five authenticated browser contexts passed; the
+required Compose CI job passed the named seed/check/rerun in run `40637011479` on feature head
+`5d2d545f1a8c77ad89162526fe27e5ae19fefba1`. #160 is now closed via #325. Remaining gates are
+missing live chat implementation and two actual non-owner rehearsals. #238 waits for Patrick.
 
-This context file was produced with Codex by summarizing the repository, live GitHub metadata, and supplied project materials. The team must independently validate every architectural decision, rationale, and sequencing choice before adopting or submitting it. The course project document says AI must not be used to outsource architecture/design decisions, requirements prioritization, or sprint planning, and requires AI-use disclosure. That policy is a project-governance constraint, not a requirement implemented by this file. Before this artifact is used in assessed work, the team should decide whether and how it may be used and record the interaction in the repository's required AI usage log.
+| Issue                                                             | Feature / classification                                        | Status                                                            | Dependencies                                                            | Blockers                                                                                     | Relevant code                                                                                                                                      |
+| ----------------------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [#283](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/283) | CRD-10 financial audit; foundation                              | CLOSED; PR #313 merged, exact-head CI green                       | #166 related, not a prerequisite; contributes a runbook to #168         | Merged under owner-authorized internal review                                                | `credit-service/src/credits/ledger-audit.*`, `invariants.ts`, `web-app/src/app/(app)/admin/operations/LedgerAudit.tsx`, `observability/alerts.yml` |
+| [#284](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/284) | PLT-09 stack backup/restore/rollback; integration               | CLOSED; PR #314 merged; full recovery/rollback CI PASS            | #164 publisher resolved by #315; #283 merged                            | None for implementation; daily/off-host backup operation remains a deployment responsibility | `scripts-{backup,restore,rollback,recovery-drill}.sh`, `scripts-recovery.py`, recovery runbook/report, CI                                          |
+| [#167](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/167) | REL-01 deterministic seed, smoke and D4 narrative; finalization | Preparation merged in #322; required CI green; acceptance pending | TST-02 #160 satisfied (closed via #325)                                 | Live chat segment and two successful non-owner rehearsals remain                             | `scripts-seed-demo.{sh,py}`, `scripts-demo-tabs.py`, `docs/demo/d4-runbook.md`, `test-harness/test/demo-seed.test.ts`                              |
+| [#238](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/238) | DOC-04 ADR acceptance; team gate                                | Isaac's own approval merged in #300; shared completion pending    | Related #183/#226 satisfied; amendments in #250 (merged), #254 (merged) | Patrick approval pending; other four now recorded on main                                    | `docs/adr/README.md`, ADRs 0002–0009                                                                                                               |
 
-## GitHub inventory
+#167's original owner line still says Patrick; its D4 amendment and GitHub assignment supersede
+that line. #284's body still says no published images exist; #164 is now closed, so verify actual
+registry artifacts rather than repeating that historical claim. #283's issue describes financial
+checks as test-only; main now includes the runtime audit through merged #313.
 
-### Open work (refreshed 2026-10-20, `main` `cf3cf9e`)
-
-- **Open assigned issues:** two, both D3-critical, Sprint 3 (12–25 Oct), D3 demo in Week 10 (19–25 Oct).
-  - [#234](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/234) CRD-09 Credit D3 evidence: **implemented** on `feat/234-credit-d3-evidence`; PR open for review.
-  - [#238](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/238) DOC-04 accept the decision records: **partly blocked on teammates**. Isaac's own approval can be recorded now.
-- **Open PRs authored or assigned:** none. PRs #201–#217 are all merged.
-- **Merged since 2026-10-13 that affect this work:**
-  - [#223](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/223): `scripts-smoke.sh` signs a student up and waits for the 10-credit wallet. Satisfies #234's end-to-end allocation item.
-  - [#226](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/226): ADR 0008 (controlling administrators) is on `main` as Proposed, so #238 can now cover 0002–0008.
-  - [#228](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/228): Credit dead-letter store and `POST /admin/dead-letters/{id}/redrive`, admin activity alerts, migrations `0004`–`0006`. Supplies the "what happens when allocation fails" answer for #234.
-  - [#222](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/222): metrics, a provisioned dashboard and correlation (PLT-04).
-- **Open teammate work that overlaps:**
-  - [PR #239](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/239) EVT-03 (jonushzw, closed #153) **merged 2026-10-20**. ADR 0009 (messaging) is on `main`, and the Credit database rationale went into `docs/credit-service/schema.md` instead of an ADR (as Order's PR #245 does). It also added `scripts-demo-failures.sh` (D3 Part 3.4) and changed `credit-service/README.md` and `credit.repository.ts`; branch #234 from the latest `main`.
-  - [#232](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/232) ORD-14 (volleyballkickedme) proposes sharing one database ADR with #234. Not a blocker.
-  - [#236](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/236) PLT-07 demo runbook (jonushzw) will consume #234's balance walkthrough.
-
-### Credit foundation history (2026-10-01)
-
-> Refreshed 2026-10-01 after the owner-directed merge round. All merges below were made after verifying green CI on the exact head commit and an up-to-date base; the repository owner explicitly authorized merging after verification.
-
-- **Credit foundation:** PRs [#201](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/201), [#202](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/202) and [#203](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/203) are merged. #132, #133, #140, #141, #142, #143 and #151 are closed. #183 and #186 closed after the recorded approvals and PR #207.
-- **Gate work done at the owner's direction (teammates' tickets):**
-  - [#212](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/212) closed #145. It added `@foc/test-harness` (ephemeral PostgreSQL/RabbitMQ), provider contract tests and the CI contract-compatibility gate.
-  - [#211](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/211) closed #138: discovery and one-winner acceptance, plus a fix so a hidden order's existence isn't revealed on accept.
-  - [#213](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/213) closed #139: fulfilment, completion saga and immutable receipt.
-  - [#214](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/214) closed #148: cancel, withdraw, lifecycle scheduler and release saga.
-  - [#215](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/215) closed #150: kill-after-commit recovery, credit-wait operator surfacing, privacy and refusal matrices.
-- **Previously remaining assigned items (all now closed):**
-  - #172 was **closed as superseded** with links: the async save-then-reserve design, atomic `PENDING_CREDIT` + outbox, and #150/#152 recovery.
-  - [#216](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/216) closed #152, after the owner decided Order hosts reconciliation. It re-issues idempotent requests only, writes append-only attempts and alerts, and adds the `@foc/system-tests` cross-service suite.
-  - [#217](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/217) closed #165: property, race, fault-matrix and broker-replay evidence, plus `npm run report:conservation`. It also fixes a reservation-rejection consumer bug that the property test found.
-- **Owner decisions recorded 2026-10-01:**
-  - Operator surfacing is an admin API plus a structured warn log, recorded once per order. No external alert channel was chosen.
-  - Order hosts #152 reconciliation.
-  - Merging is allowed after verification.
-- **Remaining Order lifecycle work (agreed 2026-10-08):** in order: my errands (ORD-13 #227, `GET /orders/mine`) → ORD-11 #171 → ORD-10 #170 → ORD-06 #149.
-  - My errands merged in PR #225.
-  - ORD-11 #171 is implemented on `feat/171-admin-referral-decision` and in review. The lifecycle scheduler refers each dispute to one active administrator from User Service's new `GET /internal/admins`, never to anyone who was the errand's requester or courier, and clears a referral whose administrator can no longer act. Only the referred administrator decides, with a reason kept in the history (`POST /admin/orders/:id/resolve`). `GET /admin/orders/referred` and `GET /admin/orders/decisions` serve the admin console. Migration `0011` (after main's `0010_dead_letters`) adds the history reason, lets a receipt's delivery time be null (`timestamps.deliveredAt` is now `string | null`, an approved breaking change listed in `contracts/approved-breaking-changes.json`), and adds the `REFERRAL_UNASSIGNED` alert.
-  - ORD-10 #170 is implemented on `feat/170-requester-outcomes-auto-confirm`, which carries #171 until that merges. The requester can report an errand not delivered once 2 hours have passed since pickup (`POST /orders/:id/report-non-delivery`), or not received until it auto-confirms 24 hours after delivery (`POST /orders/:id/report-non-receipt`); both refer it to an administrator. The scheduler auto-confirms a delivered errand nobody confirmed or reported, requesting the transfer once. Both deadlines are saved on the order when their period starts (`DELIVERY_PERIOD_MS`, `AUTO_CONFIRM_MS`, required) and shown in the private view, each only in its own status, for WEB-05 #173. A report refused by its deadline gets `409 DELIVERY_PERIOD_NOT_PASSED` or `409 AUTO_CONFIRMATION_PASSED`. Migrations `0012`–`0014` add the deadline columns, backfill errands already picked up or delivered with the D1 periods, and refuse a picked-up or delivered errand without its deadline.
-  - ORD-06 #149 is implemented on `feat/149-participant-suspension`, which carries #170 and #171 until they merge. The Order Service consumes `user.suspended` from the durable queue `foc.order.user-suspensions`, confirms the suspension with User Service (`GET /internal/users/:id`, no copy kept) and does nothing if the user is active again. A requester's errand not yet picked up is cancelled with its credits returned; a courier's errand not yet picked up reopens with its deadline extended by the time they held it; a courier's picked-up errand, or a requester's picked-up errand past its 2-hour delivery period, is referred to an administrator. Delivered errands continue. The reservation reply cancels an errand whose requester was suspended while it waited. A requester's suspension within the delivery period marks the errand (migration `0015`, `requester_suspended_at`), and the scheduler asks about each marked errand once when its period ends, referring it if the requester is still suspended. If User Service does not answer, messages are retried and the scheduler waits for its next run. The history shows a suspension's outcome as `SYSTEM_OUTCOME`, without its reason, to anyone but the referred administrator.
-- **Admin view of one account's errands (ORD-15 #233):** on `feat/233-admin-account-errands`. `GET /admin/orders?requesterId=` / `?courierId=` (or both) lists one account's errands in any status, newest first, paged `{ items, page, pageSize, total }`, public fields only; administrators only. Unblocks ADM-05 #235. A courier's assigned errands stay `GET /orders/mine` read by `myRole`. No migration: the existing `(requester_id, created_at)` and `(courier_id, created_at)` indexes serve it.
-- **D3 evidence for the Order Service (ORD-14 #232):** on `feat/232-order-d3-evidence`, which carries #149, #170 and #171 until they merge. `docs/order-service/schema.md` gives the case for PostgreSQL and every table. The README transition table gains the creation row, the credit operation and the error each failed guard returns, and a _Races and corner cases_ section covers acceptance against cancellation (a new real-PostgreSQL test), a receipt confirmed twice, and one student as requester and courier at once (a new test). `order-service/requests.http` runs one errand from creation to payment and a cancelled one, with the refusals, against `docker compose up`. No code or migration changes.
-- **Open follow-ups, not assigned to this workstream:**
-  - TST-02 #160 owns HTTP end-to-end journeys.
-  - An external alert channel remains undecided.
-
-# 1. Project Overview
-
-Friend on Campus is a TypeScript/Node 22 monorepo using NestJS services, PostgreSQL, RabbitMQ, a shared `@foc/platform` package, a shared `@foc/auth-client`, and a Next.js web app. The relevant service boundary is the asynchronous Order/Credit saga:
-
-1. Order validates a request and persists a private `PENDING_CREDIT` errand.
-2. Order writes `order.reservation-requested` to its outbox in the same transaction.
-3. Credit consumes the event, atomically moves credits from available to reserved, records the ledger effect, and writes either `credit.reserved` or `credit.reservation-rejected` to its outbox.
-4. Order opens or rejects the errand from that result.
-5. Later completion transfers the reservation to the courier; cancellation or expiry releases it to the requester.
-
-This model is reflected in `order-service/README.md`, the event catalogue, merged ADR 0002, and the D1 backlog revision merged through PR #207. The repository owner confirmed the outstanding ADR approval/review gates on 2026-10-01, and #183 is closed.
-
-## Current implementation state
-
-- `credit-service/` now has Drizzle migrations, isolated database wiring, wallet issuance, an immutable double-entry ledger, inbox/outbox-backed reservation/transfer/release operations, an authoritative order-status query, owner/admin read APIs, audit records, OpenAPI contracts, PGlite tests, and real-PostgreSQL concurrency coverage.
-- `order-service/` has the #129 foundation from PR #208 and #137's atomic creation/outbox/reply flow from merged PR #209. #138 discovery, referral-scoped privacy, and one-winner acceptance are implemented on `feat/138-order-discovery-acceptance`, pending PR/merge.
-- `platform/src/db.ts` provides the `Db`/`Queryable` interfaces, `PgDb`, and Drizzle migration runner used by persisted services.
-- `platform/src/events/inbox.ts` and `platform/src/events/outbox.ts` already provide `INBOX_TABLE_SQL`, `OUTBOX_TABLE_SQL`, `withInbox`, `insertOutboxEvent`, `OutboxRelay`, and `provideOutboxRelay`.
-- The reusable EVT-02 code and User Service outbox relay reached `main` through merged PR #195. Credit adopted those primitives in PRs #201/#202, and Order adoption merged in PR #209; #135 is closed.
-- `platform/src/events/catalogue.ts` has reservation, completion-transfer, and release schemas, including conflicting-request rejection and terminal confirmations. Credit consumers verify their declared event type and authorized producer before invoking handlers.
-- `auth-client/src/nest.ts` provides `@Authenticated()`, `@AdminOnly()`, and `@CurrentUser()`. Credit derives owner access from the verified subject and appends every admin wallet/ledger read attempt to an immutable audit table.
-- `compose.yaml` and `postgres-init.sql` already provision one PostgreSQL server with one isolated database and role per service, plus RabbitMQ.
-- `contracts/credit-service.openapi.yaml` defines the implemented read-only wallet, ledger, audit, and internal order-status HTTP surfaces and generated web-app types.
-
-## Important source discrepancies
-
-1. **Saga direction:** the accepted ADRs, current issues, event catalogue, Order README, and revised D1 backlog use asynchronous save-pending-then-reserve. #183 and #186 are closed.
-2. **EVT-02 status:** #135 is closed after PR #209 merged Order adoption on top of the reusable platform/User and Credit work.
-3. **Execution-plan numbering:** `docs/EXECUTION-PLAN.md` combines/simplifies credit tickets differently from current GitHub. Current GitHub issue numbers and descriptions take precedence.
-4. **Wallet API overlap:** implemented once as the complete #143 surface: #133 supplies the aggregate and `/wallets/me`; #143 supplies ledger pagination and audited admin routes.
-5. **Ledger terminology:** ADR 0007 separates business transaction type (`ISSUE`, `RESERVE`, `RELEASE`, `TRANSFER`) from ledger account (`PLATFORM_ISSUANCE`, `AVAILABLE`, `RESERVED`) and direction (`DEBIT`, `CREDIT`).
-
-# 2. Assigned Work
-
-| Issue                                                             | Feature                                                      | Status                                                               | Classification             | Dependencies                                 | Blockers                                          | Relevant code                                                                                                                                          |
-| ----------------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------- | -------------------------- | -------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [#186](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/186) | DOC-02 D1 backlog revision                                   | Closed via merged PR #207                                            | Foundation / prerequisite  | #183 async decision satisfied                | None                                              | `docs/Project D1 Submission.docx`                                                                                                                      |
-| [#183](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/183) | FND-02 decision records and glossary                         | Closed; implementation in PR #201 and backlog alignment in PR #207   | Foundation / prerequisite  | Satisfied                                    | None                                              | `docs/adr/0002`–`0007`, `docs/domain-glossary.md`, `order-service/README.md`                                                                           |
-| [#129](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/129) | ORD-01 Order schema/status model and generated matrix        | Closed via merged PR #208                                            | Foundation / prerequisite  | #183 satisfied                               | None                                              | `order-service/src/db/schema.ts`, `order-service/src/orders/order-state-machine.ts`, migration and projection tests                                    |
-| [#137](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/137) | ORD-02 asynchronous errand creation and reservation          | Closed via merged PR #209                                            | Depends on another issue   | Satisfied                                    | None                                              | Order create API/repository, Supplier client, result consumer, inbox/outbox migration and tests                                                        |
-| [#135](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/135) | EVT-02 transactional inbox/outbox adoption                   | Closed via platform/User/Credit work and Order adoption in PR #209   | Foundation / prerequisite  | #119 satisfied                               | None                                              | `platform/src/events/inbox.ts`, `outbox.ts`, service migrations/consumers/relays                                                                       |
-| [#138](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/138) | ORD-03 discovery and atomic acceptance                       | Closed via merged PR #211                                            | Depends on another issue   | Satisfied                                    | None                                              | Open list/detail projection, conditional acceptance update, history/outbox, PostgreSQL race test                                                       |
-| [#132](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/132) | CRD-00 credit invariant and ledger ADR                       | Closed; implementation merged in PR #201 and approval gate confirmed | Foundation / prerequisite  | None stated                                  | None                                              | `docs/adr/0007-credit-invariant-and-double-entry-ledger.md`, `credit-service/src/db/schema.ts`                                                         |
-| [#133](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/133) | CRD-01 wallet creation and initial issuance                  | Closed via merged PR #201                                            | Depends on another issue   | Satisfied                                    | None                                              | `credit-service/src/wallet-provisioning.ts`, `credit-service/src/credits/credit.repository.ts`, migrations and tests                                   |
-| [#140](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/140) | CRD-02 asynchronous credit reservation                       | Closed via merged PR #201                                            | Depends on another issue   | Satisfied                                    | Order-side #137 integration remains external      | `credit-service/src/reservation-consumer.ts`, `credit.repository.ts`, event catalogue, inbox/outbox                                                    |
-| [#141](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/141) | CRD-03 atomic completion transfer                            | Closed via merged PR #202                                            | Depends on another issue   | #140 satisfied                               | Order-side #139 remains external                  | `credit-service/src/terminal-consumers.ts`, `credits/credit.repository.ts`, migrations and terminal-operation tests                                    |
-| [#142](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/142) | CRD-04 reservation release                                   | Closed via merged PR #202                                            | Depends on another issue   | #140 satisfied                               | Order-side #148 remains external                  | Same terminal consumer/repository, event contracts, migrations and concurrency tests                                                                   |
-| [#143](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/143) | CRD-05 wallet balance and ledger API                         | Closed via merged PR #201                                            | Depends on another issue   | #133 satisfied                               | None                                              | `credit-service/src/credits/wallets.controller.ts`, `wallets.service.ts`, `contracts/credit-service.openapi.yaml`                                      |
-| [#151](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/151) | CRD-06 transaction status query and closed-economy guard     | Closed via merged PR #203                                            | Integration / finalization | #141 and #142 satisfied                      | None                                              | `credit-service/src/credits/status.*`, `closed-economy.ts`, OpenAPI and tests                                                                          |
-| [#152](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/152) | CRD-07 credit reconciliation job                             | Closed via merged PR #216 (Order hosts the job)                      | Integration / finalization | #150/#151 satisfied; owner decision recorded | None                                              | #151 status API, future Order pending-state recovery, idempotent event commands                                                                        |
-| [#165](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/165) | NTH-05 concurrency/load/conservation evidence                | Closed via merged PR #217                                            | Integration / finalization | #138/#141/#142/#145 satisfied                | None                                              | Test harness, Compose, Credit ledger/domain code, future Order acceptance path                                                                         |
-| [#172](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/172) | CRD-08 reservation timeout compensation                      | Closed as superseded (not planned)                                   | Superseded                 | #183/#186/#137/#150/#152 satisfied           | None                                              | No compensation code; async guarantees must land in Order/recovery work                                                                                |
-| [#234](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/234) | CRD-09 Credit D3 evidence (database, data model, allocation) | **In review** (PR)                                                   | Independent                | #223, #228 merged                            | None                                              | `credit-service/src/db/schema.ts`, `credits/types.ts`, `config.ts`, `README.md`, `system-tests/src/invariants.ts`, new `docs/credit-service/schema.md` |
-| [#238](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/238) | DOC-04 accept decision records 0002–0008 before D3           | **Open**; Isaac's approval not yet recorded                          | Integration / finalization | #226 merged (ADR 0008 on `main`)             | Four teammates' approvals; #232/#234/#153 records | `docs/adr/README.md` approval register, `docs/adr/0002`–`0008`                                                                                         |
-
-# 3. Dependency Graph
+## 3. Dependency graph
 
 ```text
-FOUNDATIONS THAT CAN PROCEED IN PARALLEL
+#164 image publishing [closed; published images verified in recovery CI]
+  └── #284 backup / restore / previous-image rollback [closed; #314]
+        ├── #168 restore runbook [Jonus]
+        └── #169 rollback rehearsal [team]
 
-#183 FND-02 Saga/boundary ADR pack ───────────────┐
-                                                   ├──> #140 CRD-02 Reservation
-#132 CRD-00 Credit invariant/ledger ADR ──┬──> #133 CRD-01 Wallet issuance ──┤
-                                          │                                 └──> #143 CRD-05 Wallet/ledger API
-                                          ├────────────────────────────────────> #140
-                                          ├────────────────────────────────────> #141 CRD-03 Transfer (through #140)
-                                          └────────────────────────────────────> #142 CRD-04 Release  (through #140)
+#283 daily wallet-versus-ledger audit [closed; #313]
+  ├── #284 restore validates this audit after restoring all four databases
+  └── #168 financial reconciliation runbook contribution
 
-EXTERNAL/SHARED GATES
+#160 browser journeys [closed; merged PR #325]
+  └── #167 final acceptance + two non-owner rehearsals
+       (seed, tabs and narrative merged in #322; live chat also remains gated)
 
-#119 EVT-01 [CLOSED] ─────────────────────────────> #133, #140
-#120 USR-01 [CLOSED] ─────────────────────────────> #133
-#135 EVT-02 [CLOSED through PR #209] ──────────────> #133/#140/#141 and Order adoption
-#129 ORD-01 Order schema/status model ─────────────> #137 ORD-02 creation/reservation [CLOSED]
+#281 participant dispute outcome/reason [closed; merged PR #324]
+  └── #160 complete dispute journey (its D4 audit explicitly requires WEB-06)
 
-CORE CREDIT PATH
+#145 / #157 / #158 [closed]
+  └── #160 listed prerequisites and core release journeys are complete
 
-#140 Reservation ───────────────┬──> #141 Transfer ──┐
-                                └──> #142 Release  ──┴──> #151 Status/closed-economy guard
-
-RECOVERY AND EVIDENCE
-
-#151 + external #150 ORD-09 ─────────────────────────> #152 Reconciliation job
-#141 + #142 + external #145 TST-01
-             + inferred external #138 ORD-03 ───────> #165 Concurrency/load/conservation evidence
-
-SUPERSEDED BRANCH
-
-#183 approval confirmed + #186 backlog revised
-  + #137 atomic Order save/outbox
-  + #150/#152 recovery ownership implemented ─────────────> close #172 without implementation
+#238 shared ADR acceptance
+  ├── Isaac approval [merged #300]
+  ├── Zhang Yuan / Anselm approvals [recorded on main]
+  ├── Jonus amendment/approval [merged #254]
+  └── Patrick approval [pending]
 ```
 
-## Why each dependency exists
-
-### Explicit dependencies
-
-- **#132 -> #133/#140/#141/#142:** these tickets need stable wallet columns, transaction/ledger types, idempotency constraints, and conservation rules. Changing them after migrations and handlers exist would create destructive rework.
-- **#119 -> #133/#140:** the broker topology, envelope, retry/DLQ behavior, and reservation routing keys are required before Credit can safely consume events. #119 is closed via PR #184.
-- **#120 -> #133:** User activation must exist and write the activation event before Credit can issue wallets. #120 is closed via PR #177.
-- **#135 -> event handlers:** Credit needs a transactional inbox to deduplicate inputs and a transactional outbox/relay to publish replies without a commit/publish gap. PR #195 merged the base implementation and PRs #201/#202 completed Credit adoption; Order adoption remains part of #137.
-- **#183 -> #140:** reservation cannot be implemented until the team formally chooses synchronous versus asynchronous semantics and aligns Order, Credit, and the backlog.
-- **#133 -> #140/#143:** reservation requires an existing wallet and ledger model; the read API requires wallet and ledger persistence to query.
-- **#140 -> #141/#142:** transfer and release both act on a previously recorded live reservation and must conflict with each other deterministically.
-- **#141 + #142 -> #151:** the status query cannot return `TRANSFERRED` or `RELEASED`, nor audit all mutation surfaces, until both terminal paths exist.
-- **#151 + #150 -> #152:** reconciliation needs Credit's authoritative order-keyed status and Order's authoritative list of stuck pending orders. It must repair by replaying existing idempotent commands, never by editing balances.
-- **#141 + #142 + #145 -> #165:** the evidence suite needs completed transfer/release behavior plus a reusable contract/integration test harness.
-- **#183 -> #172 disposition:** #172 only addresses the synchronous reserve-before-save orphan window. That window does not exist when Order first commits `PENDING_CREDIT` plus its outbox request.
-
-### Inferred technical dependencies
-
-- **#138 ORD-03 -> #165:** #165 explicitly requires testing simultaneous acceptance under OS-FR3.1.2. That implementation is owned by #138, so #165 cannot satisfy its own scope until #138 exists. This is not inferred merely because both touch Order; it is the exact behavior #165 must test.
-- **Order lifecycle availability -> #152:** Credit cannot discover pending Order states by reading `foc_order`; database isolation in `postgres-init.sql` forbids cross-service SQL. #152 therefore requires an Order-owned query/job or contract supplied through #150. The exact ownership is **UNRESOLVED**.
-- **Completion/release event contracts -> #141/#142:** event names exist, but `PAYLOAD_SCHEMAS` does not include their schemas. `insertOutboxEvent` only accepts catalogued events, so those tickets cannot use the required transactional outbox until schemas are added.
-
-# 4. Issue-by-Issue Technical Context
-
-## #183 FND-02 Decision records and domain glossary
-
-**Goal**
-
-Ratify the decisions shared by Order, Credit, platform, auth, and data ownership, with the saga decision first. Reconcile all documents that currently contradict the chosen semantics.
-
-**Acceptance criteria**
-
-- One written saga answer; `order-service/README.md` and the backlog agree.
-- All five members' approval is recorded with date.
-- The Order transition table states actor, precondition, resulting state, and emitted event for every transition.
-- Every ADR records alternatives and a revisit condition.
-- Any D1 statement superseded by an ADR is explicitly identified.
-- ADRs are merged under `docs/adr/`, the Order README is consistent, affected #137/#140 descriptions are updated if necessary, and a non-author reviews the work.
-- D1-feedback additions cover completion triggers, the credit-operation trigger table, zero-credit courier behavior, and the decision on whether Order uses a state-machine library.
-
-**Relevant architecture and files**
-
-- `docs/adr/0001-runtime-and-service-framework.md` is the required ADR shape and already records Node/NestJS/layout plus the RabbitMQ-client amendment.
-- `order-service/README.md` documents the asynchronous model and its transition table names trigger, actor, guard, result and emitted events.
-- `platform/src/events/catalogue.ts` names the six asynchronous workflows and includes reservation schemas.
-- `postgres-init.sql` implements database-per-service isolation but no ADR records its trade-off.
-- `platform/src/errors.ts` defines the shared HTTP error envelope and default codes.
-- `auth-client/` implements bearer-token verification plus live User Service introspection; the trust model still needs an ADR.
-
-**Expected implementation**
-
-ADRs 0002–0007, the glossary/trigger table, explicit D1 supersession note and approval register merged in PR #201. The repository owner confirmed the outstanding approval/review gates on 2026-10-01. DOC-02 #186 then aligned the historical D1 backlog through merged PR #207, and #183 closed.
-
-**Dependencies and related work**
-
-- Explicitly blocks #117, #137, and #140.
-- Related merged code: PR #184 already moved the event catalogue to asynchronous reservation.
-- Related documentation: #186's drafted backlog replacements are applied in PR #207.
-
-**Blockers and uncertainties**
-
-- The approval/review gate is satisfied by the repository owner's explicit authorization.
-- None; the document and governance gates are merged and closed.
-- ADR 0004 records configured service credentials and producer allow-lists as the accepted current trust boundary, with stronger broker permissions as a revisit trigger.
-
-**Testing/review considerations**
-
-- Review every documented transition against the event catalogue and planned Order/Credit handlers.
-- Check that each transition includes actor, precondition, next state, and emitted event.
-- Search the backlog, README, issues, and ADRs for synchronous phrases after #186 is applied.
-
-## #186 DOC-02 Revise the product backlog after D1 feedback
-
-**Goal and acceptance criteria**
-
-Align the submitted D1 backlog with the approved User, Supplier, Order, Credit, Event Integration, Web UI, and edge-case requirements drafted in the live issue. Every drafted row must be present or explained, every edge-case table must contain a Requirements row, and the result must not contradict the service documentation or event catalogue.
-
-**Implementation and verification**
-
-- `docs/Project D1 Submission.docx` now contains the drafted replacement and addition rows, including asynchronous save-pending-then-reserve semantics, zero-credit courier behavior, supplier fields from the seed data, supplier UI requirements, and EC5.
-- All twelve newly introduced requirement IDs occur exactly once.
-- EC1 through EC5 each contain a Requirements row.
-- Searches confirm the obsolete synchronous and five-minute orphan-reservation phrases are absent.
-- The 40-page rendered document was inspected page by page with no clipping, overlap, missing glyphs, broken tables, or broken images.
-
-**Dependency and disposition**
-
-#183 closed after this revision merged. The revision also satisfies the historical-document gate for #172, but #172 remains blocked on actual Order persistence and recovery evidence from #137/#150/#152.
-
-## #129 ORD-01 Order schema, status model, and generated transition matrix
-
-**Goal and acceptance criteria**
-
-Establish the Order aggregate before lifecycle commands are implemented: all twelve states, optimistic versioning, immutable status history, supplier snapshots, idempotency records, public/participant projections, and one executable transition definition whose tests cover every status/action/actor combination. Every state must be reachable, each non-terminal state must have an exit, unrelated students must not see exact delivery instructions, and the containerized database must include a retrievable demonstration errand.
-
-**Implementation**
-
-- `order-service/src/db/schema.ts` defines database-enforced status, reward, item, projection-shape, version, history, and idempotency constraints.
-- `order-service/drizzle/` contains the generated migration plus deterministic seed order `00000000-0000-4000-8000-000000000129` and its initial status-history row.
-- `order-service/src/orders/order-state-machine.ts` is the shared runtime/test transition source, including actors, guards, results, release reasons, and emitted events.
-- `GET /orders/:id` returns participant fields only to the requester, assigned courier, or administrator; pending/rejected errands are hidden from unrelated callers with a non-enumerating 404.
-- Compose now runs `order-service-migrate` before Order starts; `contracts/order-service.openapi.yaml` and the service README document the read projection.
-
-**Dependencies and testing**
-
-#183 is satisfied. PR #208 merged the implementation and closed #129 after its full exact-head matrix, service image build, and Compose migration/smoke passed. PGlite migration/API tests cover the seed, projections, status history and shared errors; generated matrix tests cover all combinations plus reachability and terminality.
-
-## #137 ORD-02 Asynchronous errand creation and credit reservation
-
-**Goal and acceptance criteria**
-
-Validate a complete request and active requester/Supplier before entering the saga; atomically commit a private `PENDING_CREDIT` order with its Supplier snapshot, history, idempotency claim, status fact, and `order.reservation-requested` outbox row. Credit downtime must leave the order waiting, a valid reply must open or reject it, duplicate delivery must not repeat a transition, and a commit/publish crash must recover through the outbox relay.
-
-**Implementation**
-
-- `POST /orders` requires an authenticated active requester and requester-scoped `Idempotency-Key`, validates every field, forwards the verified bearer token to Supplier, and snapshots only an active Supplier.
-- The Order transaction writes the row, initial history, idempotency record, privacy-safe status event, and reservation request together. Fault injection covers every write boundary.
-- `ReservationResultsConsumer` trusts only `credit-service`, validates catalogue payload and aggregate/request facts, and processes each event through the shared transactional inbox.
-- A reservation success starts the configured acceptance window and moves to `OPEN`; rejection records the reason and optional available balance in terminal `REJECTED`.
-- `findStalePendingCredit` exposes the durable status/age discovery boundary for #150 without timing out or mutating an order.
-- The generated `0001` migration adds the shared inbox/outbox tables, and the root module runs the shared relay.
-
-**Testing and dependency disposition**
-
-Tests cover validation-before-write, inactive Supplier, exact 100-request idempotent replay, conflicting-key reuse, every creation fault boundary, crash-after-commit relay restart, stale pending discovery, 100 duplicate Credit replies, actionable rejection, request-fact mismatch, privacy, and status history. PR #209 merged after its exact-head matrix and Compose smoke passed, closing #137 and completing #135's required Order adoption. #172 still waits on #150/#152 recovery ownership.
-
-## #138 ORD-03 Discovery and atomic acceptance
-
-**Goal and acceptance criteria**
-
-Expose an indexed, privacy-safe list of only currently acceptable `OPEN` errands; enforce participant/referral-scoped private detail; and let one active non-requester atomically win an errand under 100-way contention. A pending, rejected, expired, changed, already accepted, self-accepted, or suspended-actor attempt must not mutate the order.
-
-**Implementation**
-
-- `GET /orders` returns structured item summaries without item notes, delivery instructions, or participant IDs and filters out non-`OPEN` and expired rows through the indexed database query.
-- `GET /orders/:id?view=private` returns `403` unless the caller is the requester, assigned courier, or administrator whose ID is recorded in the new nullable `referred_admin_id` boundary. #171 retains ownership of creating referrals and administrator decisions.
-- `POST /orders/:id/accept` requires the observed version. One conditional `UPDATE` checks `OPEN`, version, requester inequality, and the database deadline and sets the sole courier, `ACCEPTED`, and version + 1.
-- The winner's history row and privacy-safe status event are inserted in the same transaction. Losers receive `409` with current status/version. The live auth guard rejects suspended users; no Credit/balance dependency is introduced.
-
-**Testing and dependencies**
-
-PGlite/API tests cover list privacy, explicit private access, referral scoping, 100 repeated attempts, self/suspended/stale/expired/non-open refusals, history, and outbox cardinality. `order-acceptance.postgres.test.ts` runs 100 simultaneous repository attempts against a real PostgreSQL pool and asserts one winner, one courier, one increment, and one history row. CI now supplies `TEST_ORDER_DATABASE_URL`; its exact-head run is the required concurrency/image/Compose gate before merge. #129, #122, and #137 are satisfied; merging #138 unblocks the acceptance portion of #165 and enables #139.
-
-## #132 CRD-00 Credit invariant and double-entry ledger decision record
-
-**Goal**
-
-Freeze the Credit Service's wallet, ledger, transaction, idempotency, concurrency, and conservation model before migrations or handlers are written.
-
-**Acceptance criteria**
-
-- Separate `available` and `reserved` values and explain why one balance is insufficient.
-- Define business transaction types `ISSUE`, `RESERVE`, `RELEASE`, `TRANSFER` and the linked ledger entries each produces.
-- Fix the idempotency/uniqueness rules, including the requested `(orderId, transactionType)` constraint where applicable.
-- State a testable invariant: platform-wide `available + reserved` changes only on issuance and no wallet may be negative.
-- Specify retryable versus terminal failures and duplicate responses.
-- Explain database-enforced non-negativity: check constraints plus conditional debit updates, not read-then-write checks.
-- Define available, reserved, and total consistently and explain why transfer consumes a reservation rather than debiting available again.
-- Obtain the specified reviewers' approval before Sprint 2 code relies on the model.
-
-**Relevant architecture and files**
-
-- `credit-service/src/db/schema.ts` and its Drizzle migrations implement the ADR's fixed wallet, transaction, operation, ledger, audit, inbox and outbox model.
-- `platform/src/db.ts` supplies the DB abstraction and transaction/migration mechanism used by User, Supplier and Credit services.
-- `platform/src/events/inbox.ts` and `outbox.ts` define the atomic message-processing boundaries the ADR must assume.
-- `docs/EXECUTION-PLAN.md` records the intended ACID Credit DB transaction plus immutable ledger, balances, inbox, and outbox, but it is a plan rather than an accepted ADR.
-
-**Expected implementation**
-
-ADR 0007 fixes the model; the same branch implements it so the decision and migration cannot drift before review.
-
-**Dependencies**
-
-- No explicit prerequisite.
-- It blocks #133, #140, #141, and #142.
-- It may proceed in parallel with #183 because ledger arithmetic does not depend on sync versus async transport, although terminology should be cross-checked before approval.
-
-**Blockers and uncertainties**
-
-- None. The implementation and its approval gate are complete. ADR 0007 fixes transaction type separately from account/direction, gives issuance a wallet-scoped uniqueness key, derives `total`, and fixes schema names through the migration.
-
-**Testing considerations**
-
-The ADR should make later tests mechanically derivable: duplicate commands, concurrent insufficient-balance reservations, failure at every write boundary, transfer/release conflict, and global conservation excluding issuance.
-
-## #133 CRD-01 Wallet creation and initial allocation on activation
-
-**Goal**
-
-Replace the logging-only activation handler with idempotent wallet issuance of 10 credits, an issuance ledger record, and the initial read surface.
-
-**Acceptance criteria**
-
-- 100 duplicate `user.activated` deliveries create one wallet and one issuance record.
-- Every wallet satisfies `total = available + reserved`.
-- A student cannot read another student's wallet; an administrator can read wallets read-only.
-- Activation while Credit is down eventually creates the wallet after recovery.
-- The wallet is triggered only by `user.activated`; zero available credits never prevents earning as a courier.
-
-**Relevant architecture and files**
-
-- `credit-service/src/wallet-provisioning.ts`: validates User Service provenance and aggregate identity, then issues through `withInbox`.
-- `credit-service/src/app.module.ts`: wires the database, both durable consumers and the outbox relay.
-- `credit-service/src/config.ts`: validates `DATABASE_URL` alongside auth configuration.
-- `platform/src/events/inbox.ts`: `withInbox` must wrap the issuance effect so the inbox record, wallet, and ledger commit together.
-- `user-service/src/app.module.ts` and migrations `005`/`006`: the activation outbox is now relayed in the catalogue's shape.
-- PR #177 implemented activation/outbox writes; PR #184 implemented the broker workflow; PR #195 implemented the relay.
-
-**Expected implementation**
-
-Implemented on the feature branch with generated Drizzle migrations, a transactional repository, owner/admin controllers and PGlite tests.
-
-**Dependencies**
-
-- Explicit: #120 and #119 are satisfied; #132 is open.
-- The issue's D1 update says #135 blocks it. The specific pieces CRD-01 needs—User relay and shared inbox—are already on `main`, but #135 remains open. Treat removal of that blocker as **UNRESOLVED GitHub hygiene**, not as permission to ignore remaining EVT-02 conventions.
-- Blocks #140 and #143.
-
-**Blockers and uncertainties**
-
-- No technical blocker remains on the feature branch. The full CI matrix passed; human review and merge remain.
-
-**Testing considerations**
-
-- PGlite unit/integration tests for duplicate and concurrent activation.
-- Restart/broker outage test proving the User outbox eventually reaches Credit.
-- Authorization matrix for owner versus another student versus admin.
-- A database constraint on one wallet per user and one issuance effect, in addition to inbox deduplication.
-
-## #140 CRD-02 Asynchronous credit reservation
-
-**Goal**
-
-Consume `order.reservation-requested`, atomically reserve one to five available credits, record the effect, and respond through the outbox with a durable success or rejection.
-
-**Acceptance criteria**
-
-- 100 duplicate reservation events produce one reservation.
-- Two concurrent reservations that together exceed the wallet balance produce exactly one success and never a negative balance.
-- Fault injection at every write boundary leaves the complete reservation or no change.
-- Insufficient-credit rejection includes required and available amounts.
-- A reused order ID with different requester or amount changes nothing and raises an audit alert.
-- Missing wallet is retried, not permanently rejected, because activation may still be in flight.
-
-**Relevant architecture and files**
-
-- `platform/src/events/catalogue.ts` already defines `order.reservation-requested`, `credit.reserved`, `credit.reservation-rejected`, and their payload schemas.
-- `platform/src/events/inbox.ts` and `outbox.ts` provide the required atomic consumer/reply pattern.
-- `platform/src/db.ts` supports the conditional SQL transaction.
-- `credit-service/src/app.module.ts` declares activation, reservation and auth-status queues and registers the relay.
-- `order-service/README.md` defines `PENDING_CREDIT`, `OPEN`, and `REJECTED`.
-
-**Expected implementation**
-
-Implemented by `ReservationConsumer` and `CreditRepository.reserve`, including recorded duplicate outcomes, conflict alerts, terminal rejections and retryable missing-wallet behavior.
-
-**Dependencies**
-
-- Explicit: #132, #133, #119/#184, #135, #183.
-- It blocks #137 ORD-02 and is the foundation for #141 and #142.
-- Order and Credit can implement against the frozen event contract in parallel, but integrated acceptance requires both sides.
-
-**Blockers and uncertainties**
-
-- The implementation dependencies are present on the same branch. Order-side #137 is still needed for an end-to-end saga.
-- Consumers now reject wrong event types and unexpected producer claims. Broker credentials remain shared, so cryptographic/ACL-grade producer provenance is a documented hardening item rather than a false guarantee.
-
-**Testing considerations**
-
-- Duplicate, concurrent conditional-update, conflict-reuse, insufficient balance, and missing-wallet retry tests.
-- Real PostgreSQL concurrency runs in CI through `reservations.postgres.test.ts`; PGlite covers the fast matrix.
-- Failure injection around inbox, wallet update, ledger insert, outbox insert, relay publish, and broker acknowledgement.
-
-## #141 CRD-03 Atomic completion transfer
-
-**Goal**
-
-Turn a valid live reservation into one atomic requester-to-courier transfer and publish a durable, repeatable confirmation.
-
-**Acceptance criteria**
-
-- 100 replays create one transfer and one economic effect.
-- Requester reservation consumption, courier credit, and both ledger rows become visible together.
-- Platform-wide available plus reserved is conserved.
-- A lost first confirmation followed by redelivery emits the same recorded outcome without moving credits again.
-- Requester/amount/order mismatch is refused and audited with no balance change.
-
-**Relevant architecture and files**
-
-- Depends on the wallet/reservation/ledger model created by #133/#140.
-- `platform/src/events/catalogue.ts` names `order.completion-requested` and `credit.transferred` but has no schemas for them.
-- Outbox/inbox helpers support the required atomicity and replay behavior.
-- `order-service/README.md` uses `COMPLETION_PENDING_CREDIT -> COMPLETED` on transfer confirmation.
-
-**Expected implementation**
-
-Implemented in stacked PR #202: completion/transfer payload schemas, Order-only consumer, reservation locking/validation, atomic wallet and ledger writes, immutable recorded result, and transactional `credit.transferred` outbox reply. The replay-aware inbox re-runs the business-idempotent handler for a transport duplicate so a lost confirmation is reproduced without moving credits again.
-
-**Dependencies**
-
-- Explicitly blocked by #140 and blocks #139 ORD-04.
-- EVT-02 adoption is a concrete implementation requirement even though the issue lists it in the D1-feedback notes rather than the dependency section.
-
-**Blockers and uncertainties**
-
-- No implementation uncertainty remains on the stacked branch. The contract records the request facts, transaction ID, and both resulting balances. Audit conflicts use the persisted append-only `credit_audit_alerts` table established by #140.
-- PR #202's full CI matrix passed; it remains gated by #201 merge, human review and retargeting.
-
-**Testing considerations**
-
-- Replay 100 times, lost-confirmation replay, wrong requester/amount/courier, release-versus-transfer race, and fault injection at every write.
-- Verify both wallets and ledger entries in a separate transaction to prove no partial visibility.
-
-## #142 CRD-04 Reservation release
-
-**Goal**
-
-Return a live reservation from reserved to available exactly once when Order cancels/expires an errand or resolves a dispute for the requester.
-
-**Acceptance criteria**
-
-- One release effect per order; duplicates return the recorded result.
-- Release after transfer, or with conflicting order/requester/amount, is rejected and audited without mutation.
-- Total credits are conserved.
-
-**Relevant architecture and files**
-
-- Shares the reservation and transaction state established by #140 and the same inbox/outbox infrastructure.
-- `platform/src/events/catalogue.ts` names `order.release-requested` and `credit.released` but has no payload schemas.
-- `order-service/README.md` maps release confirmation to `CANCELLED` or `EXPIRED` based on the stored Order release reason.
-
-**Expected implementation**
-
-Implemented in stacked PR #202: release event schemas, Order-only replay-aware inbox consumer, reservation validation, atomic reserved-to-available movement, balanced ledger/business transaction, audit conflict path, immutable result, and `credit.released` outbox reply.
-
-**Dependencies**
-
-- Explicitly blocked by #140 and blocks #148 ORD-05.
-- May be implemented in parallel with #141 after #140 because transfer and release are mutually exclusive terminal operations over the same reservation model.
-
-**Blockers and uncertainties**
-
-- No implementation uncertainty remains on the stacked branch. The response confirms the request facts, release transaction ID and requester resulting balance; Order retains the cancellation/expiry reason.
-- PR #202's full CI matrix passed; it remains gated by #201 merge, human review and retargeting.
-
-**Testing considerations**
-
-- Duplicate releases, transfer/release races, conflicting identity/amount, conservation, failure injection, and lost-confirmation replay.
-
-## #143 CRD-05 Wallet balance and ledger API
-
-**Goal**
-
-Expose the authorized read model for wallet balances and immutable, paginated transaction history.
-
-**Acceptance criteria**
-
-- A student sees only their own available, reserved, and total whole-number balances.
-- Ledger pages include transaction ID, type, amount, related order ID, occurrence time, and resulting balances.
-- A student cannot read another student's wallet or ledger.
-- Administrator access is read-only and audited.
-- Service-to-service mutations are authenticated.
-
-**Relevant architecture and files**
-
-- `auth-client/src/nest.ts` supplies `@Authenticated()`, `@AdminOnly()`, and verified caller context.
-- `platform/src/errors.ts` supplies the shared error envelope.
-- User/Supplier controller and repository patterns provide local examples, but Credit must enforce wallet ownership itself.
-- No Credit OpenAPI contract exists.
-
-**Expected implementation**
-
-Add guarded balance and paginated-ledger controllers, query/service/repository methods, stable response/error contracts, ownership checks, admin-read audit records, and API documentation. No endpoint may mutate balances directly.
-
-**Dependencies**
-
-- Explicitly blocked by #133 and blocks WEB-03.
-- Can proceed in parallel with #140 after the wallet/ledger persistence contract is stable.
-
-**Blockers and uncertainties**
-
-- **UNRESOLVED:** overlap with #133's `GET /wallets/me` and admin-read scope.
-- **UNRESOLVED:** where admin wallet-read audit records live and what fields they contain.
-- **UNRESOLVED:** pagination contract for Credit; FND-03 currently covers User/Supplier only.
-- Service-to-service mutations are event-driven, but broker authentication currently uses shared credentials. The security claim must match the actual trust model.
-
-**Testing considerations**
-
-- Owner/other-student/admin access matrix, audited admin reads, pagination boundaries/stable ordering, immutable ledger behavior, and total derivation.
-
-## #151 CRD-06 Transaction status query and closed-economy guard
-
-**Goal**
-
-Provide the authoritative Credit status for an order and prove that the deployed surface cannot move credits outside issuance or a valid Order lifecycle.
-
-**Acceptance criteria**
-
-- Internal query by `orderId` returns `NONE`, `RESERVED`, `RELEASED`, or `TRANSFERRED` plus transaction references.
-- API/broker surface review finds no purchase, withdrawal, cash-out, balance-set, gift, or unrelated transfer path.
-
-**Relevant architecture and files**
-
-- The query reads the transaction/reservation records created by #140/#141/#142.
-- `postgres-init.sql` prevents Order from directly querying Credit's database.
-- `auth-client` authenticates end users through User Service but does not currently provide a shared inbound service-key guard for Credit.
-- The event catalogue and Compose configuration define the other mutation surface to audit.
-
-**Expected implementation**
-
-Merged in PR #203: an `X-Service-Key`-guarded internal controller reads the authoritative operation/transaction projection, while an explicit economic-input manifest and runtime GET-only route inventory enforce the closed-economy surface.
-
-**Dependencies**
-
-- Explicitly blocked by #141 and #142.
-- It is the Credit-side prerequisite for #152 and pairs with #150 on the Order side.
-
-**Blockers and uncertainties**
-
-- Resolved: Credit has its own inbound key allow-list and reuses ADR 0004's constant-time `X-Service-Key` mechanism. Compose supplies approved Order credentials separately from Credit's outbound User-Service key.
-- Resolved: unknown, in-flight and rejected work all have economic state `NONE`, with an explicit `detail`; only committed economic transactions receive references.
-
-**Testing considerations**
-
-- Every transaction state, unknown order, unauthorized caller, malformed ID, and route/surface audit.
-
-## #152 CRD-07 Credit reconciliation job
-
-**Goal**
-
-Recover lost responses or stuck pending-credit workflows by comparing Order and Credit state and replaying idempotent commands, never by directly editing balances.
-
-**Acceptance criteria**
-
-- Injected lost responses converge without a second economic effect.
-- Unresolved mismatches alert an operator and never auto-edit a balance.
-
-**Relevant architecture and files**
-
-- #151 supplies Credit's order-keyed status query.
-- #150 owns Order recovery, including detecting old pending states after restart.
-- Existing inbox/outbox semantics make replay safe once each Credit operation is idempotent.
-- Database isolation forbids a Credit job from scanning Order tables directly.
-
-**Expected implementation**
-
-The issue describes a scheduled reconciliation flow, but its service ownership must be clarified first. A compliant design must use an Order-owned pending-state source plus the Credit status contract, and repair by reissuing existing commands/events.
-
-**Dependencies**
-
-- Explicitly blocked by #151 and #150.
-- Nice-to-have N3.2; not on the core path until those P0 items are complete.
-
-**Blockers and uncertainties**
-
-- **BLOCKED:** #150 is open with no linked PR, and `order-service/src` contains no Order persistence, pending-state discovery, outbox recovery, or scheduler implementation.
-- **UNRESOLVED:** whether #150's Order job owns scheduling and #152 supplies Credit support, or whether a separate operator/reconciliation component calls both services.
-- **UNRESOLVED:** operator alert channel, threshold configuration, and mismatch taxonomy.
-- The issue says it finds orders, but Credit neither owns Order state nor has a listed Order API for that query.
-
-**Testing considerations**
-
-- Dropped responses for reserve/transfer/release, duplicate repair attempts, both services restarting, stale/late events, irreconcilable mismatch alerting, and proof of zero direct balance edits.
-
-## #165 NTH-05 Concurrency, load and credit-conservation evidence
-
-**Goal**
-
-Produce reproducible D4 evidence that concurrency, replay, and faults cannot violate the closed economy.
-
-**Acceptance criteria**
-
-- Total credits are conserved except at issuance and no wallet becomes negative.
-- Every specified concurrency and replay target passes in CI.
-- A dated report is reproducible with one documented command.
-- The build fails on an invariant violation.
-
-**Relevant architecture and files**
-
-- Credit reservation/transfer/release domain code from #140/#141/#142.
-- Order simultaneous acceptance from #138.
-- Test harness from #145 and the containerized stack in `compose.yaml`.
-- Platform tests already demonstrate inbox/outbox mechanics and real-PostgreSQL relay races, providing patterns but not domain evidence.
-
-**Expected implementation**
-
-Add property-based/random-sequence conservation tests, real-PostgreSQL concurrent reservations, Order acceptance contention, broker replay/fault matrix, CI integration, and a versioned report/command.
-
-**Dependencies**
-
-- Explicitly blocked by #141, #142, and #145.
-- Inferred dependency on #138 because the issue explicitly tests OS-FR3.1.2 simultaneous acceptance.
-- Full useful random order sequences also require the relevant Order lifecycle paths to exist.
-
-**Blockers and uncertainties**
-
-- #141/#142 are satisfied, but #138 and #145 remain open with no linked PR; Order atomic acceptance and the isolated integration/broker harness do not exist yet.
-- **UNRESOLVED:** load tool, property-test library, test dataset, acceptable runtime in CI, and report format.
-- This is a committed N2H but should not displace the P0 D3 credit path.
-
-**Testing considerations**
-
-- Print the random seed on failure, isolate test data, use real PostgreSQL for concurrency, run broker tests against RabbitMQ, and report environment/dataset so results are reproducible.
-
-## #172 CRD-08 Reservation timeout compensation
-
-**Goal**
-
-Originally: find credits reserved before an errand was saved and return them after five minutes. That failure window only exists in the synchronous reserve-before-save design.
-
-**Acceptance criteria if the synchronous design were chosen**
-
-- Orphaned reservation returned within five minutes.
-- A reservation with a saved errand is never touched.
-- Repeated job execution returns credits once.
-- Conservation holds and a metric records compensations.
-
-**Relevant architecture and files**
-
-- The current async model in `order-service/README.md` saves `PENDING_CREDIT` plus the outbox request first.
-- #150/#152 cover stuck asynchronous pending states without assuming the Order row is absent.
-- #186 drafts replacement backlog text and removes the old timeout requirement.
-
-**Expected implementation**
-
-Do not implement under the current asynchronous direction. #186's document gate and #129's Order foundation are satisfied. #137's pending branch now supplies the atomic `PENDING_CREDIT`/outbox implementation, but #172 remains open until that PR merges and recovery ownership/evidence from #150/#152 exists.
-
-**Dependencies and blockers**
-
-- Issue says blocked by #140.
-- Its D1 update makes #183 the disposition gate.
-- Functionally blocked/superseded, not merely waiting for code.
-
-**Testing considerations**
-
-None unless the synchronous design is restored. Async recovery tests belong to #150/#152 instead.
-
-## #234 CRD-09 D3 evidence for the Credit Service
-
-**Goal.** Give every D3 Part 2 (2.1–2.3) question about Credit a page or section to point at. The behaviour is already built; this ticket adds the evidence.
-
-**Acceptance criteria.** Each Part 2 question has a page or section to point at. The before-and-after walkthrough runs against `docker compose up`. The allocation reasoning is written where the number is stated.
-
-**Status (2026-10-20):** implemented on `feat/234-credit-d3-evidence` from `main` `c7920cc`; PR pending review.
-
-| Item                                       | Delivered                                                                                                                     | Evidence                                                                                                                                                                                            |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2.1 Database choice                        | `docs/credit-service/schema.md` §1                                                                                            | Follows the User/Supplier pattern and Order's PR #245 (database rationale in the service's schema doc, not an ADR), so no ADR number is needed.                                                     |
-| 2.1 Data model                             | `docs/credit-service/schema.md` §2–§4                                                                                         | Every table, constraint and trigger in migrations `0000`–`0006`, the double-entry table, and an errand traced in rows.                                                                              |
-| 2.1 Reserved = open reservations           | `credit-service/src/credits/invariants.ts` `reservedBackingViolations()`                                                      | Called by `system-tests/src/invariants.ts` `economyViolations()`. `credit-service/test/invariants.test.ts` shows the other checks miss a credit moved into `reserved` outside a reservation.        |
-| 2.2 Allocation reasoning and configuration | `INITIAL_CREDIT_ALLOCATION` env (5–50, default 10 in `credits/types.ts`); README "The initial allocation"; ADR 0007 amendment | `credit-service/test/initial-allocation.test.ts`. Compose passes the variable through empty, so editing the `types.ts` default (the runbook's rehearsed mentor change, PR #241) still takes effect. |
-| 2.2 Allocation fails or is delayed         | README "When the allocation fails or is delayed"                                                                              | Points to outbox, retries, dead letter, `DeadLetterWaiting`, redrive and one-wallet guarantees already on `main`.                                                                                   |
-| 2.2 Registration to allocation end to end  | `scripts-smoke.sh` (#223)                                                                                                     | Smoke and `scripts-lib.sh` now follow `INITIAL_CREDIT_ALLOCATION` when `.env` sets it.                                                                                                              |
-| 2.3 Balances before and after              | `scripts-demo-credits.sh`; README "Balances before and after"                                                                 | Passed locally with `--up` on a fresh Compose stack; added to CI's Compose smoke job.                                                                                                               |
-
-**Decision to confirm.** Making the allocation configuration (rather than keeping it fixed) and the 5–50 bounds are Isaac's call to own before D3; both are easy to revert.
-
-**Overlap.** PR #241 (runbook) also scripts parts B/C with wallet lines and edits `ci.yml`, `scripts-ci-detect.sh`, `scripts-lib.sh` and `scripts-smoke.sh`; whichever merges second resolves small conflicts there. Its "why PostgreSQL" row points at ADR 0003 and could point at the new schema docs.
-
-## #238 DOC-04 Accept the decision records before D3
-
-**Goal.** No decision record the D3 demo relies on is still Proposed, and the approval register shows all five members.
-
-**Status on `main` `5ecbc5e`.** ADRs 0002–0009 are `Proposed; implementation basis` (0009 arrived with PR #239; #238's text names 0002–0008). The `docs/adr/README.md` register shows Isaac as "Authored; self-review pending" and the other four as Pending. ADR 0008 is now on `main` via #226.
-
-**Discrepancy.** This file previously recorded #132/#183 as closed after the owner "confirmed" the approval gates on 2026-10-01, but the register on `main` was never updated. #238 is the ticket that actually records those approvals.
-
-**Isaac's part.** Read 0002–0008, record approval or objection in the register (can be done now), be able to defend 0002 and 0007 without notes, and supply the Credit database record through #234.
-
-**Blocked parts.** Changing the statuses to Accepted needs all five approvals, coordinated by Jonus. Item 3's records: Credit's database choice is `docs/credit-service/schema.md` §1 (#234), Order's is PR #245 (#232), the broker is ADR 0009 (#153). #234 also amends ADR 0007 (configurable allocation), which the approvals should cover.
-
-# 5. Recommended Implementation Order
-
-## Completed waves
-
-1. **#132, #133, #140, and #143** merged in PR #201.
-2. **#141 and #142** merged in PR #202.
-3. **#151** merged in PR #203.
-4. The outstanding approval/review gates were confirmed by the repository owner; #132 closed, then PR #207 closed #186 and #183.
-
-## Current sequence (2026-10-15)
-
-1. **#238 (Isaac's part):** record Isaac's approval in the `docs/adr/README.md` register in a small PR. Unblocks nothing for Isaac but is quick and lets the team finish.
-2. **#234:** implemented in one branch (schema doc with database choice, reserved invariant, configurable allocation, README failure and walkthrough sections, `scripts-demo-credits.sh`). Review and merge.
-3. **#238 (finish):** after #234's record merges and teammates approve, Jonus flips the statuses to Accepted.
-
-## Historical dependency-driven sequence (complete)
-
-5. **#129 ORD-01** merged in PR #208 with the Order schema, generated migration, transition matrix, history, idempotency record, and privacy projection.
-6. **#137 ORD-02** is next with atomic `PENDING_CREDIT` plus reservation-outbox persistence. This supplies the concrete no-orphan evidence required for **#172** and completes Order adoption for **#135**.
-7. **#138 ORD-03** and **#145 TST-01** land the real one-winner Order acceptance path and isolated PostgreSQL/RabbitMQ harness.
-8. **#139/#148**, followed by **#150 ORD-09**, land terminal Order workflows, pending-state recovery, and the accepted scheduling/alert contract.
-9. Implement **#152 CRD-07** only after #150 is merged and the Order/Credit recovery boundary is explicit. It must replay normal idempotent commands rather than introduce a second mutation mechanism.
-10. Close **#172** without implementing its obsolete synchronous compensation job only after #186, #137, and the #150/#152 recovery evidence all exist.
-11. Implement **#165 NTH-05** only after #138 and #145 are merged and the complete Order/Credit lifecycle is runnable. Use the real integrated path rather than a Credit-only fake.
-
-This order follows executable dependencies rather than issue number or creation date. Review authorization permits safe merges; it does not substitute for absent Order code, test fixtures, or the historical document edit.
-
-# 6. Shared Technical Decisions
-
-## Accepted decisions represented in code and ADRs
-
-- Runtime: Node 22.12+, TypeScript ESM, NestJS 12, Vitest, npm workspaces; web app remains outside the npm workspace.
-- Data isolation: one PostgreSQL server locally, one database and role per service, no cross-service SQL.
-- Messaging: RabbitMQ through the custom `@foc/platform` event layer, not `@nestjs/microservices`.
-- Delivery: at least once; transactional inbox/outbox produces exactly one local economic effect, not exactly-once transport.
-- Reservation direction: Order saves hidden `PENDING_CREDIT`, then requests reservation asynchronously; only `OPEN` is visible to couriers.
-- Activation: `user.activated` is the sole wallet-issuance trigger; initial allocation is 10 credits.
-- Zero-credit rule: only creating an errand needs available credits; a zero-balance student can still browse, accept, and deliver as a courier.
-- Time/IDs: event timestamps are ISO/RFC 3339 UTC; event IDs are UUIDs; correlation and causation IDs propagate across hops.
-- Auth: user-facing Credit endpoints must use live identity/status from `@foc/auth-client`; role/identity from browser input is never authoritative.
-
-## Constraints every Credit PR must preserve
-
-- No public/admin endpoint directly sets, gifts, purchases, withdraws, or cashes out credits.
-- Admin wallet access is read-only and audited.
-- Credit movements occur only through issuance or valid Order lifecycle events.
-- Balance change, business transaction, ledger entries, inbox record, and reply outbox event commit in one local database transaction where applicable.
-- Duplicates return/re-emit the recorded outcome and cause no second economic effect.
-- Reusing an order ID with conflicting business data causes no mutation and creates an operator-visible audit signal.
-- Conditional SQL plus database constraints enforce non-negative balances under concurrency.
-- Transfer and release are mutually exclusive outcomes for one reservation.
-- Services use shared `Db`, migration, error, logging, correlation, inbox/outbox, and auth primitives instead of creating incompatible local versions.
-- Order and Credit own their databases and communicate only through contracts/events or authenticated internal APIs.
-
-## Unresolved shared decisions to settle before affected code
-
-- #151 uses the accepted ADR-0004 configured service-key mechanism and exposes a read-only order-status contract; no new authentication model was introduced.
-- Operator presentation/alerting for persisted conflicting-request audit rows.
-- Ownership and contract for reconciliation scheduling between #150 and #152.
-- AI-policy compliance and disclosure for any use of this analysis in assessed requirements, architecture, or planning work.
-
-## Testing conventions to reuse
-
-- Use the same `Db` interface in production and tests.
-- Use PGlite for fast transactional tests, but real PostgreSQL for concurrency/locking evidence.
-- Use real RabbitMQ integration tests for retry, DLQ, reconnect, and lost-confirmation behavior.
-- Keep fault-injection tests at every write boundary for reserve/transfer/release.
-- Test 100 duplicates where the acceptance criteria require it.
-- Verify both state and emitted recorded outcome on duplicate delivery.
-- Run service-level tests plus the full Compose happy path before closing core issues.
-
-# 7. Progress Tracker
+Why these edges exist: #284 explicitly requires #164's published tags to start previous images;
+it also explicitly calls the CRD-10 reconciliation after restore, which only #283 provides.
+#168/#169 consume the resulting operator procedures/evidence. #167 explicitly names TST-02 as
+its gate and requires other people to execute its rehearsal. #238 acceptance needs each named
+person's recorded decision. No edge is inferred merely because work touches the same files.
+
+## 4. Issue-by-issue technical context
+
+### #283 — daily wallet-versus-ledger audit
+
+Goal/acceptance: daily and on-demand Credit audit; reconstruct every wallet's available/reserved
+from ledger movements; check total held equals issued and every transaction balances; immutable
+findings, no repairs; metrics plus tested alert; latest result visible to admins; clean stack zero;
+test-only ledger corruption detected; operator runbook contributed to #168.
+
+Implementation merged on main:
+
+- `walletLedgerViolations()` reconstructs signed CREDIT/DEBIT movements per wallet/account.
+  `LedgerAuditService.run()` executes it plus the five existing `CREDIT_INVARIANTS` in one
+  `REPEATABLE READ` transaction. Normal economic writes continue in their own transactions.
+- PostgreSQL advisory transaction lock `283010` serializes audits, and unique UTC `scheduled_day`
+  prevents duplicate scheduled runs across replicas/restarts. Scheduler polls every 60s and at
+  bootstrap. Failed attempts do not consume the daily slot; manual/CLI scans may repeat.
+- Additive migration `0008_ledger_audit_runs.sql` records PASS/MISMATCH/ERROR, counts, check findings,
+  origin/requester and timestamps. Triggers refuse UPDATE, DELETE and TRUNCATE. ERROR count is
+  null, not zero. Storage loss may prevent recording an attempt; logs/staleness remain evidence.
+- Guarded GET `/admin/ledger-audits/latest` and POST `/admin/ledger-audits/run` expose summary
+  metadata/counts only; detailed wallet findings remain in restricted storage. No new balance
+  write route is added. The explicit closed-economy HTTP manifest/tests include both endpoints.
+- `LedgerAudit` in Admin → Operations reads/runs the check. `npm run audit:credits` invokes
+  `credit-service/dist/audit-ledger.js` inside the service; exit 0 PASS, 1 MISMATCH, 2 busy/error.
+- Persistence-backed mismatch/failure/last-completed gauges feed mismatch, failed and overdue
+  alerts. Failed scans retain the last completed scan's mismatch count. Local Prometheus/Grafana
+  show alerts; there is no Alertmanager notification delivery.
+- Runbook: `docs/runbooks/credit-ledger-audit.md`.
+
+Testing: PGlite tests cover clean/lifecycle scans, conserved cross-wallet drift, deliberately
+corrupted ledger in a disposable fixture, immutable findings, auth, contracts, restart metrics,
+daily eligibility and failure retry. Real PostgreSQL tests cover advisory locks, four concurrent
+replicas and snapshot consistency while an economic transaction commits. Promtool tests cover
+mismatch/failure firing+recovery and the overdue grace period. Browser component tests cover empty,
+MISMATCH and ERROR states. Final full Credit suite passed 128 tests and browser unit suite 367;
+the follow-up audit suite passed 17 tests (including the three real-PostgreSQL tests). The full
+cross-service suite passed 44 tests with real PostgreSQL/RabbitMQ. Root lint/format/typecheck,
+contract compatibility and the production web build passed. On an isolated Compose stack, the
+boot scan and CLI scan both recorded PASS/0, the complete smoke and credit lifecycle scripts
+passed, and the real Operations browser journey passed at 360/768/1440px. The E2E test follows
+the required seeded-admin password replacement on disposable stacks. A missing `read_only`
+property in the existing Compose test interface was fixed to unblock whole-repository typecheck.
+
+Completed: PR #313 merged after exact-head green CI and internal review under the owner's explicit
+merge authorization. No teammate approval was fabricated. Merge commit is `0f938fa`; issue #283 is closed.
+
+### #284 — backup, restore and rollback
+
+Goal/acceptance: custom-format `pg_dump` for each of the four DBs, outside Docker volumes and with
+no credentials in arguments/names; restore into fresh stack; all user/errand/wallet/ledger rows
+restored, smoke + #283 pass; record timed destructive disposable drill against RTO 60 minutes;
+start previous tagged published images healthy and smoke them; CI exercises backup/restore.
+
+Merged implementation: `scripts-backup.sh`, `scripts-restore.sh`, operator instructions and a
+dated report under `docs/reports/`, CI coverage. Use Compose env and role/database mapping from
+`postgres-init.sh`; fresh isolated project/volumes for every destructive test. Never run the drill
+against the existing developer/demo volumes. Do not put DB secrets in filenames or process argv.
+
+RabbitMQ queues/messages are not included in PostgreSQL dumps. Document the exact outbox replay
+boundary: a published row may already be acknowledged by the broker while consumer effects are
+missing from a separately timed backup. Do not claim outbox alone guarantees recovery of every
+published message across an arbitrary multi-DB restore. Coordinate a quiesced backup/restore or
+provide explicit recovery evidence for the chosen boundary.
+
+Rollback uses the previous release's published tag in `compose.images.yaml`. Verify registry
+availability and migration compatibility. Additive migrations allow older binaries to use the
+newer schema; do not silently downgrade schema/history. #283 is required by the restore command.
+The issue names #164 as blocked-by; #164 is closed and #284's CI verified actual published artifacts.
+
+Merged implementation: backup stops ingress, drains broker queues and the three existing
+outboxes (Supplier has none), stops writers and rechecks before four custom-format dumps. Private
+manifests include checksums and every table's row/content SHA-256. Restore refuses running apps,
+non-empty DBs or pending target broker messages; imports as each owning role; compares exact data
+before startup; then smokes and invokes #283. It never overwrites a non-empty database. The drill
+creates a unique disposable project before any `down -v`. CI runs backup/restore and uploads only
+its summary. Rollback requires immutable published tags and an explicit compatibility review,
+retains volumes and smokes the old images. See `docs/runbooks/backup-restore-rollback.md` and
+`docs/reports/2026-10-27-stack-recovery.md`.
+
+Historical local evidence: 36 tables / 321 rows restored with matching canonical-row fingerprints,
+health + complete smoke + PASS/0 financial audit, measured 71 seconds against 3600-second RTO.
+A normal backup also resumes previously running apps. Bundle tests reject corruption, missing
+databases, wrong format and symlinked dumps. The repeatable isolated drill also passed (55 seconds), as did the non-empty-target refusal.
+Completed on 28 October in merged PR #314. Exact feature-head CI run `40631924720` passed;
+its integration merge ref `ef640a9` produced the inspected recovery artifact: exact fingerprints,
+smoke and financial audit PASS; **105-second restore**; actual registry rollback PASS to
+`sha-3560f4d7da1e647617d9b3d3d6113122e7e9c7ee`. See
+`docs/reports/2026-10-28-stack-recovery.md` for the permanent evidence and limits.
+
+Release blocker resolved on 28 October: Jonus's merged #315 (`f2d3d41`) fixes skipped publishing
+and removes comments from Bake's literal `set` arguments. Main run `40493541331`, commit
+`3560f4d7da1e647617d9b3d3d6113122e7e9c7ee`, completed Publish images successfully: all five images
+were built, scanned and pushed. The earlier #314 CI failed solely because no published release
+existed at that time. The merged recovery CI subsequently proved the real rollback to that release.
+The workstation token still lacks `read:packages`; CI's scoped package-read token supplies access.
+The redundant, uncommitted `work/publisher-fix` experiment is superseded by #315; do not publish it.
+
+### #167 — seed, smoke and demo narrative
+
+Goal/acceptance: one command creates meaningful deterministic requester, courier, second courier
+and two admins plus suppliers/errands; health wait + loud smoke failure; repeatable clean-start
+story; `docs/demo/d4-runbook.md` covers the full 30-minute demo, core and all selected nice-to-haves,
+presenter/fallback for each and local-container deployment (#286); two non-owners finish rehearsals.
+
+`scripts-seed-demo.sh --fresh` creates only the dedicated `foc-d4-demo` project on ports
+14000–14009, using a development mailbox and public User/Supplier/Order/Credit APIs. It creates
+Alyssa/Ben/Chloe as requester/two couriers and Dina/Evan as independently credentialed admins;
+bootstrap passwords must be replaced through the normal endpoint. It references the actual
+Printer @ Com 2 course CSV supplier and three stable idempotency keys. Total initial reservations
+are 4 credits, within the minimum allocation of 5. `--check` verifies the named state and audit;
+`--up` preserves identities/errands on rerun. Private credentials are atomically written mode 600.
+`scripts-demo-tabs.py` opens five isolated Chrome profiles with all route tabs on macOS, or prints
+the complete list cross-platform. `docs/demo/d4-runbook.md` has the 30-minute service/N2H handoffs,
+commands, expected credit movements, fallback per segment and two explicitly pending human rows.
+Five guard tests and actual local seeded-stack checks passed; 34 authenticated page visits passed.
+PR #322 merged at `462257fdd043f1fa3fda36a180789d170215242b` on 28 October. Required
+[CI run 40637011479](https://github.com/AY2627S1-CS3219-P30/foc-app/actions/runs/40637011479)
+passed on final feature head `5d2d545f1a8c77ad89162526fe27e5ae19fefba1`. Its Compose job
+`122646527466` passed **Seed and smoke the named D4 demo twice**: fresh seed, check, rerun,
+stable five persona/three OPEN errand IDs and mode-600 credentials. Tests also cover a valid
+zero-credit existing wallet, domain normalization, private state excluded from image contexts,
+target guards and invalid arguments. The existing browser job passed; it is not evidence that
+all journeys requested by #160 exist. No non-author human review is claimed for #322.
+These checks do not prove #160 or count as two non-owner rehearsals.
+
+Reuse existing public API scripts and auth/bootstrap conventions. Keep D3 runbook unchanged. Use
+stable fixture identifiers, safe rerun semantics and explicit isolated-demo assumptions. Read live
+service contracts before designing seed calls. Do not embed tokens/passwords in tracked data.
+
+Explicit gate #160 is satisfied by merged #325. Final #167 acceptance still needs the live chat
+segment and two recorded non-owner rehearsal results (#288 tracks dates). UNRESOLVED: who will
+perform those rehearsals and on which release candidates. Do not mark rehearsals complete based
+on an agent execution or invented approval.
+
+### #238 — shared ADR acceptance
+
+Goal/acceptance: required ADRs no longer Proposed and all five members recorded. Isaac's approval
+already exists in `docs/adr/README.md` via merged #300. Zhang Yuan and Anselm are recorded. Main
+now records Jonus's approval through merged #254 (`32aa950`); Patrick remains Pending. ADRs 0002–0009 remain
+`Proposed; implementation basis`; 0010 is a newer proposed edge ADR.
+
+Read #254's exact changes/reviews before any merge; never record another person's approval on
+their behalf. After real approvals exist, update status/register consistently in a reviewed PR.
+The obsolete #234 gate is satisfied: #234 closed, its PR #250 merged. No code tests are needed
+solely for prose, but required repository checks/review still apply.
+
+## 5. Recommended implementation order
+
+1. #283 is complete via merged #313. Its financial audit supplies #284's restore check.
+2. #284 is complete via merged #314: backup/restore/rollback, CI and runbooks/report are proven.
+3. #167 preparation is merged via #322. Complete the remaining release acceptance only after
+   live feature segments and both actual non-owner rehearsals are evidenced; #160 is satisfied.
+4. Finish shared #238 when teammate approvals/amendments are truly recorded; Isaac's part is done.
+
+## 6. Shared technical decisions and constraints
+
+- Closed economy: only issuance and approved Order events change balances. No admin balance edits,
+  gifts, top-ups, cash-out or cross-service SQL. Manual audit is an operational write only.
+- Exactly one local economic effect uses transactional inbox/outbox, conditional SQL and unique
+  operation keys; transport remains at least once. Transfer/release are mutually exclusive.
+- Each balance mutation commits its immutable transaction/ledger and reply outbox atomically.
+- Live User identity/role is authoritative; browser role/IDs are not trusted. Audit summaries must
+  not bypass the existing audited admin wallet-read path.
+- Use shared platform `Db`, errors, auth, logging, metrics and migration conventions. Real
+  PostgreSQL proves locks/snapshots; PGlite alone does not. Broker failure tests use real RabbitMQ.
+- All timestamps/UTC scheduling use server/database time. Finding counts can count one fault in
+  several checks; ERROR never means clean zero. No automatic financial repair.
+- Read applicable AGENTS.md (web requires installed Next guides) before edits. Keep generated API
+  types aligned with OpenAPI. Keep credentials in ignored, private env files and out of logs/PRs.
+- Implementation is in an isolated worktree; primary `/Users/isaac/Developer/foc-app` stays on main.
+  Disposable test volumes/ports must never be confused with the developer's demo stack.
+- Do not fabricate human reviews, teammate ADR approvals or non-owner rehearsals. Issue Definitions of Done request non-author review; the owner explicitly authorized internal
+  review/merge for this goal. Record that exception honestly; it is not a teammate approval.
+
+## 7. Progress tracker
 
 ```ini
-[x] #186 — DOC-02 D1 backlog revision — merged in PR #207
-[x] #183 — FND-02 Decision records and domain glossary — PRs #201/#207; closed
-[x] #129 — ORD-01 Order schema/status model and generated transition matrix — merged in PR #208
-[x] #137 — ORD-02 Asynchronous errand creation/reservation — merged in PR #209
-[x] #135 — EVT-02 Transactional inbox/outbox — completed through platform/User/Credit and Order PR #209
-[x] #138 — ORD-03 Discovery and atomic acceptance — merged in PR #211
-[x] #132 — CRD-00 Credit invariant and double-entry ledger decision record — merged in PR #201; approval gate confirmed
-[x] #133 — CRD-01 Wallet creation and initial credit allocation — merged in PR #201
-[x] #140 — CRD-02 Asynchronous credit reservation — merged in PR #201
-[x] #143 — CRD-05 Wallet balance and ledger API — merged in PR #201
-[x] #141 — CRD-03 Atomic completion transfer — merged in PR #202
-[x] #142 — CRD-04 Reservation release — merged in PR #202
-[x] #151 — CRD-06 Transaction status query and closed-economy guard — merged in PR #203
-[x] #152 — CRD-07 Credit reconciliation job — merged in PR #216 (Order hosts the job)
-[x] #165 — NTH-05 Concurrency, load and credit-conservation evidence — merged in PR #217
-[x] #172 — CRD-08 Reservation timeout compensation — closed as superseded
-[ ] #238 — DOC-04 Accept decision records 0002–0008 — Isaac's approval not yet recorded; needs all five
-[ ] #234 — CRD-09 Credit D3 evidence — all 7 items implemented on `feat/234-credit-d3-evidence`; awaiting review and merge
+[x] #234 — Credit D3 evidence — PR #250 merged; issue closed
+[x] #238 personal part — Isaac approval recorded in merged PR #300
+[ ] #238 team completion — Patrick pending; other four approvals recorded; #254 merged at 32aa950
+[x] #283 — Daily financial audit — PR #313 merged at 0f938fa; issue closed; exact-head CI green
+[x] #284 — PR #314 merged at e5da74a; issue closed; exact-head CI proves 105-second restore and published-image rollback
+[x] #167 preparation — Seed/tabs/runbook merged in #322 at 462257f; exact-head CI 40637011479 passed
+[x] #281 blocker — PR #324 merged; issue closed; required and main CI passed
+[x] #160 blocker — PR #325 merged at 2f00a92; 42 cases × 2 clean runs passed locally and in CI run 40651088404; issue closed
+[ ] #167 acceptance — live chat (#161–#163) and two actual non-owner rehearsals remain gates
 ```
 
-## Update protocol for future sessions
+Before starting another issue, pull main, reread live issues/comments/linked PRs and update this
+document. On merge, record PR/commit/check evidence, update the tracker and reassess dependencies.
+Mark missing information UNRESOLVED. This Codex-assisted context summarizes repository evidence;
+the team must validate it and disclose AI use according to course policy before assessed use.
 
-Before starting another assigned issue:
+## Goal blockers and handoff
 
-1. Pull `main` and record the new commit.
-2. Re-read this file and the full live GitHub issue, comments, linked PRs, and dependency states.
-3. Update discrepancies, blockers, event/API contracts, shared decisions, and the dependency graph before implementation.
-4. When an issue is completed, mark its tracker entry, record the PR/merge commit and meaningful implementation decisions, then reassess every dependent issue.
-5. Mark uncertainty as **UNRESOLVED** until a team decision or merged code resolves it.
+- #283 and #284 are merged/closed with passing required CI and real runtime evidence. The release
+  publisher blocker was resolved by Jonus's #315; #284 pulled actual published images in CI.
+- #167 preparation is merged in #322 with passing CI. `scripts-seed-demo.sh --fresh` starts its own
+  `foc-d4-demo` on ports 14000–14009, creates five named personas/three errands through public APIs,
+  and checks the audit. Initial seed, check and idempotent rerun passed locally; credentials are
+  mode 600. Its tab helper opens five isolated browser profiles. These are agent checks, not human
+  rehearsals. Do not count them as either non-owner rehearsal.
+- #160 is closed via #325: the full core release suite passed twice locally and in CI. #167's live
+  chat segment still needs implementation. Two real non-owner rehearsals remain unrecorded.
+  A follow-up fixes the offline test's ambiguous retry selector found on the merged-main run;
+  details and evidence are recorded below.
+- #238 waits only for Patrick's actual approval. #254 merged with Anselm's recorded review and
+  code-checked amendments; no teammate approval was invented.
+
+### Technical blocker work — 28 October
+
+The earlier conclusion that no independent technical action remained was too broad. The user
+authorized resolving blockers as well as assigned work. #160 is assigned to Patrick, but all
+three of its listed prerequisites (#145 TST-01, #157 WEB-02, #158 WEB-03) are CLOSED. Its D4 audit
+explicitly requires #281's student dispute outcome, now merged in PR #324. These are
+blocker tickets, not additional issues assigned to Isaac.
+
+- #281 is CLOSED; PR #324 merged at `10d9511fe7ac98d14873d22d378e01260cae8b91`.
+  Feature-head CI `40644294001` and merged-main pipeline `40646974317` both passed, including
+  publishing all five images. Participant outcome/reason, private history, late-response protection,
+  both decisions and outsider denial are verified by unit tests and 18 real browser cases.
+- `test/160-release-journeys` merged in #325 at `2f00a92`; #160 is CLOSED. Both local and CI
+  `40651088404` runs passed all 42 cases twice at 360/768/1440 px, without retries/skips/errors.
+  The required smoke/release matrix and retained artifacts are on main.
+  `scripts-e2e-release.sh`, `compose.e2e.yaml`,
+  `test-harness/e2e-clock.mjs`, `web-app/e2e/release-journeys.e2e.ts` and
+  `web-app/e2e/zz-release-clock.e2e.ts` provide the runner and coverage.
+- The clock fixture is mounted only in the explicit disposable release configuration; it advances
+  the four backends' implicit Node clock and explicit PostgreSQL clock reads. It never edits an
+  errand, wallet, ledger or history row. Tests reauthenticate normally after jumps, then observe
+  actual lifecycle workers and asynchronous credit settlement. Ordinary smoke retains auth limits.
+- #160's explicit implemented-path acceptance does not require a nonexistent chat implementation.
+  #161 assigns its future chat browser journey to the TST-02 suite; that is an integration follow-up,
+  not an inferred prerequisite for the current core journeys. #167's live chat demo remains gated
+  independently. Withdrawal retains reserved credits for reassignment; cancellation releases them,
+  clarifying the audit checklist rather than changing production semantics.
+- The two real non-owner rehearsals and Patrick's ADR decision remain external gates. An agent
+  may complete technical blocker code but cannot supply those people's participation or decisions.
+
+### Completion audit — 28 October, after #325 and #326
+
+| Requirement                                                                                                     | Authoritative evidence                                                                                       | Result / next action                                                                |
+| --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| #283 runtime financial audit, tests, operator instructions and merge/closure                                    | Merged #313, closed #283, required CI and runtime evidence above                                             | Complete                                                                            |
+| #284 four-database restore, exact data, audit, timed RTO and real published-image rollback                      | Merged #314, closed #284, CI `40631924720`, `docs/reports/2026-10-28-stack-recovery.md`                      | Complete                                                                            |
+| #167 deterministic named personas, suppliers/errands, preflight, runbook, browser tabs and preparation pipeline | Merged #322; CI `40637011479`, Compose job `122646527466`; source paths above                                | Preparation complete; issue remains open                                            |
+| #167 explicit TST-02 dependency                                                                                 | Closed #160, merged #325; downloaded CI `40651088404` artifacts: 42 passed twice, zero failures/flakes/skips | Complete; maintain the release suite and investigate later failures                 |
+| #167 all live feature segments and two non-owner rehearsals                                                     | `docs/demo/d4-runbook.md` marks chat gated and both rehearsal rows Pending; #161 remains OPEN                | Incomplete; real owner implementation and rehearsal evidence needed                 |
+| #238 all five approvals and Accepted ADRs                                                                       | `docs/adr/README.md`: Patrick Pending; required ADRs still Proposed                                          | Incomplete; obtain Patrick's actual decision, then update ADR statuses consistently |
+
+Live GitHub shows two assigned open issues (#167, #238), no assigned open PRs and no open PRs
+authored by Isaac. Completed implementation has been merged and its completed issues closed.
+The full goal remains incomplete because the two assigned issues still have the specific external
+acceptance gates above. Do not close them or treat agent/CI execution as a teammate decision.
+
+## Status 2026-10-28 (after #325)
+
+- #160 is CLOSED: PR #325 merged at `2f00a92`. Both the local and CI (`40651088404`) release reports
+  show 42/42 passed twice from clean volumes with zero failures, flakes, skips or runner errors.
+- #167's own scope is merged (seed, smoke, runbook, deployment mode). Remaining gates: the live chat
+  segment, which needs #161–#163, and two real non-owner rehearsals.
+- Chat (#161 Patrick, #162 Zhang Yuan, #163 Anselm) is each owner's graded nice-to-have; the design
+  points in `docs/nice-to-haves.md` (separate service or Order module, transport, retention, rate
+  limit) are theirs to settle according to merged #326. In this Codex thread Isaac explicitly
+  chose **90 days after the errand ends**; this records his direction, not the other owners' approval.
+  #326 says not to implement their slices under Isaac's name without owners' agreement. An
+  asynchronous scope question asks Isaac to resolve that new note against his earlier instruction
+  to complete all technical blockers. No chat implementation or teammate agreement is claimed.
+- #238 waits only for Patrick's recorded approval.
+
+### Release CI follow-up — ambiguous offline retry selector
+
+Main run `40655470485` (merge `2f00a92`) failed the tablet reconnect journey: a failed wallet read
+and failed request post both legitimately displayed “Try again”, so the unscoped Playwright locator
+matched two buttons. The following main run `40655751822` (`6ef37ca`) passed the full release suite
+and published all five images, but a later pass does not repair the ambiguous selector.
+
+`fix/160-offline-retry-locator` scopes retry to the posting actions beside “Edit details” and
+deliberately fails the browser wallet read in the offline step so both controls are always present.
+It preserves the assertions that reconnect creates exactly one errand and reserves its reward once.
+Twice-clean local verification, required PR CI and merge are pending for this follow-up.

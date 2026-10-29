@@ -225,6 +225,21 @@ export function requestLogger(logger: PinoLogger, metrics?: Pick<Metrics, 'obser
       if (recorded) return;
       recorded = true;
       const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+      // An event stream stays open for minutes by design, and the client ends it: timed as a
+      // request it would put minutes into the latency percentiles and log every end as abandoned.
+      // It is logged once, as a stream, when it ends.
+      if (String(res.getHeader('content-type') ?? '').startsWith('text/event-stream')) {
+        logger.info(
+          {
+            correlationId,
+            method: req.method,
+            url: loggedPath,
+            durationMs: Math.round(durationMs),
+          },
+          'stream ended',
+        );
+        return;
+      }
       const statusCode = abandoned ? CLIENT_CLOSED_REQUEST : res.statusCode;
       metrics?.observeHttp(req.method, routePattern(req), statusCode, durationMs / 1e3);
       const level = statusCode >= 500 ? 'error' : statusCode >= 400 ? 'warn' : 'info';

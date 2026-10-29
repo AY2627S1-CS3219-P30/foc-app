@@ -19,14 +19,17 @@ x-service-base: &service-base
     NODE_ENV: ${NODE_ENV:-development}
     LOG_LEVEL: ${LOG_LEVEL:-info}
     CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    # Behind the edge (PLT-10): believe X-Forwarded-For, for the client's address, from the edge
+    # alone, found by its name. A request from anywhere else is taken at its own address.
+    TRUSTED_PROXY: edge
     # Prometheus sends it to /metrics (PLT-04); the prometheus service reads the same value.
     METRICS_TOKEN: ${METRICS_TOKEN:?run ./scripts-init-env.sh}
   depends_on: &service-deps
     postgres:
       condition: service_healthy
-  # Its database, the broker, and the other services; `public` is only how its port is
-  # published. Not the web app, not the dashboards.
-  networks: [public, db, broker, services]
+  # Its database, the broker, the other services, and the edge (`gateway`); `public` is only how
+  # its port reaches this machine. Not the web app, not the dashboards.
+  networks: [public, db, broker, services, gateway]
   # Runs as `node` (see the Dockerfile), with no Linux capability and no way to gain one.
   cap_drop: [ALL]
   security_opt: ['no-new-privileges:true']
@@ -144,7 +147,7 @@ services:
       # Without a fixed key every restart would sign everyone out (PL-NFR3.1.1).
       JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:?run ./scripts-init-env.sh}
       ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD:?run ./scripts-init-env.sh}
-    ports: ['${USER_SERVICE_PORT:-3001}:3001']
+    ports: ['127.0.0.1:${USER_SERVICE_PORT:-3001}:3001']
     depends_on:
       <<: *consumer-deps
       user-service-migrate:
@@ -180,7 +183,7 @@ services:
       # User Service's INTERNAL_SERVICE_KEYS from the three callers' keys.
       USER_SERVICE_URL: http://user-service:4001
       INTERNAL_SERVICE_KEY: ${SUPPLIER_INTERNAL_KEY:?run ./scripts-init-env.sh}
-    ports: ['${SUPPLIER_SERVICE_PORT:-3002}:3002']
+    ports: ['127.0.0.1:${SUPPLIER_SERVICE_PORT:-3002}:3002']
     depends_on:
       <<: *consumer-deps
       supplier-service-migrate:
@@ -226,7 +229,9 @@ services:
       CREDIT_SERVICE_URL: http://credit-service:4004
       RECONCILE_INTERVAL_MS: ${ORDER_RECONCILE_INTERVAL_MS:-60000}
       RECONCILE_RETRY_MS: ${ORDER_RECONCILE_RETRY_MS:-300000}
-    ports: ['${ORDER_SERVICE_PORT:-3003}:3003']
+      # N1.4 (#329): `false` refuses every live-update stream, and every page polls as before.
+      LIVE_UPDATES_ENABLED: ${ORDER_LIVE_UPDATES_ENABLED:-true}
+    ports: ['127.0.0.1:${ORDER_SERVICE_PORT:-3003}:3003']
     depends_on:
       <<: *consumer-deps
       order-service-migrate:
@@ -265,7 +270,7 @@ services:
       # What a new wallet is issued (CS-FR1.1.1). Left empty unless .env sets it, so the service
       # uses its default: INITIAL_CREDIT_ALLOCATION in credit-service/src/credits/types.ts (10).
       INITIAL_CREDIT_ALLOCATION: ${INITIAL_CREDIT_ALLOCATION:-}
-    ports: ['${CREDIT_SERVICE_PORT:-3004}:3004']
+    ports: ['127.0.0.1:${CREDIT_SERVICE_PORT:-3004}:3004']
     depends_on:
       <<: *consumer-deps
       credit-service-migrate:
@@ -279,13 +284,13 @@ services:
       # into the browser bundle, so a value set on the running container is
       # ignored. Change one and rebuild (`up --build`).
       #
-      # The browser resolves these, not the container, so they are localhost
-      # URLs rather than compose service names.
+      # The browser calls the services on its own origin, through the edge (PLT-10), so these
+      # are paths, not addresses: the same image works on any host and port.
       args:
-        NEXT_PUBLIC_USER_SERVICE_URL: http://localhost:${USER_SERVICE_PORT:-3001}
-        NEXT_PUBLIC_SUPPLIER_SERVICE_URL: http://localhost:${SUPPLIER_SERVICE_PORT:-3002}
-        NEXT_PUBLIC_ORDER_SERVICE_URL: http://localhost:${ORDER_SERVICE_PORT:-3003}
-        NEXT_PUBLIC_CREDIT_SERVICE_URL: http://localhost:${CREDIT_SERVICE_PORT:-3004}
+        NEXT_PUBLIC_USER_SERVICE_URL: /api/user
+        NEXT_PUBLIC_SUPPLIER_SERVICE_URL: /api/supplier
+        NEXT_PUBLIC_ORDER_SERVICE_URL: /api/order
+        NEXT_PUBLIC_CREDIT_SERVICE_URL: /api/credit
         # The stack's User Service runs in development mode, which mounts the
         # dev mailbox, so the sign-up screen may link straight to activation.
         NEXT_PUBLIC_DEV_MAILBOX: 'true'
@@ -294,12 +299,48 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
+    # Every page needs one service or another, so it starts once all four are healthy (PLT-13).
     depends_on:
       user-service: { condition: service_healthy }
       supplier-service: { condition: service_healthy }
-    ports: ['${WEB_APP_PORT:-3000}:3000']
-    # A network of its own: the browser calls the services, this container calls nothing.
+      order-service: { condition: service_healthy }
+      credit-service: { condition: service_healthy }
+    # Not published: the browser reaches it through the edge, on a network the two share alone.
+    # This container calls nothing, so it reaches no service, internal port or public (PLT-13).
     networks: [web]
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+
+  # ---- edge (PLT-10, ADR 0010) ---------------------------------------------------
+  # The one origin the browser uses, http://localhost:3000, and the only port published beyond
+  # this machine. Routes /api/<service>/ to each service and the rest to the web app; never
+  # /internal or /metrics. Adds the security headers and limits writes per client address. It
+  # does not authenticate: each service still checks every request (ADR 0004).
+  edge:
+    image: nginxinc/nginx-unprivileged:1.30.6-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
+    restart: unless-stopped
+    volumes:
+      - ./edge/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./edge/headers.conf:/etc/nginx/foc/headers.conf:ro
+      - ./edge/readiness.js:/etc/nginx/foc/readiness.js:ro
+    read_only: true
+    tmpfs: [/tmp]
+    ports: ['${WEB_APP_PORT:-3000}:8080']
+    depends_on:
+      web-app: { condition: service_started }
+    # Healthy means ready: the web app and all four services answer (PLT-13), so `up --wait` and
+    # the scripts' wait end when every page can work. A service lost for a minute turns it
+    # unhealthy; /edge/ready names it at once. The minute lets services be recreated under a
+    # running edge, as a second `up --build` does, without `--wait` failing on the edge while
+    # they come back: it still waits on each service's own health check.
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/edge/ready']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 90s
+    # Its own way out, for its published port; `web` to the web app, `gateway` to the services.
+    networks: [edge, web, gateway]
     cap_drop: [ALL]
     security_opt: ['no-new-privileges:true']
 
@@ -369,27 +410,28 @@ configs:
 
 # Who can reach whom (PL-NFR2.1.2). A container joins only the networks of the
 # things it depends on, so, for one, the web app's container cannot open a
-# connection to Postgres, and Grafana cannot reach a service.
+# connection to Postgres or to any service, and Grafana cannot reach a service.
 #
-# The three networks containers talk to each other on are `internal`: they have
+# The five networks containers talk to each other on are `internal`: they have
 # no route out, and no port can be published through them.
 #
 #   db             postgres       <- the four services and their migrate jobs
 #   broker         rabbitmq       <- the four services; Prometheus, for queue depths
 #   services       service <-> service on the internal ports; Prometheus scrapes here
+#   gateway        the edge -> the four services' public ports
+#   web            the edge -> the web app, which is on no other network
 #
 # Publishing a port needs an ordinary network, and a container must have exactly
 # one: with two, Docker may publish the port on one and route the replies out of
 # the other, and the port then never answers from the host.
 #
-#   public         the four services: how ports 3001-3004 reach this machine
-#   web            the web app alone: the browser calls the services, it does not
+#   edge           the edge alone: how the browser's one origin reaches this machine
+#   public         the four services: how ports 3001-3004 reach 127.0.0.1, for the scripts
 #   local          postgres and rabbitmq: how their ports reach 127.0.0.1
 #   observability  grafana -> prometheus, and how both reach 127.0.0.1
 #
-# What the host can reach is decided by `ports:` above: the web app and each
-# service's public port on every interface, the data stores and the dashboards on
-# 127.0.0.1, and no internal port at all.
+# What the host can reach is decided by `ports:` above: the edge on every
+# interface, everything else on 127.0.0.1 only, and no internal port at all.
 networks:
   db:
     internal: true
@@ -397,7 +439,11 @@ networks:
     internal: true
   services:
     internal: true
-  public:
+  gateway:
+    internal: true
   web:
+    internal: true
+  edge:
+  public:
   local:
   observability:

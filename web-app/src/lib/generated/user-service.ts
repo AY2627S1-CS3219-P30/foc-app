@@ -1157,7 +1157,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description The change violates a role-management rule. */
+        /** @description The change conflicts with the current state of the roles. */
         RoleConflict: {
             headers: {
                 [name: string]: unknown;

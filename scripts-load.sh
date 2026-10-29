@@ -7,6 +7,8 @@
 #   SS-NFR2.1.2  the same query on unchanged data returns the same order
 #   CS-NFR3.1.1  wallet lookup p95 <= 300 ms                          10,000 wallets, 100 users
 #   CS-NFR3.1.2  ready within 60 s of a restart
+#   N1.4 (#332)  live updates under load: 200 streams held while the above run; an accept reaches
+#                its requester's stream within 1 s at p95
 #
 #   ./scripts-load.sh            measure, and write docs/reports/load-<date>.md
 #   ./scripts-load.sh --quick    10 users for 10 s: checks the harness works; writes no report
@@ -37,6 +39,9 @@ done
 
 # Pinned like every other image: see the README's table of pre-built images.
 K6='grafana/k6:0.55.0@sha256:b24f418fc99a26dd57904c952c03bfaf79462be18508acc45aafa07ff68e7df2'
+# For load/live.mjs: the services' own base image (their Dockerfiles). k6 cannot read a response
+# while it is still streaming.
+NODE='node:22.23.3-alpine3.24@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402'
 
 # A stack of its own. Exported, so they win over .env for every docker compose call below,
 # scripts-lib.sh's included.
@@ -49,8 +54,10 @@ export CORS_ORIGINS="http://localhost:${WEB_APP_PORT}"
 
 if [[ $QUICK -eq 1 ]]; then
   STUDENTS=10 VUS=10 DURATION_S=10 SUPPLIERS=100 WALLETS=200
+  LIVE_STUDENTS=10 STREAMS_EACH=5 LIVE_ERRANDS=6
 else
   STUDENTS=100 VUS=100 DURATION_S=60 SUPPLIERS=1000 WALLETS=10000
+  LIVE_STUDENTS=40 STREAMS_EACH=5 LIVE_ERRANDS=60
 fi
 THINK_S="${THINK_S:-1}"
 
@@ -63,6 +70,7 @@ THINK_S="${THINK_S:-1}"
 
 cleanup() {
   local status=$?
+  if [[ -n "${LIVE:-}" ]]; then docker rm -f "$LIVE" >/dev/null 2>&1 || true; fi
   if [[ $KEEP -eq 1 ]]; then
     echo "The stack is still up. Tear it down with:"
     echo "  COMPOSE_PROJECT_NAME=foc-load COMPOSE_FILE=$COMPOSE_FILE docker compose down -v"
@@ -165,16 +173,34 @@ OUT=$(mktemp -d)
 OTHER_CONTAINERS=$(docker ps --format '{{.Names}}' | grep -vc '^foc-load-' || true)
 # As this machine's user: on Docker Engine a bind mount keeps the host's owner, and k6's own user
 # could not write its summary into the directory mktemp made.
+# On the stack's own network, to each service directly: their ports here are on 127.0.0.1, which a
+# container cannot reach through the host on Linux, and the edge (PLT-10) would count every
+# virtual user as one address against its write limit. This measures the services, not the edge.
 k6() { # script
-  docker run --rm --user "$(id -u):$(id -g)" --add-host=host.docker.internal:host-gateway \
+  docker run --rm --user "$(id -u):$(id -g)" --network "${COMPOSE_PROJECT_NAME}_gateway" \
     -v "$PWD/load:/load:ro" -v "$OUT:/out" \
-    -e USER_URL="http://host.docker.internal:${USER_SERVICE_PORT}" \
-    -e SUPPLIER_URL="http://host.docker.internal:${SUPPLIER_SERVICE_PORT}" \
-    -e CREDIT_URL="http://host.docker.internal:${CREDIT_SERVICE_PORT}" \
+    -e USER_URL=http://user-service:3001 \
+    -e SUPPLIER_URL=http://supplier-service:3002 \
+    -e CREDIT_URL=http://credit-service:3004 \
     -e ORIGIN="$CORS_ORIGINS" -e RUN="$RUN" -e EMAIL_DOMAIN="$EMAIL_DOMAIN" -e PASSWORD="$SIGNUP_PASSWORD" \
     -e STUDENTS="$STUDENTS" -e VUS="$VUS" -e DURATION_S="$DURATION_S" -e THINK_S="$THINK_S" \
     "$K6" run --quiet --no-usage-report "/load/$1.js"
 }
+# N1.4 (#332): live updates under load. LIVE_STUDENTS students hold STREAMS_EACH streams each, the
+# Order Service's own cap per user, for the whole of the scenarios below, so those are measured
+# with the streams open. Meanwhile an errand is posted and accepted at a steady rate, and each
+# accept is timed to its nudge on the requester's stream. Straight to the Order Service, like k6:
+# the edge would cap one address at ten streams. It writes live.json beside k6's summaries.
+step "Holding live-update streams" "$LIVE_STUDENTS students x $STREAMS_EACH streams; $LIVE_ERRANDS accepts timed to their nudge, while the scenarios run."
+LIVE=$(docker run -d --user "$(id -u):$(id -g)" --network "${COMPOSE_PROJECT_NAME}_gateway" \
+  -v "$PWD/load:/load:ro" -v "$OUT:/out" \
+  -e USER_URL=http://user-service:3001 \
+  -e SUPPLIER_URL=http://supplier-service:3002 \
+  -e ORDER_URL=http://order-service:3003 \
+  -e ORIGIN="$CORS_ORIGINS" -e RUN="$RUN" -e EMAIL_DOMAIN="$EMAIL_DOMAIN" -e PASSWORD="$SIGNUP_PASSWORD" \
+  -e LIVE_STUDENTS="$LIVE_STUDENTS" -e STREAMS_EACH="$STREAMS_EACH" -e LIVE_ERRANDS="$LIVE_ERRANDS" \
+  -e LIVE_SECONDS="$((DURATION_S * 3))" \
+  "$NODE" node /load/live.mjs)
 for script in user supplier credit; do
   step "Measuring: $script" "$VUS virtual users for $DURATION_S s per scenario, ${THINK_S} s between requests."
   # k6 exits 99 when a threshold is missed: a result for the report, which then fails the run,
@@ -185,6 +211,17 @@ for script in user supplier credit; do
     fail "k6 did not run $script.js (exit $status)"
   fi
 done
+
+step "Live updates" "Waiting for the streams' client to finish its last accept."
+live_status=$(docker wait "$LIVE" 2>/dev/null || echo 1)
+docker logs "$LIVE" 2>&1 | tail -3 | sed 's/^/  /'
+docker rm "$LIVE" >/dev/null 2>&1 || true
+LIVE=""
+if [[ "$live_status" == 0 && -s "$OUT/live.json" ]]; then
+  pass "the live-update client finished: live.json written"
+else
+  fail "the live-update client stopped (exit $live_status), so live updates are not measured"
+fi
 
 # Student 1 signs in again: a token from seeding is too old by now (they live 15 minutes), and
 # the restart checks below need one from before the restart.

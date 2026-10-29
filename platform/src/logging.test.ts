@@ -232,6 +232,7 @@ function requestLine(url: string, statusCode = 404): Record<string, unknown> {
   const res = {
     statusCode,
     setHeader: () => undefined,
+    getHeader: () => undefined,
     on: (_event: string, listener: () => void) => void (finish = listener),
   } as unknown as Response;
   requestLogger(logger)(req, res, () => undefined);
