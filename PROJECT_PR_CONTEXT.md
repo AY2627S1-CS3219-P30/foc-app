@@ -338,7 +338,7 @@ blocker tickets, not additional issues assigned to Isaac.
 | #167 all live feature segments and two non-owner rehearsals                                                     | `docs/demo/d4-runbook.md` marks chat gated and both rehearsal rows Pending; #161 remains OPEN                | Incomplete; real owner implementation and rehearsal evidence needed |
 | #238 all five approvals and Accepted ADRs                                                                       | `docs/adr/README.md` in #337: actual scopes recorded; 0007/0009 remain Proposed                              | Incomplete until Zhang Yuan confirms 0009 and the #250 amendment    |
 
-Live GitHub shows two assigned open issues (#167, #238), no assigned open PRs; Isaac-authored #328 remains an open handoff/context PR. Completed implementation has been merged and its completed issues closed.
+Live GitHub shows two assigned open issues (#167, #238), no assigned open PRs. Isaac-authored #328 was closed without merging because the owners’ #344/#347 supersedes its draft. Completed implementation has been merged and its completed issues closed.
 The full goal remains incomplete because the two assigned issues still have the specific external
 acceptance gates above. Do not close them or treat agent/CI execution as a teammate decision.
 
