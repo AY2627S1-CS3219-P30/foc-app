@@ -6,11 +6,11 @@ off, and everything else to the web app. It sets the security headers, limits wr
 size, and answers whether the whole stack is ready. Why it exists, and what it must never do, is in
 [ADR 0010](../adr/0010-api-edge.md). Its configuration is three files, mounted read-only:
 
-| File                | What it holds                                                                       |
-| ------------------- | ----------------------------------------------------------------------------------- |
-| `edge/nginx.conf`   | routes, the write limit, the size limit, the error answers, the access log          |
-| `edge/headers.conf` | the security headers on every response, including the Content-Security-Policy       |
-| `edge/readiness.js` | `GET /edge/ready`: which of the web app and the four services answer (PLT-13, #289) |
+| File                | What it holds                                                                                      |
+| ------------------- | -------------------------------------------------------------------------------------------------- |
+| `edge/nginx.conf`   | routes, the write limit, the size limit, the live-update stream, the error answers, the access log |
+| `edge/headers.conf` | the security headers on every response, including the Content-Security-Policy                      |
+| `edge/readiness.js` | `GET /edge/ready`: which of the web app and the four services answer (PLT-13, #289)                |
 
 Commands below are run from the repository root against the running stack. For a stack started
 under another project name, set `COMPOSE_PROJECT_NAME` first.
@@ -32,12 +32,13 @@ at that service (`docker compose ps`, `docker compose logs <service>`) before th
 
 The edge's own answers use the shared error envelope, with the request's correlation ID in the body.
 
-| Answer                                        | It means                                                                                                                 | What to do                                                                                                                                       |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `503 UNAVAILABLE`, `Retry-After: 5`           | the service under that prefix is not answering: stopped, restarting, or just recreated at a new address                  | `/edge/ready` names it. Start or fix the service; the edge looks its name up again every 10 seconds, so it is found without restarting the edge. |
-| `429 RATE_LIMITED`, `Retry-After: 1`          | more than 10 writes a second (a burst of 30 allowed) from one address. Reads are not limited                             | Expected for a script that writes in a burst: slow it down. For many people behind one address, raise `rate` or `burst` (see below).             |
-| `413 PAYLOAD_TOO_LARGE`                       | a request body over 1 MB                                                                                                 | Nothing the API takes is that large; find what sent it.                                                                                          |
-| `404 NOT_FOUND`, no `x-correlation-id` header | the edge's own refusal: an `/internal` or `/metrics` path in any spelling or case, or an `/api/<name>` it does not route | Working as intended. A service's own 404 echoes `x-correlation-id`; the edge's does not.                                                         |
+| Answer                                                                  | It means                                                                                                                 | What to do                                                                                                                                       |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `503 UNAVAILABLE`, `Retry-After: 5`                                     | the service under that prefix is not answering: stopped, restarting, or just recreated at a new address                  | `/edge/ready` names it. Start or fix the service; the edge looks its name up again every 10 seconds, so it is found without restarting the edge. |
+| `429 RATE_LIMITED`, `Retry-After: 1`                                    | more than 10 writes a second (a burst of 30 allowed) from one address. Reads are not limited                             | Expected for a script that writes in a burst: slow it down. For many people behind one address, raise `rate` or `burst` (see below).             |
+| `413 PAYLOAD_TOO_LARGE`                                                 | a request body over 1 MB                                                                                                 | Nothing the API takes is that large; find what sent it.                                                                                          |
+| `429 TOO_MANY_STREAMS`, `Retry-After: 60`, no `x-correlation-id` header | more than 10 live-update streams open from one address (`/api/order/live`)                                               | Expected for many people behind one address: raise `limit_conn streams` in `nginx.conf`. The pages refused poll meanwhile.                       |
+| `404 NOT_FOUND`, no `x-correlation-id` header                           | the edge's own refusal: an `/internal` or `/metrics` path in any spelling or case, or an `/api/<name>` it does not route | Working as intended. A service's own 404 echoes `x-correlation-id`; the edge's does not.                                                         |
 
 A `502` or `504` never reaches the browser: the edge turns both into the `503` above.
 
@@ -70,6 +71,21 @@ otherwise. Every service answer, and the body of every edge error, carries it.
 - **A page is blocked in the browser console by the Content-Security-Policy.** The app may fetch
   only from its own origin and show images from any HTTPS address. Something new from another
   origin goes into the policy in `edge/headers.conf`.
+- **A page says _Updating every 30 s_ instead of _Live_.** It has no live-update stream, so it
+  polls, which works, only later ([ADR 0011](../adr/0011-live-updates.md)). With a student's access
+  token in `$TOKEN` (signing in at a prompt is in the [dead-letter runbook](dead-letters.md)),
+  `curl -sN localhost:3000/api/order/live -H "Authorization: Bearer $TOKEN"` prints `event: ready`
+  at once, then a `: keep-alive` every 20 seconds. If instead:
+  - nothing comes for a while and then several lines at once, something buffers the stream:
+    the `/api/order/live` location in `nginx.conf` must keep `proxy_buffering off`;
+  - `503 LIVE_UNAVAILABLE` (it has an `x-correlation-id` header, so it is the Order Service's):
+    live updates are switched off (`ORDER_LIVE_UPDATES_ENABLED=false` in `.env`), or the instance
+    holds 1,000 streams;
+  - `429 TOO_MANY_STREAMS` with an `x-correlation-id` header: that student already has 5 tabs open;
+    without one, the address has 10 (the row above);
+  - `event: ready` but no nudges when errands change: the Order Service is not getting its status
+    changes. Its queue is `foc.order.live.<random>` in RabbitMQ; look at
+    `docker compose logs order-service`.
 - **Port 3000 is taken.** Set `WEB_APP_PORT` in `.env`; the edge is published on it.
 
 ## Changing its configuration
@@ -85,7 +101,7 @@ otherwise. Every service answer, and the body of every edge error, carries it.
    - `docker compose up -d --force-recreate edge` always applies it, with about ten seconds in which
      port 3000 does not answer.
 4. Run `./scripts-smoke.sh`: its edge section checks the routes, the headers, the refusals, the
-   limits and readiness.
+   limits and readiness, and the live-update stream after it.
 
 Restarting the edge (`docker compose restart edge`) leaves the web app and the services running;
 port 3000 refuses connections until it is back.

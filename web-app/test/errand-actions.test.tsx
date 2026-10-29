@@ -27,6 +27,7 @@ const { useOrder } = await import('../src/lib/use-order');
 const { StoreProvider } = await import('../src/lib/store');
 const { CreditsProvider } = await import('../src/lib/credits');
 const { TopBar } = await import('../src/components/TopBar');
+const { LiveProvider } = await import('../src/lib/live/live');
 
 afterAll(() => {
   for (const key of ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'])
@@ -697,6 +698,66 @@ describe('updates on a visible tab', () => {
     expect(reads(service)).toBe(before + 2);
     await goIdle(clock);
     expect(container.textContent).toContain('ACCEPTED: paused');
+  });
+
+  /** The tab's live-update stream (N1.4), driven by the test. */
+  function fakeStream() {
+    let handlers: { onEvent(e: { event: string; data: string }): void; onStatus(s: string): void };
+    return {
+      connect: (h: typeof handlers) => {
+        handlers = h;
+        return { start() {}, stop() {}, retryNow() {} };
+      },
+      status: async (status: 'live' | 'reconnecting' | 'polling') =>
+        act(async () => handlers.onStatus(status)),
+      emit: async (event: string, data = '{}') => {
+        await act(async () => handlers.onEvent({ event, data }));
+        await flush();
+      },
+    };
+  }
+
+  it('is not paused while its live-update stream is open, since a change still reaches it at once', async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    const stream = fakeStream();
+    const container = await render(
+      <LiveProvider connect={stream.connect as never}>
+        <Probe />
+      </LiveProvider>,
+      service,
+    );
+    await stream.status('live');
+    await goIdle(clock);
+    expect(container.textContent).toContain('OPEN: live');
+
+    // The stream is lost: settled polling has gone idle, so the page says so again.
+    await stream.status('reconnecting');
+    expect(container.textContent).toContain('OPEN: paused');
+  });
+
+  it("a nudge's read wakes settled polling, like a refresh", async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    const stream = fakeStream();
+    const container = await render(
+      <LiveProvider connect={stream.connect as never}>
+        <Probe />
+      </LiveProvider>,
+      service,
+    );
+    await stream.status('polling');
+    await goIdle(clock);
+    expect(container.textContent).toContain('OPEN: paused');
+    const before = reads(service);
+
+    // A newer version in the same status (its deadline was extended, say): no status change to wake it.
+    service.current = order({ version: 4 });
+    await stream.emit('errand', JSON.stringify({ orderId: ORDER_ID, version: 4 }));
+    expect(reads(service)).toBe(before + 1);
+    expect(container.textContent).toContain('OPEN: live');
+    await clock.advance(30_000);
+    expect(reads(service)).toBe(before + 2);
   });
 
   it('resumes when the tab comes back', async () => {

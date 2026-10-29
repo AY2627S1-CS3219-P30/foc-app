@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import { ApiError } from "./api-client";
 import { useAuth } from "./auth";
+import { useLive, useLiveStatus } from "./live/live";
 import { getOrder, type Order, type OrderStatus } from "./order-api";
 import { isFinal, waitsOnCredit } from "./order-status";
 import { useOnReturn } from "./use-on-return";
@@ -33,7 +34,8 @@ function serverDeadline(order: Order) {
  * every 30 seconds otherwise. Settled polling also goes idle after ten minutes without a change,
  * until the tab is shown, back online or refreshed, or until a deadline on which the server changes
  * the errand by itself, which wakes it for another ten minutes. `paused` says it is idle after a
- * read that worked, since a tab that stays visible never wakes it; it is never set with `problem`.
+ * read that worked, since a tab that stays visible never wakes it; it is never set with `problem`,
+ * nor while the page's live-update stream is open, since a change still reaches it then (N1.4).
  * A 4xx, or an error that is not an {@link ApiError} (a bug, not the network), stops, and a 404
  * drops the errand so its actions go with it.
  * `skew` is how far this device's clock runs ahead of the server's, from the order's `serverTime`.
@@ -119,6 +121,21 @@ export function useOrder(orderId: string) {
     since.current = Date.now();
   }, []);
   useOnReturn(wake);
+  // N1.4: read again at once when the stream says this errand moved past what is shown, waking
+  // settled polling as a refresh does. A courier who withdrew or missed the pickup deadline is no
+  // longer named on it, so hears only that it went back on the board.
+  useLive((nudge) => {
+    const ours =
+      nudge.kind === "ready" ||
+      (nudge.kind === "errand" &&
+        nudge.orderId === orderId &&
+        (nudge.version ?? Number.POSITIVE_INFINITY) > version.current) ||
+      (nudge.kind === "board" && status.current === "ACCEPTED");
+    if (!ours) return;
+    wake();
+    readNow();
+  });
+  const live = useLiveStatus() === "live";
 
   /** Shows `latest` (a command's answer) at once, then reads again, resuming paused polling. */
   const refresh = useCallback(
@@ -130,5 +147,5 @@ export function useOrder(orderId: string) {
     [readNow, show, wake],
   );
 
-  return { order, skew, problem, stillWaiting, paused, refresh };
+  return { order, skew, problem, stillWaiting, paused: paused && !live, refresh };
 }

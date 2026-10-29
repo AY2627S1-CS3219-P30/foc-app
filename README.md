@@ -12,13 +12,13 @@ withdrawn, or exchanged for money, and only circulate within the platform.
 
 ## Team Members
 
-| Name           | GitHub                | Owns                                                        | Nice-to-have                                                |
-| -------------- | --------------------- | ----------------------------------------------------------- | ----------------------------------------------------------- |
-| Anselm Long    | `@anselmlong`         | User Service: identity and access                           | N1.1 the User Service side; N1.2 chat access and retention  |
-| Zhang Yuan     | `@volleyballkickedme` | Order Service: the errand lifecycle                         | N1.1 dispute referral and decision; N1.2 the chat lifecycle |
-| Jonus Ho       | `@jonushzw`           | Integration and platform: events, containers, observability | N1.1 the admin console and operations; N4.1 CI/CD           |
-| Isaac Chua     | `@isaacchua0309`      | Credit Service: the credit economy                          | N3.1 conservation evidence; N3.2 credit reconciliation      |
-| Patrick Thomas | `@pastchum`           | Supplier Service and the web app                            | N1.2 the chat interface                                     |
+| Name           | GitHub                | Owns                                                        | Nice-to-have                                                                |
+| -------------- | --------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Anselm Long    | `@anselmlong`         | User Service: identity and access                           | N1.1 the User Service side; N1.2 chat access and retention                  |
+| Zhang Yuan     | `@volleyballkickedme` | Order Service: the errand lifecycle                         | N1.1 dispute referral and decision; N1.2 the chat lifecycle                 |
+| Jonus Ho       | `@jonushzw`           | Integration and platform: events, containers, observability | N1.1 the admin console and operations; N1.4 live errand updates; N4.1 CI/CD |
+| Isaac Chua     | `@isaacchua0309`      | Credit Service: the credit economy                          | N3.1 conservation evidence; N3.2 credit reconciliation                      |
+| Patrick Thomas | `@pastchum`           | Supplier Service and the web app                            | N1.2 the chat interface                                                     |
 
 What each nice-to-have is, and how the work on it is shared, is in
 [docs/nice-to-haves.md](docs/nice-to-haves.md).
@@ -612,6 +612,7 @@ yourself, `curl -H "Authorization: Bearer $METRICS_TOKEN" localhost:3001/metrics
 | Oldest errand waiting for Credit  | how long the oldest `PENDING_CREDIT` errand has waited for its reservation                                                                         | `foc_orders_pending_credit_oldest_age_seconds`                                      |
 | Firing alerts                     | the rules in `observability/alerts.yml` that are firing now                                                                                        | Prometheus `ALERTS`                                                                 |
 | Repeated, stale and waiting steps | deliveries already applied, steps older than a change already applied, and steps retried while an earlier one is missing                           | `foc_events_duplicate_total`, `foc_events_stale_total`, `foc_events_deferred_total` |
+| Live-update streams and nudges    | pages holding a live-update stream, and the nudges sent to them, by kind (N1.4)                                                                    | `foc_live_streams`, `foc_live_nudges_total`, `foc_live_refused_total`               |
 
 - **Follow one request.** Its correlation ID is in the `x-correlation-id`
   response header. `docker compose logs | grep <id>` then shows every service it
@@ -620,14 +621,15 @@ yourself, `curl -H "Authorization: Bearer $METRICS_TOKEN" localhost:3001/metrics
   credit reconciliation run is `reconcile-<runId>`. Two limits: identity checks
   that arrive together share one call to the User Service, logged there under the
   first caller's ID, and a cached check makes no call at all.
-- **Per-instance queues** (each service's `auth-status` cache queue) carry a
-  random suffix; their metrics are labelled without it, so a restart continues
-  the same series.
+- **Per-instance queues** (each service's `auth-status` cache queue, and the
+  Order Service's `live` queue) carry a random suffix; their metrics are
+  labelled without it, so a restart continues the same series.
 - **Rates need traffic.** A rate panel shows a request once Prometheus has
   scraped before and after it (every 15 s), so give a demo a minute of traffic.
-- **Add a metric.** Inject `METRICS` from `@foc/platform` and call `addGauge`;
-  Order's `foc_orders` in `order-service/src/orders/order.metrics.ts` is the
-  example. Every series carries a `service` label.
+- **Add a metric.** Inject `METRICS` from `@foc/platform` and call `addGauge`
+  (or `addCounter`); Order's `foc_orders` in
+  `order-service/src/orders/order.metrics.ts` is the example. Every series
+  carries a `service` label.
 - **Change the dashboard** in `observability/grafana/dashboards/foc-platform.json`.
   Grafana reloads it within seconds; edits made in the UI are not saved.
 
@@ -1009,15 +1011,19 @@ to all four, because it can break any of them. So does any path the filter does
 not recognise, such as a new package: it fails closed, running everything rather
 than nothing.
 
-| Job               | Runs when                                                  | What it does                                                                                                            |
-| ----------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `Detect changes`  | always                                                     | Works out what is affected                                                                                              |
-| `Lint and format` | any Node code changed                                      | `eslint`, `prettier --check`, the contract compatibility check, and a vulnerability scan of the production dependencies |
-| `Shared packages` | any Node code changed                                      | Build and test every shared package, with real RabbitMQ and PostgreSQL, and report their coverage                       |
-| `<service>`       | that service or shared code changed                        | Typecheck, test and report coverage, build its image, and scan the image for vulnerabilities                            |
-| `web-app`         | `web-app/**`, a contract, or what builds its image changed | `bun install`, lint, test with coverage; then build its image, which builds the app, and scan it                        |
-| `Compose smoke`   | container wiring changed, or any push to `main`            | Brings the whole stack up and runs the smoke checks                                                                     |
-| **`CI`**          | **always**                                                 | The gate — fails if anything above failed                                                                               |
+| Job                          | Runs when                                                  | What it does                                                                                                                        |
+| ---------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `Detect changes`             | always                                                     | Works out what is affected                                                                                                          |
+| `Lint and format`            | any Node code changed                                      | `eslint`, `prettier --check`, the contract compatibility check, and a vulnerability scan of the production dependencies             |
+| `Shared packages`            | any Node code changed                                      | Build and test every shared package, with real RabbitMQ and PostgreSQL, and report their coverage                                   |
+| `<service>`                  | that service or shared code changed                        | Typecheck, test and report coverage, build its image, and scan the image for vulnerabilities                                        |
+| `web-app`                    | `web-app/**`, a contract, or what builds its image changed | `bun install`, lint, test with coverage; then build its image, which builds the app, and scan it                                    |
+| `Compose smoke (core)`       | container wiring changed, or any push to `main`            | The alert rules, the secret scan of the repository and the images, the smoke checks, forced messaging failures and the credits walk |
+| `Compose smoke (resilience)` | the same                                                   | The restart check, the demo journey with its redrive, and the D4 demo seeded twice                                                  |
+| `Compose smoke (recovery)`   | the same                                                   | Back up, restore onto fresh volumes, and roll back to the last published images                                                     |
+| `Browser journeys (smoke)`   | the web app, a service or container wiring changed         | The browser journeys on one stack                                                                                                   |
+| `Browser journeys (release)` | the same                                                   | The full release suite from clean containers: once on a pull request, twice on a push to `main`                                     |
+| **`CI`**                     | **always**                                                 | The gate — fails if anything above failed                                                                                           |
 
 ### Why there is a separate `CI` job
 
@@ -1090,7 +1096,9 @@ npm run test:contract        # contract compatibility + provider checks
 ```
 
 Every test suite, its naming convention and the variables that switch on the real-PostgreSQL and
-RabbitMQ suites are described in [docs/testing.md](docs/testing.md).
+RabbitMQ suites are described in [docs/testing.md](docs/testing.md). Which tests prove which
+requirement is the [traceability matrix](docs/traceability.md): every Must requirement of the D1
+backlog, its tests, and the gaps still open. CI fails if a test it names disappears (PL-NFR4.1.1).
 
 ### Published images
 
@@ -1175,4 +1183,5 @@ Run `./scripts-e2e-release.sh --twice` from the repository root to prove the cri
 twice from clean containers. It resets only the dedicated `foc-e2e-release` project on ports
 14500–14509. Setup, coverage, clock isolation and retained evidence are documented in the
 [web app release suite](web-app/README.md#full-release-suite-tst-02-160). CI requires both its ordinary
-browser smoke and the full release runs.
+browser smoke and the full release suite, which it runs once on a pull request and twice on a push
+to `main`.

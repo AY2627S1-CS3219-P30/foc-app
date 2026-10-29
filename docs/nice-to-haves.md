@@ -5,23 +5,25 @@ to Friend on Campus, its design and how it joins the rest of the application, an
 responsible ([DOC-03 #237](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/237); D3
 instructions, Part 5). The same allocation is presented again at the final presentation.
 
-Five features, chosen to deepen the errand and credit workflows rather than to add breadth. Three
-are merged; the console gains two more areas in Sprint 4; chat and the delivery half of the
-pipeline are built in Sprint 4.
+Six features, chosen to deepen the errand and credit workflows rather than to add breadth. Four
+are merged; chat is built in Sprint 4; live errand updates, added on 28 Oct, are built by the
+scope freeze on Sat 31 Oct.
 
-| Feature                                          | Owners                      | State on 22 Oct                                                    |
+| Feature                                          | Owners                      | State on 28 Oct                                                    |
 | ------------------------------------------------ | --------------------------- | ------------------------------------------------------------------ |
-| N1.1 Admin operations and dispute console        | Jonus, Anselm, Zhang Yuan   | Merged: #226, #228, #229, #252, #273. Sprint 4: #279, #280         |
-| N1.2 Participant chat                            | Patrick, Zhang Yuan, Anselm | Sprint 4. Design to agree by Sun 25 Oct; merged by Tue 3 Nov       |
+| N1.1 Admin operations and dispute console        | Jonus, Anselm, Zhang Yuan   | Merged: #226, #228, #229, #252, #273, #292, #293                   |
+| N1.2 Participant chat                            | Patrick, Zhang Yuan, Anselm | Sprint 4. Merged by Tue 3 Nov                                      |
+| N1.4 Live errand updates                         | Jonus                       | Added 28 Oct (#329–#332). By the freeze, Sat 31 Oct, or dropped    |
 | N3.1 Concurrency, load and conservation evidence | Isaac                       | Merged (#165)                                                      |
 | N3.2 Automated credit reconciliation             | Isaac                       | Merged (#152)                                                      |
-| N4.1 CI/CD pipeline                              | Jonus                       | CI merged (#118); scan, publish and the demo tag in Sprint 4 (#164) |
+| N4.1 CI/CD pipeline                              | Jonus                       | Merged (#118, #296); the demo tag at the final commit (#169)       |
 
-> **Status of this page.** The N1.1 and N4.1 sections are written by their owner. The N3.1 and N3.2
-> sections describe what is merged, from the code and its documentation, for Isaac to confirm. The
-> N1.2 section is a **proposal** drawn from the three chat tickets and the existing architecture;
-> its owners settle its open points by Sun 25 Oct. Each member signs the page off in the
-> [register at the end](#sign-off).
+> **Status of this page.** The N1.1, N1.4 and N4.1 sections are written by their owner. The N3.1
+> and N3.2 sections describe what is merged, from the code and its documentation, for Isaac to
+> confirm. The N1.2 section is a **proposal** drawn from the three chat tickets and the existing
+> architecture; its owners settle its open points. N1.4 was added on 28 Oct, after the page was
+> first agreed: the team agrees it in the pull request that adds it. Each member signs the page
+> off in the [register at the end](#sign-off).
 
 ## N1.1 Admin operations and dispute console
 
@@ -59,7 +61,7 @@ asking the User Service who the caller is. Nothing in the console can change a b
 
 | Owner      | Part                                                                                       | Tickets                              |
 | ---------- | ------------------------------------------------------------------------------------------ | ------------------------------------ |
-| Jonus      | The console, the controls on administrators, the wallet-read alert, dead letters and redrive, the dashboard, disputes in the console | #218-#221 (ADM-01 to 04), #154, #235, #271; Sprint 4: #279, #280 |
+| Jonus      | The console, the controls on administrators, the wallet-read alert, dead letters and redrive, the dashboard, disputes in the console | #218-#221 (ADM-01 to 04), #154, #235, #271, #279, #280 |
 | Anselm     | The User Service side: admin endpoints, the audit log and its filters, log privacy          | #156                                 |
 | Zhang Yuan | Dispute referral and the administrator's decision; one account's errands for the console; the all-errands endpoint | #171, #233; Sprint 4: #279 |
 
@@ -121,6 +123,57 @@ the events that must reach a consumer); and how an administrator reads a channel
 **State.** Sprint 4. No code, contract or decision record yet. Text messages per errand, history on
 reconnect, participants only and closed at a terminal state are to be merged by Tue 3 Nov; chat is
 the one feature allowed past the 31 Oct scope freeze, because it is Patrick's only nice-to-have.
+
+## N1.4 Live errand updates
+
+**Problem.** Every page learns of a change by polling: every 30 seconds once an errand is settled,
+and not at all after ten minutes without one. A requester waiting for a courier sees *Accepted* up
+to half a minute after it happened, and a courier's board still shows an errand someone else took
+seconds ago.
+
+**Value.** A change shows at once on the pages of the people it concerns, which makes the
+asynchronous workflow visible: the courier accepts, and the requester's page says so. Polling
+stays, so nothing is lost when the stream is not there.
+
+**Design.** It brings back the execution plan's own choice for live updates, "SSE for one-way order
+status with polling fallback" (WEB-04), which was built as polling only.
+
+- **A nudge, not the data.** "Errand X is now at version 7" goes to its requester and courier; "the
+  board changed" goes to everyone. The page reads again through the ordinary API, under its
+  ordinary rules. A lost, repeated or reordered nudge costs at most one read, and the stream can
+  never show what the API would not.
+- **One route on the Order Service**, `GET /api/order/live`, authenticated like every other:
+  Server-Sent Events, a `ready` event on connect so the page catches up, then `errand` and `board`
+  nudges and a keep-alive.
+- **Fed by the event it already publishes.** Each Order Service instance consumes
+  `order.status-changed` through a queue of its own, as the services already do for identity
+  changes, and sends each change to the errand's requester and courier, read from its row
+  (OS-FR2.1.2).
+- **Limits.** 5 streams per user, 1,000 per instance, 10 per address at the edge. A stream ends
+  after 5 minutes and the page reconnects, authenticating again. A kill switch
+  (`LIVE_UPDATES_ENABLED`) turns it off with one restart.
+- **In the web app**, one stream per tab, which calls the reads its pages already poll with, and a
+  label in the header: *Live*, *Reconnecting…* or *Updating every 30 s*.
+
+**Integration.** It consumes one event the Order Service already publishes, on a queue that holds
+nothing durable, so that event's delivery is unchanged and no workflow depends on the stream. The
+edge passes it through unbuffered and decides nothing about the caller
+([ADR 0010](adr/0010-api-edge.md)). Off or down, every page behaves as it did, by polling. Chat
+keeps its own transport.
+
+**Owner and how the work is shared.** Jonus, with one reviewer from each part's owners.
+
+| Slice                                                       | Ticket | Size | Reviewer   |
+| ----------------------------------------------------------- | ------ | ---- | ---------- |
+| The Order Service's stream, and its decision record         | #329   | M    | Zhang Yuan |
+| The edge passes it through, unbuffered and limited          | #330   | S    | Anselm     |
+| The web app: the stream, the pages that use it, the label   | #331   | M    | Patrick    |
+| Under load: a dated report on how fast a change arrives     | #332   | S    | —          |
+
+**State.** Added on 28 Oct. #329 to #331 are merged by the scope freeze, Sat 31 Oct, or dropped.
+Each part is harmless alone: the route has no reader until the web app's part, and the web app
+polls as before wherever the route is missing or refused. #332 is evidence, not behaviour, and
+follows before RC1 on Tue 3 Nov.
 
 ## N3.1 Concurrency, load and credit-conservation evidence
 
@@ -198,7 +251,8 @@ commit and rebuilt.
 - on a Compose stack: a secret scan of the repository and the built images, the smoke test, the
   failure demo, the restart check and the demo journey.
 
-**Planned** (NTH-04, #164, Sprint 4).
+**Merged in Sprint 4** (NTH-04, #164, in #296), except the demo-commit tag, which is made at the
+final commit (#169).
 
 - **Scan.** Trivy over each built image and the dependency lockfiles. A critical vulnerability
   with a fix available fails the pull request, as a failed test does (PL-NFR4.1.2).
@@ -230,7 +284,7 @@ service.
 | Patrick    | Supplier, web app       | N1.2 the chat interface (#161)                                        |
 | Zhang Yuan | Order                   | N1.1 dispute referral and decision (#171, #233); N1.2 lifecycle (#162) |
 | Isaac      | Credit                  | N3.1 evidence (#165); N3.2 reconciliation (#152)                      |
-| Jonus      | Integration and platform | N1.1 console, controls and operations (#279, #280 in Sprint 4); N4.1 pipeline (#164) |
+| Jonus      | Integration and platform | N1.1 console, controls and operations (#292, #293); N1.4 live errand updates (#329–#332); N4.1 pipeline (#164) |
 
 Every member owns part of at least one feature. Two points for the team to settle before D3:
 
@@ -245,8 +299,9 @@ Every member owns part of at least one feature. Two points for the team to settl
 
 ## Considered and not selected
 
-The scope above is final. These were considered for D1 and set aside, so that the mandatory
-product and the five features above are finished rather than more being started
+The scope above is final; live errand updates (N1.4) joined it on 28 Oct, built by one member
+without taking anyone off chat. These were considered for D1 and set aside, so that the mandatory
+product and the features above are finished rather than more being started
 ([execution plan](EXECUTION-PLAN.md), "Deferred"):
 
 | Considered                                             | Why not                                                          |
@@ -258,7 +313,6 @@ product and the five features above are finished rather than more being started
 | Voice and video calls                                  | Text is enough to coordinate a handover                           |
 | Kubernetes, autoscaling, cloud hosting                 | Local Compose is the mandatory scope; nothing here needs more     |
 | Reorder and saved delivery details (plan NTH-02)       | A shortcut on top of the composer; chat and the console came first |
-| Live updates over SSE (plan WEB-04)                    | Every page already polls (`web-app/src/lib/use-poll.ts`); WEB-04's ticket (#159) became connectivity and conflict recovery |
 
 ## For the D3 and D4 slides
 
@@ -270,22 +324,23 @@ Two slides, drawn from this page. D4 presents the same allocation.
 | ------------------------------- | ------------------------------------------------------------- |
 | Admin and dispute console       | Support without database edits; admins are controlled too      |
 | Participant chat                | Coordinating an errand without swapping phone numbers          |
+| Live errand updates             | A change shows at once, not at the next 30-second poll         |
 | Conservation evidence           | "Credits are never created or lost", checked by a machine      |
 | Credit reconciliation           | An errand stuck between Order and Credit repairs itself        |
 | CI/CD pipeline                  | `main` always builds, starts and passes its own demo           |
 
 **Slide 2: who and when.** The table at the top of this page, with one line each on how the
 feature joins the application: the console calls each service's own admin endpoints; chat
-consumes one Order event and asks Order who the participants are; the evidence suite runs the real
-Order and Credit code; reconciliation reads Credit and resends; the pipeline builds each service
-from its own Dockerfile.
+consumes one Order event and asks Order who the participants are; live updates nudge a page to
+read again through the ordinary API; the evidence suite runs the real Order and Credit code;
+reconciliation reads Credit and resends; the pipeline builds each service from its own Dockerfile.
 
 ## Sign-off
 
 The D3 instructions ask the team to finalise this allocation, and D4 presents it again. Each member
 reads the page and replaces their `Pending` with `Agreed` and the date (in a pull request, or by
 commenting on [#237](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/237)), or raises what
-should change. Due Sun 25 Oct.
+should change. Due Sun 25 Oct; for N1.4, added on 28 Oct, by Sat 31 Oct.
 
 | Member                             | Status  | Date |
 | ---------------------------------- | ------- | ---- |

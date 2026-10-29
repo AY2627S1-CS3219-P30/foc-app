@@ -34,6 +34,18 @@ export const env = loadEnv({
   RECONCILE_INTERVAL_MS: z.coerce.number().int().positive(),
   /** The least time between two repair attempts for the same order. */
   RECONCILE_RETRY_MS: z.coerce.number().int().positive(),
+  /** N1.4: `false` refuses every live-update stream, and every page polls as it always did. */
+  LIVE_UPDATES_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  /** A live-update stream ends itself after this long, and the page reconnects and authenticates again. */
+  LIVE_STREAM_MAX_MS: z.coerce
+    .number()
+    .int()
+    .min(10_000)
+    .max(15 * 60_000)
+    .default(300_000),
   ...authEnvSchema,
 });
 

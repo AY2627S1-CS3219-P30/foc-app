@@ -68,6 +68,11 @@ instructions and records pickup and delivery, and the requester confirms receipt
 complete. The requester then opens the receipt, follows it to the payment in their wallet and back,
 and the courier follows the same payment from their receipt to their wallet and back.
 
+`e2e/live-journey.e2e.ts` (N1.4) checks what only the live-update stream can do, since a settled
+page polls every 30 seconds: a new errand reaches a courier's open board within 3 s, and the
+courier's accept reaches the requester's open errand page within 3 s. Refused its stream first, the
+page says *Updating every 30 s* and still works, at every width.
+
 `e2e/dispute-outcome.e2e.ts` covers both administrative dispute decisions at all three widths.
 The requester reports non-receipt, the referred administrator decides through the console, and
 both participants read the outcome, reason and time on their errand page and expand its status
@@ -290,6 +295,31 @@ reserved its reward once.
 
 Every state's label and plain-language explanation is in `src/lib/order-status.ts`, typed from the
 generated contract so all twelve are covered.
+
+### Live updates (N1.4)
+
+Every page above polls, and still does. On top of that, each tab holds one live-update stream,
+`GET /api/order/live` ([ADR 0011](../docs/adr/0011-live-updates.md)), so a change shows at once
+instead of at the next poll. The stream sends nudges, never an errand: on one, a page reads again
+through the endpoints above, under their rules.
+
+| Page | Reads again on |
+| --- | --- |
+| errand page (`useOrder`) | `errand` for its errand at a newer version than shown; `board` while it is `ACCEPTED`, since a courier who withdrew or missed the pickup deadline is no longer named on it |
+| feed, courier mode | `board`, after a random wait of up to a second, so open feeds do not all read at once |
+| feed, requester mode; order history; wallet; the credits pill | any `errand` |
+| all of them | `ready`, sent each time the stream (re)opens: the catch-up |
+
+- `src/lib/live/sse.ts` parses the stream; `src/lib/live/connection.ts` keeps it open. It is read with
+  `fetch`, not `EventSource`, which cannot send the `Authorization` header (a token in the URL
+  would be written to the edge's log). It reconnects after 1, 2, 4, 8, then every 10 seconds,
+  closes while the tab is hidden, and retries at once when the network is back. The stream's own
+  refusals (`429`, `503 LIVE_UNAVAILABLE`) leave the page polling, asking again a minute later.
+- `src/lib/live/live.tsx` is the `LiveProvider` in `(app)/layout.tsx` (the student's pages; the
+  console polls) and `useLive`, which does nothing outside it.
+- `LiveLabel` says *Live*, *Reconnecting…* or *Updating every 30 s* in every header: the top bar,
+  the phone's app bar, and the errand page's own headers. Text, not only colour, as a polite status.
+- Turned off on the server (`ORDER_LIVE_UPDATES_ENABLED=false`), every page behaves as before.
 
 ### Sessions
 

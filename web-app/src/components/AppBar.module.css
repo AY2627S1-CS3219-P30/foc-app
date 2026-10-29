@@ -35,6 +35,13 @@
   width: var(--size-control);
 }
 
+/* The screen's name, and on a phone whether it is live (N1.4). */
+.titleBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
 .title {
   font-size: var(--text-lg);
   font-weight: var(--weight-medium);
