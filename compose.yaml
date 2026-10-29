@@ -16,7 +16,10 @@ name: foc
 x-service-base: &service-base
   restart: unless-stopped
   environment: &service-env
-    NODE_ENV: ${NODE_ENV:-development}
+    # Production (PLT-10, #285): the User Service will not start without its own signing key or
+    # mail it can send, refuses sign-in limits above policy, and marks its cookie Secure, which
+    # browsers still send to http://localhost. A script that needs development says so itself.
+    NODE_ENV: ${NODE_ENV:-production}
     LOG_LEVEL: ${LOG_LEVEL:-info}
     CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
     # Behind the edge (PLT-10): believe X-Forwarded-For, for the client's address, from the edge
