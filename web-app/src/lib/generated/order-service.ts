@@ -595,6 +595,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/internal/orders/{orderId}/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read what the Chat Service decides access from (N1.2, ADR 0012).
+         * @description Chat asks on every request and keeps no copy. `courierId` is the current courier: null
+         *     before acceptance and after a withdrawal, timeout or suspension. `endedAt` is when the
+         *     errand reached a final status (`COMPLETED`, `CANCELLED`, `EXPIRED`, `REJECTED`), else null.
+         */
+        get: operations["getOrderForChat"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -945,6 +967,14 @@ export interface components {
             pageSize: number;
             total: number;
             items: components["schemas"]["DeadLetter"][];
+        };
+        OrderForChat: {
+            status: components["schemas"]["Order"]["status"];
+            version: number;
+            requesterId: string;
+            courierId: string | null;
+            /** Format: date-time */
+            endedAt: string | null;
         };
         ErrorEnvelope: {
             error: {
@@ -1917,6 +1947,47 @@ export interface operations {
             503: {
                 headers: {
                     "Retry-After"?: "60";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    getOrderForChat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                orderId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The errand's participants and status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrderForChat"];
+                };
+            };
+            400: components["responses"]["InvalidOrderId"];
+            /** @description Missing or unknown `X-Service-Key`. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description No errand has this ID. */
+            404: {
+                headers: {
                     [name: string]: unknown;
                 };
                 content: {

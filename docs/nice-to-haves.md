@@ -12,7 +12,7 @@ scope freeze on Sat 31 Oct.
 | Feature                                          | Owners                      | State on 28 Oct                                                    |
 | ------------------------------------------------ | --------------------------- | ------------------------------------------------------------------ |
 | N1.1 Admin operations and dispute console        | Jonus, Anselm, Zhang Yuan   | Merged: #226, #228, #229, #252, #273, #292, #293                   |
-| N1.2 Participant chat                            | Patrick, Zhang Yuan, Anselm | Sprint 4. Merged by Tue 3 Nov                                      |
+| N1.2 Participant chat                            | Patrick, Zhang Yuan, Anselm | Design agreed (#344). Sprint 4: merged by Tue 3 Nov                |
 | N1.4 Live errand updates                         | Jonus                       | Merged: #334, #335, #338. Under load: #343                         |
 | N3.1 Concurrency, load and conservation evidence | Isaac                       | Merged (#165)                                                      |
 | N3.2 Automated credit reconciliation             | Isaac                       | Merged (#152)                                                      |
@@ -20,8 +20,8 @@ scope freeze on Sat 31 Oct.
 
 > **Status of this page.** The N1.1, N1.4 and N4.1 sections are written by their owner. The N3.1
 > and N3.2 sections describe what is merged, from the code and its documentation, for Isaac to
-> confirm. The N1.2 section is a **proposal** drawn from the three chat tickets and the existing
-> architecture; its owners settle its open points. N1.4 was added on 28 Oct, after the page was
+> confirm. The N1.2 section is agreed by its three owners and recorded in
+> [ADR 0012](adr/0012-participant-chat.md). N1.4 was added on 28 Oct, after the page was
 > first agreed: the team agrees it in the pull request that adds it. Each member signs the page
 > off in the [register at the end](#sign-off).
 
@@ -79,50 +79,59 @@ later dispute would have no record of what was agreed.
 **Value.** The requester and the courier can coordinate an errand without sharing contact details,
 and what they said is kept with the errand for an administrator reviewing a dispute.
 
-**Proposed design.** Not yet agreed by the owners.
+**Design.** Agreed by the three owners on 29 Oct (#344); recorded in
+[ADR 0012](adr/0012-participant-chat.md), with the API in
+[`contracts/chat-service.openapi.yaml`](../contracts/chat-service.openapi.yaml).
 
-- **Scope.** One channel per errand, between its requester and its assigned courier. Text only: no
+- **Scope.** One channel per errand, between its requester and its current courier. Text only: no
   voice, video, attachments or translation.
-- **Its own service and container**, `chat-service`, with its own database and role
-  (`foc_chat`), broker account and internal key, like the other four
+- **A fifth service**, `chat-service`, with its own database and role (`foc_chat`), broker account
+  and internal key, like the other four
   ([README, "One service, one of everything"](../README.md#one-service-one-of-everything)).
-- **Transport.** A WebSocket for live messages, and an HTTP endpoint to page through history, which
-  is also how a client catches up after reconnecting.
-- **Lifecycle.** A channel opens when its errand becomes `ACCEPTED` and closes at any terminal
-  state. Chat learns both from the Order Service's `order.status-changed` event, which it consumes
-  through its own queue. The event carries the errand's version, so a late or repeated event
-  cannot reopen a closed channel. No message and no chat action can change an errand's state.
-- **Authorization.** The caller is identified exactly as in the other services, by asking the User
-  Service. Whether the caller is a participant is the Order Service's rule (OS-FR2.1.2), not a
-  second copy of it: chat asks the Order Service who the requester and courier of the errand are.
-  Only they may send, and only while the channel is open; they and an administrator may read.
-- **Retention and limits.** Messages are kept with the errand for dispute review, for a period the
-  owners still have to set. Sending is rate-limited per participant.
-- **Names.** The panel shows both participants' display names. Today neither the requester nor the
-  courier can see who the other is, so this also gives the handover a name.
+- **It asks the Order Service on every request** for the errand's status, requester, courier and
+  when it ended, and keeps no copy. Whether the caller is a participant stays the Order Service's
+  rule (OS-FR2.1.2). If the Order Service does not answer, chat refuses the request. No message and
+  no chat action can change an errand's state.
+- **Lifecycle.** A channel exists once the errand has a courier, and is open while it has one and
+  has not reached a final status. Before acceptance every route answers `404`; sending to a closed
+  channel is `409 CHANNEL_CLOSED`.
+- **Who.** The requester and the current courier read, send and mark read. A replacement courier
+  sees the whole conversation, and the former courier loses access. Administrators read from the
+  console but cannot send. Anyone else is `403 NOT_PARTICIPANT`.
+- **Transport.** Polling first: the web app reads `GET /messages?after=` every 2 seconds while the
+  channel is open, which also catches it up after being offline. A notify-only WebSocket comes
+  later (#346); reads always go through `GET /messages`.
+- **Sending.** Each message carries a `clientId` the browser makes up, so a retry is stored once.
+- **Limits.** 280 characters a message, counted as Unicode code points (`[...body].length`), and
+  20 messages a minute per sender, counted from chat's own database (`429` with `Retry-After`).
+- **Retention.** Messages are kept 90 days after the errand ends, for dispute review, then deleted.
+- **Names.** The panel shows both participants' display names, from the User Service. Today neither
+  the requester nor the courier can see who the other is, so this also gives the handover a name.
 
-**Integration.** Chat consumes one event from the Order Service, `order.status-changed`, which the
-Order Service already publishes on every transition, and calls one internal endpoint on it to learn
-an errand's requester and courier. That endpoint does not exist yet and is part of the work. It
-publishes nothing the other services depend on, so the errand and credit workflows are unaffected if
-it is down. In the web app it is a panel on the active-errand view.
+**Integration.** Chat calls one new internal endpoint on the Order Service,
+`GET /internal/orders/{orderId}/chat`, and the User Service's existing one for who a user is. It
+consumes no event and publishes nothing the other services depend on, so the errand and credit
+workflows are unaffected if it is down. In the web app it is a panel on the active-errand view, and
+a read-only view in the console.
 
-**Open questions for the owners, to settle by Sun 25 Oct.** Whether chat is a fifth service or a
-module of the Order Service; WebSocket or polling for the first version; the retention period; the
-rate limit; whether `order.status-changed` gains its first durable consumer here (it then joins
-the events that must reach a consumer); and how an administrator reads a channel from the console.
+**Questions settled on 29 Oct.** A fifth service, not a module of the Order Service. Polling for
+the first version, then a notify-only WebSocket. 90 days' retention after the errand ends. 20
+messages a minute and 280 characters. `order.status-changed` gains no consumer: chat asks the Order
+Service instead. An administrator reads a channel from the console, and cannot send.
 
 **Owners and how the work is shared.**
 
-| Owner      | Slice                                                                 | Ticket | Size |
-| ---------- | --------------------------------------------------------------------- | ------ | ---- |
-| Patrick    | The chat panel, paging on reconnect, unread state, responsive layout  | #161   | L    |
-| Zhang Yuan | Channel lifecycle bound to the errand; messages kept with the errand  | #162   | M    |
-| Anselm     | Who may read and send, retention, rate limiting                       | #163   | M    |
+| Owner                       | Slice                                                                                                          | Ticket | Size |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------- | ------ | ---- |
+| Patrick, Zhang Yuan, Anselm | Setting up the fifth service                                                                                   | #345   | M    |
+| Zhang Yuan                  | The internal Order call; the chat schema, message numbering, duplicate sends, the four endpoints               | #162   | M    |
+| Anselm                      | The access check against the live Order lookup, admin read-only, the limits, display names, the 90-day cleanup | #163   | M    |
+| Patrick                     | `chat-api.ts`, `use-chat.ts` polling, `ChatPanel`, unread state, the browser journey                           | #161   | L    |
 
-**State.** Sprint 4. No code, contract or decision record yet. Text messages per errand, history on
-reconnect, participants only and closed at a terminal state are to be merged by Tue 3 Nov; chat is
-the one feature allowed past the 31 Oct scope freeze, because it is Patrick's only nice-to-have.
+**State.** Sprint 4. Design, decision record and contract agreed (#344). Text messages per errand,
+history on reconnect, participants only and closed at a final status are to be merged by Tue 3 Nov;
+chat is the one feature allowed past the 31 Oct scope freeze, because it is Patrick's only
+nice-to-have. The WebSocket (#346) follows.
 
 ## N1.4 Live errand updates
 
@@ -159,7 +168,7 @@ status with polling fallback" (WEB-04), which was built as polling only.
 nothing durable, so that event's delivery is unchanged and no workflow depends on the stream. The
 edge passes it through unbuffered and decides nothing about the caller
 ([ADR 0010](adr/0010-api-edge.md)). Off or down, every page behaves as it did, by polling. Chat
-keeps its own transport.
+keeps its own transport ([ADR 0012](adr/0012-participant-chat.md)).
 
 **Owner and how the work is shared.** Jonus, with one reviewer from each part's owners.
 
@@ -291,10 +300,9 @@ service.
 Every member owns part of at least one feature. Two points for the team to settle before D3:
 
 - **Chat is one feature in three slices.** Patrick's is the largest and is his only nice-to-have,
-  so chat cannot be dropped. Anselm and Zhang Yuan each also hold a part of N1.1. Whether each chat
-  slice is a feature's worth on its own is a judgement the three owners should make together by
-  Sun 25 Oct; if not, the split to revisit is between the lifecycle (#162) and authorization
-  (#163) slices.
+  so chat cannot be dropped. Anselm and Zhang Yuan each also hold a part of N1.1. The three owners
+  agreed the split on 29 Oct (#344): the messages and the Order call (#162), access, limits and
+  retention (#163), and the interface (#161), with the service set up together (#345).
 - **Isaac's two are already merged.** Nothing further is planned for him in Sprint 4 under a
   nice-to-have. His Sprint 4 work is on core requirements: the daily wallet-against-ledger check
   (#283), backup and restore (#284), and the D4 demo data and runbook (#167).
@@ -333,7 +341,7 @@ Two slides, drawn from this page. D4 presents the same allocation.
 
 **Slide 2: who and when.** The table at the top of this page, with one line each on how the
 feature joins the application: the console calls each service's own admin endpoints; chat
-consumes one Order event and asks Order who the participants are; live updates nudge a page to
+asks Order who the participants are on every request; live updates nudge a page to
 read again through the ordinary API; the evidence suite runs the real Order and Credit code;
 reconciliation reads Credit and resends; the pipeline builds each service from its own Dockerfile.
 
