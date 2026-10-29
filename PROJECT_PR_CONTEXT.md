@@ -381,3 +381,16 @@ admin access. #345 adds fifth-service deployment/recovery wiring; #161/#162/#163
 #346 is a later notify-only WebSocket enhancement. Do not merge the obsolete WebSocket-first/event-
 projection handoff as if it were the owners' agreed design. #347 still has review points and is not
 an implemented chat service. #167 remains gated on the actual live chat feature and two rehearsals.
+
+### #167 live-update coverage — 29 October follow-up
+
+N1.4 is implemented in #334/#335/#338, with load evidence in #343. The D4 runbook now
+integrates it into the existing composer/acceptance slots: visible requester/courier windows,
+exact live/polling labels, no-refresh observations, evidence-tab commands and disclosed fallback.
+Source checks: `web-app/src/components/LiveLabel.tsx`, `web-app/src/lib/live/live.tsx`,
+`web-app/e2e/live-journey.e2e.ts`, and `docs/reports/load-2026-10-29.md`. The report's 492 ms p95
+is response-to-stream latency, not browser render latency. Hidden tabs close their streams;
+visible windows are necessary for the demonstration. No new human rehearsal is claimed.
+Chat remains gated; its proposed polling-first contract retains messages for **90 days after
+an errand ends**, as Isaac directed. #346 WebSocket support is a later enhancement, not an
+invented prerequisite for the first live chat segment. #167 and #238 remain open.
