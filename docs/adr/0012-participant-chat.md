@@ -32,7 +32,7 @@ channels, messages and each participant's read position. It holds nothing about 
 
 Every request asks the Order Service, through `GET /internal/orders/{orderId}/chat`
 (`X-Service-Key`), for `{status, version, requesterId, courierId, endedAt}`, and decides from that
-answer alone. So access follows a withdrawal, a new courier or a final status from the next request,
+answer alone. This route is specified but not implemented; #162 must add it and its provider test. So access follows a withdrawal, a new courier or a final status from the next request,
 with no event to consume and no copy to fall behind. If the Order Service does not answer, chat
 answers `503 UNAVAILABLE`: it fails closed. Chat publishes nothing, so the errand and credit
 workflows run unchanged when it is down, and no chat action can change an errand.
@@ -48,8 +48,14 @@ workflows run unchanged when it is down, and no chat action can change an errand
 
 - A channel is **open** while the errand has a courier and has not reached a final status
   (`courierId` set, `endedAt` null). Sending to a closed channel is `409 CHANNEL_CLOSED`.
-- A channel exists from the first request made while the errand has a courier. Before that, while
-  the errand has never been accepted, every route answers `404`, as it does for an unknown errand.
+- A channel exists from the first authorized request made while the errand has a courier.
+  Acceptance alone does not create one: if the courier withdraws before anyone opens chat, no
+  channel exists and the routes answer `404` until a later assigned courier allows it to open.
+  Unknown errands and expired retention also answer `404`.
+- The `404`/`403` distinction deliberately exposes channel availability to an authenticated caller,
+  in addition to the errand status already visible in the feed. It must not expose message contents
+  or participant display names to a non-participant. This metadata tradeoff is part of the contract
+  the owners review, not a claim that the two refusals are indistinguishable.
 - A **replacement courier** sees the whole conversation, the former courier's messages included,
   and the former courier loses access at once: they are no longer `courierId`.
 - **Administrators** read any channel, to review a dispute, and cannot send or mark read. A user who

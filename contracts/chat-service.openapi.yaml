@@ -14,8 +14,10 @@ info:
       courier and has not reached a final status.
     - **Mark read:** the requester and the current courier.
 
-    Every channel route answers `404` for an unknown errand, one that has never been accepted, and one that
-    ended more than 90 days ago.
+    An authorized request opens a missing channel while the errand has a courier. Otherwise,
+    every channel route answers `404` for an unknown errand, an errand with no channel opened while
+    it had a courier, or an errand whose 90-day retention period has ended. Acceptance alone does
+    not create a channel: a courier can withdraw before anyone opens it.
 servers:
   - url: http://localhost:3005
 security:
@@ -50,6 +52,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Channel' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/NotParticipant' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -80,6 +83,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MessagePage' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/NotParticipant' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -110,6 +114,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Message' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/NotParticipant' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -157,6 +162,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ReadPosition' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
         '403': { $ref: '#/components/responses/NotParticipant' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -283,6 +289,11 @@ components:
             message: { type: string }
             correlationId: { type: string }
   responses:
+    InvalidOrderId:
+      description: '`INVALID_ORDER_ID`: the path orderId is not a UUID.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     Unauthenticated:
       description: Missing, invalid, expired, logged-out, or inactive session.
       content:
@@ -297,7 +308,8 @@ components:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     NotFound:
       description: >-
-        `NOT_FOUND`: the errand is unknown, has never been accepted, or ended more than 90 days ago.
+        `NOT_FOUND`: the errand is unknown, no channel was opened while it had a courier and it has no
+        current courier to open one, or its 90-day retention period has ended.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
