@@ -86,6 +86,47 @@ describe('the load test (TST-03)', () => {
  * load/report.py, on k6 summaries made up here, in a Git repository of its own: what it writes,
  * whether it says the run missed a target (exit 3), and the commit it says it measured.
  */
+describe('live updates under load (N1.4, #332)', () => {
+  it('holds 200 streams for 40 students, five each, and times 60 accepts while the scenarios run', () => {
+    const script = read('scripts-load.sh');
+    expect(script).toMatch(/^ {2}LIVE_STUDENTS=40 STREAMS_EACH=5 LIVE_ERRANDS=60$/m);
+    // Straight to the Order Service, as k6 reaches the services: the edge's cap of ten streams per
+    // address would refuse the rest.
+    expect(script).toContain('-e ORDER_URL=http://order-service:3003');
+    expect(script).toMatch(/^NODE='node:22\.\d+\.\d+-alpine[\d.]*@sha256:[0-9a-f]{64}'$/m);
+    expect(script).toContain('node /load/live.mjs');
+  });
+
+  it('holds an accept to reaching its requester within a second, at the 95th percentile', () => {
+    expect(read('load/live.mjs')).toContain('export const TARGET_P95_MS = 1000;');
+  });
+
+  it('takes the nearest-rank percentile of what it timed', async () => {
+    const { percentile } = await import(join(ROOT, 'load/live.mjs'));
+    const hundred = Array.from({ length: 100 }, (_, i) => i + 1);
+    expect(percentile(hundred, 95)).toBe(95);
+    expect(percentile(hundred, 50)).toBe(50);
+    expect(percentile([7], 95)).toBe(7);
+    expect(percentile([], 95)).toBeNull();
+  });
+
+  it('reads the stream wherever a chunk ends, and passes each event on', async () => {
+    const { eventReader } = await import(join(ROOT, 'load/live.mjs'));
+    const events: { event: string; data: string }[] = [];
+    const read = eventReader((event: { event: string; data: string }) => events.push(event));
+    for (const chunk of [
+      'event: re',
+      'ady\ndata: {}\n\n: keep-alive\n\nevent: errand\ndata: {"orderId":"a"',
+      ',"version":3}\n\n',
+    ])
+      read(chunk);
+    expect(events).toEqual([
+      { event: 'ready', data: '{}' },
+      { event: 'errand', data: '{"orderId":"a","version":3}' },
+    ]);
+  });
+});
+
 describe('the load report', () => {
   const dirs: string[] = [];
   afterEach(() => {
@@ -114,8 +155,22 @@ describe('the load report', () => {
     OTHER_CONTAINERS: '0',
   };
 
+  /** What load/live.mjs found, when every check is met. */
+  const LIVE = {
+    students: 40,
+    streamsEach: 5,
+    streamsOpened: 200,
+    streamsReady: 200,
+    sixthStream: 429,
+    errands: 60,
+    timed: 60,
+    lost: 0,
+    failures: 0,
+    latencyMs: { p50: 120, p95: 400, max: 700 },
+  };
+
   /** A repository with one commit, and the k6 summaries, each endpoint at `p95` of its target. */
-  function measured(missed: string[] = []) {
+  function measured(missed: string[] = [], live: Record<string, unknown> = {}) {
     const repo = temp();
     const git = (...args: string[]) => execFileSync('git', args, { cwd: repo, stdio: 'pipe' });
     git('init', '-q');
@@ -137,6 +192,7 @@ describe('the load report', () => {
       const summary = { name, vus: 100, seconds: 60, thinkS: 1, endpoints };
       writeFileSync(join(out, `${name}.json`), JSON.stringify(summary));
     }
+    writeFileSync(join(out, 'live.json'), JSON.stringify({ ...LIVE, ...live }));
     const head = git('rev-parse', '--short', 'HEAD').toString().trim();
     return { repo, out, head };
   }
@@ -173,6 +229,33 @@ describe('the load report', () => {
     const { status, text } = write(measured(), { USER_READY: '75.2' });
     expect(status).toBe(3);
     expect(text).toContain('75.2 s');
+  });
+
+  it('reports live updates beside the response times, which were measured with the streams open', () => {
+    const { status, text } = write(measured());
+    expect(status).toBe(0);
+    expect(text).toContain('## Live updates (N1.4)');
+    expect(text).toMatch(/An accept reaches its requester's stream, p95 .* 400 ms .* \| Met \|/);
+    expect(text).toContain('200 of 200');
+  });
+
+  it('exits 3 when an accept reaches its requester in a second or more, at p95', () => {
+    const { status, text } = write(measured([], { latencyMs: { p50: 600, p95: 1000, max: 1400 } }));
+    expect(status).toBe(3);
+    expect(text).toMatch(/An accept reaches its requester's stream, p95 .* \*\*Missed\*\* \|/);
+  });
+
+  it('exits 3 when a nudge was lost, a stream never opened, or a sixth stream was let in', () => {
+    for (const live of [
+      { lost: 1 },
+      { streamsReady: 199 },
+      { sixthStream: 200 },
+      { failures: 2 },
+    ]) {
+      const { status, text } = write(measured([], live));
+      expect(status, JSON.stringify(live)).toBe(3);
+      expect(text, JSON.stringify(live)).toContain('**Missed**');
+    }
   });
 
   it('names the commit measured, and marks it dirty when the measured files had changes', () => {

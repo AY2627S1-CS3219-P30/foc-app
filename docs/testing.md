@@ -17,7 +17,7 @@ TST-01 #145). Each service fills the suites with its own cases.
 | Stack checks            | `scripts-*.sh` (see below)                    | Docker (Compose), `.env` | each script, with `--up` for a stack of its own          |
 | End-to-end (browser)    | `web-app/e2e/*.e2e.ts` (Playwright)           | the Compose stack        | `cd web-app && bun run e2e` (CI's browser job; the journeys still to add are in #160) |
 | Load and report         | `system-tests/scripts/conservation-report.ts` | Docker (Compose)         | `npm run report:conservation` (not run in CI)           |
-| Load and latency        | `load/*.js` (k6), run by `scripts-load.sh`    | Docker (Compose)         | `./scripts-load.sh` (not run in CI; `--quick` to check it) |
+| Load and latency        | `load/*.js` (k6), `load/live.mjs` (N1.4)      | Docker (Compose)         | `./scripts-load.sh` (not run in CI; `--quick` to check it) |
 | Coverage                | every package's suites, with `--coverage`     | nothing more             | `npm test -w @foc/<package> -- --coverage` (reported in CI, not gated) |
 
 Suites that need a real server skip themselves when their variable is unset, so `npm test` passes on
@@ -101,12 +101,25 @@ created `.env` first.
 | `./scripts-restart-check.sh --up`          | Stop and start, remove and recreate, Postgres stopped under running services                                                                        |
 | `./scripts-demo-journey.sh --up --redrive` | Registration to wallet, an errand end to end, a cancellation, six refusals, a dead letter redriven                                                  |
 
+## Requirements traceability
+
+[`traceability.md`](traceability.md) maps every Must requirement of the D1 backlog to the tests that
+prove it, with the edge cases and the D1 feedback (PL-NFR4.1.1, REL-02 #168). Its source is
+[`traceability.yaml`](traceability.yaml): a test is named there as `path::exact title`, the title of
+an `it(` or `test(`, or the start of a bash script's `pass "` message.
+`test-harness/test/traceability.test.ts` fails CI if a named test no longer exists, or if a
+requirement about roles, errand transitions, reservations, returns, transfers or repeated requests
+has none. Renaming or removing a test it names means updating the YAML; then regenerate the page
+with `npm run traceability -w test-harness`.
+
 ## Adding tests
 
 - A new claim about the running stack (who a container runs as, what the broker refuses, what
   survives a restart): add a check to the script above that covers that area, using its `pass` and
   `fail` helpers, and end any probe in `|| true` so a failed command is recorded, not fatal.
 
+- A test that proves a requirement: add it under that requirement in
+  [`traceability.yaml`](traceability.yaml), then `npm run traceability -w test-harness`.
 - A new real-database case: name it `*.postgres.test.ts` and use `createEphemeralPostgres`.
 - A new endpoint: document it in the contract and add a `contract.assert(...)` call for each status
   it returns in that service's `provider.contract.test.ts`.

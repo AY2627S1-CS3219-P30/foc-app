@@ -128,7 +128,7 @@ describe('password re-entry (ADM-03)', () => {
     expect(code(await as(appointed).suspend(root.id).expect(403))).toBe(
       'ADMIN_ACTION_NOT_PERMITTED',
     );
-    expect(code(await as(appointed).role(appointed.id, 'STUDENT').expect(409))).toBe(
+    expect(code(await as(appointed).role(appointed.id, 'STUDENT').expect(403))).toBe(
       'SELF_DEMOTION_FORBIDDEN',
     );
     // a request that would change nothing is answered without one, too
@@ -236,15 +236,15 @@ describe('two people for every role change (ADM-03)', () => {
   it('will not let the requester approve their own request, nor the target decide it', async () => {
     const root3 = await seededAdmin(t, 'root3@u.nus.edu');
     const own = await as(root).role(student.id, 'ADMIN').expect(202);
-    expect(code(await as(root).approve(own.body.request.id).expect(409))).toBe(
+    expect(code(await as(root).approve(own.body.request.id).expect(403))).toBe(
       'SELF_APPROVAL_FORBIDDEN',
     );
 
     const demote = await as(root).role(root2.id, 'STUDENT').expect(202); // root3 may approve
-    expect(code(await as(root2).approve(demote.body.request.id).expect(409))).toBe(
+    expect(code(await as(root2).approve(demote.body.request.id).expect(403))).toBe(
       'CONFLICT_OF_INTEREST',
     );
-    expect(code(await as(root2).reject(demote.body.request.id).expect(409))).toBe(
+    expect(code(await as(root2).reject(demote.body.request.id).expect(403))).toBe(
       'CONFLICT_OF_INTEREST',
     );
     await as(root3).approve(demote.body.request.id).expect(200);

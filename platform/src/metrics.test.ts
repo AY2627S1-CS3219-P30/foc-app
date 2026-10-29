@@ -30,7 +30,7 @@ function serve(
   path: string,
   statusCode: number,
   route?: string,
-  { abandoned = false } = {},
+  { abandoned = false, contentType }: { abandoned?: boolean; contentType?: string } = {},
 ) {
   const listeners: Record<string, () => void> = {};
   const req = {
@@ -45,6 +45,7 @@ function serve(
     statusCode,
     writableFinished: !abandoned,
     setHeader: () => undefined,
+    getHeader: (name: string) => (name.toLowerCase() === 'content-type' ? contentType : undefined),
     on: (event: string, listener: () => void) => void (listeners[event] = listener),
   } as unknown as Response;
   requestLogger(pino({ enabled: false }), metrics)(req, res, () => undefined);
@@ -100,6 +101,16 @@ describe('HTTP latency (PLT-04)', () => {
     expect(await count('200')).toBeUndefined();
   });
 
+  it('does not time an event stream as a request: it stays open for minutes, and the client ends it', async () => {
+    const metrics = new Metrics('test-service');
+    serve(metrics, '/live', 200, '/live', {
+      abandoned: true,
+      contentType: 'text/event-stream; charset=utf-8',
+    });
+
+    expect((await metrics.httpDuration.get()).values).toEqual([]);
+  });
+
   it('does not time the polled endpoints, /health and /metrics', async () => {
     const metrics = new Metrics('test-service');
     serve(metrics, '/health', 200, '/health');
@@ -115,6 +126,23 @@ describe('HTTP latency (PLT-04)', () => {
     expect(await metrics.render()).toMatch(
       /http_request_duration_seconds_count\{[^}]*service="order-service"[^}]*\} 1/,
     );
+  });
+});
+
+describe('counters a service adds', () => {
+  it('counts what the service increments, by label', async () => {
+    const metrics = new Metrics('test-service');
+    const sent = metrics.addCounter({
+      name: 'test_nudges_total',
+      help: 'Nudges sent.',
+      labelNames: ['kind'],
+    });
+    sent.inc({ kind: 'errand' });
+    sent.inc({ kind: 'errand' });
+    sent.inc({ kind: 'board' });
+
+    expect(await metrics.render()).toMatch(/test_nudges_total\{kind="errand"[^}]*\} 2/);
+    expect(await metrics.render()).toMatch(/test_nudges_total\{kind="board"[^}]*\} 1/);
   });
 });
 
