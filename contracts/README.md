@@ -9,14 +9,14 @@ owner, one consumer owner, and Dev 3 or Dev 4 review; within v1, changes are add
 
 ## Files
 
-| File                            | Status                   | Owner              |
-| ------------------------------- | ------------------------ | ------------------ |
-| `user-service.openapi.yaml`     | Implemented              | Anselm             |
-| `supplier-service.openapi.yaml` | Implemented              | Patrick            |
-| `credit-service.openapi.yaml`   | Implemented              | Isaac              |
-| `order-service.openapi.yaml`    | Implemented              | Zhang Yuan         |
-| `chat-service.openapi.yaml`     | Agreed (#344), not built | Zhang Yuan, Anselm |
-| `events.schema.json`            | Generated from catalogue | —                  |
+| File                            | Status                                                      | Owner              |
+| ------------------------------- | ----------------------------------------------------------- | ------------------ |
+| `user-service.openapi.yaml`     | Implemented                                                 | Anselm             |
+| `supplier-service.openapi.yaml` | Implemented                                                 | Patrick            |
+| `credit-service.openapi.yaml`   | Implemented                                                 | Isaac              |
+| `order-service.openapi.yaml`    | Implemented                                                 | Zhang Yuan         |
+| `chat-service.openapi.yaml`     | Implemented except #163's admin reads, limits and retention | Zhang Yuan, Anselm |
+| `events.schema.json`            | Generated from catalogue                                    | —                  |
 
 For the implemented operations, the service answers as its file says: each has a provider test
 (`<service>/test/provider.contract.test.ts`), and CI fails a change that breaks a contract against

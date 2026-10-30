@@ -16,6 +16,7 @@ export default defineConfig({
       // endpoint — no test opens a connection to them.
       DATABASE_URL: 'postgres://chat_service:test@localhost:5432/foc_chat_test',
       USER_SERVICE_URL: 'http://user-service.test',
+      ORDER_SERVICE_URL: 'http://order-service.test',
       INTERNAL_SERVICE_KEY: 'test-internal-key-0123456789',
     },
   },
