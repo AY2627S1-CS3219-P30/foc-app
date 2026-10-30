@@ -1,7 +1,7 @@
 # Project and PR context for Isaac
 
 Living context for `isaacchua0309` in `AY2627S1-CS3219-P30/foc-app`.
-Refreshed 2026-10-29 against `origin/main` `ff65acc` and live GitHub. Recheck GitHub before starting
+Refreshed 2026-10-29 against `origin/main` `47e3c47` and live GitHub. Recheck GitHub before starting
 another issue. This replaces the obsolete October 20 inventory; historical open/blocked claims
 from that inventory must not be used as current state.
 
@@ -34,12 +34,12 @@ required Compose CI job passed the named seed/check/rerun in run `40637011479` o
 `5d2d545f1a8c77ad89162526fe27e5ae19fefba1`. #160 is now closed via #325. Remaining gates are
 missing live chat implementation and two actual non-owner rehearsals. #238: Patrick's approval is recorded in #337.
 
-| Issue                                                             | Feature / classification                                        | Status                                                               | Dependencies                                                            | Blockers                                                                                     | Relevant code                                                                                                                                      |
-| ----------------------------------------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [#283](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/283) | CRD-10 financial audit; foundation                              | CLOSED; PR #313 merged, exact-head CI green                          | #166 related, not a prerequisite; contributes a runbook to #168         | Merged under owner-authorized internal review                                                | `credit-service/src/credits/ledger-audit.*`, `invariants.ts`, `web-app/src/app/(app)/admin/operations/LedgerAudit.tsx`, `observability/alerts.yml` |
-| [#284](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/284) | PLT-09 stack backup/restore/rollback; integration               | CLOSED; PR #314 merged; full recovery/rollback CI PASS               | #164 publisher resolved by #315; #283 merged                            | None for implementation; daily/off-host backup operation remains a deployment responsibility | `scripts-{backup,restore,rollback,recovery-drill}.sh`, `scripts-recovery.py`, recovery runbook/report, CI                                          |
-| [#167](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/167) | REL-01 deterministic seed, smoke and D4 narrative; finalization | Preparation merged in #322; required CI green; acceptance pending    | TST-02 #160 satisfied (closed via #325)                                 | Live chat segment and two successful non-owner rehearsals remain                             | `scripts-seed-demo.{sh,py}`, `scripts-demo-tabs.py`, `docs/demo/d4-runbook.md`, `test-harness/test/demo-seed.test.ts`                              |
-| [#238](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/238) | DOC-04 ADR acceptance; team gate                                | Patrick/Jonus confirmations recorded in #337; partial ADR acceptance | Related #183/#226 satisfied; amendments in #250 (merged), #254 (merged) | Zhang Yuan confirmation of 0009 and #250's 0007 amendment remains missing                    | `docs/adr/README.md`, ADRs 0002–0009                                                                                                               |
+| Issue                                                             | Feature / classification                                        | Status                                                             | Dependencies                                                            | Blockers                                                                                     | Relevant code                                                                                                                                      |
+| ----------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [#283](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/283) | CRD-10 financial audit; foundation                              | CLOSED; PR #313 merged, exact-head CI green                        | #166 related, not a prerequisite; contributes a runbook to #168         | Merged under owner-authorized internal review                                                | `credit-service/src/credits/ledger-audit.*`, `invariants.ts`, `web-app/src/app/(app)/admin/operations/LedgerAudit.tsx`, `observability/alerts.yml` |
+| [#284](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/284) | PLT-09 stack backup/restore/rollback; integration               | CLOSED; PR #314 merged; full recovery/rollback CI PASS             | #164 publisher resolved by #315; #283 merged                            | None for implementation; daily/off-host backup operation remains a deployment responsibility | `scripts-{backup,restore,rollback,recovery-drill}.sh`, `scripts-recovery.py`, recovery runbook/report, CI                                          |
+| [#167](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/167) | REL-01 deterministic seed, smoke and D4 narrative; finalization | Preparation merged in #322; required CI green; acceptance pending  | TST-02 #160 satisfied (closed via #325)                                 | Live chat segment and two successful non-owner rehearsals remain                             | `scripts-seed-demo.{sh,py}`, `scripts-demo-tabs.py`, `docs/demo/d4-runbook.md`, `test-harness/test/demo-seed.test.ts`                              |
+| [#238](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/238) | DOC-04 ADR acceptance; team gate                                | Patrick/Jonus confirmations merged in #337; partial ADR acceptance | Related #183/#226 satisfied; amendments in #250 (merged), #254 (merged) | Zhang Yuan confirmation of 0009 and #250's 0007 amendment remains missing                    | `docs/adr/README.md`, ADRs 0002–0009                                                                                                               |
 
 #167's original owner line still says Patrick; its D4 amendment and GitHub assignment supersede
 that line. #284's body still says no published images exist; #164 is now closed, so verify actual
@@ -239,8 +239,8 @@ solely for prose, but required repository checks/review still apply.
 2. #284 is complete via merged #314: backup/restore/rollback, CI and runbooks/report are proven.
 3. #167 preparation is merged via #322. Complete the remaining release acceptance only after
    live feature segments and both actual non-owner rehearsals are evidenced; #160 is satisfied.
-4. Merge the supported approval records in #337, then finish shared #238 only after Zhang Yuan
-   confirms ADR 0009 and the #250 amendment to 0007 and their status lines are updated.
+4. #337 merged the supported approval records. Finish shared #238 only after Zhang Yuan confirms
+   ADR 0009 and the #250 amendment to 0007 and their status lines are updated.
 
 ## 6. Shared technical decisions and constraints
 
@@ -381,6 +381,22 @@ admin access. #345 adds fifth-service deployment/recovery wiring; #161/#162/#163
 #346 is a later notify-only WebSocket enhancement. Do not merge the obsolete WebSocket-first/event-
 projection handoff as if it were the owners' agreed design. #347 still has review points and is not
 an implemented chat service. #167 remains gated on the actual live chat feature and two rehearsals.
+
+### Approval and chat review progress — 29 October
+
+PR #337 merged at `47e3c473c29fc710fa6d6257c7d26b33ac7cca8b` after required CI `40823571732`
+passed on `e1e41b4c24d06b0123fc54c547ddacb8dd54e60a`. It records Patrick's own approval and
+Jonus's explicit expanded confirmation. Only ADRs 0002–0006/0008 are Accepted; 0007/0009 remain
+Proposed pending Zhang Yuan's confirmation. #238 remains OPEN deliberately. Main pipeline
+`40823645361` passed, including the release browser journeys and image publication.
+
+PR #347's review follow-up marks the Order chat lookup planned, declares invalid-ID refusals on
+all four chat operations, reconciles lazy-creation 404 semantics and records the metadata tradeoff.
+Twenty-one contract/compatibility tests and generated contract types passed locally. Anselm and
+Zhang Yuan have now approved the design. The final branch includes current `main`, the reviewed
+port corrections (public `3006`, internal `4005`) and regenerated types; required exact-head CI
+remains before merge. No chat production code was added. PR #328 is CLOSED without merge because
+#344/#347 superseded the older draft.
 
 ### #167 live-update coverage — 29 October follow-up
 
