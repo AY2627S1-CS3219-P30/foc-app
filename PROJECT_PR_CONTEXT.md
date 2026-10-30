@@ -402,4 +402,7 @@ The D4 runbook now opens the isolated demo project's Mailpit UI from `${MAILPIT_
 presenter to register a fictional extra address and click its email link, and names **Send a new
 link** as the delayed-email recovery path. The seed itself reads the newest Mailpit message and
 activates through the public endpoint; it does not read or edit User database tokens. This is
-preparation only and does not count as either required non-owner rehearsal.
+preparation only and does not count as either required non-owner rehearsal. On 30 October,
+`./scripts-seed-demo.sh --fresh` rebuilt the isolated stack and passed with five named active
+personas, three OPEN errands and a clean financial audit. A separate `--check`, the tab-list
+generator and Mailpit's local info endpoint also passed.
