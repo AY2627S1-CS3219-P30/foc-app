@@ -394,3 +394,12 @@ visible windows are necessary for the demonstration. No new human rehearsal is c
 Chat remains gated; its proposed polling-first contract retains messages for **90 days after
 an errand ends**, as Isaac directed. #346 WebSocket support is a later enhancement, not an
 invented prerequisite for the first live chat segment. #167 and #238 remain open.
+
+### #167 activation-email walkthrough — 30 October follow-up
+
+The real activation-email implementation (#310) replaced the old development-mailbox endpoint.
+The D4 runbook now opens the isolated demo project's Mailpit UI from `${MAILPIT_PORT}`, tells the
+presenter to register a fictional extra address and click its email link, and names **Send a new
+link** as the delayed-email recovery path. The seed itself reads the newest Mailpit message and
+activates through the public endpoint; it does not read or edit User database tokens. This is
+preparation only and does not count as either required non-owner rehearsal.
