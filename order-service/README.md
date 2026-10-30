@@ -101,6 +101,7 @@ Each case has a test. The `*.postgres.test.ts` ones run against a real PostgreSQ
 | User Service | HTTP, `GET /internal/admins` | Which administrators may act now, so the scheduler can refer each dispute to one. Called once per run, only while a dispute exists, with `INTERNAL_SERVICE_KEY`; if the User Service does not answer, referrals wait for the next run. |
 | User Service | HTTP, `GET /internal/users/:id` | Whether a user is suspended now: on a suspension message, on a reservation reply while the order waits for it, and once for each picked-up errand whose requester was suspended within its delivery period, when that period ends. Asked with `INTERNAL_SERVICE_KEY`. If it does not answer, the message is retried or the scheduler tries again on its next run; the user is never assumed active. |
 | User Service | Messages, received | Suspensions, which drive the "requester suspended" and "courier suspended" transitions (see *Participant suspension*). |
+| Chat Service | HTTP, it calls `GET /internal/orders/:id/chat` | Who an errand's requester and current courier are, its status, and when it ended, so chat can decide who may read and send (*The chat lookup*). Read-only, and only with a key in `INTERNAL_SERVICE_KEYS`. |
 | Supplier Service | HTTP, `GET /suppliers/:id` | At creation: refuse an inactive supplier and keep a copy of the supplier on the order, so it survives later changes. The call carries the requester's own token, so the Supplier Service needs no service-to-service route. |
 | Web app | HTTP | Every student and administrator command and query. |
 | Any listener | Messages, sent | Each status change, for live updates and chat. It carries no private details. |
@@ -570,6 +571,26 @@ The dashboard's live-update panels read `foc_live_streams`, `foc_live_nudges_tot
 `foc_live_refused_total{reason}`. A stream is not timed as a request in
 `http_request_duration_seconds`.
 
+### The chat lookup (N1.2)
+
+`GET /internal/orders/:id/chat` is what the Chat Service asks on every request, and it keeps no
+copy ([ADR 0012](../docs/adr/0012-participant-chat.md), #162). So a withdrawal, a new courier or a
+final status changes who may chat from the next request, with no event to follow.
+
+```json
+{ "status": "ACCEPTED", "version": 3, "requesterId": "…", "courierId": "…", "endedAt": null }
+```
+
+- `courierId` is the current courier: `null` before acceptance and after a withdrawal, pickup
+  timeout or courier suspension.
+- `endedAt` is when the errand reached a final status (`COMPLETED`, `CANCELLED`, `EXPIRED`,
+  `REJECTED`), from the status history, which is never rewritten. A `*_PENDING_CREDIT` errand has
+  not ended.
+- It is served on the internal port only (4003 in Compose), to a caller presenting a key in
+  `INTERNAL_SERVICE_KEYS` (`401 SERVICE_UNAUTHENTICATED` otherwise). It reads and changes nothing.
+
+Tested in `test/chat-lookup.test.ts` and the provider contract test.
+
 ---
 
 ## Running this service
@@ -623,6 +644,7 @@ errand from creation to payment, one cancelled, and the refused cases between.
 | `RECONCILE_RETRY_MS` | `300000` | Least time between repair attempts for one order |
 | `LIVE_UPDATES_ENABLED` | `true` | Optional, `true` by default. `false` refuses every live-update stream; pages poll (N1.4) |
 | `LIVE_STREAM_MAX_MS` | `300000` | Optional, 5 minutes by default. A live-update stream's lifetime, 10 s to 15 min |
+| `INTERNAL_SERVICE_KEYS` | `<CHAT_INTERNAL_KEY>` | Comma-separated keys accepted on `/internal/**`, each at least 16 characters. Compose sets it from `ORDER_INBOUND_SERVICE_KEYS` |
 
 A missing required variable stops the service at boot and names the variable.
 Nothing falls back to an insecure default.
@@ -636,6 +658,7 @@ SERVICE_NAME=order-service PORT=3003 \
   PICKUP_TIMEOUT_MS=1800000 DELIVERY_PERIOD_MS=7200000 AUTO_CONFIRM_MS=86400000 \
   LIFECYCLE_SWEEP_INTERVAL_MS=10000 \
   CREDIT_SERVICE_URL=http://localhost:3004 RECONCILE_INTERVAL_MS=60000 RECONCILE_RETRY_MS=300000 \
+  INTERNAL_SERVICE_KEYS=$ORDER_INBOUND_SERVICE_KEYS \
   npm run dev:order
 curl -i http://localhost:3003/health
 ```
