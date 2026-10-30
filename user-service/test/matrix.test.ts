@@ -127,12 +127,12 @@ const PUBLIC = new Set([
   'GET /metrics',
   'POST /auth/register',
   'POST /auth/activate',
+  'POST /auth/activation/resend',
   'POST /auth/login',
   'POST /auth/password',
   'POST /auth/refresh',
   'POST /auth/logout',
   'GET /.well-known/jwks.json',
-  'GET /dev/mailbox',
 ]);
 
 let t: TestApp;

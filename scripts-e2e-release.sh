@@ -5,9 +5,9 @@ cd "$(dirname "$0")"
 action="${1:---twice}"
 [[ $# -le 1 && "$action" =~ ^--(once|twice|stop)$ ]] || { echo 'Usage: ./scripts-e2e-release.sh [--once|--twice|--stop]' >&2; exit 2; }
 base="${E2E_PORT_BASE:-14500}"
-[[ "$base" =~ ^[0-9]+$ ]] || { echo 'E2E_PORT_BASE must be 1024..65526.' >&2; exit 2; }
+[[ "$base" =~ ^[0-9]+$ ]] || { echo 'E2E_PORT_BASE must be 1024..65525.' >&2; exit 2; }
 base=$((10#$base))
-[[ "$base" -ge 1024 && "$base" -le 65526 ]] || { echo 'E2E_PORT_BASE must be 1024..65526.' >&2; exit 2; }
+[[ "$base" -ge 1024 && "$base" -le 65525 ]] || { echo 'E2E_PORT_BASE must be 1024..65525.' >&2; exit 2; }
 if [[ "$action" != --stop ]]; then command -v bun >/dev/null || { echo 'Install Bun 1.4.2, or run with npm exec --package=bun@1.4.2 -- ./scripts-e2e-release.sh.' >&2; exit 2; }; fi
 image_tag="${E2E_IMAGE_TAG:-}"
 [[ -z "$image_tag" || "$image_tag" =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}$ ]] || { echo 'Invalid E2E_IMAGE_TAG.' >&2; exit 2; }
@@ -22,8 +22,9 @@ fi
 export WEB_APP_PORT="$base" USER_SERVICE_PORT="$((base+1))" SUPPLIER_SERVICE_PORT="$((base+2))"
 export ORDER_SERVICE_PORT="$((base+3))" CREDIT_SERVICE_PORT="$((base+4))" GRAFANA_PORT="$((base+5))"
 export POSTGRES_PORT="$((base+6))" RABBITMQ_PORT="$((base+7))" RABBITMQ_MANAGEMENT_PORT="$((base+8))" PROMETHEUS_PORT="$((base+9))"
+export MAILPIT_PORT="$((base+10))"
 export CORS_ORIGINS="http://localhost:$WEB_APP_PORT" NODE_ENV=development
-export E2E_BASE_URL="$CORS_ORIGINS" E2E_RELEASE=1
+export E2E_BASE_URL="$CORS_ORIGINS" E2E_MAILPIT_URL="http://localhost:$MAILPIT_PORT" E2E_RELEASE=1
 export PLAYWRIGHT_HTML_OPEN=never
 export ORDER_LIFECYCLE_SWEEP_INTERVAL_MS=100
 export E2E_CLOCK_HOST_FILE="$PWD/.release-results/clock/offset-ms"

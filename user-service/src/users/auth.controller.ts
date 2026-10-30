@@ -19,6 +19,7 @@ import {
   loginSchema,
   parseOrThrow,
   registerSchema,
+  resendActivationSchema,
   stepUpSchema,
 } from './validation.js';
 
@@ -52,6 +53,27 @@ export class AuthController {
   activate(@Body() body: unknown, @Req() req: Request) {
     const { token } = parseOrThrow(activateSchema, body);
     return this.users.activate(token, correlationOf(req));
+  }
+
+  /**
+   * The same 202 whatever the address: whether it has a pending account is not the caller's to
+   * learn. Both limits count every request, known address or not, so a 429 reveals nothing; the
+   * per-address one stops anyone filling a student's inbox. The work runs after the answer.
+   */
+  @Post('activation/resend')
+  @HttpCode(202)
+  resendActivation(
+    @Body() body: unknown,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): { message: string } {
+    const { email } = parseOrThrow(resendActivationSchema, body);
+    this.limit(res, this.limiters.resendPerIp, req.ip ?? 'unknown');
+    this.limit(res, this.limiters.resendPerEmail, normalizeEmail(email));
+    void this.users.resendActivation(email);
+    return {
+      message: 'If that address has an account waiting for activation, a new link is on its way.',
+    };
   }
 
   @Post('login')

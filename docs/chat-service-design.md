@@ -65,6 +65,6 @@ Solid arrows show runtime calls or ownership. Dashed arrows show contract depend
 
 - **Fifth-service wiring:** Add the chat service and database to Compose variants, environment setup, CI change detection, edge readiness, Prometheus, backup, and recovery.
 - **Order internal authentication:** The Order Service needs an inbound `/internal` route and service-key guard for chat's lookup. Its internal port `4003` already exists.
-- **Ports:** Host port `3005` is used by Grafana. The canvas proposes `3006` for chat's public port and `4006` for its internal port.
+- **Ports:** Host port `3005` is used by Grafana. Chat uses `3006` for its public port and `4005` for its internal port, preserving the Compose internal-port sequence.
 - **Edge upgrade:** Polling works through the existing edge pattern. The later WebSocket requires an upgrade path for `/api/chat/`.
 - **Decision record:** See [ADR 0012](adr/0012-participant-chat.md) for access, polling, message limits, retention, and unresolved implementation details.

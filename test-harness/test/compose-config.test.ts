@@ -208,6 +208,9 @@ describe('containers get only what they need (PL-NFR2.1.2)', () => {
       ...Object.fromEntries(
         APPLICATION.map((name) => [name, ['broker', 'db', 'gateway', 'public', 'services']]),
       ),
+      // Only the User Service sends email.
+      'user-service': ['broker', 'db', 'gateway', 'mail', 'public', 'services'],
+      mailpit: ['inbox', 'mail'],
       // Reached only through the edge, on a network the two share; the web app's container calls
       // nothing, so it reaches no service, internal port or public (PLT-13).
       'web-app': ['web'],
@@ -225,7 +228,9 @@ describe('containers get only what they need (PL-NFR2.1.2)', () => {
       yaml.load(read('compose.yaml')) as { networks: Record<string, { internal?: boolean } | null> }
     ).networks;
     const internal = (name: string) => networks[name]?.internal === true;
-    expect(['db', 'broker', 'services', 'gateway'].filter((name) => !internal(name))).toEqual([]);
+    expect(
+      ['db', 'broker', 'services', 'gateway', 'mail'].filter((name) => !internal(name)),
+    ).toEqual([]);
     for (const [name, service] of Object.entries(services)) {
       const outward = (service.networks ?? []).filter((network) => !internal(network));
       expect(outward, name).toHaveLength(service.ports?.length ? 1 : 0);
@@ -236,6 +241,11 @@ describe('containers get only what they need (PL-NFR2.1.2)', () => {
     const published = [...services.postgres!.ports!, ...services.rabbitmq!.ports!];
     expect(published).toHaveLength(3);
     for (const port of published) expect(port).toMatch(/^127\.0\.0\.1:/);
+  });
+
+  it('publishes the mail inbox on this machine only, and not its SMTP port', () => {
+    // The inbox holds every activation link the stack has sent (USR-09).
+    expect(services.mailpit!.ports).toEqual(['127.0.0.1:${MAILPIT_PORT:-8025}:8025']);
   });
 
   it('gives each service an internal port that is not published, and points callers at it', () => {
@@ -259,11 +269,13 @@ describe('containers get only what they need (PL-NFR2.1.2)', () => {
     const override = (
       yaml.load(read('compose.dev.yaml')) as { services: Record<string, ComposeService> }
     ).services;
-    expect(Object.keys(override).sort()).toEqual([...APPLICATION].sort());
+    expect(Object.keys(override).sort()).toEqual([...APPLICATION, 'mailpit'].sort());
     APPLICATION.forEach((name, i) => {
       const internal = 4001 + i;
       expect(override[name], name).toEqual({ ports: [`127.0.0.1:${internal}:${internal}`] });
     });
+    // So a User Service run by hand can send to the stack's inbox.
+    expect(override.mailpit).toEqual({ ports: ['127.0.0.1:1025:1025'] });
   });
 
   it('drops every capability from the application containers and lets none be regained', () => {
@@ -400,7 +412,7 @@ describe('reproducible versions (D3 4.2)', () => {
     const images = Object.values(services)
       .map((service) => service.image)
       .filter((image): image is string => Boolean(image));
-    expect(images).toHaveLength(5);
+    expect(images).toHaveLength(6);
     for (const image of images) expect(image).toMatch(PINNED);
   });
 

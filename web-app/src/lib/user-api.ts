@@ -21,14 +21,6 @@ export const NOT_CONFIGURED_MESSAGE =
   "Accounts are unavailable: this build of the app was made without the account service's address " +
   "(NEXT_PUBLIC_USER_SERVICE_URL). Rebuild it with that set.";
 
-/**
- * The development mailbox (`GET /dev/mailbox`) is how a local demo "receives" the activation email.
- * Only a development build asks for it, or one opted in with NEXT_PUBLIC_DEV_MAILBOX=true (the
- * Compose stack, whose User Service always runs in development mode).
- */
-export const DEV_MAILBOX_ENABLED =
-  process.env.NODE_ENV === "development" || process.env.NEXT_PUBLIC_DEV_MAILBOX === "true";
-
 type Schemas = components["schemas"];
 
 export type Role = Schemas["Role"];
@@ -38,20 +30,6 @@ export type ContactPreference = Schemas["ContactPreference"];
 export type Profile = Schemas["Profile"];
 export type Me = Schemas["Me"];
 export type TokenResponse = Schemas["TokenResponse"];
-
-/** Not in the contract: the User Service mounts it only in development. */
-type DevMailboxPath = {
-  "/dev/mailbox": {
-    get: {
-      parameters: { query: { to: string } };
-      responses: {
-        200: {
-          content: { "application/json": { to: string; token: string } | { message: string } };
-        };
-      };
-    };
-  };
-};
 
 /**
  * Builds the client. The app uses {@link userApi}; tests pass their own `fetch` (and a short timeout)
@@ -66,7 +44,7 @@ export function createUserApi({
   fetch?: Send;
   timeoutMs?: number;
 }) {
-  const api = createApiClient<paths & DevMailboxPath>(baseUrl, {
+  const api = createApiClient<paths>(baseUrl, {
     fetch,
     timeoutMs,
     notConfiguredMessage: NOT_CONFIGURED_MESSAGE,
@@ -86,6 +64,9 @@ export function createUserApi({
       unwrap(api.POST("/auth/register", { body, ...as(id) })),
     activate: (token: string, id?: string) =>
       unwrap(api.POST("/auth/activate", { body: { token }, ...as(id) })),
+    /** Answers the same whether or not the address has an account waiting for activation. */
+    resendActivation: (email: string, id?: string) =>
+      unwrap(api.POST("/auth/activation/resend", { body: { email }, ...as(id) })),
     login: (email: string, password: string, id?: string) =>
       unwrap(api.POST("/auth/login", { body: { email, password }, ...as(id) })),
     refresh: (id?: string) => unwrap(api.POST("/auth/refresh", as(id))),
@@ -95,12 +76,6 @@ export function createUserApi({
     me: (token: string, id?: string) => unwrap(api.GET("/users/me", authedAs(token, id))),
     updateMe: (token: string, body: Schemas["ProfileUpdate"], id?: string) =>
       unwrap(api.PATCH("/users/me", { ...authedAs(token, id), body })),
-    /**
-     * The activation token the service would have emailed. Call it only when
-     * {@link DEV_MAILBOX_ENABLED}: the User Service does not mount it in production.
-     */
-    devMailbox: (email: string, id?: string) =>
-      unwrap(api.GET("/dev/mailbox", { params: { query: { to: email } }, ...as(id) })),
   };
 }
 

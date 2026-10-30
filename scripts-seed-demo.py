@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import sys
 import tempfile
@@ -25,6 +26,26 @@ STORIES = {
 }
 ROOT = Path(__file__).resolve().parent
 STATE = ROOT / ".demo-state/foc-d4-demo"
+# The demo project's own inbox (compose.yaml), on 127.0.0.1 only; its ports come from the wrapper.
+MAILPIT = f"http://localhost:{os.environ.get('MAILPIT_PORT', '8025')}"
+
+
+def activation_token(email):
+    """The token in the newest activation email to `email`, or None. Mail can trail its request."""
+    query = urllib.parse.quote(f'to:"{email}"')
+    for _ in range(40):
+        try:
+            with urllib.request.urlopen(f"{MAILPIT}/api/v1/search?query={query}&limit=1", timeout=5) as res:
+                found = json.load(res)["messages"]
+            if found:
+                with urllib.request.urlopen(f"{MAILPIT}/api/v1/message/{found[0]['ID']}", timeout=5) as res:
+                    match = re.search(r"[?&]token=([A-Za-z0-9_-]+)", json.load(res)["Text"])
+                if match:
+                    return match.group(1)
+        except OSError:
+            pass
+        time.sleep(0.25)
+    return None
 
 
 class ApiError(Exception):
@@ -118,10 +139,12 @@ def ensure_person(api, key, person, create):
                     "email": person["email"], "password": person["password"], "displayName": person["name"]})
             elif error.code != "ACCOUNT_NOT_ACTIVATED":
                 raise
-            mail = api.call("GET", "/api/user/dev/mailbox?" + urllib.parse.urlencode({"to": person["email"]}))
-            if not mail.get("token"):
-                raise ValueError("The local activation mailbox has no token; recreate only the disposable demo project")
-            api.call("POST", "/api/user/auth/activate", {"token": mail["token"]})
+            else:
+                api.call("POST", "/api/user/auth/activation/resend", {"email": person["email"]})
+            token = activation_token(person["email"])
+            if not token:
+                raise ValueError("No activation email reached the demo project's Mailpit; recreate only that project")
+            api.call("POST", "/api/user/auth/activate", {"token": token})
         else:
             try:
                 api.call("POST", "/api/user/auth/login", {
@@ -158,8 +181,8 @@ def main():
     create = len(sys.argv) == 2 and sys.argv[1] == "--up"
     api = Api(os.environ["D4_EDGE_URL"])
     wait_for(lambda: api.call("GET", "/edge/ready"), lambda _result: True, "the full application")
-    # Before registering anyone, prove this is the local development mailbox, not a real mail flow.
-    api.call("GET", "/api/user/dev/mailbox")
+    # Before registering anyone, prove activation mail lands in this project's local Mailpit.
+    urllib.request.urlopen(MAILPIT + "/api/v1/info", timeout=5).close()
     people = credentials(os.environ["ALLOWED_EMAIL_DOMAINS"].split(",")[0].strip().lower(), create)
     sessions = {key: ensure_person(api, key, person, create) for key, person in people.items()}
     requester = sessions["requester"][0]

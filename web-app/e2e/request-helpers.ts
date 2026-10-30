@@ -1,4 +1,5 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
+import { activationLink } from "./mailpit";
 
 // Through the edge, as the page calls them: a sign-in here sets the refresh cookie for
 // /api/user/auth, where the page refreshes, so the page picks up the session (PLT-10).
@@ -32,14 +33,14 @@ export const visible = (page: Page, text: string | RegExp) => page.getByText(tex
 export const row = (page: Page, label: string) =>
   page.locator("div", { has: page.getByText(label, { exact: true }) }).last();
 
-/** Registers and activates through the dev mailbox. Every call counts against the sign-up limit. */
+/** Registers and activates with the emailed token. Every call counts against the sign-up limit. */
 export async function register(request: APIRequestContext, email: string, displayName = "E2E Requester") {
   const registered = await request.post(`${USER}/auth/register`, {
     data: { email, password: PASSWORD, displayName },
   });
   expect(registered.ok(), await registered.text()).toBe(true);
-  const mail = await (await request.get(`${USER}/dev/mailbox`, { params: { to: email } })).json();
-  expect((await request.post(`${USER}/auth/activate`, { data: { token: mail.token } })).ok()).toBe(true);
+  const token = new URL(await activationLink(request, email)).searchParams.get("token");
+  expect((await request.post(`${USER}/auth/activate`, { data: { token } })).ok()).toBe(true);
 }
 
 /**

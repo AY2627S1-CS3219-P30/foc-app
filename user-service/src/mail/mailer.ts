@@ -1,7 +1,6 @@
 /**
- * The seam between the User Service and whatever delivers email. Production
- * would implement this with an SMTP or transactional-mail provider; only the
- * development mailbox exists today (see dev-mailbox.ts).
+ * The seam between the User Service and whatever delivers email: SMTP
+ * (smtp-mailer.ts), or an in-memory mailbox for tests (memory-mailbox.ts).
  */
 export interface ActivationEmail {
   to: string;

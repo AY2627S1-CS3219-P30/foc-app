@@ -388,10 +388,25 @@ PR #337 merged at `47e3c473c29fc710fa6d6257c7d26b33ac7cca8b` after required CI `
 passed on `e1e41b4c24d06b0123fc54c547ddacb8dd54e60a`. It records Patrick's own approval and
 Jonus's explicit expanded confirmation. Only ADRs 0002–0006/0008 are Accepted; 0007/0009 remain
 Proposed pending Zhang Yuan's confirmation. #238 remains OPEN deliberately. Main pipeline
-`40823645361` is still running; inspect it before claiming post-merge publication.
+`40823645361` passed, including the release browser journeys and image publication.
 
 PR #347's review follow-up marks the Order chat lookup planned, declares invalid-ID refusals on
 all four chat operations, reconciles lazy-creation 404 semantics and records the metadata tradeoff.
-Twenty-one contract/compatibility tests and generated contract types passed locally. The final
-head still needs required CI and the two named-owner approvals from #344. No chat production code
-was added. PR #328 is CLOSED without merge because #344/#347 superseded the older draft.
+Twenty-one contract/compatibility tests and generated contract types passed locally. Anselm and
+Zhang Yuan have now approved the design. The final branch includes current `main`, the reviewed
+port corrections (public `3006`, internal `4005`) and regenerated types; required exact-head CI
+remains before merge. No chat production code was added. PR #328 is CLOSED without merge because
+#344/#347 superseded the older draft.
+
+### #167 live-update coverage — 29 October follow-up
+
+N1.4 is implemented in #334/#335/#338, with load evidence in #343. The D4 runbook now
+integrates it into the existing composer/acceptance slots: visible requester/courier windows,
+exact live/polling labels, no-refresh observations, evidence-tab commands and disclosed fallback.
+Source checks: `web-app/src/components/LiveLabel.tsx`, `web-app/src/lib/live/live.tsx`,
+`web-app/e2e/live-journey.e2e.ts`, and `docs/reports/load-2026-10-29.md`. The report's 492 ms p95
+is response-to-stream latency, not browser render latency. Hidden tabs close their streams;
+visible windows are necessary for the demonstration. No new human rehearsal is claimed.
+Chat remains gated; its proposed polling-first contract retains messages for **90 days after
+an errand ends**, as Isaac directed. #346 WebSocket support is a later enhancement, not an
+invented prerequisite for the first live chat segment. #167 and #238 remain open.

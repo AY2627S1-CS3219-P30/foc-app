@@ -19,7 +19,7 @@ info:
     it had a courier, or an errand whose 90-day retention period has ended. Acceptance alone does
     not create a channel: a courier can withdraw before anyone opens it.
 servers:
-  - url: http://localhost:3005
+  - url: http://localhost:3006
 security:
   - bearerAuth: []
 paths:
