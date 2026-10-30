@@ -348,13 +348,10 @@ acceptance gates above. Do not close them or treat agent/CI execution as a teamm
   show 42/42 passed twice from clean volumes with zero failures, flakes, skips or runner errors.
 - #167's own scope is merged (seed, smoke, runbook, deployment mode). Remaining gates: the live chat
   segment, which needs #161–#163, and two real non-owner rehearsals.
-- Chat (#161 Patrick, #162 Zhang Yuan, #163 Anselm) is each owner's graded nice-to-have; the design
-  points in `docs/nice-to-haves.md` (separate service or Order module, transport, retention, rate
-  limit) are theirs to settle according to merged #326. In this Codex thread Isaac explicitly
-  chose **90 days after the errand ends**; this records his direction, not the other owners' approval.
-  #326 says not to implement their slices under Isaac's name without owners' agreement. An
-  asynchronous scope question asks Isaac to resolve that new note against his earlier instruction
-  to complete all technical blockers. No chat implementation or teammate agreement is claimed.
+- Chat (#161 Patrick, #162 Zhang Yuan, #163 Anselm) is each owner's graded nice-to-have. The three
+  owners settled the service, polling, retention and rate-limit decisions in merged #347/#344,
+  including **90 days after the errand ends**. #326 says not to implement their production slices
+  under Isaac's name without owner agreement. No chat implementation is claimed here.
 - #238: Patrick's approval is recorded in #337.
 
 ### Release CI follow-up — ambiguous offline retry selector
@@ -372,15 +369,16 @@ PR #327 merged at `22d7eba2045e572a1a177dc04816c959461a3121`. Local runs and req
 historical evidence for that commit; newer main adds live-update journeys. Latest checked main
 `ff65acc` passed pipeline `40819818381`, including Publish images.
 
-### Chat owner work — 29 October
+### Chat owner work — 29–30 October
 
-The owners now track design/contract #344 in Patrick's open PR #347. It selects a fifth service,
+The owners' design/contract #344 merged in Patrick's PR #347 at `aa145d2`. It selects a fifth service,
 live Order lookup on every request, polling first, 90-day retention, 20 messages/minute, 280 Unicode
 code points, current-participant access with full history for a replacement courier, and read-only
 admin access. #345 adds fifth-service deployment/recovery wiring; #161/#162/#163 build their slices;
 #346 is a later notify-only WebSocket enhancement. Do not merge the obsolete WebSocket-first/event-
-projection handoff as if it were the owners' agreed design. #347 still has review points and is not
-an implemented chat service. #167 remains gated on the actual live chat feature and two rehearsals.
+projection handoff as if it were the owners' agreed design. Required exact-head CI `41024752581`
+passed and both named owners approved; #344 closed. The merge is a contract, not an implemented
+chat service. #167 remains gated on the actual live chat feature and two rehearsals.
 
 ### Approval and chat review progress — 29 October
 
@@ -393,10 +391,10 @@ Proposed pending Zhang Yuan's confirmation. #238 remains OPEN deliberately. Main
 PR #347's review follow-up marks the Order chat lookup planned, declares invalid-ID refusals on
 all four chat operations, reconciles lazy-creation 404 semantics and records the metadata tradeoff.
 Twenty-one contract/compatibility tests and generated contract types passed locally. Anselm and
-Zhang Yuan have now approved the design. The final branch includes current `main`, the reviewed
-port corrections (public `3006`, internal `4005`) and regenerated types; required exact-head CI
-remains before merge. No chat production code was added. PR #328 is CLOSED without merge because
-#344/#347 superseded the older draft.
+Zhang Yuan approved the design. The final branch included the reviewed port corrections (public
+`3006`, internal `4005`) and regenerated types, then exact-head CI `41024752581` passed. PR #347
+merged at `aa145d2` and closed #344. No chat production code was added. PR #328 is CLOSED without
+merge because #344/#347 superseded the older draft.
 
 ### #167 live-update coverage — 29 October follow-up
 
@@ -407,6 +405,18 @@ Source checks: `web-app/src/components/LiveLabel.tsx`, `web-app/src/lib/live/liv
 `web-app/e2e/live-journey.e2e.ts`, and `docs/reports/load-2026-10-29.md`. The report's 492 ms p95
 is response-to-stream latency, not browser render latency. Hidden tabs close their streams;
 visible windows are necessary for the demonstration. No new human rehearsal is claimed.
-Chat remains gated; its proposed polling-first contract retains messages for **90 days after
+Chat remains gated; its agreed polling-first contract retains messages for **90 days after
 an errand ends**, as Isaac directed. #346 WebSocket support is a later enhancement, not an
 invented prerequisite for the first live chat segment. #167 and #238 remain open.
+
+### #167 activation-email walkthrough — 30 October follow-up
+
+The real activation-email implementation (#310) replaced the old development-mailbox endpoint.
+The D4 runbook now opens the isolated demo project's Mailpit UI from `${MAILPIT_PORT}`, tells the
+presenter to register a fictional extra address and click its email link, and names **Send a new
+link** as the delayed-email recovery path. The seed itself reads the newest Mailpit message and
+activates through the public endpoint; it does not read or edit User database tokens. This is
+preparation only and does not count as either required non-owner rehearsal. On 30 October,
+`./scripts-seed-demo.sh --fresh` rebuilt the isolated stack and passed with five named active
+personas, three OPEN errands and a clean financial audit. A separate `--check`, the tab-list
+generator and Mailpit's local info endpoint also passed.

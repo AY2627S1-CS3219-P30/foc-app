@@ -54,10 +54,12 @@ or reopen the printed URL in the same persona's profile.
 | Admin A | Dina Koh, `d4.admin.a@<allowed-domain>` | administrator; own replaced bootstrap password |
 | Admin B | Evan Teo, `d4.admin.b@<allowed-domain>` | independent administrator for second approval |
 
-The seed uses the first configured allowed email domain (normally `u.nus.edu`) and a local dev
-mailbox. Each account has its own private generated password. The two admin accounts are created
-by the existing bootstrap configuration and must replace that shared bootstrap password before
-obtaining sessions. Their names are set through their own profile endpoint.
+The seed uses the first configured allowed email domain (normally `u.nus.edu`) and the demo
+project's Mailpit inbox. It waits for each activation email and follows its token through the
+normal activation endpoint; it never reads a token from the User database. Each account has its
+own private generated password. The two admin accounts are created by the existing bootstrap
+configuration and must replace that shared bootstrap password before obtaining sessions. Their
+names are set through their own profile endpoint.
 
 Pickup point: **Printer @ Com 2**, the course CSV's printing supplier next to LT19. The existing
 Supplier Service seeds at least 30 suppliers; this command reads that catalogue instead of copying
@@ -82,16 +84,18 @@ docker compose ps
 open "http://localhost:${PROMETHEUS_PORT}/alerts"
 open "http://localhost:${GRAFANA_PORT}"
 open "http://localhost:${RABBITMQ_MANAGEMENT_PORT}"
+open "http://localhost:${MAILPIT_PORT}"
 open "https://github.com/AY2627S1-CS3219-P30/foc-app/blob/main/docs/reports/credit-conservation-2026-10-01.md"
 open "https://github.com/AY2627S1-CS3219-P30/foc-app/blob/main/docs/reports/2026-10-28-stack-recovery.md"
 open "https://github.com/AY2627S1-CS3219-P30/foc-app/blob/main/docs/reports/load-2026-10-29.md"
 open "https://github.com/AY2627S1-CS3219-P30/foc-app/actions/workflows/ci.yml"
 ```
 
-The first three tabs are Prometheus alerts, Grafana and RabbitMQ management; the remaining four
-are the conservation, recovery, live-update reports and CI evidence. Use the configured private
-operator credentials from `.env` locally, never place them in a command argument or screenshot.
-The exported ports also handle a non-default `D4_PORT_BASE`.
+The first four tabs are Prometheus alerts, Grafana, RabbitMQ management and Mailpit; the remaining
+four are the conservation, recovery, live-update reports and CI evidence. Mailpit is local demo
+infrastructure and catches every activation email for this isolated project. Use the configured
+private operator credentials from `.env` locally, never place them in a command argument or
+screenshot. The exported ports also handle a non-default `D4_PORT_BASE`.
 Use `docker compose start rabbitmq` to recover a deliberately stopped broker. Keep this terminal
 in the repository root with the demo context selected.
 
@@ -133,7 +137,7 @@ claim that a failed live action succeeded.
 | Time | Presenter | Action and words to say | Evidence / fallback |
 | --- | --- | --- | --- |
 | 00:00–02:00 | Jonus | Show `docker compose ps`, `/edge/ready` and the architecture diagram. “The browser has one origin; User, Supplier, Order and Credit own separate databases. This demonstration is local containers.” | If not ready, show which dependency is named, recover it, rerun `--check`; do not start transactions on a failed preflight. |
-| 02:00–05:00 | Anselm | Show Alyssa's profile, the dev activation flow and the private/role boundaries. “Activation creates the wallet through an event; the browser never sets a balance.” A new registration can use a clearly fictional extra address; the five core personas already exist. | If email is delayed, show the local mailbox and Credit's dead letters/audit evidence. Do not register repeatedly or display the passwords. |
+| 02:00–05:00 | Anselm | Show Alyssa's profile and the private/role boundaries. For the live activation flow, register one clearly fictional extra address, open its message in Mailpit at `http://localhost:${MAILPIT_PORT}`, and click the activation link. “Activation creates the wallet through an event; the browser never sets a balance.” The five core personas already exist. | If the email is delayed, use **Send a new link** once on `/activate`, then refresh/search Mailpit. Keep the address and link private after the demonstration. If activation succeeds but the wallet is delayed, show Credit's dead letters/audit evidence; do not register repeatedly or display passwords. |
 | 05:00–08:00 | Patrick, Jonus | Alyssa: Suppliers → search for Printer @ Com 2 → compose one additional request, reward **1**, delivery PGP House 7. Name it “D4 dispute example”. Review the available/reserved projection and submit. Keep its resulting detail tab open for the dispute segment. **N1.4:** Ben already has Feed visible with **Live**; show the new card appearing without refresh, then leave it unaccepted. | If composer fails, preserve the refusal/trace and use the preseeded prints errand for the core flow. The composer is covered by the merged release suite (#160, `release-journeys.e2e.ts`); do not mark a live failure passed from a seed API call. |
 | 08:00–13:00 | Zhang Yuan, Isaac, Jonus | Ben and Chloe: open the preseeded **race** card in their separate feed tabs and both open Accept. Confirm Ben first, then Chloe's stale confirmation. Show one winner and the stale/refused loser. Ben withdraws before pickup; the same reward remains reserved while the errand returns OPEN. Separately, keep Alyssa’s **prints** detail page visible with **Live** beside Ben’s window. Ben accepts **prints**; Jonus points out Alyssa changing **Open → Accepted** without touching her page. Ben records pickup, records delivery. Alyssa confirms receipt. Isaac shows both wallet ledgers. | If race timing is missed, use its recorded 409/domain-code response and the CI contention test. If the live label falls back, disclose polling and show the dated N1.4 report/browser-test evidence. If a transition fails, refresh to get the current version; never force a backward status change. |
 | 13:00–16:00 | Isaac, Zhang Yuan | Alyssa cancels the preseeded **cancel** errand before pickup; show release pending then CANCELLED and +1 available/−1 reserved. Cancel the reopened **race** errand too, releasing its 1. “Withdraw removed the courier; cancellation returned the reward. Credit applied each once.” | If asynchronous release is delayed, show the errand trace/outbox and wait for the actual reply. Restart only the named demo dependency; no SQL credit edits. |
