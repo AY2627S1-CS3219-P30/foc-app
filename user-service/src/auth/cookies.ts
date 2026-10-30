@@ -17,8 +17,9 @@ export function readCookie(header: string | undefined, name: string): string | u
 /**
  * HttpOnly keeps the token out of JavaScript (XSS cannot read it), SameSite=Strict
  * stops the browser attaching it to cross-site requests (CSRF), and Path=/auth
- * means it is sent to the auth endpoints only. `Secure` is on in production; local
- * development runs over plain http, where Safari would otherwise drop the cookie.
+ * means it is sent to the auth endpoints only. `Secure` is on in production, as the
+ * Compose stack runs (#285), over plain http: Chrome sends it to http://localhost,
+ * which it counts as secure, but Safari may drop it there, signing out on reload.
  */
 export function setRefreshCookie(res: Response, token: string, secure: boolean): void {
   res.cookie(REFRESH_COOKIE, token, {
