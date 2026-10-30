@@ -1,6 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CORRELATION_HEADER,
@@ -10,6 +11,7 @@ import {
 } from '@foc/platform';
 import { ContractValidator } from '@foc/test-harness';
 import { AppModule } from '../src/app.module.js';
+import { as, createTestApp, http as httpOf, message, type TestApp } from './helpers/app.js';
 
 /**
  * Provider contract check (TST-01, EI-NFR3.1.1): real responses from the running module must
@@ -69,5 +71,65 @@ describe('chat-service honours its published contract', () => {
       code: 'NOT_FOUND',
       correlationId: 'test-correlation-2',
     });
+  });
+});
+
+describe('chat-service channels honour the contract', () => {
+  const contract = ContractValidator.for('chat-service');
+  let t: TestApp;
+  beforeAll(async () => {
+    t = await createTestApp();
+  });
+  afterAll(async () => t.close());
+
+  it('GET /channels/{orderId} (200, 400, 401, 403, 404, 503)', async () => {
+    const template = '/channels/{orderId}';
+    const get = (id: string, who?: 'requester' | 'stranger') => {
+      const req = httpOf(t).get(`/channels/${id}`);
+      return who ? req.set('Authorization', as(who)) : req;
+    };
+    const orderId = t.upstreams.errand();
+    contract.assert('get', template, await get(orderId, 'requester'));
+    contract.assert('get', template, await get('not-a-uuid', 'requester'));
+    contract.assert('get', template, await get(orderId));
+    contract.assert('get', template, await get(orderId, 'stranger'));
+    contract.assert('get', template, await get(randomUUID(), 'requester'));
+    t.upstreams.down = true;
+    contract.assert('get', template, await get(orderId, 'requester'));
+    t.upstreams.down = false;
+  });
+
+  it('POST and GET /channels/{orderId}/messages (201, 200, 200 page, 409, 422)', async () => {
+    const template = '/channels/{orderId}/messages';
+    const orderId = t.upstreams.errand();
+    const post = (body: object) =>
+      httpOf(t)
+        .post(`/channels/${orderId}/messages`)
+        .set('Authorization', as('requester'))
+        .send(body);
+    const retry = message('on my way');
+    contract.assert('post', template, await post(retry));
+    contract.assert('post', template, await post(retry));
+    contract.assert('post', template, await post({ ...retry, body: 'changed' }));
+    contract.assert('post', template, await post({ clientId: 'nope', body: 'hi' }));
+    const list = (query: string) =>
+      httpOf(t).get(`/channels/${orderId}/messages${query}`).set('Authorization', as('courier'));
+    contract.assert('get', template, await list('?after=0'));
+    contract.assert('get', template, await list('?after=0&before=2'));
+    t.upstreams.update(orderId, { status: 'CANCELLED', endedAt: new Date().toISOString() });
+    contract.assert('post', template, await post(message('too late')));
+  });
+
+  it('PUT /channels/{orderId}/read (200, 422)', async () => {
+    const template = '/channels/{orderId}/read';
+    const orderId = t.upstreams.errand();
+    const put = (seq: unknown) =>
+      httpOf(t)
+        .put(`/channels/${orderId}/read`)
+        .set('Authorization', as('requester'))
+        .send({ seq });
+    contract.assert('put', template, await put(0));
+    contract.assert('put', template, await put(5));
+    expect((await put(0)).status).toBe(200);
   });
 });

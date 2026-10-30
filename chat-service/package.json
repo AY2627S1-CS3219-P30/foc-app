@@ -10,6 +10,9 @@
     "dev": "cross-env SERVICE_NAME=chat-service PORT=3006 tsx watch src/main.ts",
     "start": "node dist/main.js",
     "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:studio": "drizzle-kit studio",
+    "db:push": "drizzle-kit push",
     "db:migrate": "tsx src/db/migrate.ts"
   },
   "dependencies": {
@@ -18,16 +21,19 @@
     "@nestjs/common": "^12.0.3",
     "@nestjs/core": "^12.0.3",
     "@nestjs/platform-express": "^12.0.3",
+    "drizzle-orm": "^0.45.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@foc/test-harness": "*",
     "@nestjs/testing": "^12.0.3",
     "@types/supertest": "^6.0.2",
     "@vitest/coverage-v8": "^5.0.5",
     "cross-env": "^10.0.0",
+    "drizzle-kit": "^0.31.11",
     "supertest": "^7.2.2",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
