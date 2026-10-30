@@ -1,7 +1,9 @@
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import yaml from 'js-yaml';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 /**
  * NTH-04 (#164) — what the pipeline must keep checking: a vulnerable dependency, a tool version
@@ -87,6 +89,7 @@ describe('the browser journeys job', () => {
     'supplier-service',
     'order-service',
     'credit-service',
+    'chat-service',
     'web-app',
   ];
 
@@ -167,6 +170,87 @@ describe('the stack checks', () => {
   });
 });
 
+/**
+ * PLT-09 (#284) and #345 — the recovery job rolls back to the newest published release that has
+ * every image the stack runs. A release from before a service (chat) is passed over, and when every
+ * one predates it the drill runs without the rollback, once, until main publishes that image. An
+ * image a release should have but the registry lacks fails the job. The step's own script runs here
+ * against stand-ins for gh, docker and the drill.
+ */
+describe('the recovery job’s rollback target', () => {
+  const script = jobs.stack!.steps.find(
+    (step) => step.name === 'Back up, restore and roll back the stack',
+  )!.run!;
+  const APPS = 'user-service supplier-service order-service credit-service chat-service web-app';
+  const NEWEST = 'a'.repeat(40);
+  const dirs: string[] = [];
+  afterEach(() => dirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true })));
+
+  /** Two published releases, newest first; `missing` images are absent from both. */
+  function search({ missing = '', had = APPS }: { missing?: string; had?: string }) {
+    const dir = mkdtempSync(join(tmpdir(), 'foc-rollback-target-'));
+    dirs.push(dir);
+    mkdirSync(join(dir, 'bin'));
+    const fake = (path: string, body: string) =>
+      writeFileSync(join(dir, path), `#!/usr/bin/env bash\n${body}\n`, { mode: 0o755 });
+    fake(
+      'bin/gh',
+      `case "$*" in
+  *workflows/ci.yml/runs*) printf '1\\t${NEWEST}\\n2\\t${'b'.repeat(40)}\\n' ;;
+  *actions/runs/*) echo success ;;
+  *contents/*) app="\${2#*contents/}"; [[ " $FAKE_HAD " == *" \${app%%/*} "* ]] ;;
+esac`,
+    );
+    fake(
+      'bin/docker',
+      `if [[ "$1" == compose ]]; then
+  for app in $FAKE_APPS; do echo "ghcr.io/ay2627s1-cs3219-p30/foc-$app:$FOC_IMAGE_TAG"; done
+  echo postgres:17
+else
+  app="\${3##*/foc-}"; [[ " $FAKE_MISSING " != *" \${app%%:*} "* ]]
+fi`,
+    );
+    fake('scripts-recovery-drill.sh', 'echo "drill $*"');
+    return spawnSync('bash', ['-c', script], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${join(dir, 'bin')}:${process.env.PATH}`,
+        GITHUB_REPOSITORY: 'owner/repo',
+        FAKE_APPS: APPS,
+        FAKE_MISSING: missing,
+        FAKE_HAD: had,
+      },
+    });
+  }
+
+  it('rolls back to the newest release that has every image', () => {
+    const result = search({});
+    expect(result.stderr).toBe('');
+    expect(result.stdout.trim()).toBe(`drill --rollback-tag sha-${NEWEST}`);
+  });
+
+  it('skips the rollback, with a warning, while every release predates a service', () => {
+    const result = search({ missing: 'chat-service', had: APPS.replace('chat-service ', '') });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('::warning::');
+    expect(result.stdout.trim().split('\n').at(-1)).toBe('drill');
+  });
+
+  it('fails when a release that had a service has no image for it', () => {
+    const result = search({ missing: 'chat-service' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(`sha-${NEWEST} had chat-service, but the registry has no`);
+  });
+
+  it('fails when the registry lets it read no image at all', () => {
+    const result = search({ missing: APPS });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Cannot read the images');
+  });
+});
+
 describe('the full release suite', () => {
   it('runs once on a pull request, and twice from clean containers on a push to main', () => {
     const release = jobs.e2e!.steps.find((step) => step.run?.includes('scripts-e2e-release.sh'))!;
@@ -240,6 +324,7 @@ describe('code owners', () => {
       '/supplier-service/',
       '/order-service/',
       '/credit-service/',
+      '/chat-service/',
       '/web-app/',
       '/platform/',
       '/auth-client/',
@@ -276,5 +361,9 @@ describe('code owners', () => {
     expect(owners['/supplier-service/']).toContain('@pastchum');
     expect(owners['/order-service/']).toContain('@volleyballkickedme');
     expect(owners['/credit-service/']).toContain('@isaacchua0309');
+    // Chat is N1.2's, and N1.2 has three owners (ADR 0012).
+    for (const who of ['@pastchum', '@volleyballkickedme', '@anselmlong']) {
+      expect(owners['/chat-service/']).toContain(who);
+    }
   });
 });

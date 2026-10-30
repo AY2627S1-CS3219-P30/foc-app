@@ -12,6 +12,7 @@ Closes #
 - [ ] `supplier-service/`
 - [ ] `order-service/`
 - [ ] `credit-service/`
+- [ ] `chat-service/`
 - [ ] Other / new N2H service:
 - [ ] Repo-level only (docs, CI, compose, tooling)
 

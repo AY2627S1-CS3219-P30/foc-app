@@ -9,7 +9,7 @@ rule_files:
 
 scrape_configs:
   # Every service serves /metrics from @foc/platform. Each series carries a
-  # `service` label, so one dashboard covers all four. The endpoint wants the
+  # `service` label, so one dashboard covers all five. The endpoint wants the
   # scrape token (METRICS_TOKEN), which Compose mounts as a file.
   - job_name: services
     authorization:
@@ -21,6 +21,7 @@ scrape_configs:
           - supplier-service:3002
           - order-service:3003
           - credit-service:3004
+          - chat-service:3006
 
   # RabbitMQ's own exporter (the rabbitmq_prometheus plugin, on by default in
   # the image). The detailed endpoint's queue_coarse_metrics family gives ready

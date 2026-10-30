@@ -35,19 +35,20 @@ flowchart TB
 
   browser -->|":3000"| edge
   edge -->|"/"| web
-  edge -->|"/api/user, /api/supplier,<br/>/api/order, /api/credit"| services
+  edge -->|"/api/user, /api/supplier,<br/>/api/order, /api/credit, /api/chat"| services
 
-  subgraph services["Four NestJS services"]
+  subgraph services["Five NestJS services"]
     direction LR
     order["<b>Order Service</b><br/>the errand lifecycle"]
     credit["<b>Credit Service</b><br/>wallets and the ledger"]
     supplier["<b>Supplier Service</b><br/>pickup points and items"]
     user["<b>User Service</b><br/>accounts, tokens, roles"]
+    chat["<b>Chat Service</b><br/>requester and courier messages"]
     mq{{"<b>RabbitMQ</b><br/>events"}}
 
     order -->|"credit status"| credit
     order -->|"pickup point and items"| supplier
-    supplier & order & credit -->|"is this account active?"| user
+    supplier & order & credit & chat -->|"is this account active?"| user
     order <-.-> mq
     mq <-.->|"reserve, transfer, release<br/>and their results"| credit
     user -.->|"activated, suspended,<br/>role changed"| mq
@@ -61,13 +62,13 @@ checks are on the User and Credit Services' internal ports, which the edge never
 pickup-point lookup is the Supplier Service's public API. Where each part runs, and what can reach
 what, is in the [deployment diagram](#networks-and-ports).
 
-- **A web app and four services, behind one edge.** The web app (Next.js) is what students and
-  administrators use. Its pages call the four services' APIs, with the signed-in user's token,
+- **A web app and five services, behind one edge.** The web app (Next.js) is what students and
+  administrators use. Its pages call the services' APIs, with the signed-in user's token,
   through the edge (nginx), which serves the web app and the APIs on one origin
   ([ADR 0010](docs/adr/0010-api-edge.md)): the [User](user-service), [Supplier](supplier-service),
-  [Order](order-service) and [Credit](credit-service) Services, each a NestJS application in a
+  [Order](order-service), [Credit](credit-service) and [Chat](chat-service) Services, each a NestJS application in a
   container of its own ([Ports and ownership](#ports-and-ownership)).
-- **Each service owns its data.** One PostgreSQL server holds four databases, one per service, and
+- **Each service owns its data.** One PostgreSQL server holds five databases, one per service, and
   each service has a login to its own alone. No service reads another's tables
   ([ADR 0003](docs/adr/0003-service-boundaries-and-data-ownership.md)).
 - **Who you are is checked everywhere.** The User Service signs short-lived access tokens; every
@@ -128,7 +129,7 @@ npm run build
 > `Cannot find package '…/node_modules/@foc/platform/dist/index.js'`.
 
 > **Run `npm install` once, from the root.** This is an npm workspace, so a
-> single install covers `platform/` and all four services. Running `npm install`
+> single install covers `platform/` and all five services. Running `npm install`
 > inside a service folder is not needed and will create a nested `node_modules`
 > that shadows the shared one.
 
@@ -207,7 +208,7 @@ bun dev        # http://localhost:3000
 
 ### 6. Run the whole stack in Docker
 
-One command brings up the web app, all four services, PostgreSQL and RabbitMQ:
+One command brings up the web app, all five services, PostgreSQL and RabbitMQ:
 
 ```bash
 ./scripts-init-env.sh    # if you have not already; Compose stops without a .env
@@ -244,7 +245,7 @@ Use `./scripts-seed-demo.sh --check` for the demo smoke check, and follow the
 [D4 runbook](docs/demo/d4-runbook.md) for all browser profiles/tabs, the 30-minute script and
 the outstanding real-rehearsal gates.
 
-For a consistent four-database backup, fresh-stack restore, timed disposable drill and prior-image
+For a consistent five-database backup, fresh-stack restore, timed disposable drill and prior-image
 rollback, follow the [recovery runbook](docs/runbooks/backup-restore-rollback.md). Start a backup
 with `./scripts-backup.sh`; it briefly stops application writers and resumes them after the dump.
 Restore refuses existing tables and validates every table before smoke and the financial audit.
@@ -254,10 +255,10 @@ database — it is also the only way to re-run `postgres-init.sh`, which runs
 once when the data volume is empty. What each of these keeps is spelled out
 under [Stopped, restarted, recreated](#stopped-restarted-recreated).
 
-**Data isolation.** One PostgreSQL server hosts four databases with four roles,
+**Data isolation.** One PostgreSQL server hosts five databases with five roles,
 one per service. Each role can connect only to its own database — a service
 cannot read another service's tables even by accident. A single server rather
-than four keeps a laptop usable during the demo; production can split the
+than five keeps a laptop usable during the demo; production can split the
 instances with no application change, because each service already connects with
 its own credentials. See [`postgres-init.sh`](postgres-init.sh).
 
@@ -320,24 +321,25 @@ problem each solves, its design and its owners, are in [docs/nice-to-haves.md](d
 
 ## Ports and ownership
 
-| Service            | Port | Owner      | Dev command             |
-| ------------------ | ---- | ---------- | ----------------------- |
-| `edge`             | 3000 | Jonus      | Compose only            |
-| `web-app`          | 3000 | Patrick    | `cd web-app && bun dev` |
-| `user-service`     | 3001 | Anselm     | `npm run dev:user`      |
-| `supplier-service` | 3002 | Patrick    | `npm run dev:supplier`  |
-| `order-service`    | 3003 | Zhang Yuan | `npm run dev:order`     |
-| `credit-service`   | 3004 | Isaac      | `npm run dev:credit`    |
-| `grafana`          | 3005 | Jonus      | Compose only            |
-| `prometheus`       | 9090 | Jonus      | Compose only            |
+| Service            | Port | Owner                       | Dev command             |
+| ------------------ | ---- | --------------------------- | ----------------------- |
+| `edge`             | 3000 | Jonus                       | Compose only            |
+| `web-app`          | 3000 | Patrick                     | `cd web-app && bun dev` |
+| `user-service`     | 3001 | Anselm                      | `npm run dev:user`      |
+| `supplier-service` | 3002 | Patrick                     | `npm run dev:supplier`  |
+| `order-service`    | 3003 | Zhang Yuan                  | `npm run dev:order`     |
+| `credit-service`   | 3004 | Isaac                       | `npm run dev:credit`    |
+| `grafana`          | 3005 | Jonus                       | Compose only            |
+| `chat-service`     | 3006 | Patrick, Zhang Yuan, Anselm | `npm run dev:chat`      |
+| `prometheus`       | 9090 | Jonus                       | Compose only            |
 
-In Compose, port 3000 is the edge, which serves the web app and the four APIs on one origin; the
+In Compose, port 3000 is the edge, which serves the web app and the five APIs on one origin; the
 web app's container has no port of its own. What its answers mean, how to follow a request through
 it, and how to change its configuration are in the [edge runbook](docs/runbooks/edge.md). `bun dev` serves the web app on 3000 itself, calling
 the services on their own ports, so run one or the other.
 
 **Is the stack ready?** `curl -s localhost:3000/edge/ready` answers `200` once the web app and all
-four services answer their health checks, so every page can work, and `503` naming each one that
+five services answer their health checks, so every page can work, and `503` naming each one that
 does not, such as `{"status":"unavailable","down":["order-service"],…}` (PLT-13). The edge's own
 health check asks it, so `docker compose ps` shows the edge `healthy`, and `docker compose up -d
 --wait` returns, only once the whole stack is ready. `/edge/health` says only that the edge itself
@@ -450,8 +452,8 @@ flowchart TB
   subgraph host["One Docker host · docker compose up"]
     edge["<b>edge</b> · nginx, unprivileged, read-only<br/>:3000 on every interface"]
     web["<b>web-app</b><br/>no published port"]
-    svc["<b>user-, supplier-, order-, credit-service</b><br/>public :3001–3004 on 127.0.0.1 only<br/>internal :4001–4004 to each other, never published"]
-    mig["<b>four migrate jobs</b><br/>run once, then exit"]
+    svc["<b>user-, supplier-, order-, credit-, chat-service</b><br/>public :3001–3004, :3006 on 127.0.0.1 only<br/>internal :4001–4005 to each other, never published"]
+    mig["<b>five migrate jobs</b><br/>run once, then exit"]
     pg[("<b>postgres</b> · 127.0.0.1 only<br/>volume postgres-data")]
     mq[("<b>rabbitmq</b> · 127.0.0.1 only<br/>volume rabbitmq-data")]
     prom["<b>prometheus</b> · 127.0.0.1:9090"]
@@ -482,13 +484,13 @@ A container joins only the networks of what it depends on (PL-NFR2.1.2):
 
 | Network         | On it                                               | For                                    |
 | --------------- | --------------------------------------------------- | -------------------------------------- |
-| `db`            | Postgres, the four services, the migrate containers | each service's own database            |
-| `broker`        | RabbitMQ, the four services, Prometheus             | events; queue depths for the dashboard |
-| `services`      | the four services, Prometheus                       | service-to-service calls; scraping     |
-| `gateway`       | the edge, the four services                         | the edge's routes to them              |
+| `db`            | Postgres, the five services, the migrate containers | each service's own database            |
+| `broker`        | RabbitMQ, the five services, Prometheus             | events; queue depths for the dashboard |
+| `services`      | the five services, Prometheus                       | service-to-service calls; scraping     |
+| `gateway`       | the edge, the five services                         | the edge's routes to them              |
 | `web`           | the edge, the web app                               | the edge's route to the web app        |
 | `edge`          | the edge                                            | publishing port 3000                   |
-| `public`        | the four services                                   | publishing ports 3001-3004             |
+| `public`        | the five services                                   | publishing ports 3001-3004 and 3006    |
 | `local`         | Postgres, RabbitMQ                                  | publishing their ports on `127.0.0.1`  |
 | `observability` | Prometheus, Grafana                                 | the dashboard's queries; their ports   |
 
@@ -501,10 +503,10 @@ and Grafana cannot reach a service.
 
 | From this machine                                                | Reachable on     |
 | ---------------------------------------------------------------- | ---------------- |
-| The edge (3000): the web app and the four APIs                   | every interface  |
-| Each service's public port (3001-3004), for the scripts          | `127.0.0.1` only |
+| The edge (3000): the web app and the five APIs                   | every interface  |
+| Each service's public port (3001-3004, 3006), for the scripts    | `127.0.0.1` only |
 | Postgres, RabbitMQ and its management UI, Grafana, Prometheus    | `127.0.0.1` only |
-| The web app's own port, each service's internal port (4001-4004) | not published    |
+| The web app's own port, each service's internal port (4001-4005) | not published    |
 
 **External and internal communication.** A browser reaches a service through the
 edge, at `/api/<service>/` on the one origin; the edge never routes `/internal/**`
@@ -593,7 +595,7 @@ the Dockerfiles, so two builds of one commit use the same bytes.
 
 | Image                                       | Used for                             | Published by                                              | Licence of the software |
 | ------------------------------------------- | ------------------------------------ | --------------------------------------------------------- | ----------------------- |
-| `node:22.23.3-alpine3.24`                   | base of the four services, web app   | Docker Official Image, by the Node.js Docker team         | MIT                     |
+| `node:22.23.3-alpine3.24`                   | base of the five services, web app   | Docker Official Image, by the Node.js Docker team         | MIT                     |
 | `oven/bun:1.4.2-alpine`                     | building the web app                 | Oven, the makers of Bun                                   | MIT                     |
 | `postgres:17.11-alpine3.24`                 | the database server                  | Docker Official Image, by the PostgreSQL Docker community | PostgreSQL Licence      |
 | `rabbitmq:4.3.6-management-alpine`          | the message broker                   | Docker Official Image, by the Docker community            | MPL 2.0                 |
@@ -1045,8 +1047,8 @@ value is written to an image ([Secrets](#secrets)).
 
 Every pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 It is **path-aware**: a change to one service does not rebuild and retest the
-other three. Shared code — `platform/`, the root configs, the lockfile — fans out
-to all four, because it can break any of them. So does any path the filter does
+other four. Shared code — `platform/`, the root configs, the lockfile — fans out
+to all five, because it can break any of them. So does any path the filter does
 not recognise, such as a new package: it fails closed, running everything rather
 than nothing.
 
@@ -1141,10 +1143,10 @@ backlog, its tests, and the gaps still open. CI fails if a test it names disappe
 
 ### Published images
 
-A push to `main` that passes every check publishes the five application images to the GitHub
+A push to `main` that passes every check publishes the six application images to the GitHub
 Container Registry (NTH-04, [#164](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/164)):
 `ghcr.io/ay2627s1-cs3219-p30/foc-user-service`, `-supplier-service`, `-order-service`,
-`-credit-service` and `-web-app`. Each is tagged `sha-<commit>` with the full commit hash, and the
+`-credit-service`, `-chat-service` and `-web-app`. Each is tagged `sha-<commit>` with the full commit hash, and the
 newest is also `main`. Pull requests build the images but never push them.
 
 [`compose.images.yaml`](compose.images.yaml) names them for Compose. With it, a stack starts from
@@ -1185,7 +1187,7 @@ through `docker buildx bake`, so a published image has exactly `compose.yaml`'s 
 
 This repository follows a **one-service-per-folder** structure: each
 microservice (`user-service/`, `supplier-service/`, `order-service/`,
-`credit-service/`) lives in its own top-level folder.
+`credit-service/`, `chat-service/`) lives in its own top-level folder.
 
 ```text
 .
@@ -1193,6 +1195,7 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
 ├── supplier-service/    the campus supplier catalogue
 ├── order-service/       errands: their lifecycle, disputes, reconciliation
 ├── credit-service/      wallets and the double-entry ledger
+├── chat-service/        messages between an errand's requester and courier
 ├── web-app/             the Next.js front end, students' and administrators'
 ├── platform/            what every service shares: config, logging, health, events
 ├── auth-client/         how a service verifies a caller with the User Service

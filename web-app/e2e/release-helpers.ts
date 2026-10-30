@@ -101,7 +101,7 @@ export async function advanceServerClockTo(at: string) {
   // Read the fixture through the same preload in each container; no application data is touched.
   const target = Date.now() + next;
   await Promise.all(
-    ["user-service", "supplier-service", "order-service", "credit-service"].map(async (service) => {
+    ["user-service", "supplier-service", "order-service", "credit-service", "chat-service"].map(async (service) => {
       await expect
         .poll(
           async () => {

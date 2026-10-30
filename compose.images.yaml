@@ -34,5 +34,9 @@ services:
     image: ghcr.io/ay2627s1-cs3219-p30/foc-credit-service:${FOC_IMAGE_TAG:-main}
   credit-service:
     image: ghcr.io/ay2627s1-cs3219-p30/foc-credit-service:${FOC_IMAGE_TAG:-main}
+  chat-service-migrate:
+    image: ghcr.io/ay2627s1-cs3219-p30/foc-chat-service:${FOC_IMAGE_TAG:-main}
+  chat-service:
+    image: ghcr.io/ay2627s1-cs3219-p30/foc-chat-service:${FOC_IMAGE_TAG:-main}
   web-app:
     image: ghcr.io/ay2627s1-cs3219-p30/foc-web-app:${FOC_IMAGE_TAG:-main}

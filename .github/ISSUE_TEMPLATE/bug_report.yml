@@ -29,6 +29,7 @@ body:
         - supplier-service
         - order-service
         - credit-service
+        - chat-service
         - Cross-service / integration
         - Repo-level (docs, CI, compose, tooling)
         - Not sure

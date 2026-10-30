@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 
-DATABASES = ("foc_user", "foc_supplier", "foc_order", "foc_credit")
+DATABASES = ("foc_user", "foc_supplier", "foc_order", "foc_credit", "foc_chat")
 
 
 def psql(db, sql):
@@ -63,8 +63,12 @@ def verify(bundle):
     if manifest_path.is_symlink():
         raise ValueError("Manifest must not be a symbolic link")
     manifest = json.loads(manifest_path.read_text())
-    if manifest.get("format") != 1 or set(manifest.get("databases", {})) != set(DATABASES):
-        raise ValueError("Expected format 1 with exactly the four service databases")
+    found = set(manifest.get("databases", {}))
+    if manifest.get("format") != 1 or found != set(DATABASES):
+        before_chat = found == set(DATABASES) - {"foc_chat"}
+        raise ValueError("Expected format 1 with exactly the five service databases" +
+                         ("; a backup from before the Chat Service is restored with the release that made it"
+                          if before_chat else ""))
     for db in DATABASES:
         item = manifest["databases"][db]
         path = bundle / f"{db}.dump"
