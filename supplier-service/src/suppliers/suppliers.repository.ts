@@ -99,6 +99,15 @@ export const suppliersRepository = {
     return rows[0] ?? null;
   },
 
+  /** The distinct buildings of the active suppliers, unordered. */
+  async activeBuildings(db: Database): Promise<string[]> {
+    const rows = await db
+      .selectDistinct({ building: suppliers.building })
+      .from(suppliers)
+      .where(eq(suppliers.active, true));
+    return rows.map((r) => r.building);
+  },
+
   /**
    * A page of active suppliers, filtered, searched and sorted (SUP-02), with
    * the unpaged `total`. One statement, so both come from one snapshot, and an

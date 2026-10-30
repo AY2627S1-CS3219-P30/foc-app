@@ -76,6 +76,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/buildings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List campus buildings (SS-FR1.1.2)
+         * @description The campus buildings a supplier may be in, sorted. A supplier's `building` must be one of
+         *     them. With `inUse=true`, only the buildings that have at least one active supplier.
+         */
+        get: operations["listBuildings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -147,6 +168,7 @@ export interface components {
         SupplierInput: {
             name: string;
             type: components["schemas"]["SupplierType"];
+            /** @description A campus building from `GET /buildings`, matched ignoring case and spacing and stored in its listed spelling. Any other value is `422 VALIDATION_FAILED`, with `UNKNOWN_BUILDING` on `building`. */
             building: string;
             floor: string;
             locationDescription: string;
@@ -185,6 +207,9 @@ export interface components {
             page: number;
             pageSize: number;
             total: number;
+        };
+        BuildingList: {
+            items: string[];
         };
         Error: {
             error: {
@@ -275,7 +300,7 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description Invalid fields (including duplicate active name/building); idempotency key reuse returns IDEMPOTENCY_KEY_REUSED without details. */
+        /** @description Invalid fields (including an unknown building or a duplicate active name/building); idempotency key reuse returns IDEMPOTENCY_KEY_REUSED without details. */
         ValidationFailed: {
             headers: {
                 [name: string]: unknown;
@@ -648,6 +673,41 @@ export interface operations {
             412: components["responses"]["StaleVersion"];
             422: components["responses"]["ValidationFailed"];
             428: components["responses"]["PreconditionRequired"];
+            503: components["responses"]["IdentityUnavailable"];
+        };
+    };
+    listBuildings: {
+        parameters: {
+            query?: {
+                /** @description `true` narrows the list to buildings in use; an unrecognized value means `false`. */
+                inUse?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The building names, sorted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "items": [
+                     *         "Central Library",
+                     *         "COM2",
+                     *         "The Deck"
+                     *       ]
+                     *     }
+                     */
+                    "application/json": components["schemas"]["BuildingList"];
+                };
+            };
+            401: components["responses"]["Unauthenticated"];
+            403: components["responses"]["AccountNotActive"];
             503: components["responses"]["IdentityUnavailable"];
         };
     };

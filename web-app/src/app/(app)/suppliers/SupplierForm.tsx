@@ -8,7 +8,8 @@ import { Select } from '@/components/Select';
 import { Textarea } from '@/components/Textarea';
 import { ApiError, type FieldError } from '@/lib/api-client';
 import type { Supplier, SupplierInput } from '@/lib/supplier-api';
-import { BUILDINGS, DAYS, SUPPLIER_TYPES, TYPE_LABELS } from '@/lib/supplier-display';
+import { DAYS, SUPPLIER_TYPES, TYPE_LABELS } from '@/lib/supplier-display';
+import { useBuildings } from '@/lib/use-buildings';
 import styles from './suppliers.module.css';
 
 type InputData = {
@@ -66,6 +67,7 @@ export function SupplierForm({
   // measured against the values the form opened with.
   const [pristine] = useState(() => initial(supplier));
   const [form, setForm] = useState(pristine);
+  const buildings = useBuildings(false);
   const dirty = JSON.stringify(form) !== JSON.stringify(pristine);
   useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
   const [errors, setErrors] = useState<FieldError[]>([]);
@@ -170,14 +172,19 @@ export function SupplierForm({
           ))}
         </Select>
       </Field>
-      <Field label="Building" required error={error('building')}>
+      <Field
+        label="Building"
+        required
+        hint={buildings.status === 'error' ? 'Building suggestions could not be loaded.' : undefined}
+        error={error('building')}
+      >
         <Input
           list="supplier-buildings"
           value={form.building}
           onChange={(e) => set('building', e.target.value)}
         />
         <datalist id="supplier-buildings">
-          {BUILDINGS.map((building) => (
+          {buildings.items.map((building) => (
             <option key={building} value={building} />
           ))}
         </datalist>

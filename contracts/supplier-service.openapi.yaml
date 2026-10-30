@@ -25,6 +25,7 @@ info:
     ## Status
     `GET /suppliers` follows SUP-02: lean list items in a page, with search, filters and sorting.
     `GET /suppliers/{supplierId}` returns the full detail view.
+    `GET /buildings` serves the campus building list that `building` is checked against (SUP-05).
   license:
     name: Proprietary
     identifier: LicenseRef-Proprietary
@@ -230,6 +231,30 @@ paths:
         '428': { $ref: '#/components/responses/PreconditionRequired' }
         '503': { $ref: '#/components/responses/IdentityUnavailable' }
 
+  /buildings:
+    get:
+      tags: [Suppliers]
+      operationId: listBuildings
+      summary: List campus buildings (SS-FR1.1.2)
+      description: |
+        The campus buildings a supplier may be in, sorted. A supplier's `building` must be one of
+        them. With `inUse=true`, only the buildings that have at least one active supplier.
+      parameters:
+        - name: inUse
+          in: query
+          description: '`true` narrows the list to buildings in use; an unrecognized value means `false`.'
+          schema: { type: boolean, default: false }
+      responses:
+        '200':
+          description: The building names, sorted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BuildingList' }
+              example: { items: [Central Library, COM2, The Deck] }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/AccountNotActive' }
+        '503': { $ref: '#/components/responses/IdentityUnavailable' }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -366,7 +391,14 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 200 }
         type: { $ref: '#/components/schemas/SupplierType' }
-        building: { type: string, minLength: 1, maxLength: 200 }
+        building:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: >-
+            A campus building from `GET /buildings`, matched ignoring case and spacing and stored in
+            its listed spelling. Any other value is `422 VALIDATION_FAILED`, with `UNKNOWN_BUILDING`
+            on `building`.
         floor: { type: string, minLength: 1, maxLength: 50 }
         locationDescription: { type: string, minLength: 1, maxLength: 500 }
         openingHours:
@@ -421,6 +453,12 @@ components:
         page: { type: integer, minimum: 1 }
         pageSize: { type: integer, minimum: 1, maximum: 100 }
         total: { type: integer, minimum: 0 }
+
+    BuildingList:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { type: string } }
 
     Error:
       type: object
@@ -502,7 +540,7 @@ components:
           example:
             error: { code: NOT_FOUND, message: Supplier not found., correlationId: 5c1f2a9e }
     ValidationFailed:
-      description: Invalid fields (including duplicate active name/building); idempotency key reuse returns IDEMPOTENCY_KEY_REUSED without details.
+      description: Invalid fields (including an unknown building or a duplicate active name/building); idempotency key reuse returns IDEMPOTENCY_KEY_REUSED without details.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }

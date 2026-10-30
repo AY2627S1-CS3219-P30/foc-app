@@ -51,7 +51,7 @@ are `timestamptz` (UTC).
 | `supplier_id`          | uuid PK                         | Stable. Admin creates get a random UUID; seeded rows get a deterministic UUIDv5 (below). |
 | `name`                 | text NOT NULL                   | 1–200 chars.                                                                             |
 | `type`                 | text NOT NULL                   | `CHECK IN ('FOOD','CAFE','PRINTING','SHOPPING','LANDMARK')` — the closed enum.           |
-| `building`             | text NOT NULL                   | Normalized to one canonical spelling per building (below).                                |
+| `building`             | text NOT NULL                   | A campus building, stored in its listed spelling (below).                                |
 | `floor`                | text NOT NULL                   | Text, not int: `1`, `B1`, `G` are all valid.                                             |
 | `location_description` | text NOT NULL                   | 1–500 chars.                                                                             |
 | `opening_hours`        | jsonb NULL                      | `[{ day, opens, closes }]`; see §3.                                                       |
@@ -134,12 +134,14 @@ Normalization (`src/admin/normalize.ts`) maps the messy source onto the schema:
   Unicode apostrophes in "Prince George's Park" collapse to one spelling; a handful
   of others (`innovation4.0`→`Innovation 4.0`, `Blk AS8`→`Block AS8`) are tidied —
   so the building filter shows each building once and the duplicate rule catches
-  real duplicates.
+  real duplicates. Any other spelling resolves onto the campus list
+  (`src/suppliers/campus-buildings.ts`) ignoring case and spacing; the API refuses a
+  building that is not on it with `UNKNOWN_BUILDING`.
 - **Hours:** `0900hrs`→`09:00`, with the all-day and past-midnight handling in §3.
 
 The template CSV has 21 rows; `data/csv/supplier-seed-additions.csv` adds 12 more
 (including the LANDMARK pickup points the template lacks), taking the corpus to 33
-active suppliers across 20 buildings and all five types — past SS-FR4.1.1's floor
+active suppliers across 19 buildings and all five types — past SS-FR4.1.1's floor
 of ≥30 across ≥10 buildings and every type.
 
 ## 5. Traceability
@@ -149,6 +151,7 @@ of ≥30 across ≥10 buildings and every type.
 | Required vs optional enforced by the DB                             | `NOT NULL` columns; nullable optionals                           |
 | Closed `type` enum                                                  | `CHECK (type IN …)`                                              |
 | Case-insensitive name+building duplicate, active only               | `suppliers_name_building_active_key`                             |
+| Building on the campus list (SS-FR1.1.2)                            | `CAMPUS_BUILDINGS`; `UNKNOWN_BUILDING` in `validation.ts`        |
 | Every invalid field returned at once as 422 `VALIDATION_FAILED`     | `src/suppliers/validation.ts` (`parseOrThrow`)                   |
 | Admin-only create/update/deactivate; non-admin → 403                | `@AdminOnly()` (`@foc/auth-client`), read server-side            |
 | Soft deactivation, excluded from lists, resolvable by id            | `active` flag; `listActive` vs `findById`                        |

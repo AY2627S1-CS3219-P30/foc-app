@@ -7,6 +7,7 @@ import {
   validSupplier,
   type TestApp,
 } from './helpers/app.js';
+import { CAMPUS_BUILDINGS } from '../src/suppliers/campus-buildings.js';
 import { supplierListQuerySchema } from '../src/suppliers/validation.js';
 
 let t: TestApp;
@@ -71,7 +72,7 @@ const seed = async (n: number, over: (i: number) => Record<string, unknown> = ()
   for (let i = 0; i < n; i++) {
     const res = await create({
       name: `Stall ${String(i).padStart(2, '0')}`,
-      building: `B${i}`,
+      building: CAMPUS_BUILDINGS[i % CAMPUS_BUILDINGS.length],
       ...over(i),
     });
     created.push(res.body);
@@ -108,7 +109,7 @@ describe('the query schema clamps page and page size (never rejects)', () => {
 
 describe('listing shape and defaults', () => {
   it('returns a lean list item — name, type, building, image only', async () => {
-    await create({ name: 'Only', building: 'COM1' });
+    await create({ name: 'Only', building: 'COM3' });
     const page = await listing();
     expect(page).toMatchObject({ page: 1, pageSize: 20, total: 1 });
     expect(Object.keys(page.items[0]).sort()).toEqual(
@@ -117,13 +118,13 @@ describe('listing shape and defaults', () => {
   });
 
   it('is a 200 empty page when nothing matches, not a 404', async () => {
-    await create({ name: 'Alpha', building: 'COM1', type: 'FOOD' });
+    await create({ name: 'Alpha', building: 'COM3', type: 'FOOD' });
     const page = await listing('?type=PRINTING');
     expect(page).toEqual({ page: 1, pageSize: 20, total: 0, items: [] });
   });
 
   it('keeps the total when the requested page is beyond the last item', async () => {
-    await create({ name: 'Alpha', building: 'COM1' });
+    await create({ name: 'Alpha', building: 'COM3' });
     expect(await listing('?page=2&pageSize=1')).toEqual({
       page: 2,
       pageSize: 1,
@@ -150,8 +151,8 @@ describe('pagination covers the whole set exactly once', () => {
     const high = '00000000-0000-4000-8000-000000000002';
     const low = '00000000-0000-4000-8000-000000000001';
     for (const [building, id] of [
-      ['A', high],
-      ['Z', low],
+      ['Block AS8', high],
+      ['Yusof Ishak House', low],
     ]) {
       const created = await create({ name: 'Cafe', building });
       await t.db.query('UPDATE suppliers SET supplier_id = $1 WHERE supplier_id = $2', [
@@ -166,7 +167,7 @@ describe('pagination covers the whole set exactly once', () => {
 
   it('sorts names case-insensitively', async () => {
     for (const name of ['TOMORO', 'he by He Brews', 'NUS Co-op', 'Nami']) {
-      await create({ name, building: 'COM1' });
+      await create({ name, building: 'COM3' });
     }
     const page = await listing();
     expect(page.items.map((s: { name: string }) => s.name)).toEqual([
@@ -181,7 +182,7 @@ describe('pagination covers the whole set exactly once', () => {
 describe('every sort option orders correctly and is stable across pages', () => {
   const types = ['FOOD', 'CAFE', 'PRINTING', 'SHOPPING', 'LANDMARK'] as const;
   const names = ['kopi a', 'Kopi B', 'KOPI c'];
-  const buildings = ['blk A', 'Blk b', 'BLK C', 'blk D'];
+  const buildings = ['COM2', 'Central Library', 'COM3', 'Block AS8'];
   const updatedAt = (i: number) => `2026-01-0${1 + (i % 2)}T00:00:00.000Z`;
   let all: Listed[];
 
@@ -222,8 +223,8 @@ describe('every sort option orders correctly and is stable across pages', () => 
 
 describe('filters', () => {
   beforeEach(async () => {
-    await create({ name: 'Food One', building: 'COM1', type: 'FOOD' });
-    await create({ name: 'Cafe One', building: 'COM1', type: 'CAFE' });
+    await create({ name: 'Food One', building: 'COM3', type: 'FOOD' });
+    await create({ name: 'Cafe One', building: 'COM3', type: 'CAFE' });
     await create({ name: 'Food Two', building: 'COM2', type: 'FOOD' });
   });
 
@@ -237,9 +238,9 @@ describe('filters', () => {
   });
 
   it('filters by building, case-insensitively and via the same normalization as create', async () => {
-    const page = await listing('?building=com1');
+    const page = await listing('?building=com3');
     expect(page.total).toBe(2);
-    expect(page.items.every((s: { building: string }) => s.building === 'COM1')).toBe(true);
+    expect(page.items.every((s: { building: string }) => s.building === 'COM3')).toBe(true);
   });
 
   it('combines type and building filters', async () => {
@@ -251,38 +252,38 @@ describe('filters', () => {
 
 describe('search is case-insensitive across all four fields', () => {
   beforeEach(async () => {
-    await create({ name: 'Zebra Kitchen', building: 'COM1', locationDescription: 'ground floor' });
-    await create({ name: 'Plain Stall', building: 'Zebra Hall', locationDescription: 'level 2' });
+    await create({ name: 'Deck Kitchen', building: 'COM3', locationDescription: 'ground floor' });
+    await create({ name: 'Plain Stall', building: 'The Deck', locationDescription: 'level 2' });
     await create({
       name: 'Quiet Nook',
       building: 'COM2',
-      locationDescription: 'behind the zebra mural',
+      locationDescription: 'behind the deck chairs',
     });
     await create({
       name: 'Tagged Spot',
       building: 'COM3',
       locationDescription: 'level 1',
-      tags: ['zebra-friendly'],
+      tags: ['deck-friendly'],
     });
     await create({
       name: 'Unrelated',
-      building: 'UTown',
+      building: 'University Town',
       locationDescription: 'nothing here',
       tags: ['halal'],
     });
-    await create({ name: '100% Juice', building: 'COM1' });
-    await create({ name: 'Snack_Bar', building: 'COM1' });
-    await create({ name: 'Back\\Slash', building: 'COM1' });
+    await create({ name: '100% Juice', building: 'COM3' });
+    await create({ name: 'Snack_Bar', building: 'COM3' });
+    await create({ name: 'Back\\Slash', building: 'COM3' });
   });
 
   it('matches the term in name, building, location description or tags', async () => {
-    const page = await listing('?q=ZEBRA');
+    const page = await listing('?q=DECK');
     expect(page.total).toBe(4);
     expect(page.items.map((s: { name: string }) => s.name).sort()).toEqual([
+      'Deck Kitchen',
       'Plain Stall',
       'Quiet Nook',
       'Tagged Spot',
-      'Zebra Kitchen',
     ]);
   });
 
@@ -308,14 +309,14 @@ describe('search is case-insensitive across all four fields', () => {
   });
 
   it('does not match a search term across separate tags', async () => {
-    await create({ name: 'Split Tags', building: 'COM4', tags: ['halal', 'cheap'] });
+    await create({ name: 'Split Tags', building: 'COM3', tags: ['halal', 'cheap'] });
     expect((await listing('?q=halal%0Acheap')).total).toBe(0);
   });
 });
 
 describe('inactive suppliers', () => {
   it('are excluded from the listing but stay fetchable by id', async () => {
-    const s = (await create({ name: 'Gone Soon', building: 'COM1' })).body;
+    const s = (await create({ name: 'Gone Soon', building: 'COM3' })).body;
     await http(t)
       .delete(`/suppliers/${s.supplierId}`)
       .set('Authorization', asAdmin)
