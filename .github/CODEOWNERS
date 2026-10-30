@@ -7,11 +7,12 @@
 # Anything no line below names, a new root file included, so no change goes unreviewed
 *                    @jonushzw
 
-# The four services, each by its owner
+# The five services, each by its owner (chat by N1.2's three)
 /user-service/       @anselmlong
 /supplier-service/   @pastchum
 /order-service/      @volleyballkickedme
 /credit-service/     @isaacchua0309
+/chat-service/       @pastchum @volleyballkickedme @anselmlong
 
 # The web app, and the admin console inside it
 /web-app/                      @pastchum
@@ -23,6 +24,7 @@
 /contracts/supplier-service.openapi.yaml  @pastchum
 /contracts/order-service.openapi.yaml     @volleyballkickedme
 /contracts/credit-service.openapi.yaml    @isaacchua0309
+/contracts/chat-service.openapi.yaml      @pastchum @volleyballkickedme @anselmlong
 /contracts/events.schema.json             @jonushzw @isaacchua0309
 
 # Shared code and tests

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const helper = fileURLToPath(new URL('../../scripts-recovery.py', import.meta.url));
-const databases = ['foc_user', 'foc_supplier', 'foc_order', 'foc_credit'];
+const databases = ['foc_user', 'foc_supplier', 'foc_order', 'foc_credit', 'foc_chat'];
 
 describe('backup bundle integrity before restore (PLT-09)', () => {
   let bundle: string;
@@ -29,7 +29,7 @@ describe('backup bundle integrity before restore (PLT-09)', () => {
   const save = () => writeFileSync(join(bundle, 'manifest.json'), JSON.stringify(manifest));
   const verify = () => spawnSync('python3', [helper, 'verify', bundle], { encoding: 'utf8' });
 
-  it('accepts all four independently checksummed custom-format dumps', () => {
+  it('accepts all five independently checksummed custom-format dumps', () => {
     const result = verify();
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
@@ -41,7 +41,18 @@ describe('backup bundle integrity before restore (PLT-09)', () => {
     expect(verify().status).toBe(1);
     delete manifest.databases.foc_order;
     save();
-    expect(verify().stderr).toContain('exactly the four service databases');
+    expect(verify().stderr).toContain('exactly the five service databases');
+    expect(verify().stderr).not.toContain('before the Chat Service');
+  });
+
+  it('refuses a backup from before the Chat Service, and says which release restores it', () => {
+    delete manifest.databases.foc_chat;
+    save();
+    const result = verify();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      'a backup from before the Chat Service is restored with the release that made it',
+    );
   });
 
   it('refuses a non-custom archive even if its checksum matches', () => {

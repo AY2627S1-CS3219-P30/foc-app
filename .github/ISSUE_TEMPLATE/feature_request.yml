@@ -30,6 +30,7 @@ body:
         - supplier-service
         - order-service
         - credit-service
+        - chat-service
         - New N2H service
         - Cross-service / integration
         - Repo-level (docs, CI, compose, tooling)

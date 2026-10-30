@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# A quiescent four-database backup outside Docker volumes; output is a private timestamped bundle.
+# A quiescent five-database backup outside Docker volumes; output is a private timestamped bundle.
 # Usage: ./scripts-backup.sh [--leave-stopped] [BACKUP_PARENT]
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -15,7 +15,7 @@ mkdir -p "$parent"
 bundle=$(mktemp -d "$parent/$(date -u +%Y%m%dT%H%M%SZ)-XXXXXX")
 running=()
 while IFS= read -r service; do
-  [[ "$service" =~ ^(edge|web-app|user-service|supplier-service|order-service|credit-service)$ ]] && running+=("$service")
+  [[ "$service" =~ ^(edge|web-app|user-service|supplier-service|order-service|credit-service|chat-service)$ ]] && running+=("$service")
 done < <(docker compose ps --status running --services)
 stopped=0
 complete=0
@@ -42,11 +42,11 @@ until recovery_drained; do
   fi
   sleep 2
 done
-docker compose stop user-service supplier-service order-service credit-service >&2
+docker compose stop user-service supplier-service order-service credit-service chat-service >&2
 recovery_apps_stopped
 recovery_drained || { recovery_error 'Messages appeared while stopping writers; retry in an exclusive maintenance window.'; exit 1; }
 
-for db in foc_user foc_supplier foc_order foc_credit; do
+for db in foc_user foc_supplier foc_order foc_credit foc_chat; do
   # The container-local socket uses the existing Postgres identity; no password in argv or names.
   docker compose exec -T postgres sh -ec 'exec pg_dump -U "$POSTGRES_USER" --format=custom --no-owner --no-acl "$1"' -- "$db" >"$bundle/$db.dump"
 done

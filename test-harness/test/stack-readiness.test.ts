@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 /**
  * PLT-13 (#289) — the stack is ready only when every page can work. The edge answers
  * `GET /edge/ready` from `edge/readiness.js`, which nginx runs (njs): 200 while the web app and
- * all four services answer their health checks, 503 naming each that does not. The handler is
+ * all five services answer their health checks, 503 naming each that does not. The handler is
  * run here against stand-in upstreams; `scripts-smoke.sh` stops a real service and watches it.
  */
 const ROOT = resolve(import.meta.dirname, '../..');
@@ -27,6 +27,7 @@ const UPSTREAMS = {
   'supplier-service': 'http://supplier-service:3002/health',
   'order-service': 'http://order-service:3003/health',
   'credit-service': 'http://credit-service:3004/health',
+  'chat-service': 'http://chat-service:3006/health',
 };
 
 describe('the stack’s readiness (PLT-13)', () => {

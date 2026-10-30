@@ -17,6 +17,7 @@ USER_PORT="${USER_SERVICE_PORT:-3001}"
 SUPPLIER_PORT="${SUPPLIER_SERVICE_PORT:-3002}"
 ORDER_PORT="${ORDER_SERVICE_PORT:-3003}"
 CREDIT_PORT="${CREDIT_SERVICE_PORT:-3004}"
+CHAT_PORT="${CHAT_SERVICE_PORT:-3006}"
 PROMETHEUS="http://localhost:${PROMETHEUS_PORT:-9090}"
 GRAFANA="http://localhost:${GRAFANA_PORT:-3005}"
 DEADLINE="${SMOKE_DEADLINE_SECONDS:-90}"
@@ -95,7 +96,7 @@ pass "stack healthy in ${ELAPSED}s (limit ${DEADLINE}s)"
 
 # ---- every service answers /health with its own identity --------------------
 for pair in "user-service:$USER_PORT" "supplier-service:$SUPPLIER_PORT" \
-  "order-service:$ORDER_PORT" "credit-service:$CREDIT_PORT"; do
+  "order-service:$ORDER_PORT" "credit-service:$CREDIT_PORT" "chat-service:$CHAT_PORT"; do
   name="${pair%%:*}"
   port="${pair##*:}"
   body=$(curl -fsS "http://localhost:${port}/health" 2>/dev/null || echo '{}')
@@ -112,7 +113,7 @@ done
 
 # ---- the browser can actually call them -------------------------------------
 for pair in "user-service:$USER_PORT" "supplier-service:$SUPPLIER_PORT" \
-  "order-service:$ORDER_PORT" "credit-service:$CREDIT_PORT"; do
+  "order-service:$ORDER_PORT" "credit-service:$CREDIT_PORT" "chat-service:$CHAT_PORT"; do
   name="${pair%%:*}"
   port="${pair##*:}"
   allow=$(curl -fsS -o /dev/null -D - "http://localhost:${port}/health" \
@@ -135,7 +136,7 @@ echoed=$(curl -fsS -o /dev/null -D - "http://localhost:${USER_PORT}/health" \
 
 # ---- each service reaches only its own database -----------------------------
 for pair in "user_service:foc_user" "supplier_service:foc_supplier" \
-  "order_service:foc_order" "credit_service:foc_credit"; do
+  "order_service:foc_order" "credit_service:foc_credit" "chat_service:foc_chat"; do
   role="${pair%%:*}"
   db="${pair##*:}"
   if docker compose exec -T postgres psql -U "$role" -d "$db" -c 'SELECT 1' >/dev/null 2>&1; then
@@ -144,11 +145,15 @@ for pair in "user_service:foc_user" "supplier_service:foc_supplier" \
     fail "$role cannot reach its own database $db"
   fi
 done
-if docker compose exec -T postgres psql -U user_service -d foc_credit -c 'SELECT 1' >/dev/null 2>&1; then
-  fail "user_service can reach foc_credit — databases are NOT isolated"
-else
-  pass "user_service is denied another service's database"
-fi
+for pair in "user_service:foc_credit" "chat_service:foc_order"; do
+  role="${pair%%:*}"
+  db="${pair##*:}"
+  if docker compose exec -T postgres psql -U "$role" -d "$db" -c 'SELECT 1' >/dev/null 2>&1; then
+    fail "$role can reach $db — databases are NOT isolated"
+  else
+    pass "$role is denied another service's database"
+  fi
+done
 
 # ---- the broker topology exists ---------------------------------------------
 # Delay (retry) exchanges are namespaced per service, so two services can tune
@@ -264,7 +269,8 @@ health=$(curl -fsS "$EDGE/edge/health" 2>/dev/null | tr -d '\n' || true)
 [[ "$health" == "ok" ]] && pass "the edge answers its health check" || fail "the edge's health check said '${health:-nothing}'"
 
 # Each service under its prefix, which comes off on the way.
-for pair in "user:user-service" "supplier:supplier-service" "order:order-service" "credit:credit-service"; do
+for pair in "user:user-service" "supplier:supplier-service" "order:order-service" "credit:credit-service" \
+  "chat:chat-service"; do
   prefix="${pair%%:*}"
   name="${pair##*:}"
   seen=$(curl -fsS "$EDGE/api/$prefix/health" 2>/dev/null | json_field service || true)
@@ -297,7 +303,8 @@ done
 edge_port=$(docker compose port edge 8080 2>/dev/null | tr -d '\r' || true)
 [[ "$edge_port" == "0.0.0.0:${WEB_PORT}" ]] && pass "the edge is published on every interface ($edge_port)" ||
   fail "the edge is published on '${edge_port:-nothing}'"
-for pair in "user-service:3001" "supplier-service:3002" "order-service:3003" "credit-service:3004"; do
+for pair in "user-service:3001" "supplier-service:3002" "order-service:3003" "credit-service:3004" \
+  "chat-service:3006"; do
   bound=$(docker compose port "${pair%%:*}" "${pair##*:}" 2>/dev/null | tr -d '\r' || true)
   [[ "$bound" == 127.0.0.1:* ]] && pass "${pair%%:*} is published on this machine only ($bound)" ||
     fail "${pair%%:*} is published on '${bound:-nothing}'"
@@ -406,7 +413,7 @@ rm -rf "$live_dir"
 # ---- metrics reach the dashboard (PLT-04) ------------------------------------
 METRICS_AUTH="Authorization: Bearer ${METRICS_TOKEN:?}"
 for pair in "user-service:$USER_PORT" "supplier-service:$SUPPLIER_PORT" \
-  "order-service:$ORDER_PORT" "credit-service:$CREDIT_PORT"; do
+  "order-service:$ORDER_PORT" "credit-service:$CREDIT_PORT" "chat-service:$CHAT_PORT"; do
   name="${pair%%:*}"
   port="${pair##*:}"
   # Read whole before it is searched: `grep -q` stops at the first match, and once a service's
@@ -424,16 +431,16 @@ for pair in "user-service:$USER_PORT" "supplier-service:$SUPPLIER_PORT" \
 done
 
 # Prometheus scrapes every 15 s, so a fresh stack may not have reached every
-# target yet: wait up to 45 s for all five (four services and RabbitMQ).
+# target yet: wait up to 45 s for all six (five services and RabbitMQ).
 up=0
 for _ in $(seq 1 45); do
   up=$(curl -fsS "${PROMETHEUS}/api/v1/targets?state=active" 2>/dev/null |
     python3 -c 'import sys,json; print(sum(t["health"] == "up" for t in json.load(sys.stdin)["data"]["activeTargets"]))' \
       2>/dev/null) || up=0
-  [[ "$up" == "5" ]] && break
+  [[ "$up" == "6" ]] && break
   sleep 1
 done
-[[ "$up" == "5" ]] && pass "Prometheus scrapes all 5 targets" || fail "Prometheus has ${up:-0} of 5 targets up"
+[[ "$up" == "6" ]] && pass "Prometheus scrapes all 6 targets" || fail "Prometheus has ${up:-0} of 6 targets up"
 
 queues=$(curl -fsS "${PROMETHEUS}/api/v1/query" --data-urlencode 'query=count(rabbitmq_detailed_queue_messages)' \
   2>/dev/null | python3 -c 'import sys,json; r=json.load(sys.stdin)["data"]["result"]; print(r[0]["value"][1] if r else 0)' \
@@ -511,11 +518,18 @@ published=$(docker compose port user-service 4001 2>/dev/null | tr -d '\r' || tr
 inside=$(docker compose exec -T order-service node -e "fetch('http://user-service:4001/internal/introspect').then((r) => console.log(r.status), () => console.log('unreachable'))" 2>/dev/null | tr -d '\r' | tail -1 || true)
 [[ "$inside" =~ ^[0-9]+$ && "$inside" != "404" ]] && pass "the Order Service reaches the User Service's internal routes ($inside without a key)" ||
   fail "from the Order Service, /internal/introspect was '${inside:-not tried}'"
+# The Chat Service reaches the User and Order Services there too (ADR 0012): introspection, and the
+# Order Service's internal port, where #162 adds the chat lookup.
+for target in user-service:4001/internal/introspect order-service:4003/health; do
+  inside=$(docker compose exec -T chat-service node -e "fetch('http://$target').then((r) => console.log(r.status), () => console.log('unreachable'))" 2>/dev/null | tr -d '\r' | tail -1 || true)
+  [[ "$inside" =~ ^[0-9]+$ && "$inside" != "404" ]] && pass "the Chat Service reaches $target ($inside)" ||
+    fail "from the Chat Service, $target was '${inside:-not tried}'"
+done
 
 # The web app's container shares a network with the edge alone: it has no route to the
 # database, the broker, or any service, internal port or public.
 for target in postgres:5432 rabbitmq:5672 user-service:4001 supplier-service:4002 order-service:4003 \
-  credit-service:4004 user-service:3001; do
+  credit-service:4004 chat-service:4005 user-service:3001; do
   reach=$(docker compose exec -T web-app node -e "
 const [host, port] = process.argv[1].split(':');
 const s = require('net').connect({ host, port: Number(port), timeout: 2000 });
@@ -559,9 +573,12 @@ said=$(broker_says order-service "ch.publish('foc.events', 'order.smoke-probe', 
 said=$(broker_says supplier-service "ch.publish('foc.events', 'supplier.anything', Buffer.from('{}'))")
 [[ "$said" == "refused" ]] && pass "the Supplier Service, which publishes nothing, may publish nothing" ||
   fail "a publish by the Supplier Service was '${said:-not tried}'"
+said=$(broker_says chat-service "ch.publish('foc.events', 'chat.anything', Buffer.from('{}'))")
+[[ "$said" == "refused" ]] && pass "the Chat Service, which publishes nothing, may publish nothing" ||
+  fail "a publish by the Chat Service was '${said:-not tried}'"
 
 # ---- the stack's readiness (PLT-13) ------------------------------------------
-# /edge/ready answers 200 only while the web app and all four services answer their health
+# /edge/ready answers 200 only while the web app and all five services answer their health
 # checks, and names each that does not. Last, as it takes a service away and brings it back.
 ready_code() { curl -s -o /dev/null -w '%{http_code}' "$EDGE/edge/ready" 2>/dev/null || echo 000; }
 ready_down() { curl -s "$EDGE/edge/ready" 2>/dev/null | python3 -c 'import sys,json;print(",".join(json.load(sys.stdin)["down"]))' 2>/dev/null || true; }

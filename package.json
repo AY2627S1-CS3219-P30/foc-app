@@ -13,6 +13,7 @@
     "supplier-service",
     "order-service",
     "credit-service",
+    "chat-service",
     "system-tests"
   ],
   "scripts": {
@@ -30,6 +31,7 @@
     "dev:supplier": "npm run dev -w supplier-service",
     "dev:order": "npm run dev -w order-service",
     "dev:credit": "npm run dev -w credit-service",
+    "dev:chat": "npm run dev -w chat-service",
     "report:conservation": "docker compose up -d --wait postgres rabbitmq && set -a && . ./.env && set +a && TEST_POSTGRES_URL=$HOST_POSTGRES_URL RABBITMQ_URL=$HOST_RABBITMQ_URL npm run load -w @foc/system-tests"
   },
   "devDependencies": {

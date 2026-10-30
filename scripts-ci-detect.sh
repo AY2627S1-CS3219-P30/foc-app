@@ -9,11 +9,11 @@
 set -euo pipefail
 
 # Shared code and root configuration can break any service, so a change to any
-# of these fans out to all four. test-harness/ holds every service's shared test
+# of these fans out to all five. test-harness/ holds every service's shared test
 # fixtures and contract checks, so it fans out too; it is never in an image.
 # system-tests/ runs the real service code together, so it fans out the same way.
 SHARED_RE='^(platform/|test-harness/|system-tests/|package\.json|package-lock\.json|tsconfig\.base\.json|eslint\.config\.mjs|\.prettierrc|\.prettierignore|\.github/workflows/ci\.yml|\.github/actions/|\.nvmrc|scripts-scan-vulnerabilities\.sh|scripts-coverage-summary\.sh)'
-SERVICE_RE='^(user|supplier|order|credit)-service/'
+SERVICE_RE='^(user|supplier|order|credit|chat)-service/'
 # What the web-app job reads: the app, the contracts its API types are generated from, and what
 # it builds and scans its image with (the generated .env, compose.yaml, the scan, this workflow).
 WEB_RE='^(web-app/|contracts/|compose\.yaml|\.env\.example|scripts-(init-env|scan-vulnerabilities)\.sh|\.github/workflows/ci\.yml|\.github/actions/)'
@@ -56,7 +56,7 @@ detect() {
     shared=true
   fi
 
-  for svc in user-service supplier-service order-service credit-service; do
+  for svc in user-service supplier-service order-service credit-service chat-service; do
     if [[ "$shared" == "true" ]] || matches "^${svc}/"; then
       services+=("\"${svc}\"")
     fi
@@ -112,11 +112,11 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "one service -> node runs"              "supplier-service/src/app.module.ts" 'node=true'
   check "one service -> web skipped"            "supplier-service/src/app.module.ts" 'web=false'
   check "one service -> stack skipped"          "supplier-service/src/app.module.ts" 'stack=false'
-  check "platform -> all four services"         "platform/src/env.ts" 'services=["user-service","supplier-service","order-service","credit-service"]'
+  check "platform -> all five services"         "platform/src/env.ts" 'services=["user-service","supplier-service","order-service","credit-service","chat-service"]'
   check "platform -> stack runs"                "platform/src/env.ts" 'stack=true'
-  check "root config -> all four services"      "tsconfig.base.json" 'services=["user-service","supplier-service","order-service","credit-service"]'
-  check "lockfile -> all four services"         "package-lock.json" 'services=["user-service","supplier-service","order-service","credit-service"]'
-  check "vulnerability scan -> all four services" "scripts-scan-vulnerabilities.sh" 'services=["user-service","supplier-service","order-service","credit-service"]'
+  check "root config -> all five services"      "tsconfig.base.json" 'services=["user-service","supplier-service","order-service","credit-service","chat-service"]'
+  check "lockfile -> all five services"         "package-lock.json" 'services=["user-service","supplier-service","order-service","credit-service","chat-service"]'
+  check "vulnerability scan -> all five services" "scripts-scan-vulnerabilities.sh" 'services=["user-service","supplier-service","order-service","credit-service","chat-service"]'
   check "web only -> no services"               "web-app/src/app/page.tsx" 'services=[]'
   check "web only -> web runs"                  "web-app/src/app/page.tsx" 'web=true'
   check "web only -> node skipped"              "web-app/src/app/page.tsx" 'node=false'
@@ -154,11 +154,12 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "compose -> web runs"                   "compose.yaml" 'web=true'
   check "this workflow -> web runs"             ".github/workflows/ci.yml" 'web=true'
   check "dev override -> web skipped"           "compose.dev.yaml" 'web=false'
-  check "a CI action -> all four"               ".github/actions/trivy-db/action.yml" 'services=["user-service","supplier-service","order-service","credit-service"]'
+  check "a CI action -> all five"               ".github/actions/trivy-db/action.yml" 'services=["user-service","supplier-service","order-service","credit-service","chat-service"]'
   check "a CI action -> web runs"               ".github/actions/trivy-db/action.yml" 'web=true'
+  check "chat service -> only that service"     "chat-service/src/app.module.ts" 'services=["chat-service"]'
   check "two services -> both"                  "$(printf 'user-service/src/a.ts\ncredit-service/src/b.ts')" 'services=["user-service","credit-service"]'
   check "mixed web + service"                   "$(printf 'web-app/x.tsx\norder-service/src/y.ts')" 'services=["order-service"]'
-  check "this workflow -> all four"             ".github/workflows/ci.yml" 'services=["user-service","supplier-service","order-service","credit-service"]'
+  check "this workflow -> all five"             ".github/workflows/ci.yml" 'services=["user-service","supplier-service","order-service","credit-service","chat-service"]'
   check "another workflow -> nothing"           ".github/workflows/release.yml" 'services=[]'
   check "issue template -> nothing"             ".github/ISSUE_TEMPLATE/config.yml" 'node=false'
   check "docs PDF -> nothing"                   "docs/CS3219-Instructions-MilestoneD2.pdf" 'node=false'
@@ -174,12 +175,12 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "credit walkthrough -> stack runs"      "scripts-demo-credits.sh" 'stack=true'
   check "credit walkthrough -> no services"     "scripts-demo-credits.sh" 'services=[]'
   check "observability -> no services"          "observability/grafana/dashboards/foc-platform.json" 'services=[]'
-  check "new package -> all four services"      "auth-client/src/token-verifier.ts" 'services=["user-service","supplier-service","order-service","credit-service"]'
+  check "new package -> all five services"      "auth-client/src/token-verifier.ts" 'services=["user-service","supplier-service","order-service","credit-service","chat-service"]'
   check "new package -> node runs"              "auth-client/src/token-verifier.ts" 'node=true'
   check "new package -> stack runs"             "auth-client/src/token-verifier.ts" 'stack=true'
-  check "seed data -> all four services"        "data/csv/supplier-seed-data.csv" 'services=["user-service","supplier-service","order-service","credit-service"]'
-  check "unrecognised + service -> all four"    "$(printf 'supplier-service/src/a.ts\ncontracts/x.yaml')" 'services=["user-service","supplier-service","order-service","credit-service"]'
-  check "test harness -> all four services"     "test-harness/src/compat.ts" 'services=["user-service","supplier-service","order-service","credit-service"]'
+  check "seed data -> all five services"        "data/csv/supplier-seed-data.csv" 'services=["user-service","supplier-service","order-service","credit-service","chat-service"]'
+  check "unrecognised + service -> all five"    "$(printf 'supplier-service/src/a.ts\ncontracts/x.yaml')" 'services=["user-service","supplier-service","order-service","credit-service","chat-service"]'
+  check "test harness -> all five services"     "test-harness/src/compat.ts" 'services=["user-service","supplier-service","order-service","credit-service","chat-service"]'
   check "test harness -> stack skipped"         "test-harness/src/compat.ts" 'stack=false'
   check "system tests -> node runs"             "system-tests/test/reconciliation.test.ts" 'node=true'
   check "docs + service -> only that service"   "$(printf 'docs/notes.md\norder-service/src/y.ts')" 'services=["order-service"]'

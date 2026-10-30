@@ -142,6 +142,7 @@ const APPLICATION = [
   'supplier-service',
   'order-service',
   'credit-service',
+  'chat-service',
 ] as const;
 
 describe('one broker account per service (PLT-06)', () => {
@@ -165,7 +166,7 @@ describe('one broker account per service (PLT-06)', () => {
     expect(broker.entrypoint?.join(' ')).toContain('rabbitmq-init.sh');
     expect(broker.volumes?.some((v) => v.startsWith('./rabbitmq-init.sh:'))).toBe(true);
     expect(broker.healthcheck!.test.join(' ')).toContain('foc-broker-accounts-ready');
-    for (const prefix of ['USER', 'SUPPLIER', 'ORDER', 'CREDIT']) {
+    for (const prefix of ['USER', 'SUPPLIER', 'ORDER', 'CREDIT', 'CHAT']) {
       expect(broker.environment).toHaveProperty(`${prefix}_BROKER_PASSWORD`);
     }
   });
@@ -185,6 +186,7 @@ describe('one broker account per service (PLT-06)', () => {
       ['supplier-service', 'supplier'],
       ['order-service', 'order'],
       ['credit-service', 'credit'],
+      ['chat-service', 'chat'],
     ]) {
       expect(script, name).toMatch(new RegExp(String.raw`account ${name} \S+ ${short} `));
     }
@@ -257,7 +259,7 @@ describe('containers get only what they need (PL-NFR2.1.2)', () => {
       expect(service.ports![0], name).not.toContain(internal);
     });
     // Introspection and Credit's status are /internal/** routes: reachable on that port only.
-    for (const caller of ['supplier-service', 'order-service', 'credit-service']) {
+    for (const caller of ['supplier-service', 'order-service', 'credit-service', 'chat-service']) {
       expect(services[caller]!.environment!.USER_SERVICE_URL).toBe('http://user-service:4001');
     }
     expect(services['order-service']!.environment!.CREDIT_SERVICE_URL).toBe(
@@ -307,6 +309,7 @@ describe('the edge (PLT-10)', () => {
     supplier: 'supplier-service:3002',
     order: 'order-service:3003',
     credit: 'credit-service:3004',
+    chat: 'chat-service:3006',
   };
 
   it('publishes the only port beyond this machine: every other is on 127.0.0.1', () => {
@@ -497,14 +500,20 @@ describe('scripts-init-env.sh', () => {
     expect(pem).toContain('-----BEGIN PRIVATE KEY-----');
   });
 
-  it('gives the User Service every caller’s key, and Credit only the Order Service’s', () => {
+  it('gives the User Service every caller’s key, Credit only the Order Service’s, and Order only Chat’s', () => {
     const { run, env } = sandbox();
     run();
     const v = env();
     expect(v.INTERNAL_SERVICE_KEYS).toBe(
-      [v.SUPPLIER_INTERNAL_KEY, v.ORDER_INTERNAL_KEY, v.CREDIT_INTERNAL_KEY].join(','),
+      [
+        v.SUPPLIER_INTERNAL_KEY,
+        v.ORDER_INTERNAL_KEY,
+        v.CREDIT_INTERNAL_KEY,
+        v.CHAT_INTERNAL_KEY,
+      ].join(','),
     );
     expect(v.CREDIT_INBOUND_SERVICE_KEYS).toBe(v.ORDER_INTERNAL_KEY);
+    expect(v.ORDER_INBOUND_SERVICE_KEYS).toBe(v.CHAT_INTERNAL_KEY);
   });
 
   it('adds what is missing and leaves existing values alone', () => {

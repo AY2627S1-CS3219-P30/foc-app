@@ -50,12 +50,13 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run ./scripts-init-env.sh}
       POSTGRES_DB: postgres
-      # The four service roles' passwords, read by postgres-init.sh on first boot.
+      # The five service roles' passwords, read by postgres-init.sh on first boot.
       USER_DB_PASSWORD: ${USER_DB_PASSWORD:?run ./scripts-init-env.sh}
       SUPPLIER_DB_PASSWORD: ${SUPPLIER_DB_PASSWORD:?run ./scripts-init-env.sh}
       ORDER_DB_PASSWORD: ${ORDER_DB_PASSWORD:?run ./scripts-init-env.sh}
       CREDIT_DB_PASSWORD: ${CREDIT_DB_PASSWORD:?run ./scripts-init-env.sh}
-    # One server, four databases, four roles — see postgres-init.sh for why.
+      CHAT_DB_PASSWORD: ${CHAT_DB_PASSWORD:?run ./scripts-init-env.sh}
+    # One server, five databases, five roles — see postgres-init.sh for why.
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres-init.sh:/docker-entrypoint-initdb.d/10-init.sh:ro
@@ -89,6 +90,7 @@ services:
       SUPPLIER_BROKER_PASSWORD: ${SUPPLIER_BROKER_PASSWORD:?run ./scripts-init-env.sh}
       ORDER_BROKER_PASSWORD: ${ORDER_BROKER_PASSWORD:?run ./scripts-init-env.sh}
       CREDIT_BROKER_PASSWORD: ${CREDIT_BROKER_PASSWORD:?run ./scripts-init-env.sh}
+      CHAT_BROKER_PASSWORD: ${CHAT_BROKER_PASSWORD:?run ./scripts-init-env.sh}
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
       - ./rabbitmq-init.sh:/usr/local/bin/foc-rabbitmq-init.sh:ro
@@ -109,8 +111,8 @@ services:
     networks: [broker, local]
 
   # ---- services -------------------------------------------------------------
-  # Supplier, Order and Credit consume events (Credit: wallet provisioning; all
-  # three: identity changes for their auth cache, USR-07), so they wait for
+  # Supplier, Order, Credit and Chat consume events (Credit: wallet provisioning;
+  # all four: identity changes for their auth cache, USR-07), so they wait for
   # rabbitmq as well as postgres. Give any other service the same dependency in
   # the ticket that makes it consume.
   # Migrations run as a discrete step, never at service boot: a one-shot that
@@ -240,6 +242,9 @@ services:
       RECONCILE_RETRY_MS: ${ORDER_RECONCILE_RETRY_MS:-300000}
       # N1.4 (#329): `false` refuses every live-update stream, and every page polls as before.
       LIVE_UPDATES_ENABLED: ${ORDER_LIVE_UPDATES_ENABLED:-true}
+      # Inbound /internal/** callers, for the chat lookup #162 adds: the Chat Service's key and no
+      # other (ADR 0012).
+      INTERNAL_SERVICE_KEYS: ${ORDER_INBOUND_SERVICE_KEYS:?run ./scripts-init-env.sh}
     ports: ['127.0.0.1:${ORDER_SERVICE_PORT:-3003}:3003']
     depends_on:
       <<: *consumer-deps
@@ -285,6 +290,43 @@ services:
       credit-service-migrate:
         condition: service_completed_successfully
 
+  chat-service-migrate:
+    build: { context: ., dockerfile: chat-service/Dockerfile }
+    command: ['node', 'chat-service/dist/db/migrate.js']
+    restart: 'no'
+    environment:
+      DATABASE_URL: postgres://chat_service:${CHAT_DB_PASSWORD:?run ./scripts-init-env.sh}@postgres:5432/foc_chat
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [db]
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+
+  # N1.2 participant chat (ADR 0012). It asks the User and Order Services on their internal
+  # ports; nothing calls it but the edge, and it publishes no event.
+  chat-service:
+    <<: *service-base
+    build: { context: ., dockerfile: chat-service/Dockerfile }
+    environment:
+      <<: *service-env
+      SERVICE_NAME: chat-service
+      # Its own broker account: it publishes nothing and reads only its own queues.
+      RABBITMQ_URL: amqp://chat-service:${CHAT_BROKER_PASSWORD:?run ./scripts-init-env.sh}@rabbitmq:5672
+      PORT: 3006
+      # Serves no /internal/** route; set so the public port would hide one.
+      INTERNAL_PORT: 4005
+      DATABASE_URL: postgres://chat_service:${CHAT_DB_PASSWORD:?run ./scripts-init-env.sh}@postgres:5432/foc_chat
+      # Verifies callers through the User Service (@foc/auth-client), with its own key, which the
+      # User Service accepts, as will the Order Service's chat lookup (#162).
+      USER_SERVICE_URL: http://user-service:4001
+      INTERNAL_SERVICE_KEY: ${CHAT_INTERNAL_KEY:?run ./scripts-init-env.sh}
+    ports: ['127.0.0.1:${CHAT_SERVICE_PORT:-3006}:3006']
+    depends_on:
+      <<: *consumer-deps
+      chat-service-migrate:
+        condition: service_completed_successfully
+
   # ---- web ------------------------------------------------------------------
   web-app:
     build:
@@ -305,7 +347,8 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-    # Every page needs one service or another, so it starts once all four are healthy (PLT-13).
+    # Every page needs one of these four, so it starts once all four are healthy (PLT-13). Not
+    # chat: no page needs it to load, and the web app keeps working without it (ADR 0012).
     depends_on:
       user-service: { condition: service_healthy }
       supplier-service: { condition: service_healthy }
@@ -353,7 +396,7 @@ services:
     ports: ['${WEB_APP_PORT:-3000}:8080']
     depends_on:
       web-app: { condition: service_started }
-    # Healthy means ready: the web app and all four services answer (PLT-13), so `up --wait` and
+    # Healthy means ready: the web app and all five services answer (PLT-13), so `up --wait` and
     # the scripts' wait end when every page can work. A service lost for a minute turns it
     # unhealthy; /edge/ready names it at once. The minute lets services be recreated under a
     # running edge, as a second `up --build` does, without `--wait` failing on the edge while
@@ -440,11 +483,11 @@ configs:
 # The six networks containers talk to each other on are `internal`: they have
 # no route out, and no port can be published through them.
 #
-#   db             postgres       <- the four services and their migrate jobs
-#   broker         rabbitmq       <- the four services; Prometheus, for queue depths
+#   db             postgres       <- the five services and their migrate jobs
+#   broker         rabbitmq       <- the five services; Prometheus, for queue depths
 #   services       service <-> service on the internal ports; Prometheus scrapes here
 #   mail           mailpit's SMTP port <- the User Service
-#   gateway        the edge -> the four services' public ports
+#   gateway        the edge -> the five services' public ports
 #   web            the edge -> the web app, which is on no other network
 #
 # Publishing a port needs an ordinary network, and a container must have exactly
@@ -452,7 +495,7 @@ configs:
 # the other, and the port then never answers from the host.
 #
 #   edge           the edge alone: how the browser's one origin reaches this machine
-#   public         the four services: how ports 3001-3004 reach 127.0.0.1, for the scripts
+#   public         the five services: how ports 3001-3004 and 3006 reach 127.0.0.1, for the scripts
 #   local          postgres and rabbitmq: how their ports reach 127.0.0.1
 #   inbox          mailpit alone: how its inbox reaches 127.0.0.1
 #   observability  grafana -> prometheus, and how both reach 127.0.0.1

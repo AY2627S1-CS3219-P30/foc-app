@@ -32,8 +32,11 @@ REQUIRED_ALLOCATION=10
 
 TEARDOWN=0
 DISRUPTED=0
-SERVICES=(user-service supplier-service order-service credit-service)
-PORTS=("$USER_PORT" "$SUPPLIER_PORT" "$ORDER_PORT" "$CREDIT_PORT")
+SERVICES=(user-service supplier-service order-service credit-service chat-service)
+PORTS=("$USER_PORT" "$SUPPLIER_PORT" "$ORDER_PORT" "$CREDIT_PORT" "$CHAT_PORT")
+# What all_health says with every service up, and with every one refusing: one code per port.
+ALL_UP="${PORTS[*]/*/200}"
+ALL_DOWN="${PORTS[*]/*/503}"
 
 # Set before anything is started or stopped, so no way out of the script skips it.
 cleanup() {
@@ -79,7 +82,7 @@ compose_do() {
 
 health_code() { curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://localhost:$1/health" 2>/dev/null || true; }
 
-# "200 200 200 200" when every service is healthy.
+# "$ALL_UP" when every service is healthy.
 all_health() {
   local codes=() port
   for port in "${PORTS[@]}"; do codes+=("$(health_code "$port")"); done
@@ -89,7 +92,7 @@ all_health() {
 # Every table of every service's database, with its row count: "db.table=n ...".
 snapshot() {
   local db
-  for db in foc_user foc_supplier foc_order foc_credit; do
+  for db in foc_user foc_supplier foc_order foc_credit foc_chat; do
     sql "$db" "
       SELECT coalesce(string_agg(format('%s.%s=%s', current_database(), c.relname,
                (xpath('/row/n/text()', query_to_xml(format('SELECT count(*) AS n FROM %I', c.relname), false, true, '')))[1]::text),
@@ -142,13 +145,13 @@ started_at() { docker inspect -f '{{.State.StartedAt}}/{{.RestartCount}}' "$(doc
 # opened, its reward reserved once, the wallet where the arithmetic puts it.
 check_recovered() { # what waiting-errand expected-wallet
   local now
-  wait_for 180 "200 200 200 200" all_health &&
+  wait_for 180 "$ALL_UP" all_health &&
     pass "every service is healthy again after $1" ||
     fail "after $1, health is '${LAST:-unknown}'"
   now=$(snapshot)
   local lost
   lost=$(lost_rows "$BEFORE" "$now")
-  [[ -z "$lost" ]] && pass "no table in any of the four databases lost a row" || fail "rows lost: $lost"
+  [[ -z "$lost" ]] && pass "no table in any of the five databases lost a row" || fail "rows lost: $lost"
   wait_for 60 1 queue_depth "$MARKER_QUEUE" &&
     pass "the broker still holds the message that was left in a queue" ||
     fail "the message left in $MARKER_QUEUE is gone (the queue holds '${LAST:-nothing}')"
@@ -165,7 +168,7 @@ check_recovered() { # what waiting-errand expected-wallet
 }
 
 echo "Waiting for the stack to be healthy..."
-wait_for 240 "200 200 200 200" all_health || {
+wait_for 240 "$ALL_UP" all_health || {
   echo "The stack is not healthy (health: '${LAST:-nothing}'). Start it with 'docker compose up -d', or run with --up."
   exit 1
 }
@@ -188,7 +191,7 @@ wait_for 60 "OPEN 2" errand "$REQUESTER_TOKEN" "$FIRST_ERRAND" && [[ "$(wallet "
   fail "setup: errand '$(errand "$REQUESTER_TOKEN" "$FIRST_ERRAND")', wallet '$(wallet "$REQUESTER_ID")'"
 BEFORE=$(snapshot)
 tables=$(wc -w <<<"$BEFORE" | tr -d ' ')
-[[ "$tables" -ge 8 ]] && pass "counted the rows of $tables tables across the four databases" ||
+[[ "$tables" -ge 8 ]] && pass "counted the rows of $tables tables across the five databases" ||
   fail "could only count $tables tables: '$BEFORE'"
 [[ "$(leave_marker)" == "True" ]] && wait_for 30 1 queue_depth "$MARKER_QUEUE" &&
   pass "left one persistent message in a durable queue that nothing consumes" ||
@@ -248,7 +251,7 @@ step "3. Postgres is stopped while the services run" \
 declare -a STARTED
 for i in "${!SERVICES[@]}"; do STARTED[i]=$(started_at "${SERVICES[i]}"); done
 compose_do stop postgres
-wait_for 60 "503 503 503 503" all_health &&
+wait_for 60 "$ALL_DOWN" all_health &&
   pass "every service's health check fails with 503" ||
   fail "with Postgres stopped, health is '${LAST:-unknown}'"
 body=$(curl -s --max-time 5 "http://localhost:${USER_PORT}/health" 2>/dev/null || true)
@@ -270,7 +273,7 @@ created=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 -X POST "http://l
 [[ "$created" == "503" ]] && pass "so is creating an errand (503)" || fail "creating an errand with Postgres stopped returned $created"
 
 compose_do start postgres
-wait_for 120 "200 200 200 200" all_health &&
+wait_for 120 "$ALL_UP" all_health &&
   pass "every service is healthy again once Postgres is back" ||
   fail "after Postgres came back, health is '${LAST:-unknown}'"
 same=1

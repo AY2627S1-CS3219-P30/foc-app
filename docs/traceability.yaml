@@ -235,7 +235,7 @@ requirements:
   - id: SS-NFR3.1.2
     text: "A restart test shall show zero loss of saved supplier changes and readiness within 60 seconds once the service's storage is available."
     tests:
-      - "scripts-restart-check.sh::no table in any of the four databases lost a row"
+      - "scripts-restart-check.sh::no table in any of the five databases lost a row"
       - "scripts-restart-check.sh::every service is healthy again once Postgres is back"
     gap: "The CI restart check compares only row counts and saves no supplier edit before restarting, so a lost change would go unnoticed, and it allows 120–180 s for recovery instead of checking readiness within 60 s."
   - id: OS-FR1.1.1
@@ -629,7 +629,7 @@ requirements:
   - id: CS-NFR4.1.2
     text: "Committed wallet, transaction, and ledger records shall survive container restart and restore from the documented backup with a recovery point of at most 24 hours and recovery time of at most 60 minutes."
     tests:
-      - "scripts-restart-check.sh::no table in any of the four databases lost a row"
+      - "scripts-restart-check.sh::no table in any of the five databases lost a row"
       - "scripts-restart-check.sh::the errand from before is as it was (OPEN), read with the token issued before"
       - "scripts-restart-check.sh::no table lost a row while Postgres was away"
     gap: "Nothing automated restores from the documented backup or measures the 24 h recovery point and 60 min recovery time; only restart/recreate survival is checked (PLT-09, #284, adds the backup, restore and drill)."
@@ -741,7 +741,7 @@ requirements:
     text: "Restarting everything shall preserve all saved accounts, suppliers, errands, wallets, credit histories, and pending workflow steps, and pending steps shall resume without moving credits twice."
     areas: [repeats]
     tests:
-      - "scripts-restart-check.sh::no table in any of the four databases lost a row"
+      - "scripts-restart-check.sh::no table in any of the five databases lost a row"
       - "scripts-restart-check.sh::the errand that was waiting for Credit opened by itself"
       - "scripts-restart-check.sh::its 3 credits were reserved exactly once (wallet "
   - id: PL-NFR3.1.2

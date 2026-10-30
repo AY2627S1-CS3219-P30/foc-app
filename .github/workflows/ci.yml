@@ -22,7 +22,7 @@ permissions:
 jobs:
   # ---------------------------------------------------------------------------
   # Work out what actually changed, so a supplier-only edit does not rebuild and
-  # retest all four services. Anything shared (platform/, root config, this
+  # retest all five services. Anything shared (platform/, root config, this
   # workflow) fans out to every service, because it can break any of them — and
   # so does any path the filter does not recognise, so it fails closed.
   # ---------------------------------------------------------------------------
@@ -374,7 +374,7 @@ jobs:
       - name: The demo journey, end to end
         if: matrix.part == 'resilience'
         run: ./scripts-demo-journey.sh --up --redrive
-      # PLT-09: a quiescent four-database dump, fresh volumes, exact row fingerprints, smoke
+      # PLT-09: a quiescent five-database dump, fresh volumes, exact row fingerprints, smoke
       # and CRD-10 financial audit. The drill creates/deletes only its own unique project.
       - uses: docker/login-action@v3
         if: matrix.part == 'recovery'
@@ -395,12 +395,39 @@ jobs:
             [[ -n "$run" ]] || continue
             published=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" \
               --jq '.jobs[] | select(.name == "Publish images") | .conclusion')
-            if [[ "$published" == success ]]; then rollback_tag="sha-$sha"; break; fi
+            [[ "$published" == success ]] || continue
+            any_published=1
+            # A release from before a service existed has none of its images (chat, #345): roll back
+            # only to one that has every image the stack now runs.
+            images=$(FOC_IMAGE_TAG="sha-$sha" docker compose -f compose.yaml -f compose.images.yaml config --images </dev/null |
+              grep '^ghcr\.io/' | sort -u)
+            missing=$(while read -r image; do
+              docker manifest inspect "$image" </dev/null >/dev/null 2>&1 || echo "$image"
+            done <<<"$images")
+            # None readable is the registry refusing us, not a release from before a service.
+            [[ "$missing" != "$images" ]] || { echo "Cannot read the images of sha-$sha from the registry." >&2; exit 1; }
+            if [[ -z "$missing" ]]; then rollback_tag="sha-$sha"; break; fi
+            # Missing is fine only for a service that release did not have yet; anything else is lost.
+            while read -r image; do
+              app="${image##*/foc-}"
+              app="${app%%:*}"
+              if gh api "repos/$GITHUB_REPOSITORY/contents/$app/Dockerfile?ref=$sha" --silent </dev/null 2>/dev/null; then
+                echo "sha-$sha had $app, but the registry has no $image." >&2
+                exit 1
+              fi
+            done <<<"$missing"
+            echo "sha-$sha has no ${missing//$'\n'/ }"
           done <<<"$candidates"
-          [[ -n "$rollback_tag" ]] || { echo 'No successful prior published release set exists; finish NTH-04 first.' >&2; exit 1; }
-          # #284 adds no service schema changes. Every later release must preserve the documented
-          # additive-migration rule and review compatibility before exercising this rollback.
-          ./scripts-recovery-drill.sh --rollback-tag "$rollback_tag"
+          [[ -n "${any_published:-}" ]] || { echo 'No successful prior published release set exists; finish NTH-04 first.' >&2; exit 1; }
+          if [[ -n "$rollback_tag" ]]; then
+            # #284 adds no service schema changes. Every later release must preserve the documented
+            # additive-migration rule and review compatibility before exercising this rollback.
+            ./scripts-recovery-drill.sh --rollback-tag "$rollback_tag"
+          else
+            # Every release predates a service that is new: once, until main publishes its first image.
+            echo '::warning::No prior published release has every image the stack runs; the drill skips the rollback.'
+            ./scripts-recovery-drill.sh
+          fi
       - uses: actions/upload-artifact@v4
         if: always() && matrix.part == 'recovery'
         with:
@@ -508,7 +535,8 @@ jobs:
       contains(needs.detect.outputs.services, 'user-service') ||
       contains(needs.detect.outputs.services, 'supplier-service') ||
       contains(needs.detect.outputs.services, 'order-service') ||
-      contains(needs.detect.outputs.services, 'credit-service')
+      contains(needs.detect.outputs.services, 'credit-service') ||
+      contains(needs.detect.outputs.services, 'chat-service')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -547,6 +575,7 @@ jobs:
             supplier-service
             order-service
             credit-service
+            chat-service
             web-app
           load: true
           set: |
@@ -554,6 +583,7 @@ jobs:
             supplier-service.cache-from=type=gha,scope=supplier-service
             order-service.cache-from=type=gha,scope=order-service
             credit-service.cache-from=type=gha,scope=credit-service
+            chat-service.cache-from=type=gha,scope=chat-service
             web-app.cache-from=type=gha,scope=web-app
       - name: Start the stack
         if: matrix.suite == 'smoke'
@@ -629,7 +659,7 @@ jobs:
   # and rolled back to, from compose.images.yaml (PLT-09, #284); `main` names the
   # newest. Built with `docker buildx bake` from compose.yaml and that override,
   # so the images get exactly compose.yaml's build arguments, from the layer
-  # cache the per-service job fills. All five are scanned before any is pushed,
+  # cache the per-service job fills. All six are scanned before any is pushed,
   # changed in this push or not: a critical vulnerability with a fix, disclosed
   # since an image was last scanned, stops the publish. The only job that may
   # write to the registry.
@@ -647,7 +677,7 @@ jobs:
     env:
       FOC_IMAGE_TAG: sha-${{ github.sha }}
       REGISTRY: ghcr.io/ay2627s1-cs3219-p30
-      APPLICATIONS: user-service supplier-service order-service credit-service web-app
+      APPLICATIONS: user-service supplier-service order-service credit-service chat-service web-app
     steps:
       - uses: actions/checkout@v4
       # compose.yaml refuses to load without its secrets. They are generated here and
@@ -669,6 +699,7 @@ jobs:
             supplier-service
             order-service
             credit-service
+            chat-service
             web-app
           load: true
           # Every line of `set` is an override; a comment there would be text bake cannot parse.
@@ -682,11 +713,13 @@ jobs:
             supplier-service.cache-from=type=gha,scope=supplier-service
             order-service.cache-from=type=gha,scope=order-service
             credit-service.cache-from=type=gha,scope=credit-service
+            chat-service.cache-from=type=gha,scope=chat-service
             web-app.cache-from=type=gha,scope=web-app
             user-service.cache-to=type=gha,mode=max,scope=user-service
             supplier-service.cache-to=type=gha,mode=max,scope=supplier-service
             order-service.cache-to=type=gha,mode=max,scope=order-service
             credit-service.cache-to=type=gha,mode=max,scope=credit-service
+            chat-service.cache-to=type=gha,mode=max,scope=chat-service
             web-app.cache-to=type=gha,mode=max,scope=web-app
       - uses: ./.github/actions/trivy-db
       - name: Scan every image for vulnerabilities
