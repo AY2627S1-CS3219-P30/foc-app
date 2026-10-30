@@ -722,12 +722,8 @@ paths:
   /internal/orders/{orderId}/chat:
     get:
       operationId: getOrderForChat
-      summary: Planned — read what the Chat Service decides access from (N1.2, ADR 0012).
+      summary: Read what the Chat Service decides access from (N1.2, ADR 0012).
       description: |
-        Not implemented yet. This additive contract is the agreed target for #162; the current
-        Order Service does not serve this route. Implementation and its provider test must land
-        before a running Chat Service can rely on it.
-
         Chat asks on every request and keeps no copy. `courierId` is the current courier: null
         before acceptance and after a withdrawal, timeout or suspension. `endedAt` is when the
         errand reached a final status (`COMPLETED`, `CANCELLED`, `EXPIRED`, `REJECTED`), else null.

@@ -242,8 +242,8 @@ services:
       RECONCILE_RETRY_MS: ${ORDER_RECONCILE_RETRY_MS:-300000}
       # N1.4 (#329): `false` refuses every live-update stream, and every page polls as before.
       LIVE_UPDATES_ENABLED: ${ORDER_LIVE_UPDATES_ENABLED:-true}
-      # Inbound /internal/** callers, for the chat lookup #162 adds: the Chat Service's key and no
-      # other (ADR 0012).
+      # Inbound /internal/** callers, on the chat lookup: the Chat Service's key and no other
+      # (ADR 0012).
       INTERNAL_SERVICE_KEYS: ${ORDER_INBOUND_SERVICE_KEYS:?run ./scripts-init-env.sh}
     ports: ['127.0.0.1:${ORDER_SERVICE_PORT:-3003}:3003']
     depends_on:
@@ -318,7 +318,7 @@ services:
       INTERNAL_PORT: 4005
       DATABASE_URL: postgres://chat_service:${CHAT_DB_PASSWORD:?run ./scripts-init-env.sh}@postgres:5432/foc_chat
       # Verifies callers through the User Service (@foc/auth-client), with its own key, which the
-      # User Service accepts, as will the Order Service's chat lookup (#162).
+      # User Service and the Order Service's chat lookup both accept.
       USER_SERVICE_URL: http://user-service:4001
       INTERNAL_SERVICE_KEY: ${CHAT_INTERNAL_KEY:?run ./scripts-init-env.sh}
     ports: ['127.0.0.1:${CHAT_SERVICE_PORT:-3006}:3006']

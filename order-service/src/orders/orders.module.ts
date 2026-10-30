@@ -1,9 +1,11 @@
 import { Module, type DynamicModule } from '@nestjs/common';
 import { LOGGER, PgDb, provideDeadLetters, type PgDbOptions } from '@foc/platform';
+import { SERVICE_KEYS, ServiceKeyGuard } from '../auth/service-key.guard.js';
 import { env } from '../config.js';
 import { ORDER_DB } from '../db/db.js';
 import { AdminOrdersController } from './admin-orders.controller.js';
 import { DeadLettersController } from './dead-letters.controller.js';
+import { InternalOrdersController } from './internal-orders.controller.js';
 import { LIVE_OPTIONS, LiveHub, type LiveOptions } from './live/live-hub.js';
 import { LiveController } from './live/live.controller.js';
 import { OperationsRepository } from './operations.repository.js';
@@ -34,7 +36,13 @@ export class OrdersModule {
   static forRoot(): DynamicModule {
     return {
       module: OrdersModule,
-      controllers: [OrdersController, AdminOrdersController, DeadLettersController, LiveController],
+      controllers: [
+        OrdersController,
+        AdminOrdersController,
+        DeadLettersController,
+        LiveController,
+        InternalOrdersController,
+      ],
       providers: [
         OrdersRepository,
         OrdersService,
@@ -42,6 +50,8 @@ export class OrdersModule {
         OperationsRepository,
         LiveHub,
         { provide: LIVE_OPTIONS, useValue: liveOptions },
+        ServiceKeyGuard,
+        { provide: SERVICE_KEYS, useValue: env.INTERNAL_SERVICE_KEYS },
         // PLT-05: dead letters parked in this service's database; parked only when a broker is set.
         provideDeadLetters({ db: ORDER_DB }),
         SupplierClient,

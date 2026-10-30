@@ -505,7 +505,8 @@ client.connect().then(() => console.log('accepted'), (e) => console.log(e.code =
   fail "a wrong database password was '${wrong:-not tried}'"
 
 # /internal/** is not served where a browser reaches a service ...
-for probe in "user-service:$USER_PORT:/internal/introspect" "credit-service:$CREDIT_PORT:/internal/orders/x/credit-status"; do
+for probe in "user-service:$USER_PORT:/internal/introspect" "credit-service:$CREDIT_PORT:/internal/orders/x/credit-status" \
+  "order-service:$ORDER_PORT:/internal/orders/x/chat"; do
   IFS=: read -r name port path <<<"$probe"
   code=$(curl -s -o /dev/null -w '%{http_code}' "http://localhost:${port}${path}" 2>/dev/null || true)
   [[ "$code" == "404" ]] && pass "$name hides $path on its public port" || fail "$name answered $code for $path on its public port"
@@ -518,13 +519,14 @@ published=$(docker compose port user-service 4001 2>/dev/null | tr -d '\r' || tr
 inside=$(docker compose exec -T order-service node -e "fetch('http://user-service:4001/internal/introspect').then((r) => console.log(r.status), () => console.log('unreachable'))" 2>/dev/null | tr -d '\r' | tail -1 || true)
 [[ "$inside" =~ ^[0-9]+$ && "$inside" != "404" ]] && pass "the Order Service reaches the User Service's internal routes ($inside without a key)" ||
   fail "from the Order Service, /internal/introspect was '${inside:-not tried}'"
-# The Chat Service reaches the User and Order Services there too (ADR 0012): introspection, and the
-# Order Service's internal port, where #162 adds the chat lookup.
-for target in user-service:4001/internal/introspect order-service:4003/health; do
-  inside=$(docker compose exec -T chat-service node -e "fetch('http://$target').then((r) => console.log(r.status), () => console.log('unreachable'))" 2>/dev/null | tr -d '\r' | tail -1 || true)
-  [[ "$inside" =~ ^[0-9]+$ && "$inside" != "404" ]] && pass "the Chat Service reaches $target ($inside)" ||
-    fail "from the Chat Service, $target was '${inside:-not tried}'"
-done
+# The Chat Service reaches them there too (ADR 0012): the User Service's introspection, and the
+# Order Service's chat lookup, which accepts its key (an unknown errand is 404, not 401).
+inside=$(docker compose exec -T chat-service node -e "fetch('http://user-service:4001/internal/introspect').then((r) => console.log(r.status), () => console.log('unreachable'))" 2>/dev/null | tr -d '\r' | tail -1 || true)
+[[ "$inside" =~ ^[0-9]+$ && "$inside" != "404" ]] && pass "the Chat Service reaches the User Service's internal routes ($inside without a key)" ||
+  fail "from the Chat Service, /internal/introspect was '${inside:-not tried}'"
+inside=$(docker compose exec -T chat-service node -e "fetch('http://order-service:4003/internal/orders/' + crypto.randomUUID() + '/chat', { headers: { 'x-service-key': process.env.INTERNAL_SERVICE_KEY } }).then((r) => console.log(r.status), () => console.log('unreachable'))" 2>/dev/null | tr -d '\r' | tail -1 || true)
+[[ "$inside" == "404" ]] && pass "the Order Service's chat lookup accepts the Chat Service's key" ||
+  fail "from the Chat Service with its key, the chat lookup answered '${inside:-not tried}'"
 
 # The web app's container shares a network with the edge alone: it has no route to the
 # database, the broker, or any service, internal port or public.

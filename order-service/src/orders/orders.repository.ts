@@ -394,6 +394,40 @@ export class OrdersRepository {
     }));
   }
 
+  /**
+   * What the Chat Service decides access from (ADR 0012): the current courier, and when the errand
+   * reached a final status, read from its history, which is never rewritten.
+   */
+  async findForChat(orderId: string) {
+    const { rows } = await this.db.query<
+      {
+        status: OrderStatus;
+        version: number;
+        requester_id: string;
+        courier_id: string | null;
+        ended_at: Date | string | null;
+      } & Row
+    >(
+      `SELECT o.status, o.version, o.requester_id, o.courier_id,
+              (SELECT h.occurred_at FROM order_status_history h
+                WHERE h.order_id = o.order_id AND h.new_status = ANY($2)
+                ORDER BY h.order_version LIMIT 1) AS ended_at
+         FROM orders o
+        WHERE o.order_id = $1`,
+      [orderId, [...TERMINAL_ORDER_STATUSES]],
+    );
+    const row = rows[0];
+    return row
+      ? {
+          status: row.status,
+          version: Number(row.version),
+          requesterId: row.requester_id,
+          courierId: row.courier_id,
+          endedAt: nullableIso(row.ended_at),
+        }
+      : undefined;
+  }
+
   async findHistory(orderId: string) {
     const result = await this.db.query<
       {

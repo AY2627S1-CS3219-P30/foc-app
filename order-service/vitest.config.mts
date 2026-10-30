@@ -26,6 +26,8 @@ export default defineConfig({
       // Satisfy @foc/auth-client's config at import time; no test opens a connection to them.
       USER_SERVICE_URL: 'http://user-service.test',
       INTERNAL_SERVICE_KEY: 'test-internal-key-0123456789',
+      // The keys Order accepts on /internal/** (the Chat Service's in Compose).
+      INTERNAL_SERVICE_KEYS: 'test-chat-key-0123456789',
     },
   },
 });
