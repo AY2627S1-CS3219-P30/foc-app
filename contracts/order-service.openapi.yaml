@@ -753,12 +753,52 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+  /internal/orders/{orderId}/chat:
+    get:
+      operationId: getOrderForChat
+      summary: Planned — read what the Chat Service decides access from (N1.2, ADR 0012).
+      description: |
+        Not implemented yet. This additive contract is the agreed target for #162; the current
+        Order Service does not serve this route. Implementation and its provider test must land
+        before a running Chat Service can rely on it.
+
+        Chat asks on every request and keeps no copy. `courierId` is the current courier: null
+        before acceptance and after a withdrawal, timeout or suspension. `endedAt` is when the
+        errand reached a final status (`COMPLETED`, `CANCELLED`, `EXPIRED`, `REJECTED`), else null.
+      security:
+        - serviceKey: []
+      parameters:
+        - name: orderId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The errand's participants and status.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderForChat' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401':
+          description: Missing or unknown `X-Service-Key`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '404':
+          description: No errand has this ID.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    serviceKey:
+      type: apiKey
+      in: header
+      name: X-Service-Key
   parameters:
     Cursor:
       name: cursor
@@ -1295,6 +1335,15 @@ components:
         items:
           type: array
           items: { $ref: '#/components/schemas/DeadLetter' }
+    OrderForChat:
+      type: object
+      required: [status, version, requesterId, courierId, endedAt]
+      properties:
+        status: { $ref: '#/components/schemas/Order/properties/status' }
+        version: { type: integer, minimum: 1 }
+        requesterId: { type: string }
+        courierId: { type: [string, 'null'] }
+        endedAt: { type: [string, 'null'], format: date-time }
     ErrorEnvelope:
       type: object
       required: [error]

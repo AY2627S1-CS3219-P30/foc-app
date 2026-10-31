@@ -71,6 +71,73 @@ export const usersRepository = {
   },
 
   /**
+   * Re-registration of an address that never activated and whose every link has expired: the new
+   * registrant sets the password and display name, and must still prove the inbox. A pending
+   * account with a live link, or any activated one, is left alone. Returns the account's id.
+   *
+   * Locks the account first, then looks for a live link in a statement of its own: under READ
+   * COMMITTED that statement sees a link a concurrent re-register committed while this one waited
+   * on the lock, which a single UPDATE re-checked after the wait would not.
+   */
+  async reviveExpiredRegistration(db: Database, user: Omit<NewUser, 'id'>): Promise<string | null> {
+    const id = await usersRepository.lockPendingUser(db, user.email);
+    if (!id) return null;
+    const live = await db
+      .select({ id: activationTokens.id })
+      .from(activationTokens)
+      .where(
+        and(
+          eq(activationTokens.userId, id),
+          isNull(activationTokens.consumedAt),
+          sql`${activationTokens.expiresAt} > now()`,
+        ),
+      )
+      .limit(1);
+    if (live.length > 0) return null;
+    await db
+      .update(users)
+      .set({ passwordHash: user.passwordHash, updatedAt: sql`now()` })
+      .where(eq(users.id, id));
+    await db.update(profiles).set({ displayName: user.displayName }).where(eq(profiles.userId, id));
+    return id;
+  },
+
+  /** The pending account at this address, locked until the transaction ends so resends queue. */
+  async lockPendingUser(db: Database, normalizedEmail: string): Promise<string | null> {
+    const rows = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(
+        and(
+          sql`lower(${users.email}) = lower(${normalizedEmail})`,
+          eq(users.status, 'PENDING_ACTIVATION'),
+        ),
+      )
+      .for('update');
+    return rows[0]?.id ?? null;
+  },
+
+  /**
+   * Locks the account a token belongs to before the token itself. Resend locks the account and
+   * then its tokens, so activation must take the same order or the two can deadlock.
+   */
+  async lockUserOfToken(db: Database, tokenHash: string): Promise<void> {
+    await db
+      .select({ id: users.id })
+      .from(users)
+      .innerJoin(activationTokens, eq(activationTokens.userId, users.id))
+      .where(eq(activationTokens.tokenHash, tokenHash))
+      .for('update', { of: users });
+  },
+
+  /** Invalidates every link not yet used, so only the one about to be sent works. */
+  async deleteUnconsumedActivationTokens(db: Database, userId: string): Promise<void> {
+    await db
+      .delete(activationTokens)
+      .where(and(eq(activationTokens.userId, userId), isNull(activationTokens.consumedAt)));
+  },
+
+  /**
    * Atomically claims a live token. The conditional UPDATE is the single-use
    * guarantee: two concurrent callers cannot both get a row back.
    */

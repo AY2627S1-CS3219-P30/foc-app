@@ -1,0 +1,327 @@
+openapi: 3.1.0
+info:
+  title: FoC Chat Service API
+  version: 1.0.0
+  summary: Participant chat for one errand (N1.2, ADR 0012).
+  description: |
+    One channel per errand, between its requester and its current courier. Every request asks the
+    Order Service for the errand's participants and status (`GET /internal/orders/{orderId}/chat`)
+    and decides from that answer alone; chat keeps no copy of the errand. If the Order Service or
+    the User Service does not answer, the request fails closed with `503 UNAVAILABLE`.
+
+    - **Read:** the requester, the current courier and administrators.
+    - **Send:** the requester and the current courier, while the channel is open: the errand has a
+      courier and has not reached a final status.
+    - **Mark read:** the requester and the current courier.
+
+    An authorized request opens a missing channel while the errand has a courier. Otherwise,
+    every channel route answers `404` for an unknown errand, an errand with no channel opened while
+    it had a courier, or an errand whose 90-day retention period has ended. Acceptance alone does
+    not create a channel: a courier can withdraw before anyone opens it.
+servers:
+  - url: http://localhost:3006
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Service is healthy.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+        '503':
+          description: >-
+            A dependency the service cannot work without (its database) is unavailable. It answers
+            200 again as soon as the dependency is back, with no restart (PL-NFR3.1.2).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthUnavailable' }
+  /channels/{orderId}:
+    get:
+      operationId: getChannel
+      summary: Read one errand's channel.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200':
+          description: The channel.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Channel' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotParticipant' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /channels/{orderId}/messages:
+    get:
+      operationId: listMessages
+      summary: Page through a channel's messages.
+      description: |
+        Messages in ascending `seq`, at most `limit`. With `after`, the first ones above it: poll with
+        the latest `seq` held, and repeat while `hasMore`. With `before`, the last ones below it, to
+        scroll back. With neither, the latest. `hasMore` says whether more lie in the direction read
+        (newer for `after`, older otherwise). `after` and `before` together are `422`.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+        - in: query
+          name: after
+          schema: { type: integer, minimum: 0 }
+        - in: query
+          name: before
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: A page of messages.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MessagePage' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotParticipant' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+    post:
+      operationId: sendMessage
+      summary: Send a message as the requester or the current courier.
+      description: |
+        `clientId` is made up by the browser and reused on a retry. A repeated `clientId` from the
+        same sender answers `200` with the message already stored, even if the channel has since
+        closed or the sender has since reached the limit, and does not count towards it.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SendMessage' }
+      responses:
+        '201':
+          description: The message, stored.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '200':
+          description: The message this `clientId` already stored.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotParticipant' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: '`CHANNEL_CLOSED`: the errand has no courier or has reached a final status.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '422':
+          description: >-
+            `VALIDATION_FAILED`: a body that is empty, only whitespace or over 280 characters
+            (Unicode code points), or a malformed `clientId`. `IDEMPOTENCY_KEY_REUSED`: this
+            `clientId` already stored a different body.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '429':
+          description: >-
+            `RATE_LIMITED`: the sender stored 20 messages in the last 60 seconds, across all their
+            channels. `Retry-After` is the seconds until the oldest of them leaves the window.
+          headers:
+            Retry-After:
+              schema: { type: string, pattern: '^([1-9]|[1-5][0-9]|60)$' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /channels/{orderId}/read:
+    put:
+      operationId: markRead
+      summary: Record that the caller has read up to a message.
+      description: |
+        The caller's read position only moves forward: a lower `seq` leaves it where it is. Allowed on
+        a closed channel. A `seq` above the channel's latest is `422`.
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MarkRead' }
+      responses:
+        '200':
+          description: The caller's read position.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReadPosition' }
+        '400': { $ref: '#/components/responses/InvalidOrderId' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/NotParticipant' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    Health:
+      type: object
+      required: [status, service, version, uptimeSeconds]
+      properties:
+        status: { type: string, const: ok }
+        service: { type: string, const: chat-service }
+        version: { type: string }
+        uptimeSeconds: { type: number, minimum: 0 }
+        dependencies:
+          type: object
+          additionalProperties: { type: string, enum: [up, down] }
+    HealthUnavailable:
+      type: object
+      required: [status, service, version, uptimeSeconds]
+      properties:
+        status: { type: string, const: unavailable }
+        service: { type: string, const: chat-service }
+        version: { type: string }
+        uptimeSeconds: { type: number, minimum: 0 }
+        dependencies:
+          type: object
+          additionalProperties: { type: string, enum: [up, down] }
+    Participant:
+      type: object
+      required: [userId, displayName]
+      properties:
+        userId: { type: string }
+        displayName: { type: string }
+    Channel:
+      type: object
+      required: [orderId, open, myRole, requester, courier, lastReadSeq, latestSeq]
+      properties:
+        orderId: { type: string, format: uuid }
+        open:
+          type: boolean
+          description: Whether participants may send.
+        myRole: { type: string, enum: [REQUESTER, COURIER, ADMIN] }
+        requester: { $ref: '#/components/schemas/Participant' }
+        courier:
+          description: The current courier; null while the errand has none, after a withdrawal.
+          oneOf:
+            - $ref: '#/components/schemas/Participant'
+            - type: 'null'
+        lastReadSeq:
+          type: integer
+          minimum: 0
+          description: The caller's read position; 0 before any read, and always 0 for an administrator.
+        latestSeq:
+          type: integer
+          minimum: 0
+          description: The newest message's `seq`; 0 before any message.
+    Message:
+      type: object
+      required: [seq, clientId, senderId, body, sentAt]
+      properties:
+        seq:
+          type: integer
+          minimum: 1
+          description: Numbered 1, 2, 3… within the channel.
+        clientId: { type: string, format: uuid }
+        senderId:
+          type: string
+          description: Neither `requester` nor `courier` when it is a former courier's message.
+        body: { type: string, minLength: 1, maxLength: 280 }
+        sentAt: { type: string, format: date-time }
+    MessagePage:
+      type: object
+      required: [items, hasMore]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/Message' }
+        hasMore: { type: boolean }
+    SendMessage:
+      type: object
+      additionalProperties: false
+      required: [clientId, body]
+      properties:
+        clientId: { type: string, format: uuid }
+        body:
+          type: string
+          minLength: 1
+          maxLength: 280
+          description: Counted in Unicode code points (`[...body].length`); not only whitespace.
+    MarkRead:
+      type: object
+      additionalProperties: false
+      required: [seq]
+      properties:
+        seq: { type: integer, minimum: 0 }
+    ReadPosition:
+      type: object
+      required: [lastReadSeq]
+      properties:
+        lastReadSeq: { type: integer, minimum: 0 }
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, correlationId]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            correlationId: { type: string }
+  responses:
+    InvalidOrderId:
+      description: '`INVALID_ORDER_ID`: the path orderId is not a UUID.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Unauthenticated:
+      description: Missing, invalid, expired, logged-out, or inactive session.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    NotParticipant:
+      description: >-
+        `NOT_PARTICIPANT`: the caller is not the errand's requester or current courier (a former
+        courier included), or is an administrator sending or marking read.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    NotFound:
+      description: >-
+        `NOT_FOUND`: the errand is unknown, no channel was opened while it had a courier and it has no
+        current courier to open one, or its 90-day retention period has ended.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    ValidationFailed:
+      description: '`VALIDATION_FAILED`: a malformed or out-of-range parameter or body.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Unavailable:
+      description: >-
+        `UNAVAILABLE`: the Order Service or the User Service did not answer. Nothing was read or
+        stored.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }

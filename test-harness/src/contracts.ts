@@ -6,7 +6,8 @@ import yaml from 'js-yaml';
 
 export const CONTRACTS_DIR = fileURLToPath(new URL('../../contracts/', import.meta.url));
 
-export type ContractName = 'user-service' | 'supplier-service' | 'order-service' | 'credit-service';
+export type ContractName =
+  'user-service' | 'supplier-service' | 'order-service' | 'credit-service' | 'chat-service';
 
 export type OpenApiDocument = {
   openapi: string;

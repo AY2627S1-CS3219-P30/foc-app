@@ -13,7 +13,7 @@
 #
 # Written for a FRESH stack. The seeded admin (ADMIN_SEED_EMAILS) starts with the
 # bootstrap password and must change it before its first login; the student is
-# registered + activated here via the dev mailbox. Re-running against the same DB
+# registered + activated here with the emailed token. Re-running against the same DB
 # will 409 on register / 403 on the already-changed admin password — reset the DB
 # or change @studentEmail to run again.
 
@@ -52,12 +52,11 @@ Content-Type: application/json
 
 { "email": "{{studentEmail}}", "password": "{{studentPassword}}", "displayName": "SUP-02 Student" }
 
-### 1d · Read the activation token from the dev mailbox (mounted only outside production)
-# @name studentMailbox
-GET {{userBase}}/dev/mailbox?to={{studentEmail}}
-
-###
-@activationToken = {{studentMailbox.response.body.token}}
+### 1d · Read the activation token from the email
+# The email is in Mailpit (http://localhost:8025). From the repo root, run
+#     ./scripts-activation-token.sh <studentEmail>
+# and paste what it prints here:
+@activationToken = paste-the-token
 
 ### 1e · Activate the student account
 POST {{userBase}}/auth/activate

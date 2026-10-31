@@ -19,7 +19,7 @@ SERVICE_RE='^(user|supplier|order|credit)-service/'
 WEB_RE='^(web-app/|contracts/|compose\.yaml|\.env\.example|scripts-(init-env|scan-vulnerabilities)\.sh|\.github/workflows/ci\.yml|\.github/actions/)'
 # Wiring between containers, as opposed to code inside one. `.env.example`
 # belongs here because the smoke job builds `.env` from it; `edge/` is the edge's config.
-STACK_RE='^(compose(\.dev)?\.yaml|postgres-init\.sh|rabbitmq-init\.sh|scripts-(smoke|demo-failures|demo-journey|demo-credits|restart-check|scan-secrets|init-env|env|lib|ci-detect)\.sh|platform/|observability/|edge/|\.env\.example|\.gitleaks\.toml)|Dockerfile|\.dockerignore'
+STACK_RE='^(compose(\.dev)?\.yaml|postgres-init\.sh|rabbitmq-init\.sh|scripts-(smoke|demo-failures|demo-journey|demo-credits|restart-check|scan-secrets|init-env|env|lib|ci-detect|activation-token)\.sh|platform/|observability/|edge/|\.env\.example|\.gitleaks\.toml)|Dockerfile|\.dockerignore'
 # The deployment files that test-harness/test/compose-config.test.ts reads (PLT-06): a change to
 # one runs the Node job, where that test lives, without fanning out to every service.
 DEPLOY_CONFIG_RE='^(compose(\.dev)?\.yaml|postgres-init\.sh|rabbitmq-init\.sh|scripts-init-env\.sh|\.env\.example|edge/)|Dockerfile|\.dockerignore'
@@ -130,6 +130,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "docs only -> stack skipped"            "docs/EXECUTION-PLAN.md" 'stack=false'
   check "README only -> nothing runs"           "README.md" 'services=[]'
   check "compose -> stack runs"                 "compose.yaml" 'stack=true'
+  check "mail reader -> stack runs"             "scripts-activation-token.sh" 'stack=true'
   check "compose -> no services"                "compose.yaml" 'services=[]'
   check "compose -> node runs its config tests" "compose.yaml" 'node=true'
   check "env example -> node runs"              ".env.example" 'node=true'

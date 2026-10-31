@@ -282,18 +282,19 @@ describe('log privacy across auth and admin paths (US-NFR4.1.1)', () => {
       .expect(500);
     query.mockRestore();
 
-    // A mail provider's rejection names the recipient in its message.
+    // A mail provider's rejection names the recipient in its message. The account exists by then,
+    // so registration still succeeds and the failure is only logged.
     const send = vi
       .spyOn(t.mailbox, 'sendActivation')
       .mockRejectedValueOnce(new Error(`550 5.1.1 <${address}>: Recipient address rejected`));
-    await http().post('/auth/register').send(validRegistration(address)).expect(500);
+    await http().post('/auth/register').send(validRegistration(address)).expect(201);
     send.mockRestore();
 
     // Both were logged, with what locates them, so the scan below is not vacuous.
     const logged = lines
       .slice(start)
       .map((line) => JSON.parse(line) as { context?: string; err?: Record<string, unknown> })
-      .filter((line) => line.context === 'ErrorEnvelopeFilter');
+      .filter((line) => line.context === 'ErrorEnvelopeFilter' || line.context === 'UsersService');
     // Drizzle wraps the driver error, which is logged as its cause; the bound values are dropped.
     expect(logged.map((line) => line.err)).toEqual([
       expect.objectContaining({
@@ -312,15 +313,42 @@ describe('log privacy across auth and admin paths (US-NFR4.1.1)', () => {
   });
 });
 
-describe('development mailbox guard', () => {
-  it('refuses to start in production, so activation tokens are never exposed there', () => {
-    const mutable = env as { NODE_ENV: string };
-    const original = mutable.NODE_ENV;
-    mutable.NODE_ENV = 'production';
+describe('mail configuration at boot', () => {
+  const withEnv = (overrides: Partial<typeof env>, run: () => void) => {
+    const mutable = env as Record<string, unknown>;
+    const original = Object.fromEntries(Object.keys(overrides).map((k) => [k, mutable[k]]));
+    Object.assign(mutable, overrides);
     try {
-      expect(() => UsersModule.forRoot()).toThrow(/No production mail adapter/);
+      run();
     } finally {
-      mutable.NODE_ENV = original;
+      Object.assign(mutable, original);
     }
+  };
+
+  it('refuses to start in production without SMTP, so activation always reaches a real inbox', () => {
+    withEnv({ NODE_ENV: 'production', SMTP_HOST: undefined }, () =>
+      expect(() => UsersModule.forRoot()).toThrow(/SMTP_HOST is not set/),
+    );
+  });
+
+  it('starts in production once SMTP and the activation page are configured', () => {
+    withEnv(
+      {
+        NODE_ENV: 'production',
+        SMTP_HOST: 'smtp.example.org',
+        ACTIVATION_URL: 'https://foc.example.org/activate',
+      },
+      () => expect(() => UsersModule.forRoot()).not.toThrow(),
+    );
+  });
+
+  it('refuses SMTP without the page the email links to, or half a credential', () => {
+    withEnv({ SMTP_HOST: 'mailpit', ACTIVATION_URL: undefined }, () =>
+      expect(() => UsersModule.forRoot()).toThrow(/ACTIVATION_URL is required/),
+    );
+    withEnv(
+      { SMTP_HOST: 'mailpit', ACTIVATION_URL: 'http://localhost:3000/activate', SMTP_USER: 'u' },
+      () => expect(() => UsersModule.forRoot()).toThrow(/SMTP_USER and SMTP_PASSWORD together/),
+    );
   });
 });
