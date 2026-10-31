@@ -71,6 +71,29 @@ it("lists open errands and the caller's own", async () => {
   ]);
 });
 
+it("sends paging and courier filters, and reads the open list cursor header", async () => {
+  const normalFetch = globalThis.fetch;
+  globalThis.fetch = (async (request: Request) => {
+    requests.push(request.clone());
+    return new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { "content-type": "application/json", "Next-Cursor": "next-page" },
+    });
+  }) as typeof fetch;
+  try {
+    expect(await listOpenOrders("access-token", {
+      pickupBuilding: "COM2", minReward: 4, cursor: "first-page", limit: 20,
+    })).toEqual({ items: [], nextCursor: "next-page" });
+    await listMyOrders("access-token", { role: "COURIER", cursor: "first-page", limit: 20 });
+    expect(requests.splice(0).map((request) => request.url)).toEqual([
+      "http://localhost:3003/orders?pickupBuilding=COM2&minReward=4&cursor=first-page&limit=20",
+      "http://localhost:3003/orders/mine?role=COURIER&cursor=first-page&limit=20",
+    ]);
+  } finally {
+    globalThis.fetch = normalFetch;
+  }
+});
+
 it("reads a receipt from the Order Service and pages the ledger from the Credit Service", async () => {
   await getReceipt("access-token", "order-1");
   await listMyLedger("access-token");

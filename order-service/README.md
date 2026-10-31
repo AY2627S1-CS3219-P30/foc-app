@@ -91,6 +91,7 @@ Each case has a test. The `*.postgres.test.ts` ones run against a real PostgreSQ
 | A reservation reply races the requester's suspension | The errand is never left open. Either the reply finds the requester suspended and cancels it, or it opens the errand and the suspension, waiting on the row lock, cancels it. One release is requested either way. | `test/participant-suspension.postgres.test.ts` |
 | A supplier is renamed, moved or deactivated after an errand is posted | The errand keeps the copy of the supplier taken at creation, in its details and in the open list, and its receipt copies the same snapshot. Reading an errand never asks the Supplier Service again. A new errand for the deactivated supplier gets `422 INVALID_SUPPLIER`. | `test/order-creation.test.ts` |
 | One student as requester and courier at once | Allowed. A student with an open errand of their own can accept, pick up and deliver another student's; `GET /orders/mine` lists both, with `myRole` `REQUESTER` and `COURIER`. They still cannot accept their own (`403 SELF_ACCEPTANCE_FORBIDDEN`). | `test/my-errands.test.ts` |
+| Errands are posted or change while a student pages a list | Open errands are neither repeated nor skipped. An errand of the student's own that changes moves ahead of their cursor, so no later page repeats it and the first page shows it again. | `test/errand-paging.test.ts` |
 
 # Services it talks to
 
@@ -174,21 +175,42 @@ The transactional inbox and business-state check make 100 duplicate replies one 
 below); creation never rejects it merely because the timer passes. `created_at`, status, and the existing
 `orders_status_created_idx` provide the durable discovery boundary that recovery will consume.
 
-`GET /orders` returns at most 100 unexpired `OPEN` errands ordered by acceptance deadline, leaving
-out the caller's own (they are in `GET /orders/mine`). Its structured item summary omits item notes,
-exact delivery instructions, participant IDs, and every pending or rejected order. `GET /orders/:id`
-gives that same public projection to an unrelated student. A caller can explicitly request
-`?view=private`; only the requester, assigned courier, or the administrator named in
+`GET /orders` returns unexpired `OPEN` errands ordered by acceptance deadline, then posting time,
+leaving out the caller's own (they are in `GET /orders/mine`). Its structured item summary omits item
+notes, exact delivery instructions, participant IDs, and every pending or rejected order.
+`GET /orders/:id` gives that same public projection to an unrelated student. A caller can explicitly
+request `?view=private`; only the requester, assigned courier, or the administrator named in
 `referred_admin_id` receives it, and every other caller receives `403`. The scheduler sets and
 clears `referred_admin_id` for disputes (see *Administrator referral and decision*).
 
-`GET /orders/mine` returns `{ items, truncated }`: the caller's errands in any status, as requester
-or current courier, each in its private projection with `myRole` (`REQUESTER` or `COURIER`). It is
-ordered by most recent change, at most 100, with no paging yet; `truncated` is true when older
-errands were left out. A courier who withdrew or timed out is no longer on the errand, so it drops
-out of their list. This is also "a courier's assigned orders" (D3 Part 1.3): the items whose
-`myRole` is `COURIER`. Optional `role=REQUESTER|COURIER` and `active=true|false` query parameters
-filter before the 100-item limit. Active excludes rejected, completed, cancelled and expired orders.
+`GET /orders/mine` returns `{ items, nextCursor, truncated }`: the caller's errands in any status, as
+requester or current courier, each in its private projection with `myRole` (`REQUESTER` or
+`COURIER`), ordered by most recent change. A courier who withdrew or timed out is no longer on the
+errand, so it drops out of their list. This is also "a courier's assigned orders" (D3 Part 1.3): the
+items whose `myRole` is `COURIER`. Optional `role=REQUESTER|COURIER` and `active=true|false` query
+parameters filter before paging. Active excludes rejected, completed, cancelled and expired orders.
+
+### Paging and filters (ORD-17)
+
+Both lists are paged by keyset, never `OFFSET`: `limit` (1 to 100, default 100) errands, then an
+opaque `cursor` for the next page, as in the Credit Service's ledger. A request without one keeps
+the same first-page items and existing response fields. `GET /orders/mine` returns the cursor as
+`nextCursor`, null on the last page, and keeps `truncated` (`nextCursor !== null`) for older clients.
+`GET /orders` keeps its bare array body, so its cursor is the `Next-Cursor` response header, absent
+on the last page. A cursor from another list, or a malformed one, is `400 INVALID_CURSOR`; a `limit`
+out of range is `422 VALIDATION_FAILED`. The cursor holds sort keys to the microsecond, so a page
+boundary between errands a millisecond apart neither repeats nor skips one.
+
+- **Open errands** sort on the deadline, posting time and ID, which never change while an errand is
+  open, so errands posted between pages are never repeated and never push one off a page. One that
+  sorts before the cursor shows on the first page. `pickupBuilding` keeps errands whose supplier
+  snapshot is in that building, in any case, and `minReward` those paying at least that much; pass
+  the same filters with the cursor. `orders_open_keyset_idx` (`acceptance_deadline_at`,
+  `created_at`, `order_id`, partial on `OPEN`) serves the order and the keyset.
+- **My errands** sort on the last change, which moves. An errand that changes while the student is
+  paging moves ahead of their cursor: no later page repeats it, and reading the first page again
+  shows it. The web app polls only the first page and replaces its copy of that errand by
+  `orderId`, so a refresh never drops the pages already loaded.
 
 `GET /admin/orders` is an administrator's view of errands. With an account (ORD-15),
 `?requesterId=` lists the errands that student posted, in any status, `?courierId=` the ones they

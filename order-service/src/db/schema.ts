@@ -108,8 +108,9 @@ export const orders = pgTable(
     index('orders_accepted_at_idx')
       .on(t.acceptedAt)
       .where(sql`${t.status} = 'ACCEPTED'`),
-    index('orders_open_deadline_idx')
-      .on(t.acceptanceDeadlineAt, t.createdAt)
+    // The open list's order in full, so its keyset reads straight off the index.
+    index('orders_open_keyset_idx')
+      .on(t.acceptanceDeadlineAt, t.createdAt, t.orderId)
       .where(sql`${t.status} = 'OPEN'`),
     index('orders_auto_confirm_idx')
       .on(t.autoConfirmAt)

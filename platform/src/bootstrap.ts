@@ -141,7 +141,7 @@ export async function startService(
       'Idempotency-Key',
       CORRELATION_HEADER,
     ],
-    exposedHeaders: ['ETag', 'Retry-After', CORRELATION_HEADER],
+    exposedHeaders: ['ETag', 'Retry-After', 'Next-Cursor', CORRELATION_HEADER],
   });
   logger.log(`CORS allows: ${origins.join(', ')}`);
 

@@ -31,10 +31,16 @@ paths:
       summary: List the caller's own errands.
       description: |
         Errands the caller requested or is the current courier of, in any status, most recently
-        changed first, at most 100 (no paging yet); `truncated` is true when more were left out. Each
-        carries the caller's private projection and `myRole`. A courier who withdrew or timed out no
-        longer holds the errand and does not see it. Filter by `role` before the limit; `active=true`
-        includes only errands that have not reached a final status.
+        changed first, a page at a time: `limit` errands (100 by default), then `nextCursor` for the
+        next page, null on the last. `truncated` is `nextCursor !== null`, kept for older clients.
+        Each carries the caller's private projection and `myRole`. A courier who withdrew or timed
+        out no longer holds the errand and does not see it. Filter by `role` before paging;
+        `active=true` includes only errands that have not reached a final status.
+
+        Pages are a keyset on the last change, which moves: an errand that changes while the caller
+        is paging moves ahead of their cursor, so no later page repeats it, and reading the first
+        page again (as polling does) picks it up. A client keeping several pages replaces its copy
+        of that errand by `orderId`.
       parameters:
         - in: query
           name: role
@@ -42,13 +48,17 @@ paths:
         - in: query
           name: active
           schema: { type: boolean }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
       responses:
         '200':
           description: The caller's errands.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/MyOrders' }
+        '400': { $ref: '#/components/responses/InvalidCursor' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '422': { $ref: '#/components/responses/ListQueryInvalid' }
   /orders/{orderId}:
     get:
       operationId: getOrder
@@ -82,17 +92,41 @@ paths:
     get:
       operationId: listOpenOrders
       summary: Discover currently acceptable errands.
-      description: Returns only unexpired OPEN orders, leaves out the caller's own errands, and never exposes delivery instructions or participant IDs.
+      description: |
+        Returns only unexpired OPEN orders, leaves out the caller's own errands, and never exposes
+        delivery instructions or participant IDs. Ordered by acceptance deadline, then posting
+        time, a page at a time: `limit` errands (100 by default). The body stays a bare array, so
+        the next page's cursor comes in the `Next-Cursor` header, absent on the last page. These
+        keys never change while an errand is open, so errands posted between pages are never
+        repeated and never push one off a page; a new errand that sorts before the cursor shows on
+        the first page.
+
+        `pickupBuilding` keeps errands whose supplier is in that building, in any case;
+        `minReward` keeps those paying at least that much. Filters combine with the cursor: pass
+        the same ones with it. Unknown parameters are ignored, as they always have been.
+      parameters:
+        - in: query
+          name: pickupBuilding
+          schema: { type: string, minLength: 1, maxLength: 200 }
+        - in: query
+          name: minReward
+          schema: { type: integer, minimum: 1 }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
       responses:
         '200':
           description: Privacy-safe open-order summaries ordered by acceptance deadline.
+          headers:
+            Next-Cursor: { $ref: '#/components/headers/NextCursor' }
           content:
             application/json:
               schema:
                 type: array
                 maxItems: 100
                 items: { $ref: '#/components/schemas/OpenOrderSummary' }
+        '400': { $ref: '#/components/responses/InvalidCursor' }
         '401': { $ref: '#/components/responses/Unauthenticated' }
+        '422': { $ref: '#/components/responses/ListQueryInvalid' }
     post:
       operationId: createOrder
       summary: Submit an errand for asynchronous credit reservation.
@@ -765,6 +799,20 @@ components:
       type: apiKey
       in: header
       name: X-Service-Key
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor returned by the previous page.
+      schema: { type: string, minLength: 1, maxLength: 500 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 100 }
+  headers:
+    NextCursor:
+      description: Opaque cursor for the next page, as the `cursor` parameter. Absent on the last page.
+      schema: { type: string }
   schemas:
     Health:
       type: object
@@ -886,7 +934,7 @@ components:
             available: { type: integer, minimum: 0 }
     MyOrders:
       type: object
-      required: [items, truncated]
+      required: [items, nextCursor, truncated]
       properties:
         items:
           type: array
@@ -898,9 +946,12 @@ components:
                 required: [myRole]
                 properties:
                   myRole: { type: string, enum: [REQUESTER, COURIER] }
+        nextCursor:
+          type: [string, 'null']
+          description: The cursor for the next page, or null on the last.
         truncated:
           type: boolean
-          description: True when the caller has more than 100 errands and the oldest were left out.
+          description: True when there is another page; the same as `nextCursor !== null`.
     CreateOrder:
       type: object
       additionalProperties: false
@@ -1307,6 +1358,16 @@ components:
   responses:
     BadRequest:
       description: Missing or malformed Idempotency-Key.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    InvalidCursor:
+      description: The cursor is malformed or belongs to another list (`INVALID_CURSOR`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    ListQueryInvalid:
+      description: A parameter out of range or of the wrong type, or on `/orders/mine` an unknown one (`VALIDATION_FAILED`).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }

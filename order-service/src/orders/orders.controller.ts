@@ -21,17 +21,30 @@ import {
   parseCreateOrder,
   parseIdempotencyKey,
   parseMyOrdersQuery,
+  parseOpenOrdersQuery,
   parseOrderId,
 } from './validation.js';
+
+export const NEXT_CURSOR_HEADER = 'Next-Cursor';
 
 @Controller('orders')
 export class OrdersController {
   constructor(@Inject(OrdersService) private readonly orders: OrdersService) {}
 
+  /** The body stays the bare array it has always been; the next page's cursor is a header. */
   @Get()
   @Authenticated()
-  list(@CurrentUser() caller: AuthContext) {
-    return this.orders.listOpen(caller.userId);
+  async list(
+    @Query() query: unknown,
+    @CurrentUser() caller: AuthContext,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const { items, nextCursor } = await this.orders.listOpen(
+      caller.userId,
+      parseOpenOrdersQuery(query),
+    );
+    if (nextCursor) response.setHeader(NEXT_CURSOR_HEADER, nextCursor);
+    return items;
   }
 
   // Declared before ':id', which would otherwise refuse "mine" as an invalid order ID.
