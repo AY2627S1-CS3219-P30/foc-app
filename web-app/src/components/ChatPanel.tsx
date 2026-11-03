@@ -83,13 +83,18 @@ function Conversation({
     log.current?.focus({ preventScroll: true });
   };
 
+  // The anchor lives exactly as long as one older-history load, however that load ends.
   useLayoutEffect(() => {
     const el = log.current;
+    if (chat.olderLoading) {
+      if (el && !prepend.current) prepend.current = { height: el.scrollHeight, top: el.scrollTop };
+      return;
+    }
+    const anchor = prepend.current;
+    prepend.current = null;
     if (!expanded || !el) return;
-    if (prepend.current && !chat.olderLoading) {
-      el.scrollTop = prepend.current.top + el.scrollHeight - prepend.current.height;
-      prepend.current = null;
-    } else if (!prepend.current && atBottom.current) el.scrollTop = el.scrollHeight;
+    if (anchor) el.scrollTop = anchor.top + el.scrollHeight - anchor.height;
+    else if (atBottom.current) el.scrollTop = el.scrollHeight;
   }, [first, latest, chat.outgoing, expanded, chat.loading, chat.olderLoading]);
 
   useEffect(() => {
@@ -109,6 +114,8 @@ function Conversation({
     return () => {
       observer.disconnect();
       document.removeEventListener("visibilitychange", update);
+      // Re-opening must wait for the observer to see the bottom again before anything counts as read.
+      setVisible(false);
     };
   }, [expanded, chat.loading, hasChannel]);
 
@@ -180,13 +187,7 @@ function Conversation({
                 <Button
                   variant="outline"
                   disabled={chat.olderLoading}
-                  onClick={() => {
-                    const el = log.current!;
-                    atBottom.current = false;
-                    setBottom(false);
-                    prepend.current = { height: el.scrollHeight, top: el.scrollTop };
-                    void chat.loadOlder();
-                  }}
+                  onClick={() => void chat.loadOlder()}
                 >
                   {chat.olderLoading ? "Loading older messages…" : "Load older messages"}
                 </Button>
@@ -253,9 +254,7 @@ function Conversation({
               </Button>
             )}
             <p className={styles.announcement} role="status">
-              {chat.outgoing.some((message) => message.state === "pending")
-                ? "Sending message…"
-                : `${chat.messages.length} messages loaded. ${chat.unread} unread.`}
+              {chat.outgoing.some((message) => message.state === "pending") && "Sending message…"}
             </p>
             <FormAlert tone="info">{reason}</FormAlert>
             <FormAlert tone="info">{chat.readError}</FormAlert>
@@ -277,7 +276,9 @@ function Conversation({
                       ? "Use at most 280 characters."
                       : draft.length > 0 && !draft.trim()
                         ? "Enter a message that isn't only whitespace."
-                        : undefined
+                        : draft.includes("\0")
+                          ? "Remove the NUL character from your message."
+                          : undefined
                   }
                 >
                   <Textarea

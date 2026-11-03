@@ -1,4 +1,4 @@
-import { ApiError } from "./api-client";
+import { ApiError, newCorrelationId } from "./api-client";
 import * as api from "./chat-api";
 import type { Channel, Message } from "./chat-api";
 
@@ -24,17 +24,9 @@ export type ChatSnapshot = {
   retryAt: number;
 };
 export const messageLength = (body: string) => [...body].length;
-export const validMessage = (body: string) => body.trim().length > 0 && messageLength(body) <= 280;
-
-/** UUID v4 also on HTTP LAN origins, where randomUUID is unavailable. */
-export function newClientId(): string {
-  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  bytes[6] = (bytes[6] & 15) | 64;
-  bytes[8] = (bytes[8] & 63) | 128;
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
+/** The server refuses a NUL, so a retry could never succeed. */
+export const validMessage = (body: string) =>
+  body.trim().length > 0 && messageLength(body) <= 280 && !body.includes("\0");
 const asError = (err: unknown) =>
   err instanceof ApiError ? err : new ApiError(0, "NETWORK", "Chat could not connect. Try again.");
 
@@ -64,19 +56,26 @@ export function createChatState(orderId: string, userId: string, authed: Authed,
     const revision = accessRevision;
     return { signal, current: () => !signal.aborted && revision === accessRevision };
   };
+  // A poll that changes nothing must not re-render the conversation.
   const update = (patch: Partial<ChatSnapshot>) => {
+    const keys = Object.keys(patch) as (keyof ChatSnapshot)[];
+    if (keys.every((key) => Object.is(state[key], patch[key]))) return;
     state = { ...state, ...patch };
     listeners.forEach((fn) => fn());
   };
   const merge = (items: Message[]) => {
     const bySeq = new Map(state.messages.map((m) => [m.seq, m]));
-    items.forEach((m) => bySeq.set(m.seq, m));
-    const messages = [...bySeq.values()].sort((a, b) => a.seq - b.seq);
+    const added = items.filter((m) => !bySeq.has(m.seq));
+    added.forEach((m) => bySeq.set(m.seq, m));
+    const messages = added.length
+      ? [...bySeq.values()].sort((a, b) => a.seq - b.seq)
+      : state.messages;
+    const outgoing = state.outgoing.filter(
+      (p) => !messages.some((m) => m.senderId === userId && m.clientId === p.clientId),
+    );
     update({
       messages,
-      outgoing: state.outgoing.filter(
-        (p) => !messages.some((m) => m.senderId === userId && m.clientId === p.clientId),
-      ),
+      outgoing: outgoing.length === state.outgoing.length ? state.outgoing : outgoing,
     });
   };
   const failed = (err: unknown) => {
@@ -107,37 +106,43 @@ export function createChatState(orderId: string, userId: string, authed: Authed,
     try {
       const channel = await authed((t) => api.getChannel(t, orderId, signal));
       if (!valid()) return null;
-      if (version !== orderVersion && channel.open) update({ closed: false });
-      orderVersion = version;
+      const fresh = {
+        ...channel,
+        lastReadSeq: Math.max(channel.lastReadSeq, state.channel?.lastReadSeq ?? 0),
+      };
       update({
-        channel: {
-          ...channel,
-          lastReadSeq: Math.max(channel.lastReadSeq, state.channel?.lastReadSeq ?? 0),
-        },
+        channel: JSON.stringify(fresh) === JSON.stringify(state.channel) ? state.channel : fresh,
         absent: false,
         error: null,
+        ...(version !== orderVersion && channel.open ? { closed: false } : {}),
       });
+      orderVersion = version;
+      let latest: { first: number; last: number } | null = null;
       if (cursor === null) {
         const page = await authed((t) => api.listMessages(t, orderId, { limit: 100 }, signal));
         if (!valid()) return null;
         merge(page.items);
-        update({ hasOlder: page.hasMore });
+        const first = page.items[0]?.seq ?? 1;
+        const last = page.items.at(-1)?.seq ?? 0;
         // Also fetch unread messages preceding the latest history page, so unread is exact.
-        cursor = Math.min(channel.lastReadSeq, page.items[0]?.seq ? page.items[0].seq - 1 : 0);
+        cursor = channel.lastReadSeq < first - 1 ? channel.lastReadSeq : last;
+        latest = { first, last };
       }
-      let more = true;
-      while (more) {
+      // Only page when the channel has something past the cursor; an idle poll is one request.
+      while (cursor < channel.latestSeq) {
         const after: number = cursor;
         const page = await authed((t) =>
           api.listMessages(t, orderId, { after, limit: 100 }, signal),
         );
         if (!valid()) return null;
         merge(page.items);
-        const next = page.items.at(-1)?.seq ?? after;
+        let next = page.items.at(-1)?.seq ?? after;
+        // Filling the unread gap reaches the latest page, which is already here.
+        if (latest && next >= latest.first - 1) next = Math.max(next, latest.last);
         if (page.hasMore && next <= after)
           throw new ApiError(0, "NETWORK", "Chat history could not advance. Try again.");
         cursor = next;
-        more = page.hasMore;
+        if (!page.hasMore) break;
       }
       update({ loading: false, error: null, hasOlder: (state.messages[0]?.seq ?? 1) > 1 });
       // Polling for now. A notify-only WebSocket replaces this timer later (ADR 0012); reads stay on GET /messages.
@@ -271,7 +276,7 @@ export function createChatState(orderId: string, userId: string, authed: Authed,
     send: (body: string, final: boolean) =>
       validMessage(body)
         ? transmit(
-            { clientId: newClientId(), body, sentAt: new Date().toISOString(), state: "pending" },
+            { clientId: newCorrelationId(), body, sentAt: new Date().toISOString(), state: "pending" },
             final,
           )
         : Promise.resolve(),

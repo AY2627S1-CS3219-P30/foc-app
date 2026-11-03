@@ -284,11 +284,10 @@ export function OrderDetail({ orderId }: { orderId: string }) {
     <>
       <main className={styles.page}>
         <div className={styles.panel}>
-          <h1 className="srOnly">{title}</h1>
           <ScreenHeader title={title} className={styles.header} />
           <div className={styles.body}>
             {body}
-            {order && <ChatPanel orderId={orderId} version={order.version} final={isFinal(order.status)} />}
+            {order && role && <ChatPanel orderId={orderId} version={order.version} final={isFinal(order.status)} />}
           </div>
         </div>
       </main>

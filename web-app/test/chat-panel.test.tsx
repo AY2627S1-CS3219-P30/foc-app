@@ -22,6 +22,7 @@ let timers: number[];
 let requests: Request[];
 let nextChannel: Channel;
 let status: number;
+let items: (typeof message)[];
 const channel: Channel = {
   orderId: "order",
   open: true,
@@ -50,6 +51,7 @@ beforeEach(() => {
   requests = [];
   nextChannel = channel;
   status = 200;
+  items = [message];
   observer = null;
   globalThis.setTimeout = ((fn: () => void, delay = 0) => {
     if (delay < 1000) return realTimeout(fn, delay);
@@ -68,7 +70,7 @@ beforeEach(() => {
     if (status !== 200)
       return json({ error: { code: "REFUSED", message: "Not available" } }, status);
     if (r.method === "PUT") return json({ lastReadSeq: (await r.json()).seq });
-    return json(r.url.includes("/messages") ? { items: [message], hasMore: false } : nextChannel);
+    return json(r.url.includes("/messages") ? { items, hasMore: false } : nextChannel);
   }) as typeof fetch;
   container = document.createElement("div") as unknown as HTMLElement;
   document.body.appendChild(container as never);
@@ -127,6 +129,26 @@ it("only marks read when expanded, intersecting, visible and at bottom", async (
   await settle();
   expect(requests.filter((r) => r.method === "PUT")).toHaveLength(1);
   expect(container.textContent).toContain("0 unread");
+});
+
+it("re-opening waits for the bottom to be seen again before marking newer messages read", async () => {
+  await render();
+  await open();
+  const log = container.querySelector('[aria-label="Conversation messages"]')!;
+  Object.defineProperty(log.lastElementChild!, "getClientRects", { value: () => [{ width: 300 }] });
+  await act(async () => observer?.([{ isIntersecting: true }]));
+  await settle();
+  expect(requests.filter((r) => r.method === "PUT")).toHaveLength(1);
+  await act(async () => button("Collapse chat").click());
+  nextChannel = { ...channel, lastReadSeq: 1, latestSeq: 2 };
+  items = [message, { ...message, seq: 2, clientId: "incoming-2", body: "Here now." }];
+  await render({ version: 2 });
+  expect(container.textContent).toContain("1 unread");
+  await open();
+  expect(requests.filter((r) => r.method === "PUT")).toHaveLength(1);
+  await act(async () => observer?.([{ isIntersecting: true }]));
+  await settle();
+  expect(requests.filter((r) => r.method === "PUT")).toHaveLength(2);
 });
 
 it("stops polling on closure, retains history and disables sending at a final state", async () => {

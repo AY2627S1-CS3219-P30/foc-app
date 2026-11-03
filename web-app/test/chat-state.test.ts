@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { createChatState, messageLength, newClientId, validMessage } from "../src/lib/chat-state";
+import { newCorrelationId } from "../src/lib/api-client";
+import { createChatState, messageLength, validMessage } from "../src/lib/chat-state";
 import type { Channel, Message } from "../src/lib/chat-api";
 
 const realFetch = globalThis.fetch;
@@ -49,7 +50,8 @@ it("validates Unicode code points, whitespace and RFC4122 browser UUIDs", () => 
   expect(validMessage("😀".repeat(281))).toBe(false);
   expect(validMessage("\n \t")).toBe(false);
   expect(validMessage("")).toBe(false);
-  expect(newClientId()).toMatch(
+  expect(validMessage("a\0b")).toBe(false);
+  expect(newCorrelationId()).toMatch(
     /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/,
   );
 });
@@ -78,9 +80,51 @@ describe("chat reads", () => {
     expect(store.snapshot().error?.status).toBe(503);
     broken = false;
     await refresh(store);
-    expect(afters).toEqual(["0", "2", "4", "6", "6"]);
+    expect(afters).toEqual(["0", "4", "6", "6"]);
     expect(store.snapshot().messages.map((m) => m.seq)).toEqual([1, 2, 3, 4, 5, 6, 7]);
     expect(store.snapshot().error).toBeNull();
+  });
+
+  it.each([
+    [140, [], 100],
+    [10, ["10"], 140],
+  ])(
+    "fetches the latest page once, plus only the unread before it (read to %i)",
+    async (lastReadSeq, expected, loaded) => {
+      const store = make();
+      const afters: string[] = [];
+      const range = (from: number, to: number) =>
+        Array.from({ length: to - from + 1 }, (_, i) => msg(from + i));
+      serve((r, q) => {
+        if (r.url.endsWith("/order")) return json({ ...channel, latestSeq: 150, lastReadSeq });
+        if (!q.has("after")) return json({ items: range(51, 150), hasMore: true });
+        const after = Number(q.get("after"));
+        afters.push(String(after));
+        return json({ items: range(after + 1, Math.min(after + 100, 150)), hasMore: after + 100 < 150 });
+      });
+      await refresh(store);
+      expect(afters).toEqual(expected);
+      expect(store.snapshot().messages).toHaveLength(loaded);
+      expect(store.unread()).toBe(150 - lastReadSeq);
+    },
+  );
+
+  it("an idle poll asks only for the channel and re-renders nothing", async () => {
+    const store = make();
+    const urls: string[] = [];
+    serve((r) => {
+      urls.push(new URL(r.url).pathname);
+      return r.url.endsWith("/order")
+        ? json({ ...channel, latestSeq: 1 })
+        : json({ items: [msg(1)], hasMore: false });
+    });
+    await refresh(store);
+    urls.length = 0;
+    let renders = 0;
+    store.subscribe(() => renders++);
+    await refresh(store);
+    expect(urls).toEqual(["/channels/order"]);
+    expect(renders).toBe(0);
   });
 
   it("loads older history with before and refreshes another device's read position", async () => {
@@ -216,16 +260,20 @@ describe("chat sends", () => {
   it("never jumps the fetch/read cursor past messages preceding a send response", async () => {
     const store = make();
     const afters: string[] = [];
+    let posted = false;
     serve(async (r, q) => {
-      if (r.method === "POST") return json(msg(5, { ...(await r.json()), senderId: "me" }), 201);
-      if (r.url.endsWith("/order")) return json(channel);
+      if (r.method === "POST") {
+        posted = true;
+        return json(msg(5, { ...(await r.json()), senderId: "me" }), 201);
+      }
+      if (r.url.endsWith("/order")) return json({ ...channel, latestSeq: posted ? 5 : 0 });
       afters.push(q.get("after") ?? "latest");
       return json({ items: [], hasMore: false });
     });
     await refresh(store);
     await store.send("Fifth", false);
     await refresh(store);
-    expect(afters).toEqual(["latest", "0", "0"]);
+    expect(afters).toEqual(["latest", "0"]);
   });
 
   it("preserves Retry-After, blocks sends until it passes, and latches CHANNEL_CLOSED", async () => {
@@ -351,7 +399,7 @@ it("a GET confirmation wins over a later failed POST without duplicating or resu
         rejectSend = reject;
       });
     }
-    if (r.url.endsWith("/order")) return json(channel);
+    if (r.url.endsWith("/order")) return json({ ...channel, latestSeq: sent ? 1 : 0 });
     return json({ items: sent ? [msg(1, { ...sent, senderId: "me" })] : [], hasMore: false });
   });
   await refresh(store);

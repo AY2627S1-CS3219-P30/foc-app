@@ -11,7 +11,7 @@ export function ScreenHeader({ title, onBack, className }: { title: string; onBa
       <button className={styles.back} aria-label="Back" onClick={onBack ?? (() => router.back())}>
         ←
       </button>
-      <span className={styles.title}>{title}</span>
+      <h1 className={styles.title}>{title}</h1>
       <span className={styles.live}>
         <LiveLabel />
       </span>

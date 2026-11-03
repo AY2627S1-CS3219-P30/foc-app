@@ -15,12 +15,15 @@ export const CORRELATION_HEADER = "x-correlation-id";
 /**
  * A fresh ID for one request. `crypto.randomUUID` exists only on secure origins (HTTPS or
  * localhost), and a demo served over plain HTTP on a LAN address must still work, so it falls back
- * to random bytes, which every origin has.
+ * to a UUID v4 built from random bytes, which every origin has.
  */
 export function newCorrelationId(): string {
   if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
   const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 /**
