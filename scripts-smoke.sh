@@ -423,7 +423,7 @@ rm -rf "$live_dir"
 upgrade() { # path → the status the handshake there answered
   curl -s -o /dev/null -w '%{http_code}' --max-time 2 "$EDGE$1" -H 'Connection: Upgrade' \
     -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
-    -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' 2>/dev/null || true
+    -H "Sec-WebSocket-Key: $(head -c 16 /dev/urandom | base64)" 2>/dev/null || true
 }
 socket=$(upgrade /api/chat/socket)
 if [[ "$socket" == "101" ]]; then
