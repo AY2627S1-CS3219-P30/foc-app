@@ -69,7 +69,9 @@ export class SmtpMailer implements Mailer {
   }
 
   async sendPasswordReset(email: PasswordResetEmail): Promise<void> {
-    const link = new URL('reset-password', this.settings.activationUrl);
+    // Resolved against the activation page without its trailing slash: `…/activate/` would otherwise
+    // give `…/activate/reset-password`.
+    const link = new URL('reset-password', this.settings.activationUrl.replace(/\/+$/, ''));
     link.searchParams.set('token', email.token);
     await this.transport.sendMail({
       from: this.settings.from,

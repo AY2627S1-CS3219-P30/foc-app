@@ -298,7 +298,12 @@ published port, and production refused to boot because no other adapter existed.
   - **Residual risks:** someone can spend an address's three resets an hour; each still lands in the
     student's inbox, and only the newest works, so it delays the student rather than locking them out.
     The display name chosen by whoever registered the address survives the reset until the student
-    edits their profile.
+    edits their profile. **Not closed by reset:** a student who clicks the other person's activation
+    link and never tries to use the app activates the other person's password, and nothing prompts
+    them to reset. Reset recovers the account whenever they do; setting the password at activation
+    would close this too, and stays the follow-up if it matters. A reset link also outlives a later
+    ordinary password change, until its 30 minutes run out. The token stays in the reset page's
+    address bar and history for that time.
 - **Trade-off:** the per-address resend limit counts every request, so a stranger can use up an
   address's three resends for an hour. Keying it on address and IP would let a single address be
   flooded from many clients; the inbox is the thing protected.

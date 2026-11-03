@@ -359,4 +359,20 @@ describe('SmtpMailer password reset', () => {
     expect(message.subject).toBe('Reset your Friend on Campus password');
     expect(message.text).toContain('http://localhost:3000/reset-password?token=abc_DEF-123');
   });
+
+  it('builds the same link when the activation page is configured with a trailing slash', async () => {
+    const transport = createTransport({ jsonTransport: true });
+    const sent = vi.spyOn(transport, 'sendMail');
+    const mailer = new SmtpMailer(transport, {
+      from: 'Friend on Campus <no-reply@foc.local>',
+      activationUrl: 'http://localhost:3000/activate/',
+    });
+
+    await mailer.sendPasswordReset({ to: EMAIL, userId: 'u-1', token: 'abc_DEF-123' });
+
+    const message = JSON.parse(
+      ((await sent.mock.results[0]!.value) as { message: string }).message,
+    );
+    expect(message.text).toContain('http://localhost:3000/reset-password?token=abc_DEF-123');
+  });
 });
