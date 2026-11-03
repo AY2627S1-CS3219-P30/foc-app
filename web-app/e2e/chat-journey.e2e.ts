@@ -34,6 +34,7 @@ test("chat: send, receive, offline catch-up, outsider refusal and final-state cl
         supplierId: supplier.supplierId,
         items: [{ name: `Chat ${info.project.name}`, quantity: 1 }],
         deliveryZone: "PGP House 7",
+        deliveryInstructions: "Leave it at the lobby counter.",
         reward: 1,
       },
     });
