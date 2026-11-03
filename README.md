@@ -151,6 +151,10 @@ shared key and default passwords. The script names them and stops. Delete
 volumes hold the old passwords too:
 `docker compose down -v && docker compose up -d --build`. That deletes local data.
 
+**If your `.env` says `NODE_ENV=development`**, it is from before the stack ran in production
+([#285](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/285)), and the script leaves it so.
+Change it to `production`, as `.env.example` now has, and run `docker compose up -d`.
+
 Compose reads `.env` for the stack. A service run from source reads a `.env` only in the folder
 it runs in, which for the `npm run dev:*` scripts is the service's own, so step 4 exports yours
 first. Real environment variables always win, so Docker and CI are unaffected. A missing required
@@ -170,8 +174,8 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --build
 # 2. Stop the stack's own copy of the service you will run. On macOS your server can start on the
 #    same port anyway, and localhost:3003 goes on reaching the container: you would test old code.
 docker compose stop order-service
-# 3. Your .env in this shell, then the service with its variables. Code changes reload.
-set -a; . ./.env; set +a
+# 3. Your .env in this shell, in development, then the service. Code changes reload.
+set -a; . ./.env; NODE_ENV=development; set +a
 SERVICE_NAME=order-service PORT=3003 DATABASE_URL=$HOST_ORDER_DATABASE_URL \
   USER_SERVICE_URL=http://localhost:4001 INTERNAL_SERVICE_KEY=$ORDER_INTERNAL_KEY \
   SUPPLIER_SERVICE_URL=http://localhost:3002 CREDIT_SERVICE_URL=http://localhost:3004 \
@@ -191,6 +195,12 @@ The other services run the same way: `npm run dev:user`, `dev:supplier` and `dev
 value the stack gives each, with `localhost` and the published port in place of a container's
 name. Without `RABBITMQ_URL` a service runs without the broker, so it neither sends nor receives
 events.
+
+Step 3 sets `NODE_ENV=development` because your `.env` says `production`, and an exported
+`production` stays in that shell: `npm install` and `npm ci` then skip the dev dependencies, and
+the User Service will not start without mail. In development it keeps each activation email in
+memory, unless you give it `.env.example`'s Mailpit settings. Do the same in any other shell where
+you read `.env` before installing or running a service.
 
 When you are done, `docker compose up -d` puts the stack back as step 6 leaves it, with the
 internal ports unpublished again, which the smoke test checks.
@@ -223,6 +233,20 @@ Then open <http://localhost:3000>. That is the edge
 **This is how FoC is deployed for D4:** the whole stack in local containers, which the D3
 instructions accept. There is no hosted deployment
 ([PLT-11 #286](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/286)).
+
+The services run with `NODE_ENV=production`
+([PLT-10 #285](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/285)). The User Service then
+starts only with its own signing key and with mail it can send, refuses sign-in limits raised
+above policy, and marks the refresh cookie `Secure`.
+
+**Open the app in Chrome, at `http://localhost:3000`.** Chrome sends a `Secure` cookie to
+`http://localhost`. Safari may drop it over plain http, which would sign you out on reload, and
+every browser drops it at any other http address, such as your laptop's IP from a phone.
+
+Three scripts run their own stacks in development, and each says why: the load test
+(`scripts-load.sh`) raises the sign-in limits, the browser release suite (`scripts-e2e-release.sh`)
+moves the services' clock, and the D4 demo seed (`scripts-seed-demo.sh`) builds a disposable
+fixture, so the stack shown in the D4 demo runs in development too.
 
 | Command                               | What it does                                  |
 | ------------------------------------- | --------------------------------------------- |
@@ -1175,8 +1199,13 @@ through `docker buildx bake`, so a published image has exactly `compose.yaml`'s 
 - **What is pushed is what was scanned.** The publish job builds all five images, scans every one,
   changed in that push or not, and only then pushes them. A critical vulnerability with a fix,
   disclosed since an image was last scanned, stops the publish: nothing is pushed.
-- **Only the publish job may write to the registry.** It alone has `packages: write`, and it runs
-  only after the `CI` job passed on a push to `main`.
+- **Only the publish job and a release may write to the registry.** In CI, the publish job alone
+  has `packages: write`, and it runs only after the `CI` job passed on a push to `main`. A release
+  has it to add a tag to images already pushed.
+- **A release names images that already exist.** Pushing a tag such as `rc1-d4` or `v1.0-d4` gives
+  that commit's five images the same name, without rebuilding them, and records the commit and their
+  digests in a GitHub Release (REL-03, [#169](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/169)).
+  `FOC_IMAGE_TAG` takes that name too. See [Cutting a release](docs/runbooks/release.md).
 - **Fast after the first.** It reads and writes the per-service layer cache that the image builds
   use, from `main`, which every later run, pull requests included, can read.
 - **If `pull` says `denied`,** the package is still private: an organisation owner makes it public
