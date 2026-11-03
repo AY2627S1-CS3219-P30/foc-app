@@ -27,7 +27,7 @@ review is collected. The author cannot record approval on another team member's 
 | --- | --- | --- | --- |
 | Isaac Chua (`@isaacchua0309`) | #132, #183 | Approved 0002–0009, with the amendments to 0005 and 0006 (#254) and to 0007 (#250) | 2026-10-26 |
 | Zhang Yuan (`@volleyballkickedme`) | #132, #183, #218; Order owner | Approved 0002–0008 as reviewed in #246; confirmation of 0009 and the #250 amendment to 0007 pending | 2026-10-19 |
-| Jonus (`@jonushzw`) | #132, #183 | Approved 0002–0009, with the amendments to 0005 and 0006 (#254) and to 0007 (#250) | 2026-10-29 |
+| Jonus (`@jonushzw`) | #132, #183 | Approved 0002–0012, with the amendments to 0005 and 0006 (#254) and to 0007 (#250) | 2026-11-03 |
 | Anselm Long (`@anselmlong`) | #183, #218 | Approved 0002–0012, with the amendments to 0005 and 0006 (#254) and to 0007 (#250) | 2026-11-03 |
 | Patrick Thomas (`@pastchum`) | #183 | Approved 0002–0009, with the amendments to 0005 and 0006 (#254) and to 0007 (#250) | 2026-10-29 |
 
