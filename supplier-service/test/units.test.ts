@@ -8,6 +8,7 @@ import {
   recordToSupplier,
 } from '../src/admin/normalize.js';
 import { uuidv5 } from '../src/admin/uuid.js';
+import { CAMPUS_BUILDINGS } from '../src/suppliers/campus-buildings.js';
 
 describe('type normalization', () => {
   it('maps the messy source types onto the closed enum', () => {
@@ -37,8 +38,20 @@ describe('building normalization', () => {
     expect(normalizeBuilding('Prince George’s Park')).toBe("Prince George's Park");
   });
 
-  it('leaves an unknown building tidy but intact', () => {
-    expect(normalizeBuilding('  Central   Library ')).toBe('Central Library');
+  it('resolves any casing and spacing onto the campus list', () => {
+    expect(normalizeBuilding('  central   LIBRARY ')).toBe('Central Library');
+    expect(normalizeBuilding('yusof ishak house')).toBe('Yusof Ishak House');
+  });
+
+  it('leaves an unknown building tidy but unresolved', () => {
+    expect(normalizeBuilding('  Zebra   Hall ')).toBe('Zebra Hall');
+    expect(normalizeBuilding('constructor')).toBe('constructor');
+  });
+
+  it('keeps the campus list sorted, unique and already canonical', () => {
+    expect([...CAMPUS_BUILDINGS].sort((a, b) => a.localeCompare(b))).toEqual(CAMPUS_BUILDINGS);
+    expect(new Set(CAMPUS_BUILDINGS).size).toBe(CAMPUS_BUILDINGS.length);
+    for (const b of CAMPUS_BUILDINGS) expect(normalizeBuilding(b)).toBe(b);
   });
 });
 

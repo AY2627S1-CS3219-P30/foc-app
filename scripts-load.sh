@@ -60,6 +60,10 @@ else
   LIVE_STUDENTS=40 STREAMS_EACH=5 LIVE_ERRANDS=60
 fi
 THINK_S="${THINK_S:-1}"
+# Production refuses compose.load.yaml's raised sign-in limits (#285), so this stack runs in
+# development. Nothing else production changes is measured here: the stack has its own key, mail
+# and metrics token either way, and k6 signs in with the bearer token, not the cookie.
+export NODE_ENV=development
 
 # .env's logins and settings, after the ports above: scripts-env.sh never overrides a variable
 # that is already set.

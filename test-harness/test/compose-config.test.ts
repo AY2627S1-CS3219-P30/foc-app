@@ -144,6 +144,42 @@ const APPLICATION = [
   'credit-service',
 ] as const;
 
+describe('production mode (PLT-10, #285)', () => {
+  it('runs every service in production mode unless told otherwise', () => {
+    // Production signs with the configured key only, sends real mail, sets the refresh cookie
+    // Secure, and refuses sign-in limits raised above policy. A stack that needs otherwise, such
+    // as the load test's, says so itself.
+    for (const name of APPLICATION) {
+      expect(services[name]!.environment!.NODE_ENV, name).toBe('${NODE_ENV:-production}');
+    }
+  });
+
+  it('starts a new .env in production too, as Compose takes its value over the default', () => {
+    const set = assignments(read('.env.example')).filter(({ name }) => name === 'NODE_ENV');
+    expect(set.map(({ value }) => value)).toEqual(['production']);
+  });
+
+  it('gives the User Service what production requires: its own key, and mail it can send', () => {
+    const env = services['user-service']!.environment!;
+    expect(env.JWT_PRIVATE_KEY).toMatch(/^\$\{JWT_PRIVATE_KEY:\?/);
+    expect(env.SMTP_HOST).toBe('mailpit');
+    // Mailpit offers no STARTTLS, which production otherwise requires.
+    expect(env.SMTP_REQUIRE_TLS).toBe('false');
+    expect(env.ACTIVATION_URL).toBeDefined();
+  });
+
+  it('has the smoke test prove the cookie is Secure on a production stack', () => {
+    const smoke = read('scripts-smoke.sh');
+    expect(smoke).toContain('if [[ "${NODE_ENV:-}" == production ]]; then');
+    expect(smoke).toContain('[[ "$cookie" == *"; Secure"* ]]');
+  });
+
+  it('runs a service from source in development, whatever .env says', () => {
+    // An exported production stays in the shell, and npm then skips the dev dependencies.
+    expect(read('README.md')).toContain('set -a; . ./.env; NODE_ENV=development; set +a');
+  });
+});
+
 describe('one broker account per service (PLT-06)', () => {
   it('gives each service its own broker login, and none the operator’s', () => {
     for (const name of APPLICATION) {

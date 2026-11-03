@@ -121,13 +121,13 @@ reaches no service (PLT-13, #289).
   the one origin the browser no longer needs it.
 - The edge is one more container in the start-up order and one more thing that can fail. A failed
   edge stops the browser but not the services, which the scripts still reach on `127.0.0.1`.
-- The services still run with `NODE_ENV=development` in Compose. Production mode, which turns on
-  `Secure` cookies, needs a real SMTP relay: since USR-09 (#274) the User Service sends real
-  activation email, and refuses production without `SMTP_HOST`.
+- The services run with `NODE_ENV=production` in Compose (#285), which marks the refresh cookie
+  `Secure`; Chrome still sends it to `http://localhost`. Production also needs mail the User
+  Service can send, which it has had since USR-09 (#274): Mailpit, in the stack.
 
 ## Revisit if
 
-- The stack is served over HTTPS: add `Strict-Transport-Security` and turn on `Secure` cookies.
+- The stack is served over HTTPS: add `Strict-Transport-Security`.
 - Next.js can run without inline scripts here (nonces), so the CSP can drop `'unsafe-inline'`.
 - Several edge instances run at once: the write limit is per instance, so it would need a shared
   store or a limit per instance divided between them.
