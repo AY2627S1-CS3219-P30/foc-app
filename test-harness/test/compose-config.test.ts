@@ -303,6 +303,15 @@ describe('containers get only what they need (PL-NFR2.1.2)', () => {
     );
   });
 
+  it("forwards chat's retention settings, with the defaults .env.example shows", () => {
+    const examples = assignments(read('.env.example'));
+    for (const name of ['CHAT_RETENTION_DAYS', 'CHAT_CLEANUP_INTERVAL_MS']) {
+      const example = examples.find((assignment) => assignment.name === name);
+      expect(example, name).toBeDefined();
+      expect(services['chat-service']!.environment![name]).toBe(`\${${name}:-${example!.value}}`);
+    }
+  });
+
   it('publishes an internal port only in the development override, and there only to this machine', () => {
     const override = (
       yaml.load(read('compose.dev.yaml')) as { services: Record<string, ComposeService> }
