@@ -410,7 +410,10 @@ describe('20 new messages a minute per sender', () => {
     await age(1, 50);
     const limited = await send(orderId, message('one too many')).expect(429);
     expect(limited.body.error.code).toBe('RATE_LIMITED');
-    expect(limited.headers['retry-after']).toBe('10');
+    // 10 seconds less however long the runner took since `age`.
+    const retryAfter = Number(limited.headers['retry-after']);
+    expect(retryAfter).toBeGreaterThanOrEqual(8);
+    expect(retryAfter).toBeLessThanOrEqual(10);
     expect((await channel(orderId).expect(200)).body.latestSeq).toBe(20);
     // Another sender has their own allowance.
     await send(orderId, message('still here'), 'courier').expect(201);
