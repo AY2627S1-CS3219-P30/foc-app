@@ -1,5 +1,5 @@
 import { createTransport, type Transporter } from 'nodemailer';
-import type { ActivationEmail, Mailer } from './mailer.js';
+import type { ActivationEmail, Mailer, PasswordResetEmail } from './mailer.js';
 
 export interface SmtpSettings {
   host: string;
@@ -16,11 +16,14 @@ export interface SmtpSettings {
 
 export interface ActivationMailSettings {
   from: string;
-  /** The web app's activation page. The token is appended as `?token=`. */
+  /**
+   * The web app's activation page. The token is appended as `?token=`. The password reset page is
+   * its sibling `reset-password`, resolved against it, so one setting serves both links.
+   */
   activationUrl: string;
 }
 
-/** Delivers activation email over SMTP: to Mailpit in the local stack, or to a relay. */
+/** Delivers activation and password reset email over SMTP: to Mailpit locally, or to a relay. */
 export class SmtpMailer implements Mailer {
   constructor(
     private readonly transport: Pick<Transporter, 'sendMail'>,
@@ -61,6 +64,26 @@ export class SmtpMailer implements Mailer {
         `Or paste this code on the activation page: ${email.token}`,
         '',
         "If you didn't sign up, ignore this email and nothing will happen.",
+      ].join('\n'),
+    });
+  }
+
+  async sendPasswordReset(email: PasswordResetEmail): Promise<void> {
+    const link = new URL('reset-password', this.settings.activationUrl);
+    link.searchParams.set('token', email.token);
+    await this.transport.sendMail({
+      from: this.settings.from,
+      to: email.to,
+      subject: 'Reset your Friend on Campus password',
+      text: [
+        'Open this link to choose a new password for your Friend on Campus account:',
+        '',
+        link.href,
+        '',
+        'The link works once and expires soon.',
+        'Choosing a new password signs you out everywhere, and activates the account if it was still waiting for activation.',
+        '',
+        "If you didn't ask for this, ignore this email: your password stays as it is.",
       ].join('\n'),
     });
   }

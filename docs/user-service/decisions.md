@@ -246,7 +246,7 @@ Compared in constant time against digests; a user access token is never accepted
 - **Trade-off:** static shared secrets, no rotation story. `compose.yaml` carries a **dev-only default key**
   so `up` works on a clean clone — a committed credential PLT-06 (secrets hardening) should remove.
 
-### O2. Activation email goes over SMTP; no route returns a token — ✅ (USR-09, #274)
+### O2. Activation email goes over SMTP; no route returns a token — ✅ (USR-09, #274; reset #309)
 *Was:* a dev mailbox, `GET /dev/mailbox?to=…`, returned any address's token unauthenticated on the
 published port, and production refused to boot because no other adapter existed.
 - **Now:** an SMTP adapter (`SmtpMailer`, nodemailer). Compose runs Mailpit as the SMTP server, its inbox
@@ -261,13 +261,44 @@ published port, and production refused to boot because no other adapter existed.
   live link, so of two at once only the first revives it. **Trade-off:** until an address is proven,
   the last registrant sets the password. Once a real student's link lapses, someone else can
   re-register the address with their own password; the student then gets an ordinary-looking
-  activation email, and clicking it activates the other person's password, with no reset to recover.
-  This is the pre-registration hijack below by a second route, and closes with it (#309).
-- **Open risk, pre-registration hijack:** the password is chosen at sign-up, before the inbox is
-  proven. Someone can register a student's address with their own password and keep it pending by
-  resending before each link expires, so the student's own sign-up gets `409`, and the only way on
-  is to click a link that activates the other person's password. No password reset exists to
-  recover. The robust fix is to set the password at activation (or add reset); a follow-up, not #274.
+  activation email. That is the pre-registration hijack below by a second route, and password reset
+  closes both (#309).
+- **Pre-registration hijack, mitigated by password reset (#309):** the password is chosen at sign-up,
+  before the inbox is proven. Someone can register a student's address with their own password and
+  keep it pending by resending before each link expires, so the student's own sign-up gets `409`.
+  Until #309 the only way on was to click a link that activates the other person's password.
+  - **Chosen:** password reset by email (the owner's pick in review over setting the password at
+    activation, which would have changed registration's contract and the activate screen).
+    `POST /auth/password-reset` mails a link to an `ACTIVE` **or `PENDING_ACTIVATION`** account,
+    answering the same `202` for every address after the work is queued, like resend.
+    `POST /auth/password-reset/confirm` sets the password the inbox owner chose and, in one
+    transaction, **activates a pending account** (with its one `user.activated`, so the wallet still
+    arrives), revokes every refresh session, and deletes the unused activation link. So whatever the
+    other person did, the student ends with an active account and a password only they chose, and the
+    other person's password, link and sessions are dead. Sign-up's `409` now points at the reset.
+  - **Tokens** follow activation's: 256 random bits, only the SHA-256 stored
+    (`password_reset_tokens`), single use by a conditional `UPDATE`, issuing one deletes the account's
+    unused others. 30 minutes by default (`PASSWORD_RESET_TOKEN_TTL_MINUTES`, 5–1440): whoever holds a
+    reset link can take the account, so it lives far shorter than an activation link. An unknown or
+    used token is `404 PASSWORD_RESET_TOKEN_INVALID`, an expired one `410 PASSWORD_RESET_TOKEN_EXPIRED`.
+    No idempotent replay, unlike activation: a replay could carry a different password. The token is
+    looked up before Argon2 runs, so a made-up one costs a read, not a hash.
+  - **Confirm does not sign in**, as activation does not; the web app leads to sign-in. Suspended
+    accounts get no email, and a link whose account was suspended after it was sent is refused and left
+    unused. A bootstrap administrator may reset (the flag clears), but not to the bootstrap password.
+  - **Limits:** 3 requests an hour per address and 20 per IP, counting every request, as resend. They
+    are **separate counters** from resend's: shared, the attacker's resends would use up the budget the
+    student needs to take the address back.
+  - **No new event for the reset itself.** As with `POST /auth/password`, nothing the other services
+    cache changes: status and roles are the same, and `authStatusEvents` covers only those. What a
+    reset ends is sessions, and other services learn that from introspection, whose answer is cached
+    at most 5 s (`cacheTtlMs`), inside US-NFR2.1.2's 10 s. An access token is checked against its
+    session on every introspection, so revoking the sessions is enough. A pending account activated
+    by a reset publishes `user.activated`, exactly as activation would.
+  - **Residual risks:** someone can spend an address's three resets an hour; each still lands in the
+    student's inbox, and only the newest works, so it delays the student rather than locking them out.
+    The display name chosen by whoever registered the address survives the reset until the student
+    edits their profile.
 - **Trade-off:** the per-address resend limit counts every request, so a stranger can use up an
   address's three resends for an hour. Keying it on address and IP would let a single address be
   flooded from many clients; the inbox is the thing protected.
