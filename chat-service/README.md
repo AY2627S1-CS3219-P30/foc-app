@@ -102,6 +102,18 @@ Chat only ever reads the errand: no route can change it. A message sent in the m
 reaches a final status can still be stored, a few milliseconds after it ended. That window is
 accepted: the message keeps its server time, and chat cannot change the errand either way.
 
+### Data model
+
+| Table                 | Holds                                                                                                                                      |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `channels`            | One row per errand that opened a channel, and `latest_seq`, its newest message's number                                                    |
+| `messages`            | `seq` 1, 2, 3… per channel, the sender, the browser's `client_id` (unique per sender) and the body                                         |
+| `read_positions`      | How far each participant has read                                                                                                          |
+| `admin_channel_reads` | Every administrator read: who, which errand, `CHANNEL` or `MESSAGES`, the correlation ID, when. No foreign key, so it outlives the channel |
+
+A send takes the channel's row lock, so concurrent sends get consecutive numbers and a retry
+racing its original is stored once (`test/chat.postgres.test.ts`).
+
 ## The socket
 
 A WebSocket that tells a participant's open chat panel that a channel has new messages, so the panel
@@ -192,18 +204,6 @@ library closes it with `1009`.
 Metrics: `foc_chat_sockets` (open now), `foc_chat_socket_nudges_total` (one per socket nudged),
 and `foc_chat_socket_closes_total` by `reason` (the table above, plus `client-closed` and
 `no-pong`).
-
-### Data model
-
-| Table                 | Holds                                                                                                                                      |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `channels`            | One row per errand that opened a channel, and `latest_seq`, its newest message's number                                                    |
-| `messages`            | `seq` 1, 2, 3… per channel, the sender, the browser's `client_id` (unique per sender) and the body                                         |
-| `read_positions`      | How far each participant has read                                                                                                          |
-| `admin_channel_reads` | Every administrator read: who, which errand, `CHANNEL` or `MESSAGES`, the correlation ID, when. No foreign key, so it outlives the channel |
-
-A send takes the channel's row lock, so concurrent sends get consecutive numbers and a retry
-racing its original is stored once (`test/chat.postgres.test.ts`).
 
 ## Running this service
 
