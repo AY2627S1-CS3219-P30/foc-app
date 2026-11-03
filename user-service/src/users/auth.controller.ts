@@ -18,6 +18,8 @@ import {
   changePasswordSchema,
   loginSchema,
   parseOrThrow,
+  passwordResetConfirmSchema,
+  passwordResetRequestSchema,
   registerSchema,
   resendActivationSchema,
   stepUpSchema,
@@ -74,6 +76,38 @@ export class AuthController {
     return {
       message: 'If that address has an account waiting for activation, a new link is on its way.',
     };
+  }
+
+  /**
+   * #309 — asks for a password reset link. Answered like resend, for the same reasons: the same 202
+   * for any address, both limits counting every request, and the work done after the answer. Its
+   * limits are its own, so resending an address's activation link cannot use up its resets.
+   */
+  @Post('password-reset')
+  @HttpCode(202)
+  requestPasswordReset(
+    @Body() body: unknown,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): { message: string } {
+    const { email } = parseOrThrow(passwordResetRequestSchema, body);
+    this.limit(res, this.limiters.resetPerIp, req.ip ?? 'unknown');
+    this.limit(res, this.limiters.resetPerEmail, normalizeEmail(email));
+    void this.users.requestPasswordReset(email);
+    return {
+      message: 'If that address has an account, a link to reset its password is on its way.',
+    };
+  }
+
+  /**
+   * Sets the password from a reset link. No cookie is read or set, so no origin check: the token in
+   * the body is the credential, and a cross-site page cannot know it.
+   */
+  @Post('password-reset/confirm')
+  @HttpCode(204)
+  async confirmPasswordReset(@Body() body: unknown, @Req() req: Request): Promise<void> {
+    const { token, password } = parseOrThrow(passwordResetConfirmSchema, body);
+    await this.sessions.confirmPasswordReset(token, password, correlationOf(req));
   }
 
   @Post('login')

@@ -71,6 +71,14 @@ export function validatePasswordChange(input: {
   });
 }
 
+/** A new password chosen from a reset link: the registration policy, typed twice. */
+export function validatePasswordReset(input: { password: string; confirm: string }): Errors {
+  return compact({
+    password: validateNewPassword(input.password),
+    confirm: input.confirm !== input.password ? "The passwords don't match." : undefined,
+  });
+}
+
 function compact(errors: Errors): Errors {
   return Object.fromEntries(Object.entries(errors).filter(([, v]) => v !== undefined));
 }

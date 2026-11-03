@@ -34,6 +34,7 @@ erDiagram
     users ||--|| profiles : has
     users ||--o{ user_roles : holds
     users ||--o{ activation_tokens : "receives"
+    users ||--o{ password_reset_tokens : "receives"
     users ||--o{ refresh_sessions : "owns"
     users ||--o{ audit_records : "is target of"
     users ||--o{ role_change_requests : "is target of"
@@ -49,7 +50,7 @@ erDiagram
 | `password_hash`     | text NOT NULL | Argon2id, encoded string including the per-hash random salt and parameters. |
 | `status`            | text NOT NULL | `CHECK IN ('PENDING_ACTIVATION','ACTIVE','SUSPENDED')`                       |
 | `is_seeded_admin`   | boolean NOT NULL DEFAULT false | Set only by the boot seed. Never writable through any API. |
-| `must_change_password` | boolean NOT NULL DEFAULT false | Set by the boot seed; cleared by `POST /auth/password`. While set, login starts no session (`PASSWORD_CHANGE_REQUIRED`). Migration 004 set it on every existing bootstrap admin. |
+| `must_change_password` | boolean NOT NULL DEFAULT false | Set by the boot seed; cleared by `POST /auth/password` or `POST /auth/password-reset/confirm`. While set, login starts no session (`PASSWORD_CHANGE_REQUIRED`). Migration 004 set it on every existing bootstrap admin. |
 | `activated_at`      | timestamptz NULL | Set once, on first activation. Drives "exactly one `UserActivated`".      |
 | `created_at`, `updated_at` | timestamptz NOT NULL |                                                                    |
 
@@ -83,6 +84,18 @@ transaction that first checks the remaining admin count under `SELECT … FOR UP
 | `expires_at`  | timestamptz | e.g. 24 h                                                   |
 | `consumed_at` | timestamptz NULL | Set in the same transaction that activates the user   |
 
+### `password_reset_tokens`
+Built like `activation_tokens` (#309). Issuing one deletes the account's unused ones; using one deletes
+the account's unused activation tokens and revokes every refresh session.
+
+| Column        | Type        | Notes                                                       |
+| ------------- | ----------- | ----------------------------------------------------------- |
+| `id`          | uuid PK     |                                                             |
+| `user_id`     | uuid FK     | Index on (`user_id`)                                        |
+| `token_hash`  | text UNIQUE | Hex SHA-256 of a 256-bit random token; the raw token exists only in the email |
+| `expires_at`  | timestamptz | Issue + `PASSWORD_RESET_TOKEN_TTL_MINUTES` (30 by default)  |
+| `consumed_at` | timestamptz NULL | Set in the same transaction that replaces the password |
+
 ### `refresh_sessions`
 | Column        | Type        | Notes                                                                 |
 | ------------- | ----------- | --------------------------------------------------------------------- |
@@ -92,7 +105,7 @@ transaction that first checks the remaining admin count under `SELECT … FOR UP
 | `token_hash`  | text UNIQUE | Hex SHA-256 of the opaque refresh token                                |
 | `issued_at`, `expires_at` | timestamptz | `expires_at` = issue + 7 days                          |
 | `rotated_at`  | timestamptz NULL | Set when this token is exchanged for a new one                    |
-| `revoked_at`  | timestamptz NULL | Logout, suspension, or family kill                                |
+| `revoked_at`  | timestamptz NULL | Logout, suspension, password change or reset, or family kill      |
 | `stepped_up_at` | timestamptz NULL | Last password re-entry on this sign-in (`POST /auth/step-up`, ADR 0008). Copied to the new row on refresh |
 
 **Reuse detection:** presenting a token whose `rotated_at` is set revokes every row with the same
@@ -193,6 +206,7 @@ Log redaction: structured logs identify a user by `userId` only, never by email,
 | ----------------------------------------------------- | ------------------------------------------------------------ |
 | US-FR1.1.1 duplicate/off-domain rejected              | `users.email` UNIQUE + service-level allowlist               |
 | Activation single-use, replay-idempotent              | `activation_tokens.consumed_at`, `users.activated_at`        |
+| Password reset single-use, newest link only (#309)    | `password_reset_tokens.consumed_at`                          |
 | US-FR4.1.2 lookup returns only existence/status/roles/name | Reads `users`, `user_roles`, `profiles.display_name` only |
 | US-NFR2.1.1 Argon2id, no secrets in logs              | `users.password_hash`; logger redaction                      |
 | US-NFR2.1.2 refresh hashed, revoked ≤ 10 s            | `refresh_sessions`                                            |

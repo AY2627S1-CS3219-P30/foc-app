@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { ApiException } from '@foc/platform';
+import { ApiException, EVENTS } from '@foc/platform';
 import { DB, type Database } from '../db/db.js';
 import { normalizeEmail } from '../users/email.js';
 import { validationFailed } from '../users/validation.js';
@@ -45,8 +45,22 @@ const invalidCredentials = () =>
 const passwordChangeRequired = () =>
   new ApiException(403, 'PASSWORD_CHANGE_REQUIRED', 'Choose a new password before signing in.');
 
-const passwordUnchanged = (message: string) =>
-  validationFailed([{ field: 'newPassword', code: 'PASSWORD_UNCHANGED', message }]);
+const passwordUnchanged = (message: string, field = 'newPassword') =>
+  validationFailed([{ field, code: 'PASSWORD_UNCHANGED', message }]);
+
+/** Why a reset token was refused: unknown or already used, or expired (the activation pattern). */
+const resetTokenRefusal = (token: { consumed: boolean; expired: boolean } | null) =>
+  !token || token.consumed
+    ? new ApiException(
+        404,
+        'PASSWORD_RESET_TOKEN_INVALID',
+        'This password reset link is not valid.',
+      )
+    : new ApiException(
+        410,
+        'PASSWORD_RESET_TOKEN_EXPIRED',
+        'This password reset link has expired.',
+      );
 
 @Injectable()
 export class SessionsService {
@@ -152,8 +166,8 @@ export class SessionsService {
    * an access token, so the same call serves a bootstrap admin who has no session yet (their login
    * is refused with `PASSWORD_CHANGE_REQUIRED`) and any active user changing theirs.
    *
-   * Every session of the account is revoked in the same transaction: whoever knew the old password
-   * may already hold one. Failure responses match login's, so this is no better an oracle than it.
+   * Every session of the account is revoked, and its unused password reset links deleted, in the
+   * same transaction: whoever knew the old password may already hold a session or a link. Failure responses match login's, so this is no better an oracle than it.
    */
   async changePassword(rawEmail: string, currentPassword: string, newPassword: string) {
     const user = await this.verifyCredentials(rawEmail, currentPassword);
@@ -171,10 +185,68 @@ export class SessionsService {
     const replaced = await this.db.transaction(async (tx) => {
       if (!(await users.replacePassword(tx, user.id, user.passwordHash, newHash))) return false;
       await sessions.revokeAllForUser(tx, user.id);
+      // A reset link mailed before this change would otherwise set the password again.
+      await users.deleteUnconsumedPasswordResetTokens(tx, user.id);
       return true;
     });
     // Lost a race with another change: the password we verified is no longer the current one.
     if (!replaced) throw invalidCredentials();
+  }
+
+  /**
+   * #309 — sets the password chosen through an emailed reset link. The link proves the inbox, so:
+   * - a pending account is activated too, with its one `user.activated`, as activation would. This
+   *   is how a student takes back an address someone else registered with their own password;
+   * - every session of the account is revoked and its unused activation link deleted, so nobody who
+   *   knew the old password, or holds the link sent while it was set, keeps a way in.
+   *
+   * Does not sign in, as activation does not: the student signs in with the new password. A
+   * suspended account is refused and its token left unused. The token is checked before Argon2
+   * runs, so a made-up token costs one indexed read, not a hash.
+   */
+  async confirmPasswordReset(
+    token: string,
+    password: string,
+    correlationId: string,
+  ): Promise<void> {
+    const tokenHash = sha256Hex(token);
+    const found = await users.findPasswordResetToken(this.db, tokenHash);
+    if (!found || found.consumed || found.expired) throw resetTokenRefusal(found);
+    // As for a password change: the bootstrap secret would hand the account to everyone who knows it.
+    if (found.isSeededAdmin && password === this.settings.bootstrapPassword) {
+      throw passwordUnchanged(
+        'Choose a password different from the bootstrap password.',
+        'password',
+      );
+    }
+
+    // Hashed before the transaction: Argon2id is deliberately slow and must not hold a connection.
+    const passwordHash = await hashPassword(password);
+    await this.db.transaction(async (tx) => {
+      const status = await users.lockUserOfPasswordResetToken(tx, tokenHash);
+      const userId = await users.consumePasswordResetToken(tx, tokenHash);
+      // Used or expired while Argon2 ran. Nothing was written, so throwing loses nothing.
+      if (!userId || !status) {
+        throw resetTokenRefusal(await users.findPasswordResetToken(tx, tokenHash));
+      }
+      // Suspended after the link was sent. Throwing rolls back, so the token is not left consumed.
+      if (status === 'SUSPENDED') throw resetTokenRefusal(null);
+
+      await users.setPassword(tx, userId, passwordHash);
+      if (status === 'PENDING_ACTIVATION' && (await users.markActivated(tx, userId))) {
+        await users.insertOutboxEvent(tx, {
+          id: randomUUID(),
+          eventType: EVENTS.USER_ACTIVATED,
+          aggregateId: userId,
+          payload: { userId, activatedAt: new Date().toISOString() },
+          correlationId,
+        });
+      }
+      // An activated account's old link would be refused anyway; deleted so none is left lying about.
+      // No other reset link needs deleting: issuing one deletes the rest, and this one is now used.
+      await users.deleteUnconsumedActivationTokens(tx, userId);
+      await sessions.revokeAllForUser(tx, userId);
+    });
   }
 
   /**
