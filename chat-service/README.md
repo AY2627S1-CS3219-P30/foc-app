@@ -84,10 +84,11 @@ A conversation is kept for 90 days after its errand reaches a final status (`CHA
 long enough for a dispute and for questions about it afterwards. From then every route answers
 `404`, to participants and administrators alike.
 
-`RetentionCleanup` runs as the service starts and then daily (`CHAT_CLEANUP_INTERVAL_MS`). It asks
-the Order Service about each channel opened more than 90 days ago (a channel opens only before its
-errand ends, so a younger one cannot be due) and deletes those whose errand ended more than 90 days
-ago, with their messages and read positions. Only a clear answer deletes anything:
+`RetentionCleanup` runs once the service listens and then daily (`CHAT_CLEANUP_INTERVAL_MS`).
+`main.ts` starts it, so an app built in a test never sweeps. It asks the Order Service about each
+channel opened more than 90 days ago (a channel opens only before its errand ends, so a younger one
+cannot be due) and deletes those whose errand ended more than 90 days ago, with their messages and
+read positions. Only a clear answer deletes anything:
 
 - the Order Service does not answer: the channel is skipped and asked about again next run;
 - the Order Service knows no such errand: it is kept and a warning is logged, since errands are

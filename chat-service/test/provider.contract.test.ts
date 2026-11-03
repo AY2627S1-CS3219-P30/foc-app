@@ -11,7 +11,6 @@ import {
 } from '@foc/platform';
 import { ContractValidator } from '@foc/test-harness';
 import { AppModule } from '../src/app.module.js';
-import { RetentionCleanup } from '../src/chat/retention.js';
 import { as, createTestApp, http as httpOf, message, type TestApp } from './helpers/app.js';
 
 /**
@@ -26,8 +25,6 @@ describe('chat-service honours its published contract', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-    // The retention cleanup would ask a database this suite does not have; it is tested on its own.
-    vi.spyOn(moduleRef.get(RetentionCleanup), 'onApplicationBootstrap').mockReturnValue();
     app = moduleRef.createNestApplication();
     app.useGlobalFilters(new ErrorEnvelopeFilter());
     await app.init();

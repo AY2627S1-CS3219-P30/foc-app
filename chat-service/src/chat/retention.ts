@@ -1,10 +1,4 @@
-import {
-  Inject,
-  Injectable,
-  Logger,
-  type OnApplicationBootstrap,
-  type OnApplicationShutdown,
-} from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnApplicationShutdown } from '@nestjs/common';
 import { ChatRepository } from './chat.repository.js';
 import { Upstreams, type OrderForChat } from './upstreams.js';
 
@@ -45,11 +39,12 @@ export interface CleanupResult {
  * is never deleted, so that is a fault to look into, not a reason to destroy dispute evidence.
  * Every route already answers 404 past retention, so a channel kept a day longer shows nothing.
  *
- * It runs once as soon as the service is ready, so a restart never postpones it by a whole
- * interval, and then every interval (a day by default).
+ * `main.ts` starts it once the service listens, so an app built only to test runs no sweep. It
+ * runs at once, so a restart never postpones it by a whole interval, and then every interval (a
+ * day by default).
  */
 @Injectable()
-export class RetentionCleanup implements OnApplicationBootstrap, OnApplicationShutdown {
+export class RetentionCleanup implements OnApplicationShutdown {
   private readonly logger = new Logger(RetentionCleanup.name);
   private timer?: NodeJS.Timeout;
   private running?: Promise<CleanupResult>;
@@ -60,7 +55,7 @@ export class RetentionCleanup implements OnApplicationBootstrap, OnApplicationSh
     @Inject(RETENTION_OPTIONS) private readonly options: RetentionOptions,
   ) {}
 
-  onApplicationBootstrap(): void {
+  start(): void {
     void this.tick();
     this.timer = setInterval(() => void this.tick(), this.options.intervalMs);
     this.timer.unref();
