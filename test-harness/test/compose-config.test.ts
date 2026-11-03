@@ -305,7 +305,11 @@ describe('containers get only what they need (PL-NFR2.1.2)', () => {
 
   it("forwards chat's retention settings, with the defaults .env.example shows", () => {
     const examples = assignments(read('.env.example'));
-    for (const name of ['CHAT_RETENTION_DAYS', 'CHAT_CLEANUP_INTERVAL_MS']) {
+    for (const name of [
+      'CHAT_RETENTION_DAYS',
+      'CHAT_CLEANUP_INTERVAL_MS',
+      'CHAT_CLEANUP_RETRY_MS',
+    ]) {
       const example = examples.find((assignment) => assignment.name === name);
       expect(example, name).toBeDefined();
       expect(services['chat-service']!.environment![name]).toBe(`\${${name}:-${example!.value}}`);

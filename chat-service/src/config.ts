@@ -23,6 +23,13 @@ export const env = loadEnv({
     .min(60_000)
     .max(2_147_483_647)
     .default(24 * 60 * 60_000),
+  /** How soon a cleanup run the Order Service did not answer for is tried once more. */
+  CHAT_CLEANUP_RETRY_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(2_147_483_647)
+    .default(5 * 60_000),
   ...authEnvSchema,
 });
 

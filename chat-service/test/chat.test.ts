@@ -462,6 +462,7 @@ describe('kept 90 days after the errand ends', () => {
     new RetentionCleanup(t.app.get(ChatRepository), t.app.get(Upstreams), {
       retentionDays: 90,
       intervalMs: DAY_MS,
+      retryMs: 5 * 60_000,
     });
   /** A channel with one message, opened `daysOld` days ago. */
   const openedChannel = async (daysOld = 100) => {

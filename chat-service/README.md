@@ -90,7 +90,9 @@ channel opened more than 90 days ago (a channel opens only before its errand end
 cannot be due) and deletes those whose errand ended more than 90 days ago, with their messages and
 read positions. Only a clear answer deletes anything:
 
-- the Order Service does not answer: the channel is skipped and asked about again next run;
+- the Order Service does not answer: the channel is skipped, and the run is tried once more five
+  minutes later (`CHAT_CLEANUP_RETRY_MS`), since on a stack restart chat can be up before the Order
+  Service; if that also skips, the channel waits for the next daily run;
 - the Order Service knows no such errand: it is kept and a warning is logged, since errands are
   never deleted and evidence should not be destroyed on a fault;
 - either way the routes already answer `404` once retention ends, so nothing is shown meanwhile.
@@ -149,6 +151,7 @@ Optional, with the defaults of ADR 0012:
 | -------------------------- | ---------- | ------------------------------------------------------------------ |
 | `CHAT_RETENTION_DAYS`      | `90`       | Days after the errand ends that the conversation is kept.          |
 | `CHAT_CLEANUP_INTERVAL_MS` | `86400000` | How often the cleanup runs; at least a minute, at most ~24.8 days. |
+| `CHAT_CLEANUP_RETRY_MS`    | `300000`   | How soon a run that skipped a channel is tried once more.          |
 
 A missing required variable stops the service at boot and names the variable.
 

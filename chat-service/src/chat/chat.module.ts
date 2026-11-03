@@ -24,6 +24,7 @@ export class ChatModule {
           useValue: {
             retentionDays: env.CHAT_RETENTION_DAYS,
             intervalMs: env.CHAT_CLEANUP_INTERVAL_MS,
+            retryMs: env.CHAT_CLEANUP_RETRY_MS,
           },
         },
         { provide: UPSTREAM_FETCH, useValue: fetch },
