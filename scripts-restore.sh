@@ -14,7 +14,7 @@ docker compose up -d --wait postgres rabbitmq >&2
 python3 scripts-recovery.py empty
 recovery_broker_empty || { recovery_error 'Target broker contains messages; restore requires a fresh broker too.'; exit 1; }
 
-for name in user supplier order credit; do
+for name in user supplier order credit chat; do
   echo "Restoring foc_$name..." >&2
   docker compose exec -T postgres sh -ec \
     'exec pg_restore -U "$POSTGRES_USER" --exit-on-error --single-transaction --no-owner --no-acl --role "$1" -d "$2"' \

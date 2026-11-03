@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Cuts a release candidate or the final release (REL-03, #169) from images CI already built and
-# scanned. It builds nothing: each of the five images published as sha-<commit> also gets the
+# scanned. It builds nothing: each of the six images published as sha-<commit> also gets the
 # release's tag, and a GitHub Release records the commit and their digests.
 #
 #   git tag rc1-d4 <commit on main> && git push origin rc1-d4
@@ -11,14 +11,14 @@
 #
 #   ./scripts-release.sh rc1-d4 | rc2-d4 | v1.0-d4
 #
-# Exits 2 on a name that is not a release tag, and 1 when it refuses or fails. All five images are
+# Exits 2 on a name that is not a release tag, and 1 when it refuses or fails. All six images are
 # read before any is tagged, a re-run is safe, and a release tag never moves to other images.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 REGISTRY="${REGISTRY:-ghcr.io/ay2627s1-cs3219-p30}"
 # What CI's publish job pushes; test-harness/test/release.test.ts holds the two together.
-APPLICATIONS=(user-service supplier-service order-service credit-service web-app)
+APPLICATIONS=(user-service supplier-service order-service credit-service chat-service web-app)
 
 tag="${1:-}"
 if [[ $# -ne 1 || ! "$tag" =~ ^(rc[0-9]+|v[0-9]+\.[0-9]+)-d4$ ]]; then
@@ -132,4 +132,4 @@ if [[ "$tag" == rc* ]]; then
   release+=(--prerelease)
 fi
 gh "${release[@]}" --title "$title"
-echo "$tag is commit $commit, on all five images."
+echo "$tag is commit $commit, on all six images."
