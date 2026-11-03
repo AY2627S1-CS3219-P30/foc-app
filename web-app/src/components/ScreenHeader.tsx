@@ -7,14 +7,14 @@ import styles from "./ScreenHeader.module.css";
 export function ScreenHeader({ title, onBack }: { title: string; onBack?: () => void }) {
   const router = useRouter();
   return (
-    <div className={styles.header}>
+    <header className={styles.header}>
       <button className={styles.back} aria-label="Back" onClick={onBack ?? (() => router.back())}>
         ←
       </button>
-      <span className={styles.title}>{title}</span>
+      <h1 className={styles.title}>{title}</h1>
       <span className={styles.live}>
         <LiveLabel />
       </span>
-    </div>
+    </header>
   );
 }

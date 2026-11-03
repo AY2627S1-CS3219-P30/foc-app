@@ -129,9 +129,9 @@ npm ci
 This resets **only `foc-e2e-release` and its volumes**, on ports 14500–14510 (override with
 `E2E_PORT_BASE`). It generates `.env` if absent, builds the stack, runs its API smoke, and creates
 activated test identities through public APIs for each clean run. It does not reset `foc` or
-`foc-d4-demo`. There are 42 browser cases across 360, 768 and 1440 px, with no retries in release mode.
-CI requires both `Browser journeys (smoke)` (18 baseline cases, release-only cases skipped) and
-`Browser journeys (release)` (all 42 cases twice from clean volumes). The latter reuses the job's
+`foc-d4-demo`. There are 57 browser cases across 360, 768 and 1440 px, with no retries in release mode.
+CI requires both `Browser journeys (smoke)` (24 baseline cases, release-only cases skipped) and
+`Browser journeys (release)` (all 57 cases twice from clean volumes). The latter reuses the job's
 baked images with `E2E_IMAGE_TAG=ci`; leave that unset for local source builds.
 
 `release-journeys.e2e.ts` covers the composer, withdrawal/reacceptance and cancellation before
@@ -141,6 +141,12 @@ keeps the reservation for a replacement courier; cancellation releases it. That 
 state-machine contract, clarifying the audit checklist's ambiguous “with credits returned.”
 `zz-release-clock.e2e.ts` covers server expiry/refund, automatic confirmation/payment without a
 requester click, and non-delivery reporting only after its period followed by an admin decision.
+`accessibility.e2e.ts` runs axe (WCAG 2.0/2.1 A and AA plus best practices) on every student
+screen, the composer to the wallet, and every admin console page, and fails on a critical or
+serious issue; `keyboard-journey.e2e.ts` completes the errand journey from sign-in to the wallet by
+keyboard alone and times each action's feedback (UI-NFR2.1.1, UI-NFR2.1.2, UI-NFR3.1.2). Both pay
+from a requester of their own. Lighthouse is not in CI: `./scripts-lighthouse.sh` (see the
+[report of 3 Nov](../docs/reports/accessibility-and-web-vitals-2026-11-03.md)).
 The existing suites supply registration, the acceptance race, receipt/ledger navigation, both
 dispute outcomes and outsider denial, reconnection idempotency and the admin financial audit.
 
