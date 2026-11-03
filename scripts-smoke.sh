@@ -310,6 +310,13 @@ if [[ -n "${SMOKE_EMAIL:-}" && -n "${SMOKE_PASSWORD:-}" ]]; then
     -H "Origin: $EDGE" -d "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"$SMOKE_PASSWORD\"}" 2>/dev/null | header set-cookie || true)
   [[ "$cookie" == *"Path=/api/user/auth"* ]] && pass "signing in through the edge sets the refresh cookie for /api/user/auth" ||
     fail "the refresh cookie through the edge was '${cookie:-missing}'"
+  # Proves the stack really is in production (#285). An older .env keeps development, so say so.
+  if [[ "${NODE_ENV:-}" == production ]]; then
+    [[ "$cookie" == *"; Secure"* ]] && pass "in production the refresh cookie is Secure" ||
+      fail "NODE_ENV is production, but the refresh cookie was '${cookie:-missing}'"
+  else
+    skip "this stack runs with NODE_ENV=${NODE_ENV:-unset}, so its refresh cookie is not Secure"
+  fi
   refreshed=$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" -X POST "$EDGE/api/user/auth/refresh" \
     -H 'content-type: application/json' -H "Origin: $EDGE" -d '{}' 2>/dev/null || echo 000)
   [[ "$refreshed" == "200" ]] && pass "the browser's refresh through the edge sends the cookie back" ||

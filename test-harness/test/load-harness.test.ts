@@ -70,6 +70,14 @@ describe('the load test (TST-03)', () => {
     expect(read('compose.yaml')).not.toMatch(/LOGIN_LIMIT|REGISTER_LIMIT/);
   });
 
+  it('runs its stack off production, which refuses limits raised above policy (#285)', () => {
+    const script = read('scripts-load.sh');
+    // Before .env is read: scripts-env.sh never overrides a variable already set.
+    const pinned = script.indexOf('export NODE_ENV=development');
+    expect(pinned).toBeGreaterThan(-1);
+    expect(pinned).toBeLessThan(script.indexOf('. ./scripts-env.sh'));
+  });
+
   it('meets a target at the target itself: D1 says "at most"', () => {
     const lib = read('load/lib.js');
     expect(lib).toContain('`p(95)<=${p95}`');

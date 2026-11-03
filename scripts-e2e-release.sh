@@ -23,6 +23,7 @@ export WEB_APP_PORT="$base" USER_SERVICE_PORT="$((base+1))" SUPPLIER_SERVICE_POR
 export ORDER_SERVICE_PORT="$((base+3))" CREDIT_SERVICE_PORT="$((base+4))" GRAFANA_PORT="$((base+5))"
 export POSTGRES_PORT="$((base+6))" RABBITMQ_PORT="$((base+7))" RABBITMQ_MANAGEMENT_PORT="$((base+8))" PROMETHEUS_PORT="$((base+9))"
 export MAILPIT_PORT="$((base+10))"
+# Development: compose.e2e.yaml's controlled clock (test-harness/e2e-clock.mjs) runs in nothing else.
 export CORS_ORIGINS="http://localhost:$WEB_APP_PORT" NODE_ENV=development
 export E2E_BASE_URL="$CORS_ORIGINS" E2E_MAILPIT_URL="http://localhost:$MAILPIT_PORT" E2E_RELEASE=1
 export PLAYWRIGHT_HTML_OPEN=never
