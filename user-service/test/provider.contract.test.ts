@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ContractValidator } from '@foc/test-harness';
 import { RateLimiter } from '../src/auth/rate-limiter.js';
 import {
@@ -77,6 +77,38 @@ describe('user-service honours its published contract', () => {
       http(app).post('/auth/login').set('Origin', ORIGIN).send({ email, password });
     contract.assert('post', '/auth/login', await login(validRegistration().password));
     contract.assert('post', '/auth/login', await login('wrong-password-123'));
+  });
+
+  it('password reset and its error responses (#309)', async () => {
+    const email = 'e0145003@u.nus.edu';
+    await activeStudent(app, email);
+    const reset = (body: object) => http(app).post('/auth/password-reset').send(body);
+    assertStatus('post', '/auth/password-reset', 202, await reset({ email: 'nobody@u.nus.edu' }));
+    assertStatus('post', '/auth/password-reset', 202, await reset({ email }));
+    assertStatus('post', '/auth/password-reset', 422, await reset({}));
+
+    await vi.waitFor(() => expect(app.mailbox.latestResetFor(email)).toBeDefined());
+    const token = app.mailbox.latestResetFor(email)!.token;
+    const confirm = (body: object) => http(app).post('/auth/password-reset/confirm').send(body);
+    const password = 'a-new-long-passphrase';
+    assertStatus(
+      'post',
+      '/auth/password-reset/confirm',
+      422,
+      await confirm({ token, password: 'short' }),
+    );
+    assertStatus('post', '/auth/password-reset/confirm', 204, await confirm({ token, password }));
+    assertStatus('post', '/auth/password-reset/confirm', 404, await confirm({ token, password }));
+
+    await reset({ email }).expect(202);
+    await vi.waitFor(() => expect(app.mailbox.latestResetFor(email)!.token).not.toBe(token));
+    await app.db.exec("UPDATE password_reset_tokens SET expires_at = now() - interval '1 minute'");
+    assertStatus(
+      'post',
+      '/auth/password-reset/confirm',
+      410,
+      await confirm({ token: app.mailbox.latestResetFor(email)!.token, password }),
+    );
   });
 
   it('profile, admin and internal reads', async () => {
@@ -210,11 +242,15 @@ describe('user-service honours its published contract', () => {
     );
   });
 
-  it('the refusals and limits on suspending, reactivating and re-entering a password', async () => {
+  it('the refusals and limits on suspending, reactivating, re-entering a password and resetting one', async () => {
     // An app of its own: the shared one sets every limit out of a test's reach.
     const limited = await createTestApp({
       adminSettings: { suspensionsLimitPerHour: 1 },
-      rateLimiters: { ...openLimiters(), stepUpPerUser: new RateLimiter(1, 60_000) },
+      rateLimiters: {
+        ...openLimiters(),
+        stepUpPerUser: new RateLimiter(1, 60_000),
+        resetPerEmail: new RateLimiter(1, 60_000),
+      },
     });
     try {
       // Seeding re-enters the password once, which is all this app allows.
@@ -249,6 +285,12 @@ describe('user-service honours its published contract', () => {
       assertStatus('post', '/admin/users/{userId}/suspend', 200, await suspend(first.id));
       // One suspension an hour here, so the second is RATE_LIMITED.
       assertStatus('post', '/admin/users/{userId}/suspend', 429, await suspend(next.id));
+
+      // One reset request per address here.
+      const reset = () =>
+        http(limited).post('/auth/password-reset').send({ email: 'e0146005@u.nus.edu' });
+      await reset().expect(202);
+      assertStatus('post', '/auth/password-reset', 429, await reset());
     } finally {
       await limited.close();
     }

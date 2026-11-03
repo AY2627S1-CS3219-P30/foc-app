@@ -112,6 +112,10 @@ export default function LoginPage() {
             {submitting ? "Signing in…" : "Sign in"}
           </Button>
           <p style={{ fontSize: vars.text.sm, textAlign: "center" }}>
+            <Link href="/forgot-password" style={{ color: vars.color.primary }}>
+              Forgot your password?
+            </Link>
+            {" · "}
             <Link href="/change-password" style={{ color: vars.color.primary }}>
               Change your password
             </Link>
@@ -127,7 +131,12 @@ function describe(err: unknown): React.ReactNode {
   if (!(err instanceof ApiError)) return "Something went wrong. Please try again.";
   switch (err.code) {
     case "INVALID_CREDENTIALS":
-      return "That email and password don't match an account.";
+      return (
+        <>
+          That email and password don&apos;t match an account.{" "}
+          <Link href="/forgot-password">Forgot your password?</Link>
+        </>
+      );
     case "ACCOUNT_NOT_ACTIVATED":
       return (
         <>

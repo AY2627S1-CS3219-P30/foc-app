@@ -19,7 +19,7 @@ import { SmtpMailer } from '../mail/smtp-mailer.js';
 import { AUTH_COOKIE_SETTINGS, AuthController } from './auth.controller.js';
 import { InternalController } from './internal.controller.js';
 import { MeController } from './me.controller.js';
-import { USER_SETTINGS, UsersService } from './users.service.js';
+import { USER_SETTINGS, UsersService, type UserSettings } from './users.service.js';
 
 @Module({})
 export class UsersModule {
@@ -99,7 +99,8 @@ export class UsersModule {
           useValue: {
             allowedEmailDomains: env.ALLOWED_EMAIL_DOMAINS,
             activationTokenTtlHours: env.ACTIVATION_TOKEN_TTL_HOURS,
-          },
+            passwordResetTokenTtlMinutes: env.PASSWORD_RESET_TOKEN_TTL_MINUTES,
+          } satisfies UserSettings,
         },
         { provide: SESSION_SETTINGS, useValue: { bootstrapPassword: env.ADMIN_SEED_PASSWORD } },
       ],
@@ -109,8 +110,8 @@ export class UsersModule {
 }
 
 /**
- * Activation proves the student owns the address only if the token reaches that inbox and nowhere
- * else, so production must deliver real mail. Refuse at boot rather than run without it.
+ * Activation and password reset prove the student owns the address only if the token reaches that
+ * inbox and nowhere else, so production must deliver real mail. Refuse at boot rather than run without it.
  */
 function assertMailConfig(isProduction: boolean): void {
   if (!env.SMTP_HOST) {
@@ -120,7 +121,9 @@ function assertMailConfig(isProduction: boolean): void {
     return;
   }
   if (!env.ACTIVATION_URL) {
-    throw new Error('ACTIVATION_URL is required with SMTP_HOST: the email links to it.');
+    throw new Error(
+      'ACTIVATION_URL is required with SMTP_HOST: activation and password reset emails link to it.',
+    );
   }
   if (Boolean(env.SMTP_USER) !== Boolean(env.SMTP_PASSWORD)) {
     throw new Error('Set SMTP_USER and SMTP_PASSWORD together, or neither.');

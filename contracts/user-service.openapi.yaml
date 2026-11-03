@@ -215,6 +215,90 @@ paths:
         '422': { $ref: '#/components/responses/ValidationFailed' }
         '429': { $ref: '#/components/responses/RateLimited' }
 
+  /auth/password-reset:
+    post:
+      tags: [Auth]
+      operationId: requestPasswordReset
+      summary: Email a password reset link (#309)
+      description: |
+        If the address has an account that is `ACTIVE` or `PENDING_ACTIVATION`, emails it a single-use
+        link to `/reset-password?token=…` on the web app, and invalidates every earlier reset link. A
+        suspended or unknown address gets no email. The answer is the same `202` either way, and is sent
+        before the email, so neither the body nor the timing says whether the address has an account.
+
+        A pending account is included on purpose: whoever registered the address chose its password,
+        and the reset link is how the inbox's owner replaces that choice.
+
+        Rate limited per IP and per normalized address, with limits of its own (not resend's). Both
+        count every request, whatever the address, so a `429` reveals nothing either.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              additionalProperties: false
+              properties:
+                email: { type: string, format: email, maxLength: 254 }
+            example: { email: e0123456@u.nus.edu }
+      responses:
+        '202':
+          description: Accepted. A link is sent only if the address has an active or pending account.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [message]
+                additionalProperties: false
+                properties:
+                  message: { type: string }
+              example:
+                message: If that address has an account, a link to reset its password is on its way.
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/password-reset/confirm:
+    post:
+      tags: [Auth]
+      operationId: confirmPasswordReset
+      summary: Set a new password with the emailed reset token (#309)
+      description: |
+        Single-use and expiring (30 minutes by default). The new password follows the registration
+        policy. In one transaction it:
+        - replaces the password and clears a bootstrap administrator's forced change;
+        - activates a `PENDING_ACTIVATION` account, publishing its one `UserActivated`, because the link
+          proves the inbox as activation does;
+        - revokes every session of the account and deletes its unused activation link.
+
+        It does not sign in, as activation does not: sign in with the new password. A token whose
+        account is suspended is refused as invalid and left unused.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              additionalProperties: false
+              properties:
+                token: { type: string, minLength: 20, maxLength: 200 }
+                password: { type: string, minLength: 12, maxLength: 128, writeOnly: true }
+      responses:
+        '204':
+          description: Password set (and a pending account activated); every session of the account is revoked.
+        '404': { $ref: '#/components/responses/ResetTokenInvalid' }
+        '410': { $ref: '#/components/responses/ResetTokenExpired' }
+        '422':
+          description: |
+            `VALIDATION_FAILED`. `password` outside 12–128 characters or a malformed token, or
+            `PASSWORD_UNCHANGED` when a bootstrap administrator chooses the configured bootstrap password.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /auth/login:
     post:
       tags: [Auth]
@@ -1768,7 +1852,9 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
           example: { error: { code: NOT_FOUND, message: User not found., correlationId: 5c1f2a9e } }
     EmailAlreadyRegistered:
-      description: An account already exists for this email. No account is created.
+      description: |
+        An account already exists for this email. No account is created. Whoever owns the inbox can
+        take the account over with `POST /auth/password-reset`, even if someone else registered it.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -1880,6 +1966,36 @@ components:
                 {
                   code: ACTIVATION_TOKEN_EXPIRED,
                   message: This activation link has expired.,
+                  correlationId: 5c1f2a9e,
+                },
+            }
+    ResetTokenInvalid:
+      description: |
+        Unknown or already used password reset token, a token a newer request replaced, or one whose
+        account is suspended.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            {
+              error:
+                {
+                  code: PASSWORD_RESET_TOKEN_INVALID,
+                  message: This password reset link is not valid.,
+                  correlationId: 5c1f2a9e,
+                },
+            }
+    ResetTokenExpired:
+      description: Password reset token has expired.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example:
+            {
+              error:
+                {
+                  code: PASSWORD_RESET_TOKEN_EXPIRED,
+                  message: This password reset link has expired.,
                   correlationId: 5c1f2a9e,
                 },
             }

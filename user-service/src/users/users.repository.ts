@@ -1,8 +1,15 @@
-import { and, eq, gt, isNull, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 import { toOutboxRow, type CataloguedEventType, type NewOutboxEvent } from '@foc/platform';
 import { execute, type Database } from '../db/db.js';
-import { activationTokens, outboxEvents, profiles, userRoles, users } from '../db/schema.js';
+import {
+  activationTokens,
+  outboxEvents,
+  passwordResetTokens,
+  profiles,
+  userRoles,
+  users,
+} from '../db/schema.js';
 
 export type AccountStatus = 'PENDING_ACTIVATION' | 'ACTIVE' | 'SUSPENDED';
 export type Role = 'STUDENT' | 'ADMIN';
@@ -190,6 +197,105 @@ export const usersRepository = {
         ),
       );
     return rows.length > 0;
+  },
+
+  /**
+   * The account at this address that may reset its password (#309): an active one, or one still
+   * pending, since the reset link proves the inbox as activation does. A suspended account is not
+   * returned. Locked until the transaction ends, so two requests for one account queue.
+   */
+  async lockResettableUser(db: Database, normalizedEmail: string): Promise<string | null> {
+    const rows = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(
+        and(
+          sql`lower(${users.email}) = lower(${normalizedEmail})`,
+          inArray(users.status, ['PENDING_ACTIVATION', 'ACTIVE']),
+        ),
+      )
+      .for('update');
+    return rows[0]?.id ?? null;
+  },
+
+  async insertPasswordResetToken(
+    db: Database,
+    t: { id: string; userId: string; tokenHash: string; ttlMinutes: number },
+  ): Promise<void> {
+    await db.insert(passwordResetTokens).values({
+      id: t.id,
+      userId: t.userId,
+      tokenHash: t.tokenHash,
+      expiresAt: sql`now() + make_interval(mins => ${t.ttlMinutes})`,
+    });
+  },
+
+  /** Invalidates every reset link not yet used. */
+  async deleteUnconsumedPasswordResetTokens(db: Database, userId: string): Promise<void> {
+    await db
+      .delete(passwordResetTokens)
+      .where(and(eq(passwordResetTokens.userId, userId), isNull(passwordResetTokens.consumedAt)));
+  },
+
+  /** What a reset token is, if it exists, and whether its account is a bootstrap administrator. */
+  async findPasswordResetToken(
+    db: Database,
+    tokenHash: string,
+  ): Promise<{ consumed: boolean; expired: boolean; isSeededAdmin: boolean } | null> {
+    const rows = await db
+      .select({
+        consumed: sql<boolean>`${passwordResetTokens.consumedAt} IS NOT NULL`,
+        expired: sql<boolean>`${passwordResetTokens.expiresAt} <= now()`,
+        isSeededAdmin: users.isSeededAdmin,
+      })
+      .from(passwordResetTokens)
+      .innerJoin(users, eq(users.id, passwordResetTokens.userId))
+      .where(eq(passwordResetTokens.tokenHash, tokenHash));
+    return rows[0] ?? null;
+  },
+
+  /**
+   * Locks the account a reset token belongs to, before the token itself, in the order a reset
+   * request takes (account, then its tokens). Returns the account's status.
+   */
+  async lockUserOfPasswordResetToken(
+    db: Database,
+    tokenHash: string,
+  ): Promise<AccountStatus | null> {
+    const rows = await db
+      .select({ status: users.status })
+      .from(users)
+      .innerJoin(passwordResetTokens, eq(passwordResetTokens.userId, users.id))
+      .where(eq(passwordResetTokens.tokenHash, tokenHash))
+      .for('update', { of: users });
+    return rows[0]?.status ?? null;
+  },
+
+  /** Claims a live reset token; as for activation, the conditional UPDATE makes it single use. */
+  async consumePasswordResetToken(db: Database, tokenHash: string): Promise<string | null> {
+    const rows = await db
+      .update(passwordResetTokens)
+      .set({ consumedAt: sql`now()` })
+      .where(
+        and(
+          eq(passwordResetTokens.tokenHash, tokenHash),
+          isNull(passwordResetTokens.consumedAt),
+          gt(passwordResetTokens.expiresAt, sql`now()`),
+        ),
+      )
+      .returning({ userId: passwordResetTokens.userId });
+    return rows[0]?.userId ?? null;
+  },
+
+  /**
+   * Sets a password the inbox owner chose through a reset link, whatever the old one was. Clears the
+   * forced-change flag: the bootstrap password is no longer the account's.
+   */
+  async setPassword(db: Database, userId: string, passwordHash: string): Promise<void> {
+    await db
+      .update(users)
+      .set({ passwordHash, mustChangePassword: false, updatedAt: sql`now()` })
+      .where(eq(users.id, userId));
   },
 
   /**
