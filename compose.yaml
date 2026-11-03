@@ -159,6 +159,8 @@ services:
       # Mailpit offers no STARTTLS; a real relay must (the default in production).
       SMTP_REQUIRE_TLS: 'false'
       ACTIVATION_URL: http://localhost:${WEB_APP_PORT:-3000}/activate
+      ACTIVATION_TOKEN_TTL_HOURS: ${ACTIVATION_TOKEN_TTL_HOURS:-24}
+      PASSWORD_RESET_TOKEN_TTL_MINUTES: ${PASSWORD_RESET_TOKEN_TTL_MINUTES:-30}
     ports: ['127.0.0.1:${USER_SERVICE_PORT:-3001}:3001']
     networks: [public, db, broker, services, gateway, mail]
     depends_on:
