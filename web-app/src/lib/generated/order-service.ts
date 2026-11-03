@@ -438,8 +438,9 @@ export interface paths {
          *
          *     `403 CONFLICT_OF_INTEREST`: the caller was ever this errand's requester or courier.
          *     `403 NOT_REFERRED_ADMIN`: the dispute is referred to another administrator, or to no one
-         *     yet. A repeated decision, or one made on a stale version (for example after the dispute was
-         *     referred to someone else), is a `409` and changes nothing.
+         *     yet. A repeated decision without the first one's Idempotency-Key, or one made on a stale
+         *     version (for example after the dispute was referred to someone else), is a `409` and
+         *     changes nothing.
          */
         post: operations["resolveDispute"];
         delete?: never;
@@ -1032,7 +1033,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
-        /** @description The order ID is not a UUID. */
+        /** @description The order ID is not a UUID, or a command's Idempotency-Key is empty or over 200 characters. */
         InvalidOrderId: {
             headers: {
                 [name: string]: unknown;
@@ -1086,7 +1087,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
-        /** @description Invalid fields, inactive/unknown supplier, or conflicting idempotency reuse. */
+        /** @description Invalid fields, inactive/unknown supplier, or an Idempotency-Key already used for a different request (`IDEMPOTENCY_KEY_REUSED`). */
         InvalidOrder: {
             headers: {
                 [name: string]: unknown;
@@ -1198,6 +1199,15 @@ export interface components {
         };
     };
     parameters: {
+        /**
+         * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
+         *     key and request gets the first answer back (the same status and body, with a new
+         *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
+         *     that took effect is kept: after a refusal the key is still free, and a retry with it is
+         *     judged again. The same key with a different command, errand, `expectedVersion` or decision
+         *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+         */
+        CommandIdempotencyKey: string;
         /** @description Opaque cursor returned by the previous page. */
         Cursor: string;
         Limit: number;
@@ -1370,7 +1380,17 @@ export interface operations {
     acceptOrder: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
+                 *     key and request gets the first answer back (the same status and body, with a new
+                 *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
+                 *     that took effect is kept: after a refusal the key is still free, and a retry with it is
+                 *     judged again. The same key with a different command, errand, `expectedVersion` or decision
+                 *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+                 */
+                "Idempotency-Key"?: components["parameters"]["CommandIdempotencyKey"];
+            };
             path: {
                 orderId: string;
             };
@@ -1402,7 +1422,17 @@ export interface operations {
     recordPickup: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
+                 *     key and request gets the first answer back (the same status and body, with a new
+                 *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
+                 *     that took effect is kept: after a refusal the key is still free, and a retry with it is
+                 *     judged again. The same key with a different command, errand, `expectedVersion` or decision
+                 *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+                 */
+                "Idempotency-Key"?: components["parameters"]["CommandIdempotencyKey"];
+            };
             path: {
                 orderId: string;
             };
@@ -1434,7 +1464,17 @@ export interface operations {
     recordDelivery: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
+                 *     key and request gets the first answer back (the same status and body, with a new
+                 *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
+                 *     that took effect is kept: after a refusal the key is still free, and a retry with it is
+                 *     judged again. The same key with a different command, errand, `expectedVersion` or decision
+                 *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+                 */
+                "Idempotency-Key"?: components["parameters"]["CommandIdempotencyKey"];
+            };
             path: {
                 orderId: string;
             };
@@ -1466,7 +1506,17 @@ export interface operations {
     confirmReceipt: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
+                 *     key and request gets the first answer back (the same status and body, with a new
+                 *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
+                 *     that took effect is kept: after a refusal the key is still free, and a retry with it is
+                 *     judged again. The same key with a different command, errand, `expectedVersion` or decision
+                 *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+                 */
+                "Idempotency-Key"?: components["parameters"]["CommandIdempotencyKey"];
+            };
             path: {
                 orderId: string;
             };
@@ -1498,7 +1548,17 @@ export interface operations {
     cancelOrder: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
+                 *     key and request gets the first answer back (the same status and body, with a new
+                 *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
+                 *     that took effect is kept: after a refusal the key is still free, and a retry with it is
+                 *     judged again. The same key with a different command, errand, `expectedVersion` or decision
+                 *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+                 */
+                "Idempotency-Key"?: components["parameters"]["CommandIdempotencyKey"];
+            };
             path: {
                 orderId: string;
             };
@@ -1530,7 +1590,17 @@ export interface operations {
     withdrawFromOrder: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
+                 *     key and request gets the first answer back (the same status and body, with a new
+                 *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
+                 *     that took effect is kept: after a refusal the key is still free, and a retry with it is
+                 *     judged again. The same key with a different command, errand, `expectedVersion` or decision
+                 *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+                 */
+                "Idempotency-Key"?: components["parameters"]["CommandIdempotencyKey"];
+            };
             path: {
                 orderId: string;
             };
@@ -1562,7 +1632,17 @@ export interface operations {
     reportNonDelivery: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
+                 *     key and request gets the first answer back (the same status and body, with a new
+                 *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
+                 *     that took effect is kept: after a refusal the key is still free, and a retry with it is
+                 *     judged again. The same key with a different command, errand, `expectedVersion` or decision
+                 *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+                 */
+                "Idempotency-Key"?: components["parameters"]["CommandIdempotencyKey"];
+            };
             path: {
                 orderId: string;
             };
@@ -1594,7 +1674,17 @@ export interface operations {
     reportNonReceipt: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
+                 *     key and request gets the first answer back (the same status and body, with a new
+                 *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
+                 *     that took effect is kept: after a refusal the key is still free, and a retry with it is
+                 *     judged again. The same key with a different command, errand, `expectedVersion` or decision
+                 *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+                 */
+                "Idempotency-Key"?: components["parameters"]["CommandIdempotencyKey"];
+            };
             path: {
                 orderId: string;
             };
@@ -1780,7 +1870,17 @@ export interface operations {
     resolveDispute: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
+                 *     key and request gets the first answer back (the same status and body, with a new
+                 *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
+                 *     that took effect is kept: after a refusal the key is still free, and a retry with it is
+                 *     judged again. The same key with a different command, errand, `expectedVersion` or decision
+                 *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+                 */
+                "Idempotency-Key"?: components["parameters"]["CommandIdempotencyKey"];
+            };
             path: {
                 orderId: string;
             };

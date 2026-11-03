@@ -95,6 +95,8 @@ function fakeOrderService() {
     reads: [] as Order[],
     current: order(),
     commands: [] as Command[],
+    /** The Idempotency-Key each command was sent with, in order. */
+    keys: [] as (string | null)[],
     serverAhead: 0,
     wallet: (): Response => json(200, { available: 5 }),
     walletReads: 0,
@@ -117,6 +119,7 @@ function fakeOrderService() {
       if (request.method === 'POST') {
         const command = { path: pathname, body: await request.json() };
         service.commands.push(command);
+        service.keys.push(request.headers.get('Idempotency-Key'));
         return service.answer();
       }
       if (pathname === '/orders') return service.feed();
@@ -414,7 +417,7 @@ describe('feed', () => {
     expect(router.push).not.toHaveBeenCalled();
   });
 
-  it('opens the errand when a retry is refused because the lost first accept went through', async () => {
+  it('retries an accept whose answer was lost with the same key, and opens the errand it replays', async () => {
     const service = fakeOrderService();
     service.open = [listing(OTHER_ID, 'Their cafe')];
     service.answer = lostAnswer;
@@ -424,16 +427,17 @@ describe('feed', () => {
     expect(dialog(container).open).toBe(true);
     expect(dialog(container).textContent).toContain("Can't reach the server.");
 
-    service.current = order({ orderId: OTHER_ID, status: 'ACCEPTED', requesterId: 'them', courierId: 'me', version: 2 });
-    service.answer = () => failure(409, 'ORDER_NOT_OPEN');
+    service.answer = () =>
+      json(201, order({ orderId: OTHER_ID, status: 'ACCEPTED', requesterId: 'them', courierId: 'me', version: 2 }));
     await act(async () => button(dialog(container), 'Accept').click());
     await flush();
     expect(service.commands.map((c) => c.body)).toEqual([{ expectedVersion: 1 }, { expectedVersion: 1 }]);
-    expect(container.textContent).not.toContain('Another courier');
+    expect(service.keys[0]).toBeTruthy();
+    expect(service.keys).toEqual([service.keys[0]!, service.keys[0]!]);
     expect(router.push).toHaveBeenCalledWith(`/request/${OTHER_ID}`);
   });
 
-  it('still reports losing the race when the retry finds another courier on the errand', async () => {
+  it('still reports losing the race when the retry of a lost accept is refused because another courier took it', async () => {
     const service = fakeOrderService();
     service.open = [listing(OTHER_ID, 'Their cafe')];
     service.answer = lostAnswer;
@@ -445,6 +449,8 @@ describe('feed', () => {
     service.answer = () => failure(409, 'ORDER_NOT_OPEN');
     await act(async () => button(dialog(container), 'Accept').click());
     await flush();
+    expect(service.keys[0]).toBeTruthy();
+    expect(service.keys).toEqual([service.keys[0]!, service.keys[0]!]);
     expect(container.textContent).toContain('Another courier accepted this errand first');
     expect(router.push).not.toHaveBeenCalled();
   });
@@ -520,7 +526,7 @@ describe('courier', () => {
     expect(container.ownerDocument.activeElement?.getAttribute('role')).toBe('status');
   });
 
-  it('counts a retried pickup as done when the lost first send went through', async () => {
+  it('retries a pickup whose answer was lost with the same key, and shows the replayed answer as done', async () => {
     const service = fakeOrderService();
     service.current = order({ ...assigned, status: 'ACCEPTED' });
     service.answer = () => {
@@ -531,12 +537,31 @@ describe('courier', () => {
     await confirmAction(container, "I've picked it up", 'Record pickup');
     expect(dialog(container).open).toBe(true);
 
-    service.answer = () => failure(409, 'INVALID_ORDER_STATE');
+    service.answer = () => json(200, service.current);
     await act(async () => button(dialog(container), 'Record pickup').click());
     await flush();
+    expect(service.keys[0]).toBeTruthy();
+    expect(service.keys).toEqual([service.keys[0]!, service.keys[0]!]);
     expect(dialog(container).open).toBe(false);
     expect(container.textContent).not.toContain('changed before your request arrived');
     expect(buttons(container, 'Mark as delivered').length).toBeGreaterThan(0);
+  });
+
+  it('sends a new key with the next confirmation after a success', async () => {
+    const service = fakeOrderService();
+    service.current = order({ ...assigned, status: 'ACCEPTED' });
+    service.answer = () => {
+      service.current = order({ ...assigned, status: 'PICKED_UP', version: 4 });
+      return json(200, service.current);
+    };
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+    await confirmAction(container, "I've picked it up", 'Record pickup');
+
+    service.answer = () => json(200, order({ ...assigned, status: 'DELIVERED', version: 5 }));
+    await confirmAction(container, 'Mark as delivered', 'Record delivery');
+    expect(service.keys).toHaveLength(2);
+    expect(service.keys).not.toContain(null);
+    expect(service.keys[1]).not.toBe(service.keys[0]!);
   });
 
   it('withdraws after confirming, then goes back to the feed', async () => {
@@ -603,6 +628,26 @@ describe('requester', () => {
     expect(service.commands.map((c) => c.body)).toEqual([{ expectedVersion: 3 }, { expectedVersion: 4 }]);
     expect(container.textContent).toContain('Cancelling');
     expect(container.textContent).toContain('The errand is being cancelled. The Credit Service is returning the reward to you.');
+  });
+
+  it('shows a lost cancel as moved on, not done, when its retry is refused because the courier picked up', async () => {
+    const service = fakeOrderService();
+    service.current = order({ status: 'ACCEPTED', courierId: 'them' });
+    service.answer = lostAnswer;
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+    await confirmAction(container, 'Cancel errand', 'Cancel errand');
+    expect(dialog(container).open).toBe(true);
+
+    service.current = order({ status: 'PICKED_UP', courierId: 'them', version: 4 });
+    service.answer = () => failure(409, 'ORDER_CHANGED');
+    await act(async () => button(dialog(container), 'Cancel errand').click());
+    await flush();
+    expect(service.keys[0]).toBeTruthy();
+    expect(service.keys).toEqual([service.keys[0]!, service.keys[0]!]);
+    expect(dialog(container).open).toBe(false);
+    expect(container.textContent).toContain('This errand changed before your request arrived');
+    expect(container.textContent).toContain('In transit');
+    expect(container.textContent).not.toContain('Cancelling');
   });
 
   it("starts a dialog that can't be undone on Go back, and reads out what it does", async () => {
@@ -714,6 +759,24 @@ describe('requester', () => {
       expect(container.textContent).toContain('taking longer than usual');
     });
   }
+
+  it('sends a new key when asked again after a refusal, even at the same version', async () => {
+    const service = fakeOrderService();
+    service.current = order({
+      status: 'PICKED_UP',
+      courierId: 'them',
+      nonDeliveryReportAt: new Date(Date.now() - 1000).toISOString(),
+    });
+    service.answer = () => failure(409, 'DELIVERY_PERIOD_NOT_PASSED');
+    const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
+    await confirmAction(container, 'Report not delivered', 'Report');
+
+    service.answer = () => json(200, order({ status: 'DISPUTED', courierId: 'them', version: 4 }));
+    await confirmAction(container, 'Report not delivered', 'Report');
+    expect(service.commands.map((c) => c.body)).toEqual([{ expectedVersion: 3 }, { expectedVersion: 3 }]);
+    expect(service.keys).not.toContain(null);
+    expect(service.keys[1]).not.toBe(service.keys[0]!);
+  });
 
   it('explains a report sent before the server agrees the period has passed', async () => {
     const service = fakeOrderService();

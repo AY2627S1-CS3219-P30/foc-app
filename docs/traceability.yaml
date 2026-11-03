@@ -387,6 +387,10 @@ requirements:
       - "order-service/test/order-creation.test.ts::returns the original result for repeated requests without rechecking Supplier"
       - "order-service/test/order-creation.test.ts::refuses an idempotency key reused with different facts"
       - "web-app/e2e/reconnect-journey.e2e.ts::reconnect journey: a lost or offline post creates one errand"
+      - "order-service/test/order-command-idempotency.test.ts::a repeated $name returns the first answer and changes nothing more"
+      - "order-service/test/order-command-idempotency.test.ts::the same key with a different %s is refused and changes nothing"
+      - "order-service/test/order-command-idempotency.postgres.test.ts::an instance started after another stopped replays what the first recorded"
+      - "web-app/test/errand-actions.test.tsx::retries a pickup whose answer was lost with the same key, and shows the replayed answer as done"
   - id: OS-FR7.1.2
     text: "Every status change shall be recorded with the previous and new status, who or what made the change, and when it happened."
     areas: [transitions]
