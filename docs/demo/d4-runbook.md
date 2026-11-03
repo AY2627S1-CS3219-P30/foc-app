@@ -13,7 +13,8 @@ The permanent conservation evidence is `docs/reports/credit-conservation-2026-10
 viewer or GitHub alongside the live browser tabs. The former reports 804 generated errands,
 not 804 manually performed browser journeys. N1.4 live updates merged on 29 October; their
 measured evidence is `docs/reports/load-2026-10-29.md`. Its 492 ms p95 measures accept response
-to the requester stream's nudge under 200 open streams, not end-to-end browser rendering.
+to the requester stream's nudge under 200 open streams, not end-to-end browser rendering; that is
+`docs/reports/accessibility-and-web-vitals-2026-11-03.md` (Lighthouse, axe, keyboard journey).
 
 ## Start from zero
 

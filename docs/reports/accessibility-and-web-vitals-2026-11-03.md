@@ -31,6 +31,10 @@ report ships with.
 ./scripts-lighthouse.sh --stop
 ```
 
+The whole release suite, these specs included, also passed once from clean volumes on
+`foc-a11y-166`: **57 passed; zero failures, flakes, skips or runner errors** (3.8 min). That is
+the release runner's own check.
+
 ## Automated accessibility scans (UI-NFR2.1.1)
 
 `web-app/e2e/accessibility.e2e.ts` runs axe-core 4.11 (`@axe-core/playwright`) with the
@@ -212,25 +216,32 @@ mobile profile (D1 backlog).
 
 ## Exceptions
 
-1. **LCP on signed-in screens: missed by 80 to 390 ms (UI-NFR3.1.1).** Every signed-in screen
-   renders its content in the browser, after three serial round trips that start only once the
-   JavaScript has loaded:
-   - the cold-load session refresh (`/api/user/auth/refresh`);
-   - the account read (`/users/me`) that `lib/auth.tsx` needs before it shows the screen;
-   - the screen's own data.
+1. **LCP on signed-in screens: missed by 80 to 390 ms (UI-NFR3.1.1).** Two costs add up.
+   - **The JavaScript, on every screen.** Sign-in makes no API call, and its largest element (the
+     `NUQueSt` logo) is in the server's HTML. Its LCP is still 2173 ms against a 920 ms FCP. Under
+     simulated slow 4G (150 ms RTT, 1.6 Mb/s, 4x CPU), Lighthouse's model puts the page's script
+     chunks on the path to that paint: the observed paint came after they ran.
+   - **The session chain, on signed-in screens.** These screens add 400 to 720 ms on top.
+     - Their server HTML holds only "Loading your account…". Their content renders in the browser
+       after three serial calls, which start once the JavaScript has run:
+       1. the cold-load refresh (`/api/user/auth/refresh`);
+       2. the account read (`/users/me`), which `lib/auth.tsx` waits for before it shows the screen;
+       3. the screen's own data.
+     - On the feed, composer, wallet and history, the largest element is data from that last call:
+       an errand card, a supplier name, a ledger row. On the console it is static section text that
+       still waits for the first two calls.
 
-   Lighthouse found the largest element was always data from that last call: an errand card on
-   the feed, a supplier name in the composer, the section text in the console. Simulated slow 4G
-   puts 150 ms RTT and a request latency of about 560 ms on each hop. Sign-in needs none of these
-   calls, and it is the one screen under the target.
+   Server time is not the problem: TTFB is under 10 ms, the observed element render delay is 60 to
+   160 ms, and TBT is under 15 ms.
 
-   Server-side timings are not the problem. TTFB is under 10 ms; the observed element render delay
-   is 60 to 160 ms; TBT is under 15 ms.
+   Cutting one call from the chain, for example by having the refresh return the account, would
+   save roughly one 150 ms round trip. That would bring most screens to about 2.43 to 2.50 s; the
+   console (2890 ms) would still miss. Meeting the target with margin means one of two things:
+   - render the signed-in screens on the server;
+   - take most of the JavaScript off the path to the first paint.
 
-   Meeting the target means cutting a hop from that chain. For example, the refresh response
-   could carry the account, or the screens could render from the server. That changes the
-   session contract between the User Service and the web app (PLT-10), which is beyond this
-   ticket. It is recorded here and not hidden.
+   Either changes the session contract between the User Service and the web app (PLT-10), or the
+   app's rendering model, which is beyond this ticket. The miss is recorded here, not hidden.
 2. **"The agreed seeded dataset" (UI-NFR3.1) is not defined anywhere in the repository.**
    - **Used:** each run seeds its own small, fixed set: one requester with one completed, one
      accepted and five open errands; one courier; the catalogue's default suppliers.
