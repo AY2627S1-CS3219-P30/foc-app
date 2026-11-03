@@ -57,7 +57,6 @@ type SocketState =
   | {
       phase: 'open';
       userId: string;
-      sessionId: string;
       token: string;
       recheckTimer: Timer;
       expiryTimer: Timer | undefined;
@@ -167,15 +166,14 @@ export class SocketHub implements OnModuleDestroy {
     const authenticating: SocketState = { phase: 'authenticating', authTimer: state.authTimer };
     socket.state = authenticating;
     let userId: string;
-    let sessionId: string;
     try {
-      ({ userId, sessionId } = await this.authenticator.authenticate(`Bearer ${frame.token}`));
+      ({ userId } = await this.authenticator.authenticate(`Bearer ${frame.token}`));
     } catch {
       if (socket.state === authenticating) this.end(socket, 'unauthenticated');
       return;
     }
     if (socket.state !== authenticating) return;
-    this.open(socket, authenticating.authTimer, userId, sessionId, frame.token);
+    this.open(socket, authenticating.authTimer, userId, frame.token);
   }
 
   /** The client answered a ping. */
@@ -224,13 +222,7 @@ export class SocketHub implements OnModuleDestroy {
     for (const socket of [...this.sockets]) this.end(socket, 'shutdown');
   }
 
-  private open(
-    socket: ChatSocket,
-    authTimer: Timer,
-    userId: string,
-    sessionId: string,
-    token: string,
-  ): void {
+  private open(socket: ChatSocket, authTimer: Timer, userId: string, token: string): void {
     clearTimeout(authTimer);
     const own = this.byUser.get(userId) ?? new Set<ChatSocket>();
     if (own.size >= this.options.perUser) return this.end(socket, 'too-many');
@@ -245,7 +237,6 @@ export class SocketHub implements OnModuleDestroy {
     socket.state = {
       phase: 'open',
       userId,
-      sessionId,
       token,
       recheckTimer: this.scheduleRecheck(socket),
       expiryTimer,
