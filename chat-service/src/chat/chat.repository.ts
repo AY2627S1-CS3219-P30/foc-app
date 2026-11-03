@@ -125,8 +125,10 @@ export class ChatRepository {
       if (retryAfter !== undefined) return { retryAfter };
       const seq = Number(rows[0]!.latest_seq) + 1;
       const inserted = await tx.query<StoredMessage>(
-        `INSERT INTO messages (order_id, seq, sender_id, client_id, body)
-         VALUES ($1, $2, $3, $4, $5)
+        // Stamped when written, not when the transaction began: a send that waited for the locks
+        // would otherwise leave the rate window early.
+        `INSERT INTO messages (order_id, seq, sender_id, client_id, body, sent_at)
+         VALUES ($1, $2, $3, $4, $5, statement_timestamp())
          RETURNING ${MESSAGE_COLUMNS}`,
         [orderId, seq, senderId, clientId, body],
       );
