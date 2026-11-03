@@ -2,8 +2,16 @@ import type { INestApplication } from '@nestjs/common';
 import { WsAdapter } from '@nestjs/platform-ws';
 import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { IDENTITY_CHANGE_EVENTS } from '@foc/auth-client';
-import { BROKER, EVENT_CONSUMER, type BrokerConnection, type EventConsumer } from '@foc/platform';
+import { AUTHENTICATOR, IDENTITY_CHANGE_EVENTS, type Authenticator } from '@foc/auth-client';
+import {
+  BROKER,
+  createEnvelope,
+  EVENT_CONSUMER,
+  type BrokerConnection,
+  type EventConsumer,
+  type EventHandler,
+} from '@foc/platform';
+import { SocketHub } from '../src/chat/socket/socket-hub.js';
 
 /**
  * USR-07: with a broker configured, this service must drop a user's cached identity when their
@@ -14,13 +22,31 @@ describe('identity-change invalidation is wired (USR-07)', () => {
   let app: INestApplication;
   let broker: BrokerConnection;
   const subscribed: string[] = [];
+  const handlers = new Map<string, EventHandler<unknown>>();
+  const invalidated: string[] = [];
+  /** Takes the token as the user's ID; nothing here reaches the User Service. */
+  const authenticator: Authenticator = {
+    authenticate: async (header) => ({
+      userId: header!.replace('Bearer ', ''),
+      sessionId: 'session',
+      displayName: 'Someone',
+      roles: ['STUDENT'],
+      status: 'ACTIVE',
+      isAdmin: false,
+    }),
+    requireAdmin: () => undefined,
+    invalidateUser: (userId) => void invalidated.push(userId),
+  };
 
   beforeAll(async () => {
     vi.stubEnv('RABBITMQ_URL', 'amqp://broker.test');
     // Imported after the variable is set: the module reads its configuration at load time.
     const { AppModule } = await import('../src/app.module.js');
     const { RetentionCleanup } = await import('../src/chat/retention.js');
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(AUTHENTICATOR)
+      .useValue(authenticator)
+      .compile();
     vi.spyOn(moduleRef.get(RetentionCleanup), 'onApplicationBootstrap').mockReturnValue();
     broker = moduleRef.get<BrokerConnection>(BROKER);
     vi.spyOn(broker, 'connect').mockResolvedValue();
@@ -28,6 +54,7 @@ describe('identity-change invalidation is wired (USR-07)', () => {
     const subscribe = consumer.subscribe.bind(consumer);
     vi.spyOn(consumer, 'subscribe').mockImplementation((options) => {
       subscribed.push(options.queue);
+      handlers.set(options.queue, options.handler);
       return subscribe(options);
     });
     app = moduleRef.createNestApplication();
@@ -51,5 +78,44 @@ describe('identity-change invalidation is wired (USR-07)', () => {
       messageTtlMs: expect.any(Number),
       maxLength: expect.any(Number),
     });
+  });
+
+  it('subscribes a second queue of its own, which closes that user’s chat sockets (#346)', () => {
+    const queue = subscribed.find((q) => q.startsWith('foc.chat.socket-status.'));
+    expect(queue, `subscribed: ${subscribed.join(', ')}`).toBeDefined();
+    expect(broker.subscription(queue!)).toMatchObject({
+      routingKeys: [...IDENTITY_CHANGE_EVENTS],
+      exclusive: true,
+      autoDelete: true,
+      messageTtlMs: expect.any(Number),
+      maxLength: expect.any(Number),
+    });
+    // The chat-service broker account may use only `foc.chat.*` and `foc.chat-service.*` names.
+    expect(queue).toMatch(/^foc\.chat(-service)?\..*$/);
+  });
+
+  it('closes every chat socket of a user whose identity changed, delivered on that queue', async () => {
+    const queue = subscribed.find((q) => q.startsWith('foc.chat.socket-status.'))!;
+    const hub = app.get(SocketHub);
+    const close = vi.fn();
+    const socket = hub.connect({ send: vi.fn(), close, ping: vi.fn(), terminate: vi.fn() });
+    await hub.received(socket, { type: 'auth', token: 'user-1' });
+    invalidated.length = 0;
+
+    await handlers.get(queue)!(
+      createEnvelope({
+        eventType: 'user.suspended',
+        schemaVersion: 1,
+        aggregateId: 'user-1',
+        producer: 'user-service',
+        correlationId: 'correlation-1',
+        payload: { userId: 'user-1', status: 'SUSPENDED' },
+      }),
+      { attempt: 1, queue },
+    );
+
+    expect(close).toHaveBeenCalledWith(4401, expect.any(String));
+    // Forgotten too, so the reconnect is checked against the User Service, not the cache.
+    expect(invalidated).toContain('user-1');
   });
 });

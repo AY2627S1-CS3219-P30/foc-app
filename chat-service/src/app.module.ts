@@ -3,6 +3,7 @@ import { authStatusEvents, AuthModule } from '@foc/auth-client';
 import { EventsModule, PlatformModule } from '@foc/platform';
 import { ChatModule } from './chat/chat.module.js';
 import { RETENTION_OPTIONS, RetentionCleanup } from './chat/retention.js';
+import { socketStatusEvents } from './chat/socket/socket-status.js';
 import { authConfig, env, SERVICE_NAME, SERVICE_VERSION } from './config.js';
 
 /**
@@ -10,6 +11,9 @@ import { authConfig, env, SERVICE_NAME, SERVICE_VERSION } from './config.js';
  * and a `user.suspended` / `user.reactivated` / `user.role-changed` event drops it at once.
  */
 const status = authStatusEvents('chat', authConfig);
+
+/** And the same events close that user's chat sockets (#346), on a queue of chat's own. */
+const socketStatus = socketStatusEvents(authConfig);
 
 /**
  * EventsModule is imported only when a broker URL is configured, matching the
@@ -22,7 +26,7 @@ const eventModules = env.RABBITMQ_URL
       EventsModule.forRoot({
         url: env.RABBITMQ_URL,
         producer: SERVICE_NAME,
-        subscriptions: [status.subscription],
+        subscriptions: [status.subscription, socketStatus.subscription],
       }),
     ]
   : [];
@@ -48,7 +52,7 @@ const eventModules = env.RABBITMQ_URL
         intervalMs: env.CHAT_CLEANUP_INTERVAL_MS,
       },
     },
-    ...(env.RABBITMQ_URL ? status.providers : []),
+    ...(env.RABBITMQ_URL ? [...status.providers, ...socketStatus.providers] : []),
   ],
 })
 export class AppModule {}
