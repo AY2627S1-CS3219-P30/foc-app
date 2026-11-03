@@ -1,5 +1,6 @@
-/**
- * Nest DI token for the {@link PgDb} that owns the pool, reports the database to /health and
- * closes the pool on shutdown.
- */
-export const RAW_DB = Symbol('RAW_DB');
+import type { Db } from '@foc/platform';
+
+/** Chat's own database boundary (ADR 0003). No other service may query it. */
+export type ChatDatabase = Db;
+
+export const CHAT_DB = Symbol('CHAT_DB');
