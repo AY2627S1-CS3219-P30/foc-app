@@ -18,7 +18,7 @@ export COMPOSE_FILE=compose.yaml
 export WEB_APP_PORT="$base" USER_SERVICE_PORT="$((base+1))" SUPPLIER_SERVICE_PORT="$((base+2))"
 export ORDER_SERVICE_PORT="$((base+3))" CREDIT_SERVICE_PORT="$((base+4))" GRAFANA_PORT="$((base+5))"
 export POSTGRES_PORT="$((base+6))" RABBITMQ_PORT="$((base+7))" RABBITMQ_MANAGEMENT_PORT="$((base+8))" PROMETHEUS_PORT="$((base+9))"
-export MAILPIT_PORT="$((base+10))"
+export MAILPIT_PORT="$((base+10))" CHAT_SERVICE_PORT="$((base+11))"
 export CORS_ORIGINS="http://localhost:$WEB_APP_PORT"
 export NODE_ENV=development
 domain=$(python3 -c 'import os; print(os.environ["ALLOWED_EMAIL_DOMAINS"].split(",")[0].strip().lower())')
@@ -31,7 +31,7 @@ python3 - "$state_dir/ports.sh" <<'PY'
 import os,shlex,sys
 keys=['COMPOSE_PROJECT_NAME','COMPOSE_FILE','WEB_APP_PORT','USER_SERVICE_PORT','SUPPLIER_SERVICE_PORT',
       'ORDER_SERVICE_PORT','CREDIT_SERVICE_PORT','GRAFANA_PORT','POSTGRES_PORT','RABBITMQ_PORT',
-      'RABBITMQ_MANAGEMENT_PORT','PROMETHEUS_PORT','MAILPIT_PORT','CORS_ORIGINS','NODE_ENV','ADMIN_SEED_EMAILS']
+      'RABBITMQ_MANAGEMENT_PORT','PROMETHEUS_PORT','MAILPIT_PORT','CHAT_SERVICE_PORT','CORS_ORIGINS','NODE_ENV','ADMIN_SEED_EMAILS']
 with open(sys.argv[1],'w') as f:
     for key in keys: f.write(f'export {key}={shlex.quote(os.environ[key])}\n')
 PY
