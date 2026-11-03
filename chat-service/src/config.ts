@@ -29,7 +29,8 @@ export const env = loadEnv({
     .default('true')
     .transform((value) => value === 'true'),
   /** How often an open socket's session is checked again; a revoked one closes within this. */
-  CHAT_SOCKET_RECHECK_MS: z.coerce.number().int().min(5_000).max(60_000).default(60_000),
+  // 55 s, so a check that hits the 5 s identity cache still closes a revoked session within 60 s.
+  CHAT_SOCKET_RECHECK_MS: z.coerce.number().int().min(5_000).max(55_000).default(55_000),
   /** A socket that has not sent its auth frame within this long is closed. */
   CHAT_SOCKET_AUTH_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(5_000),
   ...authEnvSchema,

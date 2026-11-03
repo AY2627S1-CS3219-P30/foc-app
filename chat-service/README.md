@@ -165,9 +165,10 @@ new role takes effect at once. After `4429` or `1001` it polls and tries again l
 
 ### When a socket closes by itself
 
-- **Its session is checked again every 60 seconds** (`CHAT_SOCKET_RECHECK_MS`), with the stored
+- **Its session is checked again every 55 seconds** (`CHAT_SOCKET_RECHECK_MS`), with the stored
   token, through the same `authenticate()`. A revoked session or a suspended account closes it with
-  `4401`, so a revoked session's socket closes within 60 seconds.
+  `4401`. A check can reuse an identity cached up to 5 seconds earlier, so a revoked session's
+  socket closes within 60 seconds.
 - **At its token's expiry** (`exp`), with `4401`.
 - **On an identity change.** On `user.suspended`, `user.reactivated` or `user.role-changed`, every
   socket of that user closes with `4401` within a second. Chat's own queue
@@ -235,7 +236,7 @@ Optional, with the defaults of ADR 0012:
 | `CHAT_RETENTION_DAYS`         | `90`       | Days after the errand ends that the conversation is kept.          |
 | `CHAT_CLEANUP_INTERVAL_MS`    | `86400000` | How often the cleanup runs; at least a minute, at most ~24.8 days. |
 | `CHAT_SOCKET_ENABLED`         | `true`     | `false` refuses every socket upgrade, and panels poll.             |
-| `CHAT_SOCKET_RECHECK_MS`      | `60000`    | How often an open socket's session is checked again; 5 s to 60 s.  |
+| `CHAT_SOCKET_RECHECK_MS`      | `55000`    | How often an open socket's session is checked again; 5 s to 55 s.  |
 | `CHAT_SOCKET_AUTH_TIMEOUT_MS` | `5000`     | How long a new socket has to send its auth frame; 1 s to 30 s.     |
 
 A missing required variable stops the service at boot and names the variable.
