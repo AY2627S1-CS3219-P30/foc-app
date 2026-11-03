@@ -1,6 +1,6 @@
 // The stack's readiness (PLT-13, #289), for GET /edge/ready, run by nginx's JavaScript module.
 //
-// 200 only while the web app and all four services answer their health checks, so "ready" means
+// 200 only while the web app and all five services answer their health checks, so "ready" means
 // every page can work; 503 otherwise, naming each one that does not. It asks them over the
 // networks the edge already routes on, so nothing gains a new way in, and it asks each service
 // for /health only: never /internal, never /metrics.
@@ -13,6 +13,7 @@ const UPSTREAMS = {
   'supplier-service': 'http://supplier-service:3002/health',
   'order-service': 'http://order-service:3003/health',
   'credit-service': 'http://credit-service:3004/health',
+  'chat-service': 'http://chat-service:3006/health',
 };
 
 /** Whether one answers 200. Refused, not found, or slower than js_fetch_timeout: it does not. */

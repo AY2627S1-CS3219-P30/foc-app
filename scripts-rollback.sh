@@ -12,7 +12,7 @@ cd "$(dirname "$0")"
 export FOC_IMAGE_TAG="$1"
 export COMPOSE_FILE=compose.yaml:compose.images.yaml
 # Pull first: a missing/private image must not stop the running application.
-docker compose pull user-service supplier-service order-service credit-service web-app
+docker compose pull user-service supplier-service order-service credit-service chat-service web-app
 docker compose stop edge
 docker compose up -d --wait --no-build
 ./scripts-smoke.sh

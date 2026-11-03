@@ -9,7 +9,7 @@
 #   - it may declare, write to and read only the shared exchanges and the queues
 #     and exchanges under its own prefix (foc.<name>. and foc.<name>-service.);
 #   - on foc.events it may publish only routing keys that start with its own
-#     name (the Supplier Service, which publishes nothing, none at all);
+#     name (the Supplier and Chat Services, which publish nothing, none at all);
 #   - on foc.events.dlx it may dead-letter only under its own queue names;
 #   - it has no permission on the default exchange, which reaches every queue by
 #     name. Retries and redrives go through foc.<name>-service.requeue instead.
@@ -38,7 +38,7 @@ set -eu
 
 : "${RABBITMQ_OPERATOR_USER:?}" "${RABBITMQ_OPERATOR_PASSWORD:?}"
 : "${USER_BROKER_PASSWORD:?}" "${SUPPLIER_BROKER_PASSWORD:?}"
-: "${ORDER_BROKER_PASSWORD:?}" "${CREDIT_BROKER_PASSWORD:?}"
+: "${ORDER_BROKER_PASSWORD:?}" "${CREDIT_BROKER_PASSWORD:?}" "${CHAT_BROKER_PASSWORD:?}"
 
 READY=/tmp/foc-broker-accounts-ready
 rm -f "$READY"
@@ -90,6 +90,7 @@ JSON
   account supplier-service "$SUPPLIER_BROKER_PASSWORD" supplier '^$'
   account order-service "$ORDER_BROKER_PASSWORD" order '^order\.'
   account credit-service "$CREDIT_BROKER_PASSWORD" credit '^credit\.'
+  account chat-service "$CHAT_BROKER_PASSWORD" chat '^$'
 }
 
 # In the background, and not as part of a `||` list: there `set -e` would be

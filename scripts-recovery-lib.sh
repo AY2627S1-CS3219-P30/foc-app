@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Shared by the backup and restore entry points. Sourced after scripts-env.sh.
 
-RECOVERY_APPS=(edge web-app user-service supplier-service order-service credit-service)
+RECOVERY_APPS=(edge web-app user-service supplier-service order-service credit-service chat-service)
 
 recovery_error() { echo "Recovery failed: $*" >&2; return 1; }
 
@@ -13,7 +13,7 @@ recovery_drained() {
   if ! python3 -c 'import json,sys; q=json.load(sys.stdin); sys.exit(0 if all(x["messages"] == 0 for x in q) else 1)' <<<"$queues"; then
     return 1
   fi
-  # Supplier publishes no events and has no outbox table.
+  # Supplier and Chat publish no events and have no outbox table.
   for db in foc_user foc_order foc_credit; do
     pending=$(docker compose exec -T postgres psql -XqAt -v ON_ERROR_STOP=1 -U "${POSTGRES_USER:-postgres}" -d "$db" \
       -c 'SELECT count(*) FROM outbox_events WHERE published_at IS NULL') || return 1
@@ -30,7 +30,7 @@ recovery_broker_empty() {
 recovery_apps_stopped() {
   local running
   running=$(docker compose ps --status running --services) || return 1
-  if printf '%s\n' "$running" | grep -qE '^(edge|web-app|(user|supplier|order|credit)-service(-migrate)?)$'; then
+  if printf '%s\n' "$running" | grep -qE '^(edge|web-app|(user|supplier|order|credit|chat)-service(-migrate)?)$'; then
     recovery_error 'Application or migration containers are running; stop them before restoring.'
     return 1
   fi

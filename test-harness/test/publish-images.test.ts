@@ -17,6 +17,7 @@ const APPLICATION = [
   'supplier-service',
   'order-service',
   'credit-service',
+  'chat-service',
   'web-app',
 ];
 

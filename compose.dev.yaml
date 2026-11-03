@@ -22,5 +22,7 @@ services:
     ports: ['127.0.0.1:4003:4003']
   credit-service:
     ports: ['127.0.0.1:4004:4004']
+  chat-service:
+    ports: ['127.0.0.1:4005:4005']
   mailpit:
     ports: ['127.0.0.1:1025:1025']
