@@ -249,6 +249,64 @@ describe('feed', () => {
     expect(alert.textContent).toContain('Could not refresh the list.');
   });
 
+  describe('a Load more still in flight', () => {
+    /** A feed with a next page, whose requests for that page wait until they are cancelled. */
+    async function loadingMore() {
+      const service = fakeOrderService();
+      service.feed = () =>
+        new Response(JSON.stringify([listing(OTHER_ID, 'First cafe')]), {
+          status: 200,
+          headers: { 'content-type': 'application/json', 'Next-Cursor': 'older' },
+        });
+      const answer = service.fetch.bind(service);
+      const more: Request[] = [];
+      service.fetch = (request: Request) => {
+        if (!new URL(request.url).searchParams.has('cursor')) return answer(request);
+        more.push(request);
+        return new Promise<Response>((_, reject) =>
+          request.signal.addEventListener('abort', () =>
+            reject(new window.DOMException('Aborted', 'AbortError')),
+          ),
+        );
+      };
+      const container = await render(<FeedPage />, service);
+      await act(async () => button(container, 'Load more').click());
+      await flush();
+      expect(more).toHaveLength(1);
+      expect(more[0]!.signal.aborted).toBe(false);
+      return { container, more };
+    }
+
+    const typeBuilding = async (container: HTMLElement, value: string) => {
+      const building = container.querySelector('input[placeholder="e.g. COM2"]') as HTMLInputElement;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(Object.getPrototypeOf(building), 'value')!.set!.call(building, value);
+        building.dispatchEvent(new window.Event('input', { bubbles: true }));
+      });
+      await flush();
+    };
+
+    it('is cancelled when the page goes away', async () => {
+      const { more } = await loadingMore();
+      await act(() => mounted!.unmount());
+      mounted = null;
+      expect(more[0]!.signal.aborted).toBe(true);
+    });
+
+    it('is cancelled when the filters change, and leaves no error behind', async () => {
+      const { container, more } = await loadingMore();
+      await typeBuilding(container, 'COM2');
+      expect(more[0]!.signal.aborted).toBe(true);
+
+      await typeBuilding(container, '');
+      expect(container.querySelector('[role="alert"]')?.textContent ?? '').toBe('');
+      expect(container.textContent).not.toContain('Something went wrong');
+      await act(async () => button(container, 'Load more').click());
+      await flush();
+      expect(more).toHaveLength(2);
+    });
+  });
+
   it('loads more, keeps loaded errands on refresh, and resets paging when filters change', async () => {
     const service = fakeOrderService();
     const first = listing(OTHER_ID, 'First cafe');

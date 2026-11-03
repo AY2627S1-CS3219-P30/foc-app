@@ -86,23 +86,31 @@ function useFeed(mode: PreferredMode | undefined, pickupBuilding: string, minimu
     [authed, mode, filters, key],
   );
   const reload = usePoll(read);
+  // A page still loading is cancelled with the feed, or when its filters change, as `read` is.
+  const moreRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => moreRequest.current?.abort(), [key]);
   const loadMore = useCallback(async () => {
     const cursor = result?.key === key ? result.page.nextCursor : null;
     if (!mode || !cursor || moreInFlight === key) return;
+    const controller = new AbortController();
+    moreRequest.current = controller;
+    const { signal } = controller;
     setMoreInFlight(key);
     setMoreFailure(null);
     try {
       if (mode === "REQUESTER") {
         const next = await authed((token) =>
-          listMyOrders(token, { role: mode, active: true, cursor }),
+          listMyOrders(token, { role: mode, active: true, cursor }, signal),
         );
+        if (signal.aborted) return;
         setResult((current) =>
           current?.key === key && current.page.nextCursor === cursor
             ? { ...current, page: appendPage(current.page, next) }
             : current,
         );
       } else {
-        const next = await authed((token) => listOpenOrders(token, { ...filters, cursor }));
+        const next = await authed((token) => listOpenOrders(token, { ...filters, cursor }, signal));
+        if (signal.aborted) return;
         const readAt = Date.now();
         const page = {
           items: next.items.map((o) => ({ ...o, expiresAt: readAt + o.timeRemainingSeconds * 1000 })),
@@ -115,6 +123,7 @@ function useFeed(mode: PreferredMode | undefined, pickupBuilding: string, minimu
         );
       }
     } catch (err) {
+      if (signal.aborted) return;
       setMoreFailure({ key, message: err instanceof ApiError ? err.message : "Something went wrong." });
     } finally {
       setMoreInFlight((current) => (current === key ? null : current));
