@@ -14,7 +14,7 @@ export default function RegisterPage() {
   const hydrated = useHydrated();
   const [form, setForm] = useState({ email: "", displayName: "", password: "", confirm: "" });
   const [errors, setErrors] = useState<Errors>({});
-  const [alert, setAlert] = useState<string | null>(null);
+  const [alert, setAlert] = useState<React.ReactNode>(null);
   const [submitting, setSubmitting] = useState(false);
   const [registered, setRegistered] = useState<string | null>(null);
 
@@ -42,7 +42,17 @@ export default function RegisterPage() {
         setAlert("Something went wrong. Please try again.");
       } else if (err.code === "EMAIL_ALREADY_REGISTERED") {
         setErrors({ email: "An account with this email already exists." });
-        setAlert("Check the highlighted fields.");
+        // Also the way out when someone else registered the student's address (#309): the reset link
+        // goes to the inbox, and sets the inbox owner's password whoever created the account.
+        setAlert(
+          <>
+            This email already has an account. If it&apos;s your address,{" "}
+            <Link href={`/forgot-password?email=${encodeURIComponent(email)}`}>
+              reset the password
+            </Link>{" "}
+            to get in, even if you didn&apos;t create the account.
+          </>,
+        );
       } else if (err.details.length > 0) {
         setErrors(
           Object.fromEntries(

@@ -113,6 +113,7 @@ suite(
     const service = new UsersService(db, mailbox, {
       allowedEmailDomains: ['u.nus.edu'],
       activationTokenTtlHours: 24,
+      passwordResetTokenTtlMinutes: 30,
     });
     const { userId } = await service.register({
       email: EMAIL,

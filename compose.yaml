@@ -152,12 +152,15 @@ services:
       # Without a fixed key every restart would sign everyone out (PL-NFR3.1.1).
       JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:?run ./scripts-init-env.sh}
       ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD:?run ./scripts-init-env.sh}
-      # Activation email goes to Mailpit (below); the link opens the web app.
+      # Activation and password reset email go to Mailpit (below); the links open the web app
+      # (reset links at /reset-password, beside ACTIVATION_URL).
       SMTP_HOST: mailpit
       SMTP_PORT: 1025
       # Mailpit offers no STARTTLS; a real relay must (the default in production).
       SMTP_REQUIRE_TLS: 'false'
       ACTIVATION_URL: http://localhost:${WEB_APP_PORT:-3000}/activate
+      ACTIVATION_TOKEN_TTL_HOURS: ${ACTIVATION_TOKEN_TTL_HOURS:-24}
+      PASSWORD_RESET_TOKEN_TTL_MINUTES: ${PASSWORD_RESET_TOKEN_TTL_MINUTES:-30}
     ports: ['127.0.0.1:${USER_SERVICE_PORT:-3001}:3001']
     networks: [public, db, broker, services, gateway, mail]
     depends_on:

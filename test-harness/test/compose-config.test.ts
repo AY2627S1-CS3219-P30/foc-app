@@ -169,6 +169,12 @@ describe('production mode (PLT-10, #285)', () => {
     expect(env.ACTIVATION_URL).toBeDefined();
   });
 
+  it('forwards the link lifetimes to the User Service with their defaults', () => {
+    const env = services['user-service']!.environment!;
+    expect(env.ACTIVATION_TOKEN_TTL_HOURS).toBe('${ACTIVATION_TOKEN_TTL_HOURS:-24}');
+    expect(env.PASSWORD_RESET_TOKEN_TTL_MINUTES).toBe('${PASSWORD_RESET_TOKEN_TTL_MINUTES:-30}');
+  });
+
   it('has the smoke test prove the cookie is Secure on a production stack', () => {
     const smoke = read('scripts-smoke.sh');
     expect(smoke).toContain('if [[ "${NODE_ENV:-}" == production ]]; then');
