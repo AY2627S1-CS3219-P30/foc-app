@@ -150,29 +150,35 @@ without a close frame. Browsers answer pings by themselves.
 A client branches on the code. The name is the `reason` label in the metrics; the close frame's
 reason text is for people.
 
-| Code   | Name               | When                                                                                   |
-| ------ | ------------------ | -------------------------------------------------------------------------------------- |
-| `4408` | `auth-timeout`     | No auth frame within 5 seconds.                                                        |
-| `4401` | `unauthenticated`  | The token was refused, expired, its session was revoked, or the account was suspended. |
-| `4401` | `identity-changed` | The account was suspended, reactivated, or a role changed.                             |
-| `4429` | `too-many`         | The user already has 5 sockets open on this instance, or the instance holds 1,000.     |
-| `4400` | `bad-frame`        | Anything but one auth frame: invalid JSON, binary, over 8 KiB, or a second auth frame. |
-| `1001` | `shutdown`         | The service is stopping, or was stopping when the socket connected.                    |
+| Code   | Name                   | When                                                                                   |
+| ------ | ---------------------- | -------------------------------------------------------------------------------------- |
+| `4408` | `auth-timeout`         | No auth frame within 5 seconds.                                                        |
+| `4401` | `unauthenticated`      | The token was refused, expired, its session was revoked, or the account was suspended. |
+| `4401` | `identity-changed`     | The account was suspended, reactivated, or a role changed.                             |
+| `4503` | `identity-unavailable` | The User Service could not answer, at sign-in or at a check. The token may be fine.    |
+| `4429` | `too-many`             | The user already has 5 sockets open on this instance, or the instance holds 1,000.     |
+| `4400` | `bad-frame`            | Anything but one auth frame: invalid JSON, binary, over 8 KiB, or a second auth frame. |
+| `1001` | `shutdown`             | The service is stopping, or was stopping when the socket connected.                    |
 
 After `4401`, the client refreshes its access token and connects again, so a reactivated user or a
-new role takes effect at once. After `4429` or `1001` it polls and tries again later. A frame over
-16 KiB never reaches the service: the WebSocket library closes it with `1009`.
+new role takes effect at once. After `4503`, `4429` or `1001` it polls, and connects again later
+with backoff and the same token. It does not refresh the token after `4503`: an outage of the User
+Service says nothing about the token. A frame over 16 KiB never reaches the service: the WebSocket
+library closes it with `1009`.
 
 ### When a socket closes by itself
 
 - **Its session is checked again every 55 seconds** (`CHAT_SOCKET_RECHECK_MS`), with the stored
   token, through the same `authenticate()`. A revoked session or a suspended account closes it with
-  `4401`. A check can reuse an identity cached up to 5 seconds earlier, so a revoked session's
-  socket closes within 60 seconds.
+  `4401`. A User Service that cannot answer closes it with `4503`, and the panel polls until the
+  service is back. A check can reuse an identity cached up to 5 seconds earlier, so a revoked
+  session's socket closes within 60 seconds.
 - **At its token's expiry** (`exp`), with `4401`.
 - **On an identity change.** On `user.suspended`, `user.reactivated` or `user.role-changed`, every
-  socket of that user closes with `4401` within a second. Chat's own queue
-  `foc.chat.socket-status.<random>` (exclusive, deleted with the instance) receives them. The event
+  open socket of that user closes with `4401` within a second. A socket still signing in when the
+  event arrives is not yet listed, so it misses the close: it opens, and its first check, 55 seconds
+  later, closes it. Chat's own queue `foc.chat.socket-status.<random>` (exclusive, deleted with the
+  instance) receives them. The event
   only makes chat forget: the reconnect is checked against the User Service afresh.
 
 ### Limits and scope
