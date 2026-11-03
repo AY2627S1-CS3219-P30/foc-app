@@ -873,8 +873,8 @@ requirements:
     text: "Automated accessibility scans of every core screen shall report zero critical violations, and text and control contrast shall meet 4.5 to 1 or 3 to 1 for large text."
     tests:
       - "web-app/e2e/account-journey.e2e.ts::account journey: register, activate, sign in, profile, mode switch, log out"
-      - "web-app/e2e/accessibility.e2e.ts::axe finds no critical or serious issue on the student screens"
-      - "web-app/e2e/accessibility.e2e.ts::axe finds no critical or serious issue in the admin console"
+      - "web-app/e2e/accessibility.e2e.ts::axe finds no issue on the student screens"
+      - "web-app/e2e/accessibility.e2e.ts::axe finds no issue in the admin console"
       - "web-app/test/contrast.test.ts::%s meets 3:1 (WCAG 1.4.11)"
       - "web-app/test/contrast.test.ts::%s text on %s meets 4.5:1"
     evidence:

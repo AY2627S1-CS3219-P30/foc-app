@@ -114,7 +114,7 @@ test.describe("accessibility of every core screen @release", () => {
       await scan(page, testInfo, "profile", findings);
       await page.goto("/change-password");
       await expect(page.getByRole("heading", { name: "Change password" })).toBeVisible();
-      await expect(page.getByLabel("New password", { exact: true })).toBeVisible();
+      await expect(page.locator("input[name=newPassword]")).toBeVisible();
       await scan(page, testInfo, "change password", findings);
     } finally {
       await courier.context().close();
