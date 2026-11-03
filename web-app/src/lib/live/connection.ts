@@ -171,4 +171,3 @@ export class LiveConnection {
     this.options.onStatus(status);
   }
 }
-

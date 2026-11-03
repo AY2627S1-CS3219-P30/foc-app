@@ -4,6 +4,7 @@ import type { Database } from '../src/db/db.js';
 import * as schema from '../src/db/schema.js';
 import { loadSeedSuppliers } from '../src/admin/seed-data.js';
 import { seedSuppliers } from '../src/admin/seed.js';
+import { CAMPUS_BUILDINGS } from '../src/suppliers/campus-buildings.js';
 import { suppliersRepository as repo } from '../src/suppliers/suppliers.repository.js';
 import type { SupplierSeed } from '../src/admin/normalize.js';
 import { applyMigrations } from './helpers/migrate.js';
@@ -44,6 +45,10 @@ describe('the seed corpus (SS-FR4.1.1)', () => {
     expect(seeds.length).toBeGreaterThanOrEqual(30);
     expect(buildings.size).toBeGreaterThanOrEqual(10);
     expect([...types].sort()).toEqual(['CAFE', 'FOOD', 'LANDMARK', 'PRINTING', 'SHOPPING']);
+  });
+
+  it('puts every row in a building on the campus list', () => {
+    for (const s of seeds) expect(CAMPUS_BUILDINGS).toContain(s.building);
   });
 
   it('has no building that appears under two spellings', () => {

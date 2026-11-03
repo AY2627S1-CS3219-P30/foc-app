@@ -5,14 +5,13 @@ to Friend on Campus, its design and how it joins the rest of the application, an
 responsible ([DOC-03 #237](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/237); D3
 instructions, Part 5). The same allocation is presented again at the final presentation.
 
-Six features, chosen to deepen the errand and credit workflows rather than to add breadth. Four
-are merged; chat is built in Sprint 4; live errand updates, added on 28 Oct, are built by the
-scope freeze on Sat 31 Oct.
+Six features, chosen to deepen the errand and credit workflows rather than to add breadth. Five
+are merged, and chat is to be merged by Sat 7 Nov.
 
-| Feature                                          | Owners                      | State on 28 Oct                                                    |
+| Feature                                          | Owners                      | State on 3 Nov                                                     |
 | ------------------------------------------------ | --------------------------- | ------------------------------------------------------------------ |
 | N1.1 Admin operations and dispute console        | Jonus, Anselm, Zhang Yuan   | Merged: #226, #228, #229, #252, #273, #292, #293                   |
-| N1.2 Participant chat                            | Patrick, Zhang Yuan, Anselm | Design agreed (#344). Sprint 4: merged by Tue 3 Nov                |
+| N1.2 Participant chat                            | Patrick, Zhang Yuan, Anselm | Design agreed (#344). Sprint 4: merged by Sat 7 Nov                |
 | N1.4 Live errand updates                         | Jonus                       | Merged: #334, #335, #338. Under load: #343                         |
 | N3.1 Concurrency, load and conservation evidence | Isaac                       | Merged (#165)                                                      |
 | N3.2 Automated credit reconciliation             | Isaac                       | Merged (#152)                                                      |
@@ -129,7 +128,7 @@ Service instead. An administrator reads a channel from the console, and cannot s
 | Patrick                     | `chat-api.ts`, `use-chat.ts` polling, `ChatPanel`, unread state, the browser journey                           | #161   | L    |
 
 **State.** Sprint 4. Design, decision record and contract agreed (#344). Text messages per errand,
-history on reconnect, participants only and closed at a final status are to be merged by Tue 3 Nov;
+history on reconnect, participants only and closed at a final status are to be merged by Sat 7 Nov;
 chat is the one feature allowed past the 31 Oct scope freeze, because it is Patrick's only
 nice-to-have. The WebSocket (#346) follows.
 

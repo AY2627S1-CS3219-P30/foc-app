@@ -174,8 +174,9 @@ describe('the stack checks', () => {
  * PLT-09 (#284) and #345 — the recovery job rolls back to the newest published release that has
  * every image the stack runs. A release from before a service (chat) is passed over, and when every
  * one predates it the drill runs without the rollback, once, until main publishes that image. An
- * image a release should have but the registry lacks fails the job. The step's own script runs here
- * against stand-ins for gh, docker and the drill.
+ * image a release should have but the registry lacks fails the job, and so does GitHub not being
+ * able to say whether it should. The step's own script runs here against stand-ins for gh, docker
+ * and the drill.
  */
 describe('the recovery job’s rollback target', () => {
   const script = jobs.stack!.steps.find(
@@ -187,7 +188,15 @@ describe('the recovery job’s rollback target', () => {
   afterEach(() => dirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 
   /** Two published releases, newest first; `missing` images are absent from both. */
-  function search({ missing = '', had = APPS }: { missing?: string; had?: string }) {
+  function search({
+    missing = '',
+    had = APPS,
+    contentsError = '',
+  }: {
+    missing?: string;
+    had?: string;
+    contentsError?: string;
+  }) {
     const dir = mkdtempSync(join(tmpdir(), 'foc-rollback-target-'));
     dirs.push(dir);
     mkdirSync(join(dir, 'bin'));
@@ -198,7 +207,11 @@ describe('the recovery job’s rollback target', () => {
       `case "$*" in
   *workflows/ci.yml/runs*) printf '1\\t${NEWEST}\\n2\\t${'b'.repeat(40)}\\n' ;;
   *actions/runs/*) echo success ;;
-  *contents/*) app="\${2#*contents/}"; [[ " $FAKE_HAD " == *" \${app%%/*} "* ]] ;;
+  *contents/*)
+    app="\${2#*contents/}"
+    [[ -z "$FAKE_CONTENTS_ERROR" ]] || { echo "$FAKE_CONTENTS_ERROR" >&2; exit 1; }
+    [[ " $FAKE_HAD " == *" \${app%%/*} "* ]] || { echo 'gh: Not Found (HTTP 404)' >&2; exit 1; }
+    ;;
 esac`,
     );
     fake(
@@ -221,6 +234,7 @@ fi`,
         FAKE_APPS: APPS,
         FAKE_MISSING: missing,
         FAKE_HAD: had,
+        FAKE_CONTENTS_ERROR: contentsError,
       },
     });
   }
@@ -248,6 +262,18 @@ fi`,
     const result = search({ missing: APPS });
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('Cannot read the images');
+  });
+
+  it('fails, rather than skipping the rollback, when GitHub cannot say whether a release had a service', () => {
+    const result = search({
+      missing: 'chat-service',
+      had: APPS.replace('chat-service ', ''),
+      contentsError: 'gh: Bad Gateway (HTTP 502)',
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(`Could not tell whether sha-${NEWEST} had chat-service`);
+    expect(result.stderr).toContain('HTTP 502');
+    expect(result.stdout).not.toContain('drill');
   });
 });
 

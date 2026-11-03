@@ -72,10 +72,15 @@ describe('order-service honours its published contract', () => {
     const template = '/internal/orders/{orderId}/chat';
     const lookup = (id: string, key = 'test-chat-key-0123456789') =>
       http(app).get(`/internal/orders/${id}/chat`).set('X-Service-Key', key);
-    contract.assert('get', template, await lookup(SEEDED_ORDER));
-    contract.assert('get', template, await lookup('not-a-uuid'));
-    contract.assert('get', template, await http(app).get(`/internal/orders/${SEEDED_ORDER}/chat`));
-    contract.assert('get', template, await lookup(randomUUID()));
+    // contract.assert accepts any documented status, so each case also pins its own.
+    contract.assert('get', template, await lookup(SEEDED_ORDER).expect(200));
+    contract.assert('get', template, await lookup('not-a-uuid').expect(400));
+    contract.assert(
+      'get',
+      template,
+      await http(app).get(`/internal/orders/${SEEDED_ORDER}/chat`).expect(401),
+    );
+    contract.assert('get', template, await lookup(randomUUID()).expect(404));
   });
 
   it('GET /orders/mine (200, 401)', async () => {
@@ -85,6 +90,24 @@ describe('order-service honours its published contract', () => {
       await http(app).get('/orders/mine').set('Authorization', asRequester),
     );
     contract.assert('get', '/orders/mine', await http(app).get('/orders/mine'));
+  });
+
+  it('paging and filters on GET /orders and GET /orders/mine (200, 400, 422)', async () => {
+    for (const path of ['/orders', '/orders/mine']) {
+      const read = (query: Record<string, string | number>) =>
+        http(app).get(path).query(query).set('Authorization', asRequester);
+      contract.assert('get', path, await read({ limit: 1 }));
+      contract.assert('get', path, await read({ cursor: 'not-a-cursor' }));
+      contract.assert('get', path, await read({ limit: 0 }));
+    }
+    contract.assert(
+      'get',
+      '/orders',
+      await http(app)
+        .get('/orders')
+        .query({ pickupBuilding: 'com2', minReward: 2 })
+        .set('Authorization', asStranger),
+    );
   });
 
   it('POST /orders (201, 200 replay, 400, 422)', async () => {

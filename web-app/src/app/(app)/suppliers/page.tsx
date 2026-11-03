@@ -19,7 +19,8 @@ import {
   type SupplierListing,
   type SupplierType,
 } from '@/lib/supplier-api';
-import { BUILDINGS, SUPPLIER_TYPES, TYPE_LABELS } from '@/lib/supplier-display';
+import { SUPPLIER_TYPES, TYPE_LABELS } from '@/lib/supplier-display';
+import { useBuildings } from '@/lib/use-buildings';
 import { SupplierForm } from './SupplierForm';
 import styles from './suppliers.module.css';
 
@@ -32,6 +33,14 @@ type FocusReturn = {
   /** Wait out the reload after a save, which replaces the opener's card (its key has the version). */
   afterReload: boolean;
 };
+
+/**
+ * An edit sends the building only when it changed. A supplier stored in one before the campus
+ * list, or off it, would otherwise be refused 422 `UNKNOWN_BUILDING` on a save of its hours alone.
+ */
+function edits(supplier: Supplier, { building, ...rest }: SupplierInput): Partial<SupplierInput> {
+  return building === supplier.building ? rest : { ...rest, building };
+}
 
 /** Brings the inline form into view and tells keyboard and screen-reader users it opened. */
 function revealForm(heading: HTMLElement | null) {
@@ -53,6 +62,8 @@ export default function SuppliersPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
+  // Read again with the list: a save or a delete can add a building to the filter or empty one.
+  const buildings = useBuildings(true, revision);
   const [listing, setListing] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(true);
   const [problem, setProblem] = useState('');
@@ -192,7 +203,7 @@ export default function SuppliersPage() {
                   header: { 'If-Match': String(editing.version) },
                 },
                 headers: bearer(token),
-                body,
+                body: edits(editing, body),
               }),
             )
           : unwrap(
@@ -356,13 +367,16 @@ export default function SuppliersPage() {
                 ))}
               </Select>
             </Field>
-            <Field label="Building">
+            <Field
+              label="Building"
+              hint={buildings.status === 'error' ? 'Buildings could not be loaded.' : undefined}
+            >
               <Select
                 value={building}
                 onChange={(event) => changeFilter(() => setBuilding(event.target.value))}
               >
                 <option value="">All buildings</option>
-                {BUILDINGS.map((value) => (
+                {buildings.items.map((value) => (
                   <option key={value} value={value}>
                     {value}
                   </option>
