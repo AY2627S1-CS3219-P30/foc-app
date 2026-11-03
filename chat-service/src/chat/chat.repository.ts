@@ -1,7 +1,19 @@
+import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type { Queryable, Row } from '@foc/platform';
 import { CHAT_DB, type ChatDatabase } from '../db/db.js';
 import { MAX_SEQ, type Page } from './validation.js';
+
+/** ADR 0012 §5: new messages per sender, across all channels, in a rolling window. */
+export const SEND_LIMIT = { messages: 20, windowSeconds: 60 } as const;
+
+/** The advisory-lock namespace that serializes one sender's sends, for the rate limit. */
+const SENDER_LOCK = 0x63686174; // 'chat'
+
+export type SendResult =
+  | { message: Message; created: boolean }
+  /** Over the limit: whole seconds until the oldest message in the window leaves it. */
+  | { retryAfter: number };
 
 export interface Message {
   seq: number;
@@ -91,14 +103,16 @@ export class ChatRepository {
 
   /**
    * Stores a message as the channel's next `seq`, or finds the one this `clientId` already stored.
-   * The channel's row lock orders sends on it, so a retry racing its original finds it here.
+   * The channel's row lock orders sends on it, so a retry racing its original finds it here. A new
+   * message then takes the sender's advisory lock, always second, so one sender's sends on
+   * different channels count and insert one at a time and a burst cannot pass the limit.
    */
   async send(
     orderId: string,
     senderId: string,
     clientId: string,
     body: string,
-  ): Promise<{ message: Message; created: boolean }> {
+  ): Promise<SendResult> {
     return this.db.transaction(async (tx) => {
       const { rows } = await tx.query<{ latest_seq: number } & Row>(
         'SELECT latest_seq FROM channels WHERE order_id = $1 FOR UPDATE',
@@ -106,16 +120,40 @@ export class ChatRepository {
       );
       const stored = await this.findSent(orderId, senderId, clientId, tx);
       if (stored) return { message: stored, created: false };
+      await tx.query('SELECT pg_advisory_xact_lock($1, hashtext($2))', [SENDER_LOCK, senderId]);
+      const retryAfter = await this.retryAfter(tx, senderId);
+      if (retryAfter !== undefined) return { retryAfter };
       const seq = Number(rows[0]!.latest_seq) + 1;
       const inserted = await tx.query<StoredMessage>(
-        `INSERT INTO messages (order_id, seq, sender_id, client_id, body)
-         VALUES ($1, $2, $3, $4, $5)
+        // Stamped when written, not when the transaction began: a send that waited for the locks
+        // would otherwise leave the rate window early.
+        `INSERT INTO messages (order_id, seq, sender_id, client_id, body, sent_at)
+         VALUES ($1, $2, $3, $4, $5, statement_timestamp())
          RETURNING ${MESSAGE_COLUMNS}`,
         [orderId, seq, senderId, clientId, body],
       );
       await tx.query('UPDATE channels SET latest_seq = $2 WHERE order_id = $1', [orderId, seq]);
       return { message: toMessage(inserted.rows[0]!), created: true };
     });
+  }
+
+  /**
+   * Undefined while the sender is under the limit. Counted on the database clock that stamps
+   * `sent_at`, so the app's clock cannot skew it. `statement_timestamp()`, not `now()`: `now()` is
+   * when this transaction began, before it waited for the lock, and could put the oldest message
+   * more than 60 seconds away. Under the sender's lock the window never holds more than the limit,
+   * so its oldest message is the one to wait for.
+   */
+  private async retryAfter(tx: Queryable, senderId: string): Promise<number | undefined> {
+    const { rows } = await tx.query<{ n: number; retry_after: number | null } & Row>(
+      `SELECT count(*)::int AS n,
+              GREATEST(1, CEIL(EXTRACT(EPOCH FROM
+                min(sent_at) + make_interval(secs => $2) - statement_timestamp())))::int AS retry_after
+         FROM messages
+        WHERE sender_id = $1 AND sent_at > statement_timestamp() - make_interval(secs => $2)`,
+      [senderId, SEND_LIMIT.windowSeconds],
+    );
+    return Number(rows[0]!.n) >= SEND_LIMIT.messages ? Number(rows[0]!.retry_after) : undefined;
   }
 
   /** Moves the caller's read position forward to `seq`; never back. */
@@ -128,5 +166,42 @@ export class ChatRepository {
       [orderId, userId, seq],
     );
     return Number(rows[0]!.last_read_seq);
+  }
+
+  /**
+   * Counts the read in this admin's row for the errand, resource and UTC hour, on the database
+   * clock. The hour's first read keeps its correlation ID and `read_at`.
+   */
+  async recordAdminRead(
+    adminUserId: string,
+    orderId: string,
+    resource: 'CHANNEL' | 'MESSAGES',
+    correlationId: string,
+  ): Promise<void> {
+    await this.db.query(
+      `INSERT INTO admin_channel_reads
+         (id, admin_user_id, order_id, resource, correlation_id, read_hour)
+       VALUES ($1, $2, $3, $4, $5, date_trunc('hour', statement_timestamp(), 'UTC'))
+       ON CONFLICT (admin_user_id, order_id, resource, read_hour) DO UPDATE
+         SET read_count = admin_channel_reads.read_count + 1, last_read_at = statement_timestamp()`,
+      [randomUUID(), adminUserId, orderId, resource, correlationId],
+    );
+  }
+
+  /**
+   * Channels opened before `cutoff`. A channel opens only before its errand ends, so one opened
+   * since cannot be past retention, and the cleanup need not ask about it.
+   */
+  async channelsOpenedBefore(cutoff: Date): Promise<string[]> {
+    const { rows } = await this.db.query<{ order_id: string } & Row>(
+      'SELECT order_id FROM channels WHERE created_at < $1 ORDER BY created_at',
+      [cutoff.toISOString()],
+    );
+    return rows.map((row) => row.order_id);
+  }
+
+  /** Deletes the channel with its messages and read positions; admin read records stay. */
+  async deleteChannel(orderId: string): Promise<void> {
+    await this.db.query('DELETE FROM channels WHERE order_id = $1', [orderId]);
   }
 }
