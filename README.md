@@ -1173,8 +1173,13 @@ through `docker buildx bake`, so a published image has exactly `compose.yaml`'s 
 - **What is pushed is what was scanned.** The publish job builds all five images, scans every one,
   changed in that push or not, and only then pushes them. A critical vulnerability with a fix,
   disclosed since an image was last scanned, stops the publish: nothing is pushed.
-- **Only the publish job may write to the registry.** It alone has `packages: write`, and it runs
-  only after the `CI` job passed on a push to `main`.
+- **Only the publish job and a release may write to the registry.** In CI, the publish job alone
+  has `packages: write`, and it runs only after the `CI` job passed on a push to `main`. A release
+  has it to add a tag to images already pushed.
+- **A release names images that already exist.** Pushing a tag such as `rc1-d4` or `v1.0-d4` gives
+  that commit's five images the same name, without rebuilding them, and records the commit and their
+  digests in a GitHub Release (REL-03, [#169](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/169)).
+  `FOC_IMAGE_TAG` takes that name too. See [Cutting a release](docs/runbooks/release.md).
 - **Fast after the first.** It reads and writes the per-service layer cache that the image builds
   use, from `main`, which every later run, pull requests included, can read.
 - **If `pull` says `denied`,** the package is still private: an organisation owner makes it public
