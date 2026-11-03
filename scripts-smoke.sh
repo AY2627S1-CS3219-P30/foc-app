@@ -432,8 +432,13 @@ if [[ "$socket" == "101" ]]; then
   [[ "$wrong" != "101" ]] && pass "no other spelling is upgraded (/api/chat/Socket answered $wrong)" ||
     fail "/api/chat/Socket was upgraded too"
 elif [[ "$socket" == "404" ]]; then
-  # A Chat Service image from before #346 has no socket, as when the recovery drill rolls back.
-  skip "this image set's Chat Service has no socket (it predates #346)"
+  # No gateway answered: the socket is switched off, or the image predates #346, as when the
+  # recovery drill rolls back. Panels poll either way.
+  if [[ "$(docker compose exec -T chat-service printenv CHAT_SOCKET_ENABLED 2>/dev/null | tr -d '\r')" == "false" ]]; then
+    skip "the chat socket is switched off (CHAT_SOCKET_ENABLED=false); chat panels poll"
+  else
+    skip "this image set's Chat Service has no socket (it predates #346)"
+  fi
 else
   fail "an upgrade at /api/chat/socket answered '${socket:-nothing}'"
 fi

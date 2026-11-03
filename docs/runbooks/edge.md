@@ -42,6 +42,10 @@ The edge's own answers use the shared error envelope, with the request's correla
 
 A `502` or `504` never reaches the browser: the edge turns both into the `503` above.
 
+An 11th chat socket from one address (`/api/chat/socket`) is also refused with `429 RATE_LIMITED`,
+before the upgrade: raise `limit_conn sockets` in `nginx.conf` for many people behind one address.
+The panels refused poll meanwhile.
+
 ## Following one request
 
 The edge writes one JSON line per request: time, method, URI, status, duration, which upstream
