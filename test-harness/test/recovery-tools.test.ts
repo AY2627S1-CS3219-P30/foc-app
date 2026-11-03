@@ -53,6 +53,8 @@ describe('backup bundle integrity before restore (PLT-09)', () => {
     expect(result.stderr).toContain(
       'a backup from before the Chat Service is restored with the release that made it',
     );
+    // Restoring that release still leaves no foc_chat, so the hint must say how to add it.
+    expect(result.stderr).toContain('chat-service/README.md');
   });
 
   it('refuses a non-custom archive even if its checksum matches', () => {
