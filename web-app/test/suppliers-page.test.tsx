@@ -1,7 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { Window } from 'happy-dom';
 import type { Supplier } from '../src/lib/supplier-api';
-import { BUILDINGS } from '../src/lib/supplier-display';
 
 const window = new Window();
 Object.assign(globalThis, { window, document: window.document, IS_REACT_ACT_ENVIRONMENT: true });
@@ -67,6 +66,8 @@ type Call = {
   body?: unknown;
 };
 
+const CAMPUS_BUILDINGS = ['COM2', 'COM3', 'The Deck'];
+
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 const failure = (status: number, code: string, message: string, details?: unknown[]) =>
@@ -91,6 +92,7 @@ function fakeService(count: number) {
     override: undefined as ((call: Call) => Response | undefined) | undefined,
     lose: undefined as ((call: Call) => boolean) | undefined,
     lists: () => calls.filter((c) => c.method === 'GET' && c.path === '/suppliers'),
+    buildingReads: () => calls.filter((c) => c.path === '/buildings').map((c) => c.query.get('inUse')),
     writes: (method: string) => calls.filter((c) => c.method === method),
     async fetch(request: Request): Promise<Response> {
       const url = new URL(request.url);
@@ -112,6 +114,10 @@ function fakeService(count: number) {
       return service.lose?.(call) ? failure(503, 'UNAVAILABLE', 'Try again shortly.') : response;
     },
     handle(call: Call): Response {
+      if (call.method === 'GET' && call.path === '/buildings') {
+        const inUse = [...new Set(suppliers.map((s) => s.building))].sort();
+        return json(200, { items: call.query.get('inUse') === 'true' ? inUse : CAMPUS_BUILDINGS });
+      }
       if (call.method === 'GET' && call.path === '/suppliers') {
         const page = Number(call.query.get('page'));
         const pageSize = Number(call.query.get('pageSize'));
@@ -262,7 +268,7 @@ describe('supplier page: listing', () => {
 
   it.each([
     ['Type', 'CAFE', 'type'],
-    ['Building', BUILDINGS[0], 'building'],
+    ['Building', 'COM2', 'building'],
     ['Sort by', 'updatedAt', 'sort'],
     ['Sort order', 'desc', 'order'],
   ] as const)('changing %s on page 2 goes back to page 1', async (label, value, param) => {
@@ -383,6 +389,71 @@ describe('supplier page: listing', () => {
   });
 });
 
+describe('supplier page: buildings', () => {
+  const options = (scope: ParentNode, selector: string) =>
+    Array.from(scope.querySelectorAll(`${selector} option`)).map((o) => o.getAttribute('value'));
+
+  it('filters by the buildings in use, read from the service', async () => {
+    const service = fakeService(3);
+    service.suppliers[2]!.building = 'The Deck';
+    const container = await renderPage(service);
+
+    const filter = `#${control(container, 'Building').id}`;
+    expect(options(container, filter)).toEqual(['', 'COM2', 'The Deck']);
+    expect(service.buildingReads()).toEqual(['true']);
+  });
+
+  it('suggests every campus building in the supplier form', async () => {
+    const service = fakeService(1);
+    const container = await renderPage(service);
+    await click(button(container, 'Add supplier'));
+
+    expect(options(form(container), '#supplier-buildings')).toEqual(CAMPUS_BUILDINGS);
+    expect(service.buildingReads()).toEqual(['true', null]);
+  });
+
+  it('reads the buildings in use again after a save or a delete', async () => {
+    const service = fakeService(2);
+    service.suppliers[1]!.building = 'The Deck';
+    const confirm = window.confirm;
+    window.confirm = () => true;
+    try {
+      const container = await renderPage(service);
+      const filter = () => options(container, `#${control(container, 'Building').id}`);
+      expect(filter()).toEqual(['', 'COM2', 'The Deck']);
+
+      await click(button(container, 'Add supplier'));
+      await setValue(control<HTMLInputElement>(form(container), 'Name'), 'New Stall');
+      await setValue(control<HTMLInputElement>(form(container), 'Building'), 'Frontier');
+      await submit(form(container));
+      expect(filter()).toEqual(['', 'COM2', 'Frontier', 'The Deck']);
+
+      await click(buttons(container, 'Delete')[1]!);
+      expect(filter()).toEqual(['', 'COM2', 'Frontier']);
+    } finally {
+      window.confirm = confirm;
+    }
+  });
+
+  it('keeps listing and saving when the buildings cannot be loaded', async () => {
+    const service = fakeService(2);
+    service.override = (call) =>
+      call.path === '/buildings' ? failure(503, 'UNAVAILABLE', 'Try again shortly.') : undefined;
+    const container = await renderPage(service);
+
+    expect(cards(container)).toHaveLength(2);
+    expect(options(container, `#${control(container, 'Building').id}`)).toEqual(['']);
+    expect(container.textContent).toContain('Buildings could not be loaded.');
+
+    await click(button(container, 'Add supplier'));
+    expect(form(container).textContent).toContain('Building suggestions could not be loaded.');
+    await setValue(control<HTMLInputElement>(form(container), 'Name'), 'New Stall');
+    await setValue(control<HTMLInputElement>(form(container), 'Building'), 'COM3');
+    await submit(form(container));
+    expect((service.writes('POST')[0]!.body as { building: string }).building).toBe('COM3');
+  });
+});
+
 describe('supplier page: roles', () => {
   it('gives a student no management controls', async () => {
     auth.user = { roles: ['STUDENT'] };
@@ -418,7 +489,6 @@ describe('supplier page: admin writes', () => {
     expect(puts[0]!.body).toEqual({
       name: 'Renamed Café',
       type: target.type,
-      building: target.building,
       floor: target.floor,
       locationDescription: target.locationDescription,
       imageUrl: null,
@@ -430,6 +500,22 @@ describe('supplier page: admin writes', () => {
     expect(form(container)).toBeNull();
     expect(service.lists()).toHaveLength(2);
     expect(cards(container)[0]!.querySelector('h2')?.textContent).toBe('Renamed Café');
+  });
+
+  it('sends the building only when it changed, so a supplier off the campus list stays editable', async () => {
+    const service = fakeService(1);
+    service.suppliers[0]!.building = 'COM1';
+    const container = await renderPage(service);
+
+    await click(buttons(container, 'Edit')[0]!);
+    await setValue(control<HTMLInputElement>(form(container), 'Name'), 'Renamed Café');
+    await submit(form(container));
+    expect(service.writes('PUT')[0]!.body).not.toHaveProperty('building');
+
+    await click(buttons(container, 'Edit')[0]!);
+    await setValue(control<HTMLInputElement>(form(container), 'Building'), 'COM2');
+    await submit(form(container));
+    expect(service.writes('PUT')[1]!.body).toMatchObject({ building: 'COM2' });
   });
 
   it('deletes after confirming, with If-Match, then reloads the list', async () => {

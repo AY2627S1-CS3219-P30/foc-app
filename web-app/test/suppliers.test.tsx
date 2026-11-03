@@ -222,6 +222,7 @@ describe('supplier version conflicts', () => {
       });
     const fetch = async (request: Request) => {
       const { pathname } = new URL(request.url);
+      if (pathname === '/buildings') return json(200, { items: ['COM2'] });
       const ifMatch = request.headers.get('if-match');
       const text = request.method === 'PUT' ? await request.text() : '';
       calls.push({

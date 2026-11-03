@@ -77,7 +77,7 @@ describe('validation (422, every field at once)', () => {
     const res = await create({
       name: '   ',
       type: 'GROCERIES',
-      building: 'COM1',
+      building: 'COM3',
       floor: '1',
       locationDescription: 'x',
       latitude: 999,
@@ -106,13 +106,28 @@ describe('validation (422, every field at once)', () => {
     ]);
   });
 
+  it('refuses a building off the campus list and writes nothing', async () => {
+    const res = await create(validSupplier({ building: 'Atlantis' })).expect(422);
+    expect(res.body.error.details).toEqual([
+      { field: 'building', code: 'UNKNOWN_BUILDING', message: expect.any(String) },
+    ]);
+    expect(await countSuppliers()).toBe(0);
+  });
+
+  it('stores the campus spelling of a building given in any case or spacing', async () => {
+    const res = await create(validSupplier({ building: ' central   LIBRARY' })).expect(201);
+    expect(res.body.building).toBe('Central Library');
+  });
+
   it('refuses a case-insensitive duplicate of name+building among active suppliers', async () => {
-    await create(validSupplier({ name: 'Starbucks', building: 'YIH' })).expect(201);
+    await create(validSupplier({ name: 'Starbucks', building: 'Yusof Ishak House' })).expect(201);
     // Same building, different case → duplicate.
-    const dup = await create(validSupplier({ name: 'STARBUCKS', building: 'YIH' })).expect(422);
+    const dup = await create(
+      validSupplier({ name: 'STARBUCKS', building: 'Yusof Ishak House' }),
+    ).expect(422);
     expect((dup.body.error.details as { code: string }[])[0]!.code).toBe('DUPLICATE_NAME_BUILDING');
     // Same name, different building → allowed.
-    await create(validSupplier({ name: 'Starbucks', building: 'UTown' })).expect(201);
+    await create(validSupplier({ name: 'Starbucks', building: 'University Town' })).expect(201);
   });
 });
 
@@ -195,6 +210,23 @@ describe('optimistic locking (If-Match / version)', () => {
     expect(now.version).toBe(2);
   });
 
+  it('refuses moving a supplier to a building off the campus list', async () => {
+    const created = (await create(validSupplier()).expect(201)).body;
+    const res = await http(t)
+      .put(`/suppliers/${created.supplierId}`)
+      .set('Authorization', asAdmin)
+      .set('If-Match', String(created.version))
+      .send({ building: 'Atlantis' })
+      .expect(422);
+    expect(res.body.error.details).toEqual([
+      { field: 'building', code: 'UNKNOWN_BUILDING', message: expect.any(String) },
+    ]);
+    const now = (
+      await http(t).get(`/suppliers/${created.supplierId}`).set('Authorization', asAdmin)
+    ).body;
+    expect(now).toMatchObject({ building: 'COM3', version: 1 });
+  });
+
   it('requires an If-Match header', async () => {
     const created = (await create(validSupplier()).expect(201)).body;
     const res = await http(t)
@@ -240,7 +272,7 @@ describe('soft deactivation', () => {
   });
 
   it('frees the name+building for reuse once deactivated, and is idempotent', async () => {
-    const created = (await create(validSupplier({ name: 'Kopi', building: 'COM1' })).expect(201))
+    const created = (await create(validSupplier({ name: 'Kopi', building: 'COM3' })).expect(201))
       .body;
     const deactivated = (
       await http(t)
@@ -256,11 +288,11 @@ describe('soft deactivation', () => {
       .set('If-Match', String(deactivated.version))
       .expect(200);
     // the freed name can be created again while the old row remains fetchable
-    await create(validSupplier({ name: 'Kopi', building: 'COM1' })).expect(201);
+    await create(validSupplier({ name: 'Kopi', building: 'COM3' })).expect(201);
   });
 
   it('refuses a retry at the pre-deactivation version as stale (412)', async () => {
-    const created = (await create(validSupplier({ name: 'Retry', building: 'COM1' })).expect(201))
+    const created = (await create(validSupplier({ name: 'Retry', building: 'COM3' })).expect(201))
       .body;
     const del = () =>
       http(t)
@@ -273,7 +305,7 @@ describe('soft deactivation', () => {
   });
 
   it('requires If-Match and refuses a stale version', async () => {
-    const created = (await create(validSupplier({ name: 'Locked', building: 'COM1' })).expect(201))
+    const created = (await create(validSupplier({ name: 'Locked', building: 'COM3' })).expect(201))
       .body;
     // No If-Match: a deactivation must carry the version it last saw.
     await http(t)

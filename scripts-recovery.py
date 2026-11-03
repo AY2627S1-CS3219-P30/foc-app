@@ -67,7 +67,9 @@ def verify(bundle):
     if manifest.get("format") != 1 or found != set(DATABASES):
         before_chat = found == set(DATABASES) - {"foc_chat"}
         raise ValueError("Expected format 1 with exactly the five service databases" +
-                         ("; a backup from before the Chat Service is restored with the release that made it"
+                         ("; a backup from before the Chat Service is restored with the release that made it,"
+                          " and its volume then needs foc_chat before upgrading: see \"An existing .env and"
+                          " Compose volume\" in chat-service/README.md"
                           if before_chat else ""))
     for db in DATABASES:
         item = manifest["databases"][db]

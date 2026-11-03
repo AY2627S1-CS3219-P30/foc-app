@@ -130,7 +130,8 @@ Because the browser does not attach an `Authorization` header by itself, every e
 immune to CSRF, and because it is not in storage, an XSS bug cannot lift a long-lived credential.
 
 **Refresh token** — an opaque 256-bit value, delivered _only_ as a cookie:
-`foc_refresh; HttpOnly; SameSite=Strict; Path=/auth` (`Secure` in production; local development is plain http).
+`foc_refresh; HttpOnly; SameSite=Strict; Path=/auth` (`Secure` in production, as Compose runs it; Chrome still
+sends it to `http://localhost`, which it counts as secure).
 
 - `HttpOnly`: page JavaScript cannot read it, so XSS cannot steal the 7-day credential.
 - `Path=/auth`: it is sent to the auth endpoints and nowhere else.

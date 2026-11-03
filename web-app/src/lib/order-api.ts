@@ -78,12 +78,35 @@ export const getOrderHistory = (token: string, orderId: string, signal?: AbortSi
 export const listMyLedger = (token: string, cursor?: string) =>
   unwrap(creditApi.GET("/wallets/me/ledger", { params: { query: { cursor } }, headers: bearer(token) }));
 
-export const listOpenOrders = (token: string, signal?: AbortSignal) =>
-  unwrap(orderApi.GET("/orders", { headers: bearer(token), signal }));
+export type OpenOrdersFilter = {
+  pickupBuilding?: string;
+  minReward?: number;
+  cursor?: string;
+  limit?: number;
+};
+
+export async function listOpenOrders(
+  token: string,
+  filter: OpenOrdersFilter = {},
+  signal?: AbortSignal,
+) {
+  const call = orderApi.GET("/orders", {
+    params: { query: filter },
+    headers: bearer(token),
+    signal,
+  });
+  const items = await unwrap(call);
+  return { items, nextCursor: (await call).response.headers.get("Next-Cursor") };
+}
 
 export const listMyOrders = (
   token: string,
-  filter: { role?: "REQUESTER" | "COURIER"; active?: boolean } = {},
+  filter: {
+    role?: "REQUESTER" | "COURIER";
+    active?: boolean;
+    cursor?: string;
+    limit?: number;
+  } = {},
   signal?: AbortSignal,
 ) =>
   unwrap(orderApi.GET("/orders/mine", { params: { query: filter }, headers: bearer(token), signal }));

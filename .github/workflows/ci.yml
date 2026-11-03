@@ -408,11 +408,15 @@ jobs:
             [[ "$missing" != "$images" ]] || { echo "Cannot read the images of sha-$sha from the registry." >&2; exit 1; }
             if [[ -z "$missing" ]]; then rollback_tag="sha-$sha"; break; fi
             # Missing is fine only for a service that release did not have yet; anything else is lost.
+            # Only a 404 says it did not have it: any other error from GitHub says nothing either way.
             while read -r image; do
               app="${image##*/foc-}"
               app="${app%%:*}"
-              if gh api "repos/$GITHUB_REPOSITORY/contents/$app/Dockerfile?ref=$sha" --silent </dev/null 2>/dev/null; then
+              if out=$(gh api "repos/$GITHUB_REPOSITORY/contents/$app/Dockerfile?ref=$sha" --silent </dev/null 2>&1); then
                 echo "sha-$sha had $app, but the registry has no $image." >&2
+                exit 1
+              elif [[ "$out" != *"HTTP 404"* ]]; then
+                echo "Could not tell whether sha-$sha had $app: $out" >&2
                 exit 1
               fi
             done <<<"$missing"

@@ -74,6 +74,7 @@ function serve(items: MyOrder[], truncated = false) {
         return matchesRole && matchesActive;
       }),
       truncated,
+      nextCursor: truncated ? "older" : null,
     });
   }) as unknown as typeof fetch;
 }
@@ -184,10 +185,36 @@ describe("order history (WEB-03)", () => {
     expect(section("Active")!.textContent).not.toContain("View receipt");
   });
 
-  it("keeps the note that only the most recent errands are shown", async () => {
-    serve([errand("done", "COMPLETED")], true);
+  it("loads another page and keeps it through refreshes, without repeating an updated errand", async () => {
+    let first = [errand("done", "COMPLETED")];
+    globalThis.fetch = (async (request: Request) => {
+      const cursor = new URL(request.url).searchParams.get("cursor");
+      return json(cursor
+        ? { items: [errand("older", "COMPLETED"), errand("done", "COMPLETED")], nextCursor: null, truncated: false }
+        : { items: first, nextCursor: "older", truncated: true });
+    }) as typeof fetch;
     await render();
-    expect(container.textContent).toContain("Showing your 100 most recent errands.");
+    const loadMore = [...container.querySelectorAll("button")].find((button) => button.textContent === "Load more errands")!;
+    expect(loadMore).toBeTruthy();
+    await act(async () => loadMore.click());
+    await settle();
+    expect(section("Past")?.textContent).toContain("Supplier older");
+    expect(section("Past")?.textContent?.match(/Supplier done/g)).toHaveLength(1);
+
+    first = [errand("new", "COMPLETED"), errand("done", "COMPLETED", { version: 2 })];
+    await act(async () => window.dispatchEvent(new window.Event("online")));
+    await settle();
+    expect(section("Past")?.textContent).toContain("Supplier older");
+    expect(section("Past")?.textContent).toContain("Supplier new");
+    expect(section("Past")?.textContent?.match(/Supplier done/g)).toHaveLength(1);
+
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      error: { code: "UNAVAILABLE", message: "Try later." },
+    }), { status: 503, headers: { "content-type": "application/json" } })) as typeof fetch;
+    await act(async () => window.dispatchEvent(new window.Event("online")));
+    await settle();
+    expect(section("Past")?.textContent).toContain("Supplier older");
+    expect(container.textContent).toContain("Could not refresh your errands");
   });
 
   it("reads again when the connection comes back", async () => {

@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Button } from './Button';
 import { Field } from './Field';
 import { Input } from './Input';
 import { EmptyState, ErrorState, LoadingState } from './States';
 import { bearer, unwrap } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth';
-import { supplierApi, type SupplierPage, type SupplierSummary } from '@/lib/supplier-api';
+import { supplierApi, type SupplierSummary } from '@/lib/supplier-api';
 import { TYPE_LABELS } from '@/lib/supplier-display';
 import styles from './SupplierPicker.module.css';
 
@@ -23,18 +24,35 @@ export function SupplierUnavailable({ onChooseAnother }: { onChooseAnother: () =
   );
 }
 
-/** Searches active suppliers only, so a deactivated one is never offered. */
+const PAGE_SIZE = 100;
+
+type Results = { items: SupplierSummary[]; total: number };
+
+/** Adds a page to the results, skipping any supplier an earlier page already showed. */
+const append = (results: Results, next: Results): Results => {
+  const shown = new Set(results.items.map((item) => item.supplierId));
+  return {
+    items: [...results.items, ...next.items.filter((item) => !shown.has(item.supplierId))],
+    total: next.total,
+  };
+};
+
+/** Searches active suppliers only, so a deactivated one is never offered. Pages with Load more. */
 export function SupplierPicker({ onSelect }: { onSelect: (supplier: SupplierSummary) => void }) {
   const { authed } = useAuth();
   const [query, setQuery] = useState('');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
-  const [page, setPage] = useState<SupplierPage | null>(null);
+  const [results, setResults] = useState<Results | null>(null);
   const [loading, setLoading] = useState(true);
   const [problem, setProblem] = useState('');
 
   useEffect(() => {
-    const timer = setTimeout(() => setSearch(query.trim()), 300);
+    const timer = setTimeout(() => {
+      setPage(1);
+      setSearch(query.trim());
+    }, 300);
     return () => clearTimeout(timer);
   }, [query]);
 
@@ -48,13 +66,14 @@ export function SupplierPicker({ onSelect }: { onSelect: (supplier: SupplierSumm
         const result = await authed((token) =>
           unwrap(
             supplierApi.GET('/suppliers', {
-              params: { query: { q: search || undefined, pageSize: 100 } },
+              params: { query: { q: search || undefined, page, pageSize: PAGE_SIZE } },
               headers: bearer(token),
               signal,
             }),
           ),
         );
-        if (!signal.aborted) setPage(result);
+        if (!signal.aborted)
+          setResults((current) => (page > 1 && current ? append(current, result) : result));
       } catch (cause) {
         if (!signal.aborted)
           setProblem(cause instanceof Error ? cause.message : 'Could not load pickup points.');
@@ -64,7 +83,7 @@ export function SupplierPicker({ onSelect }: { onSelect: (supplier: SupplierSumm
     };
     void load();
     return () => controller.abort();
-  }, [authed, search, revision]);
+  }, [authed, search, page, revision]);
 
   return (
     <div className={styles.picker}>
@@ -84,19 +103,19 @@ export function SupplierPicker({ onSelect }: { onSelect: (supplier: SupplierSumm
         >
           {problem}
         </ErrorState>
-      ) : !page ? (
+      ) : !results ? (
         <LoadingState label="Loading pickup points…" />
       ) : (
         <div className={styles.body} aria-busy={loading || undefined}>
-          {page.items.length ? (
+          {results.items.length ? (
             <>
-              {page.total > page.items.length && (
+              {results.total > results.items.length && (
                 <p className={styles.count}>
-                  Showing {page.items.length} of {page.total}. Search to narrow them down.
+                  Showing {results.items.length} of {results.total}. Search to narrow them down.
                 </p>
               )}
               <ul className={styles.results}>
-                {page.items.map((supplier) => (
+                {results.items.map((supplier) => (
                   <li key={supplier.supplierId}>
                     <button
                       type="button"
@@ -111,6 +130,15 @@ export function SupplierPicker({ onSelect }: { onSelect: (supplier: SupplierSumm
                   </li>
                 ))}
               </ul>
+              {results.total > results.items.length && (
+                <Button
+                  variant="outline"
+                  disabled={loading}
+                  onClick={() => setPage((current) => current + 1)}
+                >
+                  {loading ? 'Loading…' : 'Load more'}
+                </Button>
+              )}
             </>
           ) : (
             <EmptyState title="No pickup points found">Try another name or building.</EmptyState>

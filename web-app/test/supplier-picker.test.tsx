@@ -102,6 +102,7 @@ describe('SupplierPicker', () => {
     );
     expect(urls.map((u) => u.pathname)).toEqual(['/suppliers']);
     expect(urls[0]!.searchParams.has('q')).toBe(false);
+    expect(urls[0]!.searchParams.get('page')).toBe('1');
     expect(urls[0]!.searchParams.get('pageSize')).toBe('100');
     const options = buttons(container);
     expect(options.map((b) => b.textContent)).toEqual([
@@ -157,6 +158,47 @@ describe('SupplierPicker', () => {
     serve(() => page([cafe, kopi], 45));
     const { container, root } = await render(<SupplierPicker onSelect={() => {}} />);
     expect(container.textContent).toContain('Showing 2 of 45. Search to narrow them down.');
+    await act(() => root.unmount());
+  });
+
+  it('appends the next page on Load more until every supplier is shown', async () => {
+    const urls = serve((url) => page(url.searchParams.get('page') === '1' ? [cafe] : [kopi], 2));
+    const { container, root } = await render(<SupplierPicker onSelect={() => {}} />);
+    expect(container.textContent).toContain('Showing 1 of 2.');
+
+    await act(async () => button(container, 'Load more').click());
+    await settle();
+    expect(urls.map((u) => u.searchParams.get('page'))).toEqual(['1', '2']);
+    expect(buttons(container).map((b) => b.textContent)).toEqual([
+      'Campus CaféCafé · COM2',
+      'Kopi CornerCafé · COM2',
+    ]);
+    expect(button(container, 'Load more')).toBeUndefined();
+    await act(() => root.unmount());
+  });
+
+  it('starts again from page 1 when the search changes, dropping a late page', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    const urls = serve(async (url) => {
+      if (url.searchParams.get('q') === 'kopi') return page([kopi]);
+      if (url.searchParams.get('page') === '2') await held;
+      return page([cafe], 2);
+    });
+    const { container, root } = await render(<SupplierPicker onSelect={() => {}} />);
+    await act(async () => button(container, 'Load more').click());
+    await type(container.querySelector('input') as HTMLInputElement, 'kopi');
+    await debounce();
+    await settle();
+    release();
+    await settle();
+
+    expect(urls.map((u) => [u.searchParams.get('q'), u.searchParams.get('page')])).toEqual([
+      [null, '1'],
+      [null, '2'],
+      ['kopi', '1'],
+    ]);
+    expect(buttons(container).map((b) => b.textContent)).toEqual(['Kopi CornerCafé · COM2']);
     await act(() => root.unmount());
   });
 
