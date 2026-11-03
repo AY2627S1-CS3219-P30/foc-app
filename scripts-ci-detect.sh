@@ -30,6 +30,9 @@ SUPPLIER_STACK_RE='^(supplier-service/|web-app/src/app/\(app\)/suppliers/|web-ap
 # The load test (TST-03): not run in CI, but test-harness/test/load-harness.test.ts reads it, so a
 # change to it runs the Node job, without fanning out to every service.
 LOAD_RE='^(load/|scripts-load\.sh|compose\.load\.yaml)'
+# The release tooling (REL-03): not run on a change, but test-harness/test/release.test.ts reads it,
+# so a change to it runs the Node job, without fanning out to every service.
+RELEASE_RE='^(scripts-release\.sh|\.github/workflows/release\.yml)'
 # The requirements traceability matrix (REL-02): test-harness/test/traceability.test.ts reads it
 # and checks that every test it names exists, so a change to it, to a web app test or to a stack
 # script's checks runs the Node job. A service's own tests already do, as any service change does.
@@ -41,7 +44,7 @@ IGNORED_RE='^docs/|\.md$|^\.github/|^LICENSE$|^\.gitignore$|^\.(vscode|idea|clau
 # new package such as auth-client/, seed data, a contract — is treated as
 # shared and runs everything, rather than nothing. Otherwise a whole new package
 # could merge with no job ever running its tests.
-KNOWN_RE="$SHARED_RE|$SERVICE_RE|^web-app/|$STACK_RE|$LOAD_RE|$IGNORED_RE"
+KNOWN_RE="$SHARED_RE|$SERVICE_RE|^web-app/|$STACK_RE|$LOAD_RE|$RELEASE_RE|$IGNORED_RE"
 
 detect() {
   local changed="$1" force_stack="${2:-false}"
@@ -74,7 +77,7 @@ detect() {
   matches "$WEB_RE" && echo 'web=true' || echo 'web=false'
 
   if [[ "$shared" == "true" ]] || matches "$SERVICE_RE" || matches "$DEPLOY_CONFIG_RE" || matches "$LOAD_RE" ||
-    matches "$TRACE_RE"; then
+    matches "$RELEASE_RE" || matches "$TRACE_RE"; then
     echo 'node=true'
   else
     echo 'node=false'
@@ -117,6 +120,11 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "root config -> all four services"      "tsconfig.base.json" 'services=["user-service","supplier-service","order-service","credit-service"]'
   check "lockfile -> all four services"         "package-lock.json" 'services=["user-service","supplier-service","order-service","credit-service"]'
   check "vulnerability scan -> all four services" "scripts-scan-vulnerabilities.sh" 'services=["user-service","supplier-service","order-service","credit-service"]'
+  check "release script -> node runs"           "scripts-release.sh" 'node=true'
+  check "release script -> no services"         "scripts-release.sh" 'services=[]'
+  check "release script -> stack skipped"       "scripts-release.sh" 'stack=false'
+  check "release workflow -> node runs"         ".github/workflows/release.yml" 'node=true'
+  check "release workflow -> no services"       ".github/workflows/release.yml" 'services=[]'
   check "web only -> no services"               "web-app/src/app/page.tsx" 'services=[]'
   check "web only -> web runs"                  "web-app/src/app/page.tsx" 'web=true'
   check "web only -> node skipped"              "web-app/src/app/page.tsx" 'node=false'
