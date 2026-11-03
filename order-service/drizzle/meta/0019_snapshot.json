@@ -1,5 +1,5 @@
 {
-  "id": "7fe24238-89ca-44c0-bba8-8b4da6cec4ee",
+  "id": "b6610d2e-ae2b-4cf2-9c6d-91450a77c8ec",
   "prevId": "2040a035-9b3f-4a28-84c8-7b6968cd5abb",
   "version": "7",
   "dialect": "postgresql",
@@ -183,7 +183,7 @@
           "name": "items",
           "type": "jsonb",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "reward": {
           "name": "reward",
