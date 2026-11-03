@@ -35,10 +35,8 @@ async function report(testInfo: TestInfo, findings: Finding[]) {
     contentType: "application/json",
   });
   expect(
-    findings
-      .filter((f) => f.impact === "critical" || f.impact === "serious")
-      .map((f) => `${f.screen}: ${f.impact} ${f.id}: ${f.targets.join(" | ")}`),
-    "critical or serious axe issues",
+    findings.map((f) => `${f.screen}: ${f.impact} ${f.id}: ${f.targets.join(" | ")}`),
+    "axe issues",
   ).toEqual([]);
 }
 
@@ -49,7 +47,7 @@ test.describe("accessibility of every core screen @release", () => {
   test.skip(process.env.E2E_RELEASE !== "1", "Run on the dedicated clean release stack with E2E_RELEASE=1.");
   test.describe.configure({ timeout: 120_000 });
 
-  test("axe finds no critical or serious issue on the student screens", async ({ browser, page }, testInfo) => {
+  test("axe finds no issue on the student screens", async ({ browser, page }, testInfo) => {
     const findings: Finding[] = [];
     const token = await signIn(page.request, releaseEmail("a11y"));
     const courier = await student(browser, page, "courier");
@@ -120,7 +118,7 @@ test.describe("accessibility of every core screen @release", () => {
     await report(testInfo, findings);
   });
 
-  test("axe finds no critical or serious issue in the admin console", async ({ page, request }, testInfo) => {
+  test("axe finds no issue in the admin console", async ({ page, request }, testInfo) => {
     const findings: Finding[] = [];
     const studentToken = await signIn(request, releaseEmail("a11y"));
     const me = await request.get(`${USER}/users/me`, { headers: { authorization: `Bearer ${studentToken}` } });

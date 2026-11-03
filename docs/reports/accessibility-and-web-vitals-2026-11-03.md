@@ -46,8 +46,8 @@ test, so 768 px runs too. Each screen is scanned once its content has loaded.
   real data.
 - **Admin console:** every page, plus one account and one errand.
 
-The test scans every screen first and asserts at the end. It fails on any critical or serious
-issue. Each screen's findings are attached to the test result.
+The test scans every screen first and asserts at the end. It fails on any finding, at any
+impact. Each screen's findings are attached to the test result.
 
 Counts are axe rules violated (a rule may flag several elements). The columns give 360 / 768 / 1440 px.
 
