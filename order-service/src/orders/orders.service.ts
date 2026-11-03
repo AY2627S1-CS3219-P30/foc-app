@@ -44,6 +44,19 @@ function asParticipantSees(entry: HistoryEntry): HistoryEntry {
 }
 const notFound = () => new ApiException(404, 'NOT_FOUND', 'Order not found.');
 
+/** A request's fingerprint for its Idempotency-Key, the same whatever order its fields came in. */
+function hashRequest(request: object): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify(request, (_key, value) =>
+        value && typeof value === 'object' && !Array.isArray(value)
+          ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
+          : value,
+      ),
+    )
+    .digest('hex');
+}
+
 /** A requester's report refused in this status can only be refused by its deadline, so say so. */
 const DEADLINE_REFUSALS: Partial<
   Record<OrderAction, { status: OrderStatus; code: string; message: string }>
@@ -211,7 +224,7 @@ export class OrdersService {
     correlationId: string,
     idempotencyKey?: string,
   ): Promise<OrderView> {
-    const request = [orderId, 'ACCEPT', expectedVersion];
+    const request = { orderId, action: 'ACCEPT', expectedVersion };
     return this.once(caller, idempotencyKey, request, async (tx) => {
       const attempt = await this.orders.accept(
         orderId,
@@ -280,7 +293,7 @@ export class OrdersService {
     extra: Pick<TransitionCommand, 'reason' | 'verify'> & { idempotencyKey?: string } = {},
   ): Promise<OrderView> {
     const { idempotencyKey, ...details } = extra;
-    const request = [orderId, action, expectedVersion, details.reason ?? null];
+    const request = { orderId, action, expectedVersion, reason: details.reason };
     return this.once(caller, idempotencyKey, request, async (tx) => {
       const result = await this.orders.transition(
         {
@@ -454,15 +467,7 @@ export class OrdersService {
     authorization: string,
     correlationId: string,
   ): Promise<{ order: OrderView; replayed: boolean }> {
-    const requestHash = createHash('sha256')
-      .update(
-        JSON.stringify(input, (_key, value) =>
-          value && typeof value === 'object' && !Array.isArray(value)
-            ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)))
-            : value,
-        ),
-      )
-      .digest('hex');
+    const requestHash = hashRequest(input);
 
     // A replay does not re-contact Supplier: it returns the exact recorded
     // order even if the dependency is down or the supplier changed meanwhile.
@@ -498,22 +503,31 @@ export class OrdersService {
   }
 
   /**
-   * Runs a command, at most once per Idempotency-Key when the caller sends one: a retry with the
-   * key gets the first answer back, and the same key with any other request is refused.
+   * Runs a command, at most once per Idempotency-Key when the caller sends one. A retry with the
+   * key changes nothing and, like a retried create, answers with the errand as the caller may see
+   * it now; the same key with any other request is refused.
    */
   private async once(
     caller: AuthContext,
     idempotencyKey: string | undefined,
-    request: unknown[],
+    request: { orderId: string; [field: string]: unknown },
     run: (tx?: Queryable) => Promise<OrderView>,
   ): Promise<OrderView> {
     if (idempotencyKey === undefined) return run();
-    const requestHash = createHash('sha256').update(JSON.stringify(request)).digest('hex');
     try {
-      return await this.orders.withCommandKey(
-        { callerId: caller.userId, idempotencyKey, requestHash },
+      const outcome = await this.orders.withCommandKey(
+        {
+          callerId: caller.userId,
+          idempotencyKey,
+          requestHash: hashRequest(request),
+          orderId: request.orderId,
+        },
         run,
       );
+      if ('applied' in outcome) return outcome.applied;
+      const projected = projectOrder(outcome.replayed, caller);
+      if (!projected) throw notFound();
+      return projected;
     } catch (error) {
       if (error instanceof IdempotencyKeyReusedError) throw this.idempotencyReused();
       throw error;

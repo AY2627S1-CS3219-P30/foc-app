@@ -251,12 +251,14 @@ history row and every emitted event in one transaction. A caller who may never d
 
 Every command (accept, pickup, deliver, confirm-receipt, cancel, withdraw, both reports and an
 administrator's decision) takes an optional `Idempotency-Key` header of 1 to 200 characters; a
-malformed one gets `400` before anything changes. A key belongs to the caller who sent it and never
-expires. When a command sent with a key takes effect, its answer is saved in
-`order_command_idempotency_keys` in the same transaction, so a retry with the same key and request
-gets that answer back (the same status and body, with a new `serverTime`) and changes nothing, even
-after the errand has moved on or the service has restarted. Sends of one key wait for each other on
-a transaction-scoped advisory lock, so duplicates sent at once still apply once. A refused command
+malformed one gets `400` before anything changes. A key belongs to the caller who sent it, never
+expires, and is separate from the keys on `POST /orders`. When a command sent with a key takes
+effect, the key is saved in `order_command_idempotency_keys` in the same transaction, so a retry
+with the same key and request changes nothing, even after the service has restarted. Like a retried
+create, it gets the command's usual success status with the errand read again and shown as the
+caller may see it now: a courier who has since withdrawn gets the errand without its private
+details. Sends of one key wait for each other on a transaction-scoped advisory lock, so duplicates
+sent at once still apply once. A refused command
 saves nothing, so a retry with its key is judged again: a report refused as too early goes through
 with the same key once the period has passed. The same key with a different command, errand,
 `expectedVersion` or decision gets `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a command behaves as

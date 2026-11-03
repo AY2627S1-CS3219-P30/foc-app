@@ -1200,12 +1200,14 @@ export interface components {
     };
     parameters: {
         /**
-         * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
-         *     key and request gets the first answer back (the same status and body, with a new
-         *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
-         *     that took effect is kept: after a refusal the key is still free, and a retry with it is
-         *     judged again. The same key with a different command, errand, `expectedVersion` or decision
-         *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+         * @description Optional. A key belongs to the caller who sent it and never expires. Command keys are
+         *     separate from the keys on `POST /orders`. A retry with the same key and request changes
+         *     nothing and gets the command's usual success status with the errand as
+         *     `GET /orders/{orderId}` shows it to the caller now, even if it has moved on since. Only a
+         *     command that took effect is kept: after a refusal the key is still free, and a retry with
+         *     it is judged again. The same key with a different command, errand, `expectedVersion` or
+         *     decision is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other
+         *     command.
          */
         CommandIdempotencyKey: string;
         /** @description Opaque cursor returned by the previous page. */
@@ -1382,12 +1384,14 @@ export interface operations {
             query?: never;
             header?: {
                 /**
-                 * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
-                 *     key and request gets the first answer back (the same status and body, with a new
-                 *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
-                 *     that took effect is kept: after a refusal the key is still free, and a retry with it is
-                 *     judged again. The same key with a different command, errand, `expectedVersion` or decision
-                 *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+                 * @description Optional. A key belongs to the caller who sent it and never expires. Command keys are
+                 *     separate from the keys on `POST /orders`. A retry with the same key and request changes
+                 *     nothing and gets the command's usual success status with the errand as
+                 *     `GET /orders/{orderId}` shows it to the caller now, even if it has moved on since. Only a
+                 *     command that took effect is kept: after a refusal the key is still free, and a retry with
+                 *     it is judged again. The same key with a different command, errand, `expectedVersion` or
+                 *     decision is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other
+                 *     command.
                  */
                 "Idempotency-Key"?: components["parameters"]["CommandIdempotencyKey"];
             };
@@ -1424,12 +1428,14 @@ export interface operations {
             query?: never;
             header?: {
                 /**
-                 * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
-                 *     key and request gets the first answer back (the same status and body, with a new
-                 *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
-                 *     that took effect is kept: after a refusal the key is still free, and a retry with it is
-                 *     judged again. The same key with a different command, errand, `expectedVersion` or decision
-                 *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+                 * @description Optional. A key belongs to the caller who sent it and never expires. Command keys are
+                 *     separate from the keys on `POST /orders`. A retry with the same key and request changes
+                 *     nothing and gets the command's usual success status with the errand as
+                 *     `GET /orders/{orderId}` shows it to the caller now, even if it has moved on since. Only a
+                 *     command that took effect is kept: after a refusal the key is still free, and a retry with
+                 *     it is judged again. The same key with a different command, errand, `expectedVersion` or
+                 *     decision is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other
+                 *     command.
                  */
                 "Idempotency-Key"?: components["parameters"]["CommandIdempotencyKey"];
             };
@@ -1466,12 +1472,14 @@ export interface operations {
             query?: never;
             header?: {
                 /**
-                 * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
-                 *     key and request gets the first answer back (the same status and body, with a new
-                 *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
-                 *     that took effect is kept: after a refusal the key is still free, and a retry with it is
-                 *     judged again. The same key with a different command, errand, `expectedVersion` or decision
-                 *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+                 * @description Optional. A key belongs to the caller who sent it and never expires. Command keys are
+                 *     separate from the keys on `POST /orders`. A retry with the same key and request changes
+                 *     nothing and gets the command's usual success status with the errand as
+                 *     `GET /orders/{orderId}` shows it to the caller now, even if it has moved on since. Only a
+                 *     command that took effect is kept: after a refusal the key is still free, and a retry with
+                 *     it is judged again. The same key with a different command, errand, `expectedVersion` or
+                 *     decision is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other
+                 *     command.
                  */
                 "Idempotency-Key"?: components["parameters"]["CommandIdempotencyKey"];
             };
@@ -1508,12 +1516,14 @@ export interface operations {
             query?: never;
             header?: {
                 /**
-                 * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
-                 *     key and request gets the first answer back (the same status and body, with a new
-                 *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
-                 *     that took effect is kept: after a refusal the key is still free, and a retry with it is
-                 *     judged again. The same key with a different command, errand, `expectedVersion` or decision
-                 *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+                 * @description Optional. A key belongs to the caller who sent it and never expires. Command keys are
+                 *     separate from the keys on `POST /orders`. A retry with the same key and request changes
+                 *     nothing and gets the command's usual success status with the errand as
+                 *     `GET /orders/{orderId}` shows it to the caller now, even if it has moved on since. Only a
+                 *     command that took effect is kept: after a refusal the key is still free, and a retry with
+                 *     it is judged again. The same key with a different command, errand, `expectedVersion` or
+                 *     decision is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other
+                 *     command.
                  */
                 "Idempotency-Key"?: components["parameters"]["CommandIdempotencyKey"];
             };
@@ -1550,12 +1560,14 @@ export interface operations {
             query?: never;
             header?: {
                 /**
-                 * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
-                 *     key and request gets the first answer back (the same status and body, with a new
-                 *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
-                 *     that took effect is kept: after a refusal the key is still free, and a retry with it is
-                 *     judged again. The same key with a different command, errand, `expectedVersion` or decision
-                 *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+                 * @description Optional. A key belongs to the caller who sent it and never expires. Command keys are
+                 *     separate from the keys on `POST /orders`. A retry with the same key and request changes
+                 *     nothing and gets the command's usual success status with the errand as
+                 *     `GET /orders/{orderId}` shows it to the caller now, even if it has moved on since. Only a
+                 *     command that took effect is kept: after a refusal the key is still free, and a retry with
+                 *     it is judged again. The same key with a different command, errand, `expectedVersion` or
+                 *     decision is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other
+                 *     command.
                  */
                 "Idempotency-Key"?: components["parameters"]["CommandIdempotencyKey"];
             };
@@ -1592,12 +1604,14 @@ export interface operations {
             query?: never;
             header?: {
                 /**
-                 * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
-                 *     key and request gets the first answer back (the same status and body, with a new
-                 *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
-                 *     that took effect is kept: after a refusal the key is still free, and a retry with it is
-                 *     judged again. The same key with a different command, errand, `expectedVersion` or decision
-                 *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+                 * @description Optional. A key belongs to the caller who sent it and never expires. Command keys are
+                 *     separate from the keys on `POST /orders`. A retry with the same key and request changes
+                 *     nothing and gets the command's usual success status with the errand as
+                 *     `GET /orders/{orderId}` shows it to the caller now, even if it has moved on since. Only a
+                 *     command that took effect is kept: after a refusal the key is still free, and a retry with
+                 *     it is judged again. The same key with a different command, errand, `expectedVersion` or
+                 *     decision is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other
+                 *     command.
                  */
                 "Idempotency-Key"?: components["parameters"]["CommandIdempotencyKey"];
             };
@@ -1634,12 +1648,14 @@ export interface operations {
             query?: never;
             header?: {
                 /**
-                 * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
-                 *     key and request gets the first answer back (the same status and body, with a new
-                 *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
-                 *     that took effect is kept: after a refusal the key is still free, and a retry with it is
-                 *     judged again. The same key with a different command, errand, `expectedVersion` or decision
-                 *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+                 * @description Optional. A key belongs to the caller who sent it and never expires. Command keys are
+                 *     separate from the keys on `POST /orders`. A retry with the same key and request changes
+                 *     nothing and gets the command's usual success status with the errand as
+                 *     `GET /orders/{orderId}` shows it to the caller now, even if it has moved on since. Only a
+                 *     command that took effect is kept: after a refusal the key is still free, and a retry with
+                 *     it is judged again. The same key with a different command, errand, `expectedVersion` or
+                 *     decision is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other
+                 *     command.
                  */
                 "Idempotency-Key"?: components["parameters"]["CommandIdempotencyKey"];
             };
@@ -1676,12 +1692,14 @@ export interface operations {
             query?: never;
             header?: {
                 /**
-                 * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
-                 *     key and request gets the first answer back (the same status and body, with a new
-                 *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
-                 *     that took effect is kept: after a refusal the key is still free, and a retry with it is
-                 *     judged again. The same key with a different command, errand, `expectedVersion` or decision
-                 *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+                 * @description Optional. A key belongs to the caller who sent it and never expires. Command keys are
+                 *     separate from the keys on `POST /orders`. A retry with the same key and request changes
+                 *     nothing and gets the command's usual success status with the errand as
+                 *     `GET /orders/{orderId}` shows it to the caller now, even if it has moved on since. Only a
+                 *     command that took effect is kept: after a refusal the key is still free, and a retry with
+                 *     it is judged again. The same key with a different command, errand, `expectedVersion` or
+                 *     decision is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other
+                 *     command.
                  */
                 "Idempotency-Key"?: components["parameters"]["CommandIdempotencyKey"];
             };
@@ -1872,12 +1890,14 @@ export interface operations {
             query?: never;
             header?: {
                 /**
-                 * @description Optional. A key belongs to the caller who sent it and never expires. A retry with the same
-                 *     key and request gets the first answer back (the same status and body, with a new
-                 *     `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
-                 *     that took effect is kept: after a refusal the key is still free, and a retry with it is
-                 *     judged again. The same key with a different command, errand, `expectedVersion` or decision
-                 *     is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+                 * @description Optional. A key belongs to the caller who sent it and never expires. Command keys are
+                 *     separate from the keys on `POST /orders`. A retry with the same key and request changes
+                 *     nothing and gets the command's usual success status with the errand as
+                 *     `GET /orders/{orderId}` shows it to the caller now, even if it has moved on since. Only a
+                 *     command that took effect is kept: after a refusal the key is still free, and a retry with
+                 *     it is judged again. The same key with a different command, errand, `expectedVersion` or
+                 *     decision is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other
+                 *     command.
                  */
                 "Idempotency-Key"?: components["parameters"]["CommandIdempotencyKey"];
             };

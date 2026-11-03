@@ -1,19 +1,21 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ApiError, newCorrelationId } from "./api-client";
 import { useAuth } from "./auth";
 import { sendCommand, type Order } from "./order-api";
 import { staleMessage, type OrderAction } from "./order-actions";
 
-/** `key` is the confirmation's: every retry of it sends the same one, so the server answers it once. */
+/** `key` is the send's: every retry of it sends the same one, so the server answers it once. */
 type Pending = { target: Pick<Order, "orderId" | "version">; action: OrderAction; key: string };
 
 /**
  * One path for every errand command: ask, confirm, send with the version on screen. A refusal
  * because the errand moved on closes the dialog and hands `onStale` what to say, so the caller
- * re-reads instead of leaving a dead button. Anything else stays in the dialog to try again, with
- * the same key, so a retry of a send whose answer was lost gets that answer rather than a refusal.
+ * re-reads instead of leaving a dead button. Anything else stays in the dialog to try again. The
+ * same command at the same version always goes with the same key, even after the dialog is closed
+ * and opened again, so a retry of a send whose answer was lost is answered as done, not refused. A
+ * refusal records nothing on the server, and a success moves the version on, so reuse is safe.
  */
 export function useOrderAction({
   onDone,
@@ -26,10 +28,14 @@ export function useOrderAction({
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const keys = useRef(new Map<string, string>());
 
   function ask(target: Pending["target"], action: OrderAction) {
     setError(null);
-    setPending({ target, action, key: newCorrelationId() });
+    const send = `${action.command} ${target.orderId} ${target.version}`;
+    const key = keys.current.get(send) ?? newCorrelationId();
+    keys.current.set(send, key);
+    setPending({ target, action, key });
   }
 
   function close() {

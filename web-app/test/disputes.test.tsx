@@ -200,6 +200,36 @@ describe("one dispute, opened by an administrator (#271)", () => {
     expect(container.textContent).toContain("The requester reported it never arrived");
   });
 
+  it("retries a decision whose answer was lost with the same key, and shows it decided", async () => {
+    const keys: (string | null)[] = [];
+    serve((url, request) => {
+      if (url.pathname !== `/admin/orders/${MINE}/resolve`) return undefined;
+      keys.push(request.headers.get("Idempotency-Key"));
+      if (keys.length === 1) throw new TypeError("Failed to fetch");
+      return json(200, { ...privateErrand, status: "COMPLETION_PENDING_CREDIT", version: 7 });
+    });
+    await open(MINE);
+
+    await act(async () => button("Decide for the courier")!.click());
+    const reason = container.querySelector("textarea")!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!;
+      setter.call(reason, "Handover photo");
+      reason.dispatchEvent(new window.Event("input", { bubbles: true }) as unknown as Event);
+    });
+    const submit = async () => {
+      await act(async () => (container.querySelector("dialog form") as HTMLFormElement).requestSubmit());
+      await settle();
+    };
+    await submit();
+    expect(container.querySelector("dialog[open]")).not.toBeNull();
+
+    await submit();
+    expect(keys[0]).toBeTruthy();
+    expect(keys).toEqual([keys[0], keys[0]]);
+    expect(container.textContent).toContain("Decided for the courier");
+  });
+
   it("shows where the errand stands now when a decision is refused as stale (409)", async () => {
     let reads = 0;
     serve((url) => {

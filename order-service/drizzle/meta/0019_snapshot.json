@@ -1,5 +1,5 @@
 {
-  "id": "fd144815-8587-4d0a-a8bb-e7f34a2dd817",
+  "id": "14d86f57-188c-4197-82dd-d86159dc9949",
   "prevId": "2040a035-9b3f-4a28-84c8-7b6968cd5abb",
   "version": "7",
   "dialect": "postgresql",
@@ -20,15 +20,15 @@
           "primaryKey": false,
           "notNull": true
         },
-        "request_hash": {
-          "name": "request_hash",
-          "type": "text",
+        "order_id": {
+          "name": "order_id",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
-        "response": {
-          "name": "response",
-          "type": "jsonb",
+        "request_hash": {
+          "name": "request_hash",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -41,7 +41,21 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {},
+      "foreignKeys": {
+        "order_command_idempotency_keys_order_id_orders_order_id_fk": {
+          "name": "order_command_idempotency_keys_order_id_orders_order_id_fk",
+          "tableFrom": "order_command_idempotency_keys",
+          "tableTo": "orders",
+          "columnsFrom": [
+            "order_id"
+          ],
+          "columnsTo": [
+            "order_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {
         "order_command_idempotency_keys_caller_id_idempotency_key_pk": {
           "name": "order_command_idempotency_keys_caller_id_idempotency_key_pk",

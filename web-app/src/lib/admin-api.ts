@@ -219,11 +219,14 @@ export function createAdminApi({
           headers: bearer(token),
         }),
       ),
-    /** The referred administrator decides, with a reason, at the version they read. */
-    resolveDispute: (token: string, orderId: string, decision: ResolveDispute) =>
+    /**
+     * The referred administrator decides, with a reason, at the version they read. A retry of one
+     * decision sends its key again, so a decision whose answer was lost is answered, not refused.
+     */
+    resolveDispute: (token: string, orderId: string, decision: ResolveDispute, idempotencyKey: string) =>
       unwrap(
         orders.POST("/admin/orders/{orderId}/resolve", {
-          params: order(orderId),
+          params: { ...order(orderId), header: { "Idempotency-Key": idempotencyKey } },
           body: decision,
           headers: bearer(token),
         }),

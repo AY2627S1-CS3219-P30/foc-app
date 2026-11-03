@@ -292,9 +292,10 @@ reserved its reward once.
   version on screen as `expectedVersion`. A refusal because the errand moved on (`409`, `403`,
   `404`: someone else accepted it, it changed, or a report came too early or too late) closes the
   dialog, says what happened and re-reads, so the screen never keeps a button for a state that has
-  gone. A network or server failure stays in the dialog to try again. Each confirmation sends its
-  own `Idempotency-Key`, and trying again from the dialog sends the same one, so a send whose answer
-  was lost gets that answer back rather than a refusal.
+  gone. A network or server failure stays in the dialog to try again. Each command sends an
+  `Idempotency-Key`, and confirming it again at the same version, from the dialog or after closing
+  it, sends the same one, so a send whose answer was lost is answered as done rather than refused.
+  An administrator's dispute decision keeps its key the same way while its dialog is open.
 
 Every state's label and plain-language explanation is in `src/lib/order-status.ts`, typed from the
 generated contract so all twelve are covered.

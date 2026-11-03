@@ -437,6 +437,25 @@ describe('feed', () => {
     expect(router.push).toHaveBeenCalledWith(`/request/${OTHER_ID}`);
   });
 
+  it('resends the same key when a lost accept is closed and confirmed again, and opens the errand', async () => {
+    const service = fakeOrderService();
+    service.open = [listing(OTHER_ID, 'Their cafe')];
+    service.answer = lostAnswer;
+    const container = await render(<FeedPage />, service);
+    await confirmAction(container, 'Accept', 'Accept');
+    await act(async () => button(dialog(container), 'Go back').click());
+    expect(dialog(container).open).toBe(false);
+
+    service.answer = () =>
+      json(201, order({ orderId: OTHER_ID, status: 'ACCEPTED', requesterId: 'them', courierId: 'me', version: 2 }));
+    await confirmAction(container, 'Accept', 'Accept');
+    expect(service.commands.map((c) => c.body)).toEqual([{ expectedVersion: 1 }, { expectedVersion: 1 }]);
+    expect(service.keys[0]).toBeTruthy();
+    expect(service.keys).toEqual([service.keys[0]!, service.keys[0]!]);
+    expect(container.textContent).not.toContain('Another courier');
+    expect(router.push).toHaveBeenCalledWith(`/request/${OTHER_ID}`);
+  });
+
   it('still reports losing the race when the retry of a lost accept is refused because another courier took it', async () => {
     const service = fakeOrderService();
     service.open = [listing(OTHER_ID, 'Their cafe')];
@@ -760,7 +779,7 @@ describe('requester', () => {
     });
   }
 
-  it('sends a new key when asked again after a refusal, even at the same version', async () => {
+  it('sends the same key when asked again at the same version after a refusal, which kept nothing', async () => {
     const service = fakeOrderService();
     service.current = order({
       status: 'PICKED_UP',
@@ -774,8 +793,8 @@ describe('requester', () => {
     service.answer = () => json(200, order({ status: 'DISPUTED', courierId: 'them', version: 4 }));
     await confirmAction(container, 'Report not delivered', 'Report');
     expect(service.commands.map((c) => c.body)).toEqual([{ expectedVersion: 3 }, { expectedVersion: 3 }]);
-    expect(service.keys).not.toContain(null);
-    expect(service.keys[1]).not.toBe(service.keys[0]!);
+    expect(service.keys[0]).toBeTruthy();
+    expect(service.keys).toEqual([service.keys[0]!, service.keys[0]!]);
   });
 
   it('explains a report sent before the server agrees the period has passed', async () => {
