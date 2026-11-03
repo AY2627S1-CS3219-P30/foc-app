@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ApiException } from '@foc/platform';
 import { normalizeBuilding } from '../admin/normalize.js';
+import { CAMPUS_BUILDINGS } from './campus-buildings.js';
 import { DAYS, SUPPLIER_TYPES } from './types.js';
 
 export interface FieldError {
@@ -53,17 +54,19 @@ const openingHoursSchema = z
 const baseFields = {
   name: text().trim().min(1).max(200),
   type: z.enum(SUPPLIER_TYPES),
-  // Canonicalize the building the same way the seed does (collapse spacing and
-  // apostrophes, then map known spellings onto one canonical name) BEFORE the
-  // length check, so `Com 2` and `COM2` land on the same value and the unique
-  // `(lower(name), lower(building))` index catches the resulting duplicate.
-  // The transform runs first so min/max validate the canonical form.
+  // Canonicalize the building the same way the seed does (alias, then a case-
+  // and spacing-insensitive match on the campus list) and refuse one that is not
+  // on the list (SS-FR1.1.2). `Com 2` and `COM2` both land on `COM2`, so the
+  // unique `(lower(name), lower(building))` index catches the duplicate.
   building: text()
     .trim()
     .min(1)
     .max(200)
-    .transform((v) => normalizeBuilding(v))
-    .pipe(z.string().min(1).max(200)),
+    .transform(normalizeBuilding)
+    .refine((v) => CAMPUS_BUILDINGS.includes(v), {
+      message: 'Building is not on the campus list.',
+      params: { code: 'UNKNOWN_BUILDING' },
+    }),
   floor: text().trim().min(1).max(50),
   locationDescription: text().trim().min(1).max(500),
   openingHours: openingHoursSchema.nullable(),
@@ -169,9 +172,10 @@ const optionalFilter = <T extends z.ZodType>(schema: T) =>
 /**
  * The `GET /suppliers` query. Filters (`type`, `building`) and the search term
  * are optional; `type` is case-insensitive and `building` is canonicalized the
- * same way create is, so `com2` matches the stored `COM2`. `sort`/`order` are
- * trimmed and case-insensitive, and fall back to the stable default rather than
- * erroring on a cosmetic typo.
+ * same way create is, so `com2` matches the stored `COM2`. An off-list building
+ * is not refused: it matches nothing, or a row stored before the list existed.
+ * `sort`/`order` are trimmed and case-insensitive, and fall back to the stable
+ * default rather than erroring on a cosmetic typo.
  */
 export const supplierListQuerySchema = z.object({
   page: count(1, (v) => Math.max(1, v)),
@@ -194,6 +198,11 @@ export const supplierListQuerySchema = z.object({
 });
 
 export type SupplierListQuery = z.output<typeof supplierListQuerySchema>;
+
+/** The `GET /buildings` query. Like the listing, a malformed `inUse` falls back rather than erroring. */
+export const buildingsQuerySchema = z.object({
+  inUse: z.stringbool().catch(false),
+});
 
 /** Options for {@link parseOrThrow}. */
 export interface ParseOptions {
@@ -229,10 +238,11 @@ export function parseOrThrow<S extends z.ZodType>(
         message: 'This field is not accepted.',
       }));
     }
+    const customCode = issue.code === 'custom' ? issue.params?.code : undefined;
     return [
       {
         field: issue.path.join('.') || fieldName,
-        code: issue.code.toUpperCase(),
+        code: typeof customCode === 'string' ? customCode : issue.code.toUpperCase(),
         message: issue.message,
       },
     ];
