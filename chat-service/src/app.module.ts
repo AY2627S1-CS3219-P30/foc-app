@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { authStatusEvents, AuthModule } from '@foc/auth-client';
-import { EventsModule, LOGGER, PgDb, PlatformModule, type PgDbOptions } from '@foc/platform';
+import { EventsModule, PlatformModule } from '@foc/platform';
+import { ChatModule } from './chat/chat.module.js';
 import { authConfig, env, SERVICE_NAME, SERVICE_VERSION } from './config.js';
-import { RAW_DB } from './db/db.js';
 
 /**
  * Callers are verified through the User Service (ADR 0004). A cached answer is at most 5 s old,
@@ -34,15 +34,9 @@ const eventModules = env.RABBITMQ_URL
       logLevel: env.LOG_LEVEL,
     }),
     AuthModule.forRoot(authConfig),
+    ChatModule.forRoot(),
     ...eventModules,
   ],
-  providers: [
-    {
-      provide: RAW_DB,
-      useFactory: (logger: PgDbOptions['logger']) => new PgDb(env.DATABASE_URL, { logger }),
-      inject: [LOGGER],
-    },
-    ...(env.RABBITMQ_URL ? status.providers : []),
-  ],
+  providers: env.RABBITMQ_URL ? status.providers : [],
 })
 export class AppModule {}

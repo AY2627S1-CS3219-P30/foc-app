@@ -11,6 +11,8 @@ import { loadEnv } from '@foc/platform';
  */
 export const env = loadEnv({
   DATABASE_URL: z.string().min(1),
+  /** The Order Service's internal port, for the lookup every request asks (ADR 0012). */
+  ORDER_SERVICE_URL: z.url(),
   ...authEnvSchema,
 });
 
