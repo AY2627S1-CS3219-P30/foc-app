@@ -167,6 +167,17 @@ describe('production mode (PLT-10, #285)', () => {
     expect(env.SMTP_REQUIRE_TLS).toBe('false');
     expect(env.ACTIVATION_URL).toBeDefined();
   });
+
+  it('has the smoke test prove the cookie is Secure on a production stack', () => {
+    const smoke = read('scripts-smoke.sh');
+    expect(smoke).toContain('if [[ "${NODE_ENV:-}" == production ]]; then');
+    expect(smoke).toContain('[[ "$cookie" == *"; Secure"* ]]');
+  });
+
+  it('runs a service from source in development, whatever .env says', () => {
+    // An exported production stays in the shell, and npm then skips the dev dependencies.
+    expect(read('README.md')).toContain('set -a; . ./.env; NODE_ENV=development; set +a');
+  });
 });
 
 describe('one broker account per service (PLT-06)', () => {

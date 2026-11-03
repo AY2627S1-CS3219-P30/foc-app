@@ -20,6 +20,7 @@ export ORDER_SERVICE_PORT="$((base+3))" CREDIT_SERVICE_PORT="$((base+4))" GRAFAN
 export POSTGRES_PORT="$((base+6))" RABBITMQ_PORT="$((base+7))" RABBITMQ_MANAGEMENT_PORT="$((base+8))" PROMETHEUS_PORT="$((base+9))"
 export MAILPIT_PORT="$((base+10))"
 export CORS_ORIGINS="http://localhost:$WEB_APP_PORT"
+# A disposable fixture, not a deployment: scripts-seed-demo.py refuses to seed anything else.
 export NODE_ENV=development
 domain=$(python3 -c 'import os; print(os.environ["ALLOWED_EMAIL_DOMAINS"].split(",")[0].strip().lower())')
 export ADMIN_SEED_EMAILS="d4.admin.a@$domain,d4.admin.b@$domain"
