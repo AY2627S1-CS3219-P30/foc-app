@@ -127,6 +127,13 @@
       "when": 1793068335594,
       "tag": "0017_event_retention_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793204885249,
+      "tag": "0018_open_errands_keyset",
+      "breakpoints": true
     }
   ]
 }

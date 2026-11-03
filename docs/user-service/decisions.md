@@ -186,7 +186,9 @@ Cookie: `foc_refresh; HttpOnly; SameSite=Strict; Path=/auth` (`Secure` in produc
 - **Costs to carry:**
   1. Web and API must be the same *site* (`localhost:3000` and `:3001` are; ports don't count).
   2. A page reload loses the in-memory token, so **every cold load calls `/auth/refresh`**.
-  3. `Secure` is off outside production because Safari drops `Secure` cookies over plain http.
+  3. `Secure` is on in production, which is how Compose runs (#285), over plain http. Chrome sends
+     it to `http://localhost`; Safari may drop it, signing the user out on reload. It stays off
+     outside production.
 
 ### A4. CSRF: `SameSite=Strict` + `Origin` allowlist + JSON content type — ✅ (after a fix)
 Applied to **login, refresh and logout** — every endpoint that sets or reads the cookie.
