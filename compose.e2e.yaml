@@ -11,6 +11,7 @@ services:
   order-service: *release-clock
   supplier-service: *release-clock
   credit-service: *release-clock
+  chat-service: *release-clock
   user-service:
     <<: *release-clock
     environment:

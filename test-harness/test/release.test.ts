@@ -41,7 +41,7 @@ interface Workflow {
 const workflow = (path: string) =>
   yaml.load(readFileSync(join(ROOT, path), 'utf8')) as unknown as Workflow;
 
-/** The five images CI publishes: what the script must tag, read from the job that pushes them. */
+/** The six images CI publishes: what the script must tag, read from the job that pushes them. */
 const APPLICATIONS = workflow('.github/workflows/ci.yml').jobs.publish!.env!.APPLICATIONS!.split(
   ' ',
 );

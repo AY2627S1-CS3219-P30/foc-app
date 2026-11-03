@@ -1,6 +1,6 @@
 # Cutting a release (REL-03, #169)
 
-A release is a name on images that already exist. Pushing a tag gives the five images CI built and
+A release is a name on images that already exist. Pushing a tag gives the six images CI built and
 scanned for that commit the same name, and records the commit and their digests in a GitHub Release.
 Nothing is rebuilt, so what the team rehearses is exactly what CI scanned.
 
@@ -22,7 +22,7 @@ git push origin rc1-d4
 ```
 
 The push runs the **Release** workflow (`.github/workflows/release.yml`), which runs
-`./scripts-release.sh`. Its Release, at `releases/tag/rc1-d4`, gives the commit, the five digests,
+`./scripts-release.sh`. Its Release, at `releases/tag/rc1-d4`, gives the commit, the six digests,
 and the commands to start those images and to roll back to them. That page is the record #169 asks
 for: the exact commit and image tags.
 
@@ -31,7 +31,7 @@ was merged runs nothing.
 
 ## If it refuses
 
-The workflow's log says which of these it is. All are safe: it reads all five images before tagging
+The workflow's log says which of these it is. All are safe: it reads all six images before tagging
 any, and creates a Release last.
 
 | It says                                     | What happened                                                 | What to do                                                                                                                                                              |
