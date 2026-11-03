@@ -77,6 +77,24 @@ describe('order-service honours its published contract', () => {
     contract.assert('get', '/orders/mine', await http(app).get('/orders/mine'));
   });
 
+  it('paging and filters on GET /orders and GET /orders/mine (200, 400, 422)', async () => {
+    for (const path of ['/orders', '/orders/mine']) {
+      const read = (query: Record<string, string | number>) =>
+        http(app).get(path).query(query).set('Authorization', asRequester);
+      contract.assert('get', path, await read({ limit: 1 }));
+      contract.assert('get', path, await read({ cursor: 'not-a-cursor' }));
+      contract.assert('get', path, await read({ limit: 0 }));
+    }
+    contract.assert(
+      'get',
+      '/orders',
+      await http(app)
+        .get('/orders')
+        .query({ pickupBuilding: 'com2', minReward: 2 })
+        .set('Authorization', asStranger),
+    );
+  });
+
   it('POST /orders (201, 200 replay, 400, 422)', async () => {
     const key = randomUUID();
     const create = () =>

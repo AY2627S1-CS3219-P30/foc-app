@@ -22,7 +22,7 @@ export function useOrderAction({
   onStale,
 }: {
   onDone: (order: Order) => void;
-  onStale: (message: string) => void;
+  onStale: (message: string, orderId: string) => void;
 }) {
   const { authed, user } = useAuth();
   const [pending, setPending] = useState<Pending | null>(null);
@@ -57,7 +57,7 @@ export function useOrderAction({
             : null;
         setPending(null);
         if (latest && tookEffect(action.command, latest, user?.id)) onDone(latest);
-        else onStale(stale);
+        else onStale(stale, target.orderId);
       } else {
         if (err instanceof ApiError && err.status === 0) unanswered.current = sendKey(pending);
         setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
