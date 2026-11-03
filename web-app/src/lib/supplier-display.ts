@@ -9,29 +9,6 @@ export const TYPE_LABELS: Record<SupplierType, string> = {
   LANDMARK: 'Landmark',
 };
 
-// Canonical buildings in the two checked-in supplier seed files.
-export const BUILDINGS = [
-  'Block AS8',
-  'Central Library',
-  'COM2',
-  'COM3',
-  'Engineering Block E3',
-  'Engineering Block E4',
-  'Engineering Block EA',
-  'Frontier',
-  'Hon Sui Sen Memorial Library',
-  'Innovation 4.0',
-  'Kent Ridge MRT',
-  'Medicine+Science Library',
-  "Prince George's Park",
-  'Techno Edge',
-  'Terrace',
-  'The Deck',
-  'The Ridge',
-  'University Town',
-  'Yusof Ishak House',
-] as const;
-
 export const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'] as const;
 
 export function hoursLabel(hours: Supplier['openingHours']): string {
