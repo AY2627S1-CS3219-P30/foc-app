@@ -269,7 +269,7 @@ for (const screen of screens(data.activeId)) {
     screen: screen.name,
     path: screen.path.replace(data.activeId, ":id"),
     runs,
-    medianLcp: median(values("lcp")),
+    medianLcp: values("lcp").length === runs.length ? median(values("lcp")) : null,
     medianInp: values("inp").length === runs.length ? median(values("inp")) : null,
     medianTbt: median(values("tbt")),
     medianCls: median(values("cls")),
@@ -278,7 +278,7 @@ for (const screen of screens(data.activeId)) {
   writeFileSync(join(OUT, "summary.json"), JSON.stringify({ base: BASE, runs: RUNS, summary }, null, 2));
   const fmt = (xs: (number | undefined)[]) => xs.map((x) => (x === undefined ? "n/a" : Math.round(x))).join(" / ");
   process.stdout.write(
-    `${row.screen} (${row.path}): LCP ${fmt(runs.map((r) => r.lcp))} ms, median ${Math.round(row.medianLcp)}; ` +
+    `${row.screen} (${row.path}): LCP ${fmt(runs.map((r) => r.lcp))} ms, median ${row.medianLcp === null ? "n/a" : Math.round(row.medianLcp)}; ` +
       `INP ${fmt(runs.map((r) => r.inp))} ms, median ${row.medianInp ?? "n/a"}; ` +
       `TBT median ${Math.round(row.medianTbt)} ms; CLS median ${row.medianCls.toFixed(3)}\n`,
   );

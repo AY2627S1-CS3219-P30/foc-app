@@ -56,6 +56,8 @@ test.describe("accessibility of every core screen @release", () => {
     try {
       await page.goto("/feed");
       await expect(page.getByRole("button", { name: "New request" }).filter({ visible: true })).toBeVisible();
+      // The button renders before the list: wait for the list too, so axe scans content, not a skeleton.
+      await expect(page.getByText(/^Loading/).filter({ visible: true })).toHaveCount(0);
       await scan(page, testInfo, "feed (requester)", findings);
 
       const supplier = await firstSupplier(page.request, token);
@@ -107,6 +109,7 @@ test.describe("accessibility of every core screen @release", () => {
       await scan(page, testInfo, "history", findings);
       await page.goto("/suppliers");
       await expect(page.getByRole("searchbox", { name: "Search suppliers" })).toBeVisible();
+      await expect(page.getByText(/^Loading/).filter({ visible: true })).toHaveCount(0);
       await scan(page, testInfo, "suppliers", findings);
       await page.goto("/profile");
       await expect(page.getByRole("heading", { name: "Your details" })).toBeVisible();
