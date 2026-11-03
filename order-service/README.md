@@ -254,8 +254,8 @@ no transfer-failure event, so an unconfirmed transfer simply stays pending. A co
 under a new event ID with the same transaction is a no-op; a different transaction is refused.
 
 The confirming transaction records `completed_at` and the Credit transaction ID, and writes the
-`order_receipts` row: order, requester, courier, supplier snapshot, reward, every state timestamp and
-the Credit transaction reference (OS-FR5.1.2). `GET /orders/:id/receipt` returns it to the
+`order_receipts` row: order, requester, courier, supplier snapshot, the items as posted (ORD-16),
+reward, every state timestamp and the Credit transaction reference (OS-FR5.1.2). `GET /orders/:id/receipt` returns it to the
 participants and the referred administrator. Database triggers make `order_receipts` and
 `order_status_history` append-only.
 

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EVENTS, UnparseableMessageError } from '@foc/platform';
 import { ORDER_ACTIONS } from '../src/orders/order-state-machine.js';
+import { OrdersRepository } from '../src/orders/orders.repository.js';
 import {
   asAdmin,
   asBystander,
@@ -12,6 +13,8 @@ import {
   http,
   type TestApp,
 } from './helpers/app.js';
+import { applyMigrations, applyMigrationsBefore } from './helpers/migrate.js';
+import { PgliteDb } from './helpers/pglite-db.js';
 import {
   COURIER,
   REQUESTER,
@@ -21,6 +24,7 @@ import {
   advance,
   deliver,
   footprint,
+  reservationReply,
   terminalSubscriptions,
   transferred,
 } from './support/lifecycle.js';
@@ -33,7 +37,10 @@ const post = (t: TestApp, path: string, auth: string, expectedVersion: number) =
 
 describe('fulfilment, completion saga and receipt (ORD-04)', () => {
   let t: TestApp | undefined;
-  afterEach(async () => t?.close());
+  afterEach(async () => {
+    await t?.close();
+    t = undefined;
+  });
 
   it('moves courier pickup and delivery, then requester confirmation, into COMPLETION_PENDING_CREDIT', async () => {
     t = await createTestApp();
@@ -222,6 +229,66 @@ describe('fulfilment, completion saga and receipt (ORD-04)', () => {
     await expect(
       t.db.query(`DELETE FROM order_status_history WHERE order_id = $1`, [SEEDED_ORDER]),
     ).rejects.toThrow(/append-only/);
+  });
+
+  it('lists the errand’s items on its receipt as they were posted (ORD-16)', async () => {
+    t = await createTestApp();
+    const items = [
+      { name: 'Kopi O', quantity: 2, note: 'Less sugar' },
+      { name: 'Kaya toast', quantity: 1 },
+    ];
+    const created = await http(t)
+      .post('/orders')
+      .set('Authorization', asRequester)
+      .set('Idempotency-Key', randomUUID())
+      .send({
+        supplierId: '00000000-0000-4000-8000-000000000125',
+        items,
+        deliveryZone: 'COM2 Lobby',
+        deliveryInstructions: 'Meet beside the security desk',
+        reward: SEEDED_REWARD,
+      })
+      .expect(201);
+    const orderId = created.body.orderId as string;
+    await reservationReply(t, orderId);
+    await advance(t, 'COMPLETION_PENDING_CREDIT', orderId);
+    await deliver(t, TRANSFER_RESULTS_QUEUE, transferred({ orderId }));
+
+    const receipt = await http(t)
+      .get(`/orders/${orderId}/receipt`)
+      .set('Authorization', asRequester)
+      .expect(200);
+    expect(receipt.body.items).toEqual(items);
+  });
+
+  it('gives a receipt written before receipts listed items the errand’s items (ORD-16)', async () => {
+    const db = await PgliteDb.create();
+    await applyMigrationsBefore(db, '0019_receipt_items');
+    // Complete the seeded errand and write its receipt the way the code before ORD-16 did.
+    await db.query(
+      `UPDATE orders
+          SET status = 'COMPLETED', version = 6, courier_id = $2,
+              items = '[{"name":"Kopi O","quantity":2,"note":"Less sugar"}]'::jsonb,
+              accepted_at = now(), picked_up_at = now(), delivered_at = now(),
+              completion_requested_at = now(), completed_at = now(), credit_transaction_id = $3
+        WHERE order_id = $1`,
+      [SEEDED_ORDER, COURIER, randomUUID()],
+    );
+    await db.query(
+      `INSERT INTO order_receipts
+         (order_id, requester_id, courier_id, supplier_snapshot, reward, credit_transaction_id,
+          created_at, accepted_at, picked_up_at, delivered_at, completion_requested_at, completed_at)
+       SELECT order_id, requester_id, courier_id, supplier_snapshot, reward, credit_transaction_id,
+              created_at, accepted_at, picked_up_at, delivered_at, completion_requested_at,
+              completed_at
+         FROM orders WHERE order_id = $1`,
+      [SEEDED_ORDER],
+    );
+
+    await applyMigrations(db);
+
+    const receipt = await new OrdersRepository(db).findReceipt(SEEDED_ORDER);
+    expect(receipt?.items).toEqual([{ name: 'Kopi O', quantity: 2, note: 'Less sugar' }]);
   });
 
   it('refuses a transfer for an order that is not waiting for one', async () => {

@@ -134,6 +134,13 @@
       "when": 1793204885249,
       "tag": "0018_open_errands_keyset",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793720609321,
+      "tag": "0019_receipt_items",
+      "breakpoints": true
     }
   ]
 }

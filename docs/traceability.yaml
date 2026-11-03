@@ -357,8 +357,11 @@ requirements:
     areas: [transfers]
     tests:
       - "order-service/test/order-fulfilment.test.ts::completes only on a matching transfer, once, and writes the immutable receipt"
+      - "order-service/test/order-fulfilment.test.ts::lists the errand’s items on its receipt as they were posted (ORD-16)"
+      - "order-service/test/order-fulfilment.test.ts::gives a receipt written before receipts listed items the errand’s items (ORD-16)"
+      - "web-app/test/wallet.test.tsx::lists the items delivered, with their quantities and notes (ORD-16)"
       - "web-app/e2e/errand-journey.e2e.ts::errand journey: a lost acceptance race, fulfilment, and the requester confirming"
-    gap: "The receipt has no items field (OrderReceipt in order-service/src/orders/types.ts holds none, and nor does the order_receipts table), so items cannot be on it; and no test checks the receipt's supplier snapshot beyond supplierId."
+    gap: "No test checks the receipt's supplier snapshot beyond supplierId."
   - id: OS-FR6.1.1
     text: "The requester may cancel an open or accepted errand before pickup, and an assigned courier may withdraw from an accepted errand before pickup; withdrawal reopens the errand if its deadline has not passed and otherwise expires it, while cancellation releases the reserved credits."
     areas: [transitions, returns, roles]

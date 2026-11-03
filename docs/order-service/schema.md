@@ -113,8 +113,8 @@ writers can never both record version *n*. A trigger refuses every `UPDATE` and 
 ### `order_receipts` (append-only)
 
 The completion record, written in the same transaction as the Credit Service's transfer confirmation:
-requester, courier, supplier snapshot, reward, the unique `credit_transaction_id`, and the time of each
-step. `delivered_at` is null when an administrator completed the errand before any delivery was
+requester, courier, supplier snapshot, the `items` as the errand was posted with, reward, the unique
+`credit_transaction_id`, and the time of each step. `delivered_at` is null when an administrator completed the errand before any delivery was
 recorded. A trigger refuses every `UPDATE` and `DELETE`, so what a completed errand says cannot change.
 
 ### `order_idempotency_keys`
