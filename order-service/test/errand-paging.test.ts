@@ -9,6 +9,7 @@ import {
 } from './helpers/app.js';
 import { REQUESTER, SEEDED_ORDER } from './support/lifecycle.js';
 
+const YEAR_ZERO = '0000-01-01T00:00:00.000000Z';
 const BYSTANDER = 'bystander-student';
 const STRANGER = 'unrelated-student';
 
@@ -164,6 +165,15 @@ describe('paging open errands', () => {
     expect((await openPage(t, asStranger, { pickupBuilding: 'Nowhere' })).ids).toEqual([]);
   });
 
+  it('finds nothing above the largest reward, up to what the query can hold', async () => {
+    t = await createTestApp();
+    await seed(t, 1, BYSTANDER);
+    expect((await openPage(t, asStranger, { minReward: 1 })).ids).not.toEqual([]);
+    for (const minReward of [6, 2147483647]) {
+      expect((await openPage(t, asStranger, { minReward })).ids).toEqual([]);
+    }
+  });
+
   it('refuses a malformed cursor with 400, and a bad limit or reward with 422', async () => {
     t = await createTestApp();
     const mine = encode({ updatedAt: '2026-10-29T00:00:00.000000Z', orderId: SEEDED_ORDER });
@@ -172,6 +182,8 @@ describe('paging open errands', () => {
       'not-a-cursor',
       'x'.repeat(501),
       encode({ deadline: 'soon' }),
+      // Valid to a date parser, but Postgres has no year 0000.
+      encode({ deadline: YEAR_ZERO, createdAt: YEAR_ZERO, orderId: SEEDED_ORDER }),
       mine,
     ]) {
       const { body } = await http(t)
@@ -182,7 +194,12 @@ describe('paging open errands', () => {
       expect(body.error).toMatchObject({ code: 'INVALID_CURSOR', message: expect.any(String) });
       expect(body.error.correlationId).toEqual(expect.any(String));
     }
-    for (const query of [{ limit: 0 }, { limit: 101 }, { minReward: 'many' }]) {
+    for (const query of [
+      { limit: 0 },
+      { limit: 101 },
+      { minReward: 'many' },
+      { minReward: 2147483648 }, // Past what the query's integer can hold.
+    ]) {
       const { body } = await http(t)
         .get('/orders')
         .query(query)
@@ -259,7 +276,7 @@ describe('paging my errands', () => {
       createdAt: '2026-10-29T00:00:00.000000Z',
       orderId: SEEDED_ORDER,
     });
-    for (const cursor of ['%%%', open]) {
+    for (const cursor of ['%%%', open, encode({ updatedAt: YEAR_ZERO, orderId: SEEDED_ORDER })]) {
       const { body } = await http(t)
         .get('/orders/mine')
         .query({ cursor })

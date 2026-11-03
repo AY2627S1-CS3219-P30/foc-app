@@ -84,7 +84,8 @@ export function parseOrderId(id: string): string {
   return parsed.data;
 }
 
-const exactTime = z.iso.datetime();
+/** The format allows year 0000, which Postgres does not have: a cursor naming it is just invalid. */
+const exactTime = z.iso.datetime().refine((time) => !time.startsWith('0000-'));
 
 /** Where a page of open errands ended, in their order: deadline, then posting time, then ID. */
 const openCursorSchema = z
@@ -136,10 +137,13 @@ export function parseMyOrdersQuery(value: unknown): MyOrdersQuery {
   };
 }
 
+/** The most the query's `int` can hold. Above any errand's reward, a filter just finds nothing. */
+const MAX_QUERY_INT = 2147483647;
+
 /** Not strict: `GET /orders` has always ignored parameters it does not know. */
 const openOrdersQuerySchema = z.object({
   pickupBuilding: z.string().trim().min(1).max(200).optional(),
-  minReward: z.coerce.number().int().min(1).optional(),
+  minReward: z.coerce.number().int().min(1).max(MAX_QUERY_INT).optional(),
   ...page,
 });
 
