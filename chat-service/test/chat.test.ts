@@ -260,6 +260,17 @@ describe('the Order and User Services', () => {
     expect((await page(orderId).expect(200)).body.items).toEqual([]);
   });
 
+  it('fails closed with 503 when the Order Service answers an end time that is not a date-time', async () => {
+    const orderId = t.upstreams.errand();
+    await channel(orderId).expect(200);
+    t.upstreams.update(orderId, { status: 'COMPLETED', endedAt: 'last Tuesday' });
+    for (const res of [await channel(orderId), await page(orderId, '', 'admin')]) {
+      expect([res.status, res.body.error.code]).toEqual([503, 'UNAVAILABLE']);
+    }
+    t.upstreams.update(orderId, { endedAt: '2026-11-01T09:30:00+08:00' });
+    await channel(orderId).expect(200);
+  });
+
   it('names a participant the User Service no longer has, rather than failing the channel', async () => {
     const orderId = t.upstreams.errand({ requesterId: 'user-ghost' });
     const res = await channel(orderId, 'courier').expect(200);
