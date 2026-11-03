@@ -54,7 +54,10 @@ whether it has ended, and decides from that alone. Chat keeps no copy of the err
 - **Administrators** read any channel and its messages, to review a dispute. They see
   `myRole: ADMIN` and `lastReadSeq: 0`, since they have no read position. Sending and marking read
   are `403 NOT_PARTICIPANT`. A user who is both an administrator and a participant is treated as
-  the participant, and those reads are not recorded.
+  the participant, and those reads are not recorded. Reads are recorded one row per admin,
+  errand, resource and hour, with a count, the first read's correlation ID and the last read's
+  time. The admin view (#161) should still fetch once and refresh on request, not poll every 2
+  seconds as the participant panel does: a disputed errand stays open until it is decided.
 - **A channel opens** on the first participant request while the errand has a courier and has not
   reached a final status. An administrator's read never opens one. Before that, for an errand that
   ended without one, or for an unknown errand, every route answers `404`.
@@ -105,12 +108,12 @@ accepted: the message keeps its server time, and chat cannot change the errand e
 
 ### Data model
 
-| Table                 | Holds                                                                                                                                      |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `channels`            | One row per errand that opened a channel, and `latest_seq`, its newest message's number                                                    |
-| `messages`            | `seq` 1, 2, 3… per channel, the sender, the browser's `client_id` (unique per sender) and the body                                         |
-| `read_positions`      | How far each participant has read                                                                                                          |
-| `admin_channel_reads` | Every administrator read: who, which errand, `CHANNEL` or `MESSAGES`, the correlation ID, when. No foreign key, so it outlives the channel |
+| Table                 | Holds                                                                                                                                                                                                            |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `channels`            | One row per errand that opened a channel, and `latest_seq`, its newest message's number                                                                                                                          |
+| `messages`            | `seq` 1, 2, 3… per channel, the sender, the browser's `client_id` (unique per sender) and the body                                                                                                               |
+| `read_positions`      | How far each participant has read                                                                                                                                                                                |
+| `admin_channel_reads` | Administrator reads, one row per who, which errand, `CHANNEL` or `MESSAGES`, and UTC hour: the count, the first read's correlation ID and time, the last read's time. No foreign key, so it outlives the channel |
 
 A send takes the channel's row lock, so concurrent sends get consecutive numbers and a retry
 racing its original is stored once (`test/chat.postgres.test.ts`).

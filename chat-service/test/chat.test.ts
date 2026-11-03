@@ -331,6 +331,42 @@ describe('administrators read, and only read', () => {
     expect(rows[0]!.correlation_id).toBe('dispute-review-1');
   });
 
+  it('records one row per admin, errand, resource and hour, counting the reads in it', async () => {
+    const orderId = t.upstreams.errand();
+    await channel(orderId).expect(200);
+    const records = async () =>
+      (
+        await t.db.query<{ resource: string; read_count: number; correlation_id: string }>(
+          `SELECT resource, read_count, correlation_id FROM admin_channel_reads
+            WHERE order_id = $1 ORDER BY resource, read_at`,
+          [orderId],
+        )
+      ).rows;
+    const poll = (correlationId: string) =>
+      page(orderId, '', 'admin').set('X-Correlation-Id', correlationId).expect(200);
+
+    await poll('poll-1');
+    await poll('poll-2');
+    await channel(orderId, 'admin').set('X-Correlation-Id', 'open-1').expect(200);
+    expect(await records()).toEqual([
+      { resource: 'CHANNEL', read_count: 1, correlation_id: 'open-1' },
+      { resource: 'MESSAGES', read_count: 2, correlation_id: 'poll-1' },
+    ]);
+
+    // As if those reads were an hour ago: the next one starts a row of its own.
+    await t.db.query(
+      `UPDATE admin_channel_reads SET read_hour = read_hour - interval '1 hour',
+              read_at = read_at - interval '1 hour' WHERE order_id = $1`,
+      [orderId],
+    );
+    await poll('poll-3');
+    expect(await records()).toEqual([
+      { resource: 'CHANNEL', read_count: 1, correlation_id: 'open-1' },
+      { resource: 'MESSAGES', read_count: 2, correlation_id: 'poll-1' },
+      { resource: 'MESSAGES', read_count: 1, correlation_id: 'poll-3' },
+    ]);
+  });
+
   it('cannot send or mark read, and neither is recorded as a read', async () => {
     const orderId = t.upstreams.errand();
     await channel(orderId).expect(200);
