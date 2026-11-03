@@ -36,5 +36,6 @@ all five members' recorded approval covers that record and its amendments. ADRs 
 Accepted. ADRs 0010, 0011 and 0012 remain Proposed until every row covers them.
 
 Jonus's expanded approval and requested date are recorded in his
-[PR #337 review](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/337#pullrequestreview-5686104565).
-Patrick records his own approval in #337.
+[PR #337 review](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/337#pullrequestreview-5686104565),
+and his approval of 0010–0012 in #360. Patrick records his own approval in #337, and Zhang Yuan in
+#366.
