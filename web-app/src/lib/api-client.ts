@@ -40,6 +40,7 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
     readonly details: FieldError[] = [],
+    readonly headers: Headers = new Headers(),
   ) {
     super(message);
     this.name = "ApiError";
@@ -52,7 +53,7 @@ export class ApiError extends Error {
 }
 
 /** Turns a non-2xx response body into an {@link ApiError}, tolerating a body that is not the envelope. */
-export function toApiError(status: number, body: unknown): ApiError {
+export function toApiError(status: number, body: unknown, headers?: Headers): ApiError {
   const error = (body as { error?: Record<string, unknown> } | null)?.error;
   const code = typeof error?.code === "string" ? error.code : status >= 500 ? "INTERNAL" : "ERROR";
   const message =
@@ -65,7 +66,7 @@ export function toApiError(status: number, body: unknown): ApiError {
           typeof (d as FieldError).message === "string",
       )
     : [];
-  return new ApiError(status, code, message, details);
+  return new ApiError(status, code, message, details, headers);
 }
 
 const timedOut = () =>
@@ -156,7 +157,7 @@ export async function unwrap<T>(
   const { data, error, response } = await call.catch((err: unknown) => {
     throw err instanceof SyntaxError ? unreachable() : err;
   });
-  if (!response.ok) throw toApiError(response.status, error ?? null);
+  if (!response.ok) throw toApiError(response.status, error ?? null, response.headers);
   if (data === undefined && response.status !== 204) throw unreachable();
   return data as T;
 }
