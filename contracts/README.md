@@ -9,15 +9,20 @@ owner, one consumer owner, and Dev 3 or Dev 4 review; within v1, changes are add
 
 ## Files
 
-| File                            | Status                   | Owner      |
-| ------------------------------- | ------------------------ | ---------- |
-| `user-service.openapi.yaml`     | Implemented              | Anselm     |
-| `supplier-service.openapi.yaml` | Implemented              | Patrick    |
-| `credit-service.openapi.yaml`   | Implemented              | Isaac      |
-| `order-service.openapi.yaml`    | Implemented              | Zhang Yuan |
-| `events.schema.json`            | Generated from catalogue | —          |
+| File                            | Status                                        | Owner              |
+| ------------------------------- | --------------------------------------------- | ------------------ |
+| `user-service.openapi.yaml`     | Implemented                                   | Anselm             |
+| `supplier-service.openapi.yaml` | Implemented                                   | Patrick            |
+| `credit-service.openapi.yaml`   | Implemented                                   | Isaac              |
+| `order-service.openapi.yaml`    | Implemented except planned chat lookup (#162) | Zhang Yuan         |
+| `chat-service.openapi.yaml`     | Agreed (#344), not built                      | Zhang Yuan, Anselm |
+| `events.schema.json`            | Generated from catalogue                      | —                  |
 
-Implemented means the service answers as its file says: each has a provider test
+The Order chat lookup `GET /internal/orders/{orderId}/chat` is a planned contract for #162,
+not a route the current service answers. Its operation description marks that exception explicitly;
+it needs implementation and a provider contract test before the Chat Service can use it.
+
+For the implemented operations, the service answers as its file says: each has a provider test
 (`<service>/test/provider.contract.test.ts`), and CI fails a change that breaks a contract against
 the branch's merge base (locally: `npm run test:contract`, against `origin/main`).
 

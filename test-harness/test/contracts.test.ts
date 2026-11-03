@@ -14,6 +14,7 @@ const CONTRACTS: ContractName[] = [
   'supplier-service',
   'order-service',
   'credit-service',
+  'chat-service',
 ];
 const METHODS = ['get', 'put', 'post', 'delete', 'patch'];
 
