@@ -26,6 +26,8 @@ describe('the load test (TST-03)', () => {
     expect(targets('user')).toEqual({ login: 500, profile: 300 }); // US-NFR3.1.1
     expect(targets('supplier')).toEqual({ list: 400, search: 400, lookup: 200 }); // SS-NFR2.1.1
     expect(targets('credit')).toEqual({ wallet: 300 }); // CS-NFR3.1.1
+    // OS-NFR2.1.1 creating, the open list, an errand's details; OS-NFR2.1.2 a state change.
+    expect(targets('order')).toEqual({ create: 700, open: 500, details: 500, command: 700 });
   });
 
   it('runs D1’s 100 concurrent users, at D1’s data volumes', () => {
@@ -33,7 +35,7 @@ describe('the load test (TST-03)', () => {
     expect(lib).toContain('Number(__ENV.VUS || 100)');
     const script = read('scripts-load.sh');
     expect(script).toMatch(
-      /^ {2}STUDENTS=100 VUS=100 DURATION_S=60 SUPPLIERS=1000 WALLETS=10000$/m,
+      /^ {2}STUDENTS=100 VUS=100 DURATION_S=60 SUPPLIERS=1000 WALLETS=10000 ERRANDS=10000$/m,
     );
   });
 
@@ -150,11 +152,13 @@ describe('the load report', () => {
     user: { login: 500, profile: 300 },
     supplier: { list: 400, search: 400, lookup: 200 },
     credit: { wallet: 300 },
+    order: { create: 700, open: 500, details: 500, command: 700 },
   };
   const MET = {
     STUDENTS: '100',
     SUPPLIERS: '1000',
     WALLETS: '10000',
+    ERRANDS: '10000',
     USER_READY: '1.8',
     SESSION: '200',
     CREDIT_READY: '1.6',
@@ -197,7 +201,14 @@ describe('the load report', () => {
         failedRate: 0,
         ok: !missed.includes(endpoint),
       }));
-      const summary = { name, vus: 100, seconds: 60, thinkS: 1, endpoints };
+      const summary = {
+        name,
+        vus: 100,
+        seconds: 60,
+        thinkS: 1,
+        endpoints,
+        ...(name === 'order' && { creditPending: { answers: 100, pending: 100 } }),
+      };
       writeFileSync(join(out, `${name}.json`), JSON.stringify(summary));
     }
     writeFileSync(join(out, 'live.json'), JSON.stringify({ ...LIVE, ...live }));
@@ -231,6 +242,45 @@ describe('the load report', () => {
     const { status, text } = write(measured(['login']));
     expect(status).toBe(3);
     expect(text).toMatch(/`login` .* \*\*Missed\*\* \|/);
+  });
+
+  it('reports the Order Service’s targets, measured on 10,000 open errands (OS-NFR2)', () => {
+    const { status, text } = write(measured());
+    expect(status).toBe(0);
+    expect(text).toContain('10,000 open errands');
+    expect(text).toMatch(/\| OS-NFR2\.1\.1 \| `create` \| ≤ 700 ms \| .* \| Met \|/);
+    expect(text).toMatch(/\| OS-NFR2\.1\.1 \| `open` \| ≤ 500 ms \| .* \| Met \|/);
+    expect(text).toMatch(/\| OS-NFR2\.1\.1 \| `details` \| ≤ 500 ms \| .* \| Met \|/);
+    expect(text).toMatch(/\| OS-NFR2\.1\.2 \| `command` \| ≤ 700 ms \| .* \| Met \|/);
+  });
+
+  it('says every command answered before its credit result, which OS-NFR2.1.2 asks', () => {
+    const { status, text } = write(measured());
+    expect(status).toBe(0);
+    expect(text).toMatch(/\| OS-NFR2\.1\.2 \| .*credit.* \| 100 of 100 .* \| Met \|/);
+  });
+
+  it('exits 3 when a command waited for its credit result, or none was timed', () => {
+    for (const creditPending of [
+      { answers: 100, pending: 99 },
+      { answers: 0, pending: 0 },
+    ]) {
+      const run = measured();
+      const order = join(run.out, 'order.json');
+      writeFileSync(
+        order,
+        JSON.stringify({ ...JSON.parse(readFileSync(order, 'utf8')), creditPending }),
+      );
+      const { status, text } = write(run);
+      expect(status, JSON.stringify(creditPending)).toBe(3);
+      expect(text).toMatch(/\| OS-NFR2\.1\.2 \| .*credit.* \| \*\*Missed\*\* \|/);
+    }
+  });
+
+  it('exits 3 when an Order Service target is missed', () => {
+    const { status, text } = write(measured(['details']));
+    expect(status).toBe(3);
+    expect(text).toMatch(/`details` .* \*\*Missed\*\* \|/);
   });
 
   it('exits 3 when a restart takes longer than 60 s', () => {

@@ -732,8 +732,15 @@ The build context is the **repository root**, not this folder, because the image
 needs the workspace manifests and `@foc/platform`. The image runs as a non-root
 user and declares a `HEALTHCHECK`. `compose.yaml` runs it on port 3003.
 
+### Latency under load
+
+`./scripts-load.sh` (ORD-12, #181) measures OS-NFR2 alongside the other services' targets, with
+10,000 open errands and 100 concurrent users. `load/order.js` posts an errand and cancels it once
+it is open, then reads the open list and an errand's details. A cancel's answer must already say
+its credit return is pending, which shows the command did not wait for the Credit Service. The
+reports are `docs/reports/load-*.md`.
+
 ### Next tickets
 
-- ORD-12 (#181) latency targets under load.
 - ORD-08 (#131) supplier snapshot contract.
 - NTH-02 (#162) participant chat.

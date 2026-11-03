@@ -2,11 +2,12 @@
 
     python3 load/report.py OUT_DIR REPORT_PATH
 
-OUT_DIR holds k6's user.json, supplier.json and credit.json (see load/lib.js), and live.json from
-load/live.mjs, the live-update streams held while those ran (N1.4, #332). The rest comes
-from the environment: STUDENTS, SUPPLIERS, WALLETS (what the harness counted after seeding),
-USER_READY, SESSION, CREDIT_READY, WALLET, STABLE and OTHER_CONTAINERS (how many containers outside
-the load stack were running). Writes the report, then exits 3 if it says any target was missed.
+OUT_DIR holds k6's user.json, supplier.json, credit.json and order.json (see load/lib.js), and
+live.json from load/live.mjs, the live-update streams held while those ran (N1.4, #332). The rest
+comes from the environment: STUDENTS, SUPPLIERS, WALLETS, ERRANDS (what the harness counted after
+seeding), USER_READY, SESSION, CREDIT_READY, WALLET, STABLE and OTHER_CONTAINERS (how many
+containers outside the load stack were running). Writes the report, then exits 3 if it says any
+target was missed.
 """
 
 import json
@@ -17,7 +18,7 @@ import sys
 
 out, report = sys.argv[1], sys.argv[2]
 env = os.environ
-runs = {name: json.load(open(os.path.join(out, f"{name}.json"))) for name in ("user", "supplier", "credit")}
+runs = {name: json.load(open(os.path.join(out, f"{name}.json"))) for name in ("user", "supplier", "credit", "order")}
 live = json.load(open(os.path.join(out, "live.json")))
 REQUIREMENT = {
     "login": "US-NFR3.1.1",
@@ -26,6 +27,10 @@ REQUIREMENT = {
     "search": "SS-NFR2.1.1",
     "lookup": "SS-NFR2.1.1",
     "wallet": "CS-NFR3.1.1",
+    "create": "OS-NFR2.1.1",
+    "open": "OS-NFR2.1.1",
+    "details": "OS-NFR2.1.1",
+    "command": "OS-NFR2.1.2",
 }
 
 
@@ -96,7 +101,11 @@ live_rows = "\n".join(f"| {check} | {target} | {measured} | {verdict(ok)} |" for
 user_ok = restarted(env["USER_READY"], env["SESSION"])
 credit_ok = restarted(env["CREDIT_READY"], env["WALLET"])
 ordering_ok = env["STABLE"] == "yes"
-missed += (not user_ok) + (not credit_ok) + (not ordering_ok)
+# OS-NFR2.1.2: a cancel starts a credit return, so an answer that already says the return is
+# pending did not wait for the Credit Service.
+waits = runs["order"]["creditPending"]
+unblocked_ok = waits["answers"] > 0 and waits["pending"] == waits["answers"]
+missed += (not user_ok) + (not credit_ok) + (not ordering_ok) + (not unblocked_ok)
 
 cpus, memory = (run("docker", "info", "--format", "{{.NCPU}} {{.MemTotal}}").split() + ["?", "0"])[:2]
 machine = f"{platform.system()} {platform.machine()}; Docker with {cpus} CPUs and {int(memory) / 2**30:.1f} GiB"
@@ -113,7 +122,8 @@ on a stack of its own, from commit `{commit()}`.
 
 - **Load:** {first["vus"]} concurrent virtual users (k6) in each scenario, for {first["seconds"]} s, each
   pausing {first["thinkS"]} s between requests, as a person does.
-- **Data:** {count("STUDENTS")} students who sign in, {count("SUPPLIERS")} active suppliers, {count("WALLETS")} wallets.
+- **Data:** {count("STUDENTS")} students who sign in, {count("SUPPLIERS")} active suppliers, {count("WALLETS")} wallets,
+  {count("ERRANDS")} open errands (all open: the open list's worst case).
 - **Machine:** {machine}. The virtual users and the stack share it; {alone}.
 - The User Service's sign-in limits are raised on this stack only (`compose.load.yaml`).
 
@@ -123,13 +133,14 @@ on a stack of its own, from commit `{commit()}`.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 {chr(10).join(rows)}
 
-## Restarts and ordering
+## Restarts, ordering and commands
 
 | Requirement | Check | Measured | Result |
 | --- | --- | --- | --- |
 | US-NFR3.1.2 | User Service ready after a restart (≤ 60 s), a session from before still valid | {env["USER_READY"]} s; the session answers {env["SESSION"]} | {verdict(user_ok)} |
 | CS-NFR3.1.2 | Credit Service ready after a restart (≤ 60 s) | {env["CREDIT_READY"]} s; a wallet read answers {env["WALLET"]} | {verdict(credit_ok)} |
 | SS-NFR2.1.2 | The same supplier query, twice, returns the same order | {env["STABLE"]} | {verdict(ordering_ok)} |
+| OS-NFR2.1.2 | A cancel answers before its credit return, saying the return is pending | {waits["pending"]} of {waits["answers"]} answers | {verdict(unblocked_ok)} |
 
 ## Live updates (N1.4)
 
@@ -144,9 +155,8 @@ the requester's stream ([#332](https://github.com/AY2627S1-CS3219-P30/foc-app/is
 {live_rows}
 
 That transfers and returns requested before a restart complete without repair (CS-NFR3.1.2) is
-checked by `./scripts-restart-check.sh`, which CI runs. The Order Service's targets (OS-NFR2) and
-the share of credit steps recorded within five seconds (CS-NFR3.1.1) are ORD-12,
-[#181](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/181), on this harness.
+checked by `./scripts-restart-check.sh`, which CI runs. The share of credit steps recorded within
+five seconds (CS-NFR3.1.1) is not measured here.
 """
 with open(report, "w") as file:
     file.write(text)
