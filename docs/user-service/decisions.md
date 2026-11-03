@@ -300,7 +300,9 @@ published port, and production refused to boot because no other adapter existed.
     The display name chosen by whoever registered the address survives the reset until the student
     edits their profile. **Not closed by reset:** a student who clicks the other person's activation
     link and never tries to use the app activates the other person's password, and nothing prompts
-    them to reset. Reset recovers the account whenever they do; setting the password at activation
+    them to reset. The activation success screen now links to the reset ("Didn't choose a password
+    yourself? Reset it"), which narrows the gap but does not close it: it only helps a student who
+    reads it. Reset recovers the account whenever they do; setting the password at activation
     would close this too, and stays the follow-up if it matters. A reset link does not outlive a later
     ordinary password change: `POST /auth/password` deletes the account's unused reset links in its
     transaction, so that gap is closed. The token stays in the reset page's

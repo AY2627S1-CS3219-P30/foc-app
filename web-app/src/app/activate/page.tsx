@@ -78,7 +78,15 @@ export default function ActivatePage() {
     <AuthCard
       title={done ? "Account activated" : "Activate your account"}
       intro={done ? undefined : "Open the link in the email we sent, or paste its code here."}
-      footer={done ? undefined : <Link href="/login">Back to sign in</Link>}
+      footer={
+        done ? (
+          <>
+            Didn&apos;t choose a password yourself? <Link href="/forgot-password">Reset it</Link>
+          </>
+        ) : (
+          <Link href="/login">Back to sign in</Link>
+        )
+      }
     >
       <FormAlert tone="success">{done && message}</FormAlert>
       {done ? (

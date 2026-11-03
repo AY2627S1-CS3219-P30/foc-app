@@ -15,6 +15,7 @@ const { default: ForgotPasswordPage } = await import("../src/app/forgot-password
 const { default: ResetPasswordPage } = await import("../src/app/reset-password/page");
 const { default: LoginPage } = await import("../src/app/login/page");
 const { default: RegisterPage } = await import("../src/app/register/page");
+const { default: ActivatePage } = await import("../src/app/activate/page");
 
 const TOKEN = "a".repeat(43);
 const NEUTRAL = "If e0123456@u.nus.edu has an account, we've emailed it a link to reset its password.";
@@ -240,5 +241,19 @@ describe("the way to a reset", () => {
       text: "reset the password",
       href: "/forgot-password?email=e0123456%40u.nus.edu",
     });
+  });
+
+  it("is offered on the activation success screen, for a password the student did not choose", async () => {
+    serve(() => json(200, { alreadyActivated: false }));
+    await render(<ActivatePage />, `/activate?token=${TOKEN}`);
+
+    expect(statuses()).toContain("Your account is active.");
+    expect(container.textContent).toContain("Didn't choose a password yourself?");
+    expect(links()).toContainEqual({ text: "Reset it", href: "/forgot-password" });
+  });
+
+  it("is not offered while the activation link is still unused", async () => {
+    await render(<ActivatePage />, "/activate");
+    expect(links().map((l) => l.href)).not.toContain("/forgot-password");
   });
 });
