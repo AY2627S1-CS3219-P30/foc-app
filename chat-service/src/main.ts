@@ -7,6 +7,7 @@ async function main(): Promise<void> {
   // below, rather than as an uncaught exception during module resolution.
   const { env, SERVICE_NAME } = await import('./config.js');
   const { AppModule } = await import('./app.module.js');
+  const { RetentionCleanup } = await import('./chat/retention.js');
 
   const logger = new PinoLoggerService(createLogger(SERVICE_NAME, env.LOG_LEVEL));
   const app = await NestFactory.create(AppModule, { logger });
@@ -19,6 +20,8 @@ async function main(): Promise<void> {
     port: env.PORT,
     corsOrigins: env.CORS_ORIGINS,
   });
+  // Started here, not at bootstrap, so an app built only to test never sweeps (ADR 0012 §6).
+  app.get(RetentionCleanup).start();
 }
 
 main().catch((err: unknown) => {

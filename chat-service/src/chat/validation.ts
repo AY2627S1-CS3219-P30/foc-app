@@ -44,8 +44,8 @@ export type Page = z.infer<typeof pageSchema>;
 export const parsePage = (query: unknown): Page => parse(pageSchema, query);
 
 /**
- * Refusing a body of only whitespace comes with the other limits in #163. A NUL is refused here,
- * because PostgreSQL would answer it with a 500.
+ * 1 to MAX_BODY code points, not only whitespace (ADR 0012 §5). `.max()` would count UTF-16 units
+ * and refuse 280 emoji. A NUL is refused too, because PostgreSQL would answer it with a 500.
  */
 const sendSchema = z.strictObject({
   clientId: z.uuid(),
@@ -53,6 +53,7 @@ const sendSchema = z.strictObject({
     .string()
     .min(1)
     .refine((body) => [...body].length <= MAX_BODY, `At most ${MAX_BODY} characters.`)
+    .refine((body) => body.trim() !== '', 'Must not be only whitespace.')
     .refine((body) => !body.includes('\0'), 'Must not contain a NUL character.'),
 });
 export type Send = z.infer<typeof sendSchema>;
