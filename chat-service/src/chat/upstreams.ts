@@ -16,6 +16,9 @@ export type OrderForChat = z.infer<typeof orderSchema>;
 
 const userSchema = z.object({ exists: z.boolean(), displayName: z.string().optional() });
 
+/** Shown for a participant the User Service no longer has, rather than failing the channel. */
+export const FORMER_STUDENT = 'A former student';
+
 const unavailable = () =>
   new ApiException(
     503,
@@ -42,7 +45,8 @@ export class Upstreams {
   async displayName(userId: string): Promise<string> {
     const url = new URL(`/internal/users/${encodeURIComponent(userId)}`, env.USER_SERVICE_URL);
     const user = await this.parse(await this.ask(url), userSchema);
-    if (!user.exists || !user.displayName) throw unavailable();
+    if (!user.exists) return FORMER_STUDENT;
+    if (!user.displayName) throw unavailable();
     return user.displayName;
   }
 

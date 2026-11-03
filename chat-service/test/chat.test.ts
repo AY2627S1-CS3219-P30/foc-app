@@ -72,6 +72,12 @@ describe('who may read and send', () => {
     }
   });
 
+  it('tells a stranger no more about an errand without a courier or channel than an unknown one', async () => {
+    const pending = t.upstreams.errand({ status: 'CANCELLED', courierId: null });
+    expect((await channel(pending, 'stranger').expect(404)).body.error.code).toBe('NOT_FOUND');
+    await send(pending, message('anyone?'), 'stranger').expect(404);
+  });
+
   it('moves with a new courier: the old one loses access, the new one sees everything', async () => {
     const orderId = t.upstreams.errand();
     await send(orderId, message('from the first courier'), 'courier').expect(201);
@@ -119,6 +125,11 @@ describe('sending', () => {
     expect((await page(orderId).expect(200)).body.items).toHaveLength(2);
   });
 
+  it('takes 280 characters counted as the browser counts them, not UTF-16 units', async () => {
+    const orderId = t.upstreams.errand();
+    await send(orderId, message('🙂'.repeat(280))).expect(201);
+  });
+
   it('refuses a malformed message before asking the Order Service', async () => {
     const orderId = t.upstreams.errand();
     const before = t.upstreams.calls.length;
@@ -128,6 +139,8 @@ describe('sending', () => {
       { clientId: 'not-a-uuid', body: 'hi' },
       { ...message('hi'), extra: true },
       message('nul \0 inside'),
+      message('x'.repeat(281)),
+      message('🙂'.repeat(281)),
     ]) {
       expect((await send(orderId, body).expect(422)).body.error.code).toBe('VALIDATION_FAILED');
     }
@@ -191,7 +204,16 @@ describe('paging', () => {
 
   it('refuses after and before together, and a limit out of range', async () => {
     const orderId = t.upstreams.errand();
-    for (const query of ['?after=1&before=3', '?limit=0', '?limit=101', '?after=-1', '?before=0']) {
+    for (const query of [
+      '?after=1&before=3',
+      '?limit=0',
+      '?limit=101',
+      '?after=-1',
+      '?before=0',
+      // Past PostgreSQL's integer, which would otherwise be a 500.
+      '?after=2147483648',
+      '?before=99999999999',
+    ]) {
       expect((await page(orderId, query).expect(422)).body.error.code).toBe('VALIDATION_FAILED');
     }
   });
@@ -225,6 +247,12 @@ describe('the Order and User Services', () => {
     }
     t.upstreams.down = false;
     expect((await page(orderId).expect(200)).body.items).toEqual([]);
+  });
+
+  it('names a participant the User Service no longer has, rather than failing the channel', async () => {
+    const orderId = t.upstreams.errand({ requesterId: 'user-ghost' });
+    const res = await channel(orderId, 'courier').expect(200);
+    expect(res.body.requester).toEqual({ userId: 'user-ghost', displayName: 'A former student' });
   });
 
   it('only ever reads the errand: chat sends nothing that could change it', async () => {

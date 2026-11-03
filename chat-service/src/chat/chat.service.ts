@@ -96,16 +96,18 @@ export class ChatService {
         : caller.userId === order.courierId
           ? 'COURIER'
           : undefined;
+    const existing = await this.chat.latestSeq(orderId);
     if (!role) {
+      // An errand with no courier and no channel may not be in the feed (pending credit,
+      // rejected), so a stranger learns no more about it than about an unknown ID.
+      if (existing === undefined && order.courierId === null) throw notFound();
       throw new ApiException(
         403,
         'NOT_PARTICIPANT',
         "You are not this errand's requester or courier.",
       );
     }
-    const latestSeq =
-      (await this.chat.latestSeq(orderId)) ??
-      (order.courierId ? await this.chat.open(orderId) : undefined);
+    const latestSeq = existing ?? (order.courierId ? await this.chat.open(orderId) : undefined);
     if (latestSeq === undefined) throw notFound();
     return { order, role, latestSeq, open: order.courierId !== null && order.endedAt === null };
   }

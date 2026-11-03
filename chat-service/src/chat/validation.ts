@@ -25,10 +25,15 @@ function parse<T>(schema: z.ZodType<T>, input: unknown): T {
   );
 }
 
+/** `seq` is a PostgreSQL integer, so anything larger would reach the database as a 500. */
+export const MAX_SEQ = 2_147_483_647;
+/** Counted in code points, as the browser counts them (ADR 0012). */
+export const MAX_BODY = 280;
+
 const pageSchema = z
   .object({
-    after: z.coerce.number().int().min(0).optional(),
-    before: z.coerce.number().int().min(1).optional(),
+    after: z.coerce.number().int().min(0).max(MAX_SEQ).optional(),
+    before: z.coerce.number().int().min(1).max(MAX_SEQ).optional(),
     limit: z.coerce.number().int().min(1).max(100).default(20),
   })
   .refine((page) => page.after === undefined || page.before === undefined, {
@@ -39,14 +44,15 @@ export type Page = z.infer<typeof pageSchema>;
 export const parsePage = (query: unknown): Page => parse(pageSchema, query);
 
 /**
- * The shape only. The 280-character limit and refusing a body of only whitespace come with the
- * other limits in #163; a NUL is refused here, because PostgreSQL would answer it with a 500.
+ * Refusing a body of only whitespace comes with the other limits in #163. A NUL is refused here,
+ * because PostgreSQL would answer it with a 500.
  */
 const sendSchema = z.strictObject({
   clientId: z.uuid(),
   body: z
     .string()
     .min(1)
+    .refine((body) => [...body].length <= MAX_BODY, `At most ${MAX_BODY} characters.`)
     .refine((body) => !body.includes('\0'), 'Must not contain a NUL character.'),
 });
 export type Send = z.infer<typeof sendSchema>;

@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Queryable, Row } from '@foc/platform';
 import { CHAT_DB, type ChatDatabase } from '../db/db.js';
-import type { Page } from './validation.js';
+import { MAX_SEQ, type Page } from './validation.js';
 
 export interface Message {
   seq: number;
@@ -69,7 +69,7 @@ export class ChatRepository {
         WHERE order_id = $1 AND seq > $2 AND seq < $3
         ORDER BY seq ${newer ? 'ASC' : 'DESC'}
         LIMIT $4`,
-      [orderId, after ?? 0, before ?? 2_147_483_647, limit + 1],
+      [orderId, after ?? 0, before ?? MAX_SEQ, limit + 1],
     );
     const items = rows.slice(0, limit).map(toMessage);
     return { items: newer ? items : items.reverse(), hasMore: rows.length > limit };
