@@ -193,6 +193,20 @@ describe('POST /auth/password-reset/confirm', () => {
     await signIn(NEW_PASSWORD).expect(200);
   });
 
+  it('is refused once an ordinary password change has replaced the password', async () => {
+    await activeAccount();
+    const token = await resetLink();
+    await http()
+      .post('/auth/password')
+      .set('Origin', ORIGIN)
+      .send({ email: EMAIL, currentPassword: PASSWORD, newPassword: 'a-changed-long-passphrase' })
+      .expect(204);
+
+    const res = await confirm(token).expect(404);
+    expect(res.body.error.code).toBe('PASSWORD_RESET_TOKEN_INVALID');
+    await signIn('a-changed-long-passphrase').expect(200);
+  });
+
   it('refuses an expired link and changes nothing', async () => {
     await activeAccount();
     const token = await resetLink();

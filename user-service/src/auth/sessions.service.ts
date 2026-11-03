@@ -166,8 +166,8 @@ export class SessionsService {
    * an access token, so the same call serves a bootstrap admin who has no session yet (their login
    * is refused with `PASSWORD_CHANGE_REQUIRED`) and any active user changing theirs.
    *
-   * Every session of the account is revoked in the same transaction: whoever knew the old password
-   * may already hold one. Failure responses match login's, so this is no better an oracle than it.
+   * Every session of the account is revoked, and its unused password reset links deleted, in the
+   * same transaction: whoever knew the old password may already hold a session or a link. Failure responses match login's, so this is no better an oracle than it.
    */
   async changePassword(rawEmail: string, currentPassword: string, newPassword: string) {
     const user = await this.verifyCredentials(rawEmail, currentPassword);
@@ -185,6 +185,8 @@ export class SessionsService {
     const replaced = await this.db.transaction(async (tx) => {
       if (!(await users.replacePassword(tx, user.id, user.passwordHash, newHash))) return false;
       await sessions.revokeAllForUser(tx, user.id);
+      // A reset link mailed before this change would otherwise set the password again.
+      await users.deleteUnconsumedPasswordResetTokens(tx, user.id);
       return true;
     });
     // Lost a race with another change: the password we verified is no longer the current one.
