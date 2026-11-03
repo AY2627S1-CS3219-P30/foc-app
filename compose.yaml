@@ -326,6 +326,8 @@ services:
       INTERNAL_SERVICE_KEY: ${CHAT_INTERNAL_KEY:?run ./scripts-init-env.sh}
       # Asked on every request who the errand's participants are (ADR 0012), on its internal port.
       ORDER_SERVICE_URL: http://order-service:4003
+      # #346: `false` refuses every chat socket; the panel then polls, as before.
+      CHAT_SOCKET_ENABLED: ${CHAT_SOCKET_ENABLED:-true}
     ports: ['127.0.0.1:${CHAT_SERVICE_PORT:-3006}:3006']
     depends_on:
       <<: *consumer-deps

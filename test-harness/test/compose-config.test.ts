@@ -433,6 +433,44 @@ describe('the edge (PLT-10)', () => {
     expect(nginx).toMatch(/^\s+worker_connections 4096;$/m);
   });
 
+  it('upgrades the chat socket at one exact path, and nothing else under /api/chat/ (#346)', () => {
+    const block = nginx.match(/location = \/api\/chat\/socket \{([^}]*)\}/)?.[1];
+    // Before the prefix, so the prefix's cleared `Connection` never reaches the socket.
+    expect(nginx.indexOf('location = /api/chat/socket {')).toBeLessThan(
+      nginx.indexOf('location /api/chat/ {'),
+    );
+    expect(block).toContain('set $upstream chat-service:3006;');
+    expect(block).toContain('proxy_pass http://$upstream$api_path;');
+    expect(block).toContain('proxy_set_header Upgrade $http_upgrade;');
+    expect(block).toContain('proxy_set_header Connection $connection_upgrade;');
+    expect(nginx).toMatch(
+      /map \$http_upgrade \$connection_upgrade \{\s+default upgrade;\s+"" close;\s+\}/,
+    );
+    // A header set here replaces every one the server sets, so each is set again: the services
+    // count per-address limits by X-Forwarded-For, and log under X-Correlation-Id.
+    for (const header of [
+      'proxy_set_header Host $host;',
+      'proxy_set_header X-Forwarded-For $remote_addr;',
+      'proxy_set_header X-Forwarded-Proto $scheme;',
+      'proxy_set_header X-Correlation-Id $correlation_id;',
+    ]) {
+      expect(block).toContain(header);
+    }
+    // An add_header here would drop the security headers the server block sets.
+    expect(block).not.toContain('add_header');
+    // Past the service's 25 s pings, unbuffered, and capped per address apart from the streams.
+    expect(block).toMatch(/^\s+proxy_read_timeout 75s;$/m);
+    expect(block).toMatch(/^\s+proxy_buffering off;$/m);
+    expect(nginx).toMatch(/limit_conn_zone \$binary_remote_addr zone=sockets:/);
+    expect(block).toMatch(/^\s+limit_conn sockets 10;$/m);
+    expect(block).toMatch(/^\s+limit_conn_status 429;$/m);
+    expect(block).toContain('error_page 502 504 =503 @unavailable;');
+    // The rest of /api/chat/ stays plain HTTP.
+    const prefix = nginx.match(/location \/api\/chat\/ \{([^}]*)\}/)?.[1];
+    expect(prefix).not.toContain('Upgrade');
+    expect(nginx).toContain('proxy_set_header Connection "";');
+  });
+
   it('tells each service the client’s address, which the service believes from the edge alone', () => {
     expect(nginx).toContain('proxy_set_header X-Forwarded-For $remote_addr;');
     for (const name of APPLICATION) {

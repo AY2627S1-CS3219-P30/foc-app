@@ -417,6 +417,27 @@ kill $(jobs -p) 2>/dev/null || true
 wait 2>/dev/null || true
 rm -rf "$live_dir"
 
+# ---- the chat socket through the edge (#346, ADR 0012) -----------------------
+# The edge must pass a WebSocket upgrade on to the Chat Service at /api/chat/socket, where every
+# other route clears `Connection`. The socket then waits for its auth frame, so 101 is the check.
+upgrade() { # path → the status the handshake there answered
+  curl -s -o /dev/null -w '%{http_code}' --max-time 2 "$EDGE$1" -H 'Connection: Upgrade' \
+    -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
+    -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' 2>/dev/null || true
+}
+socket=$(upgrade /api/chat/socket)
+if [[ "$socket" == "101" ]]; then
+  pass "the edge upgrades /api/chat/socket to a WebSocket (101)"
+  wrong=$(upgrade /api/chat/Socket)
+  [[ "$wrong" != "101" ]] && pass "no other spelling is upgraded (/api/chat/Socket answered $wrong)" ||
+    fail "/api/chat/Socket was upgraded too"
+elif [[ "$socket" == "404" ]]; then
+  # A Chat Service image from before #346 has no socket, as when the recovery drill rolls back.
+  skip "this image set's Chat Service has no socket (it predates #346)"
+else
+  fail "an upgrade at /api/chat/socket answered '${socket:-nothing}'"
+fi
+
 # ---- metrics reach the dashboard (PLT-04) ------------------------------------
 METRICS_AUTH="Authorization: Bearer ${METRICS_TOKEN:?}"
 for pair in "user-service:$USER_PORT" "supplier-service:$SUPPLIER_PORT" \

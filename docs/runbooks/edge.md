@@ -86,6 +86,12 @@ otherwise. Every service answer, and the body of every edge error, carries it.
   - `event: ready` but no nudges when errands change: the Order Service is not getting its status
     changes. Its queue is `foc.order.live.<random>` in RabbitMQ; look at
     `docker compose logs order-service`.
+- **The chat panel polls instead of using its socket.** The socket only says when to read again
+  (#346, [chat-service README](../../chat-service/README.md#the-socket)), so chat still works.
+  `./scripts-smoke.sh` checks that the edge upgrades `/api/chat/socket` (`101`). If not, the
+  `location = /api/chat/socket` block in `nginx.conf` must keep its `Upgrade` and `Connection`
+  headers, or the socket is switched off (`CHAT_SOCKET_ENABLED=false` in `.env`). An 11th socket
+  from one address is refused with `429`.
 - **Port 3000 is taken.** Set `WEB_APP_PORT` in `.env`; the edge is published on it.
 
 ## Changing its configuration
@@ -101,7 +107,7 @@ otherwise. Every service answer, and the body of every edge error, carries it.
    - `docker compose up -d --force-recreate edge` always applies it, with about ten seconds in which
      port 3000 does not answer.
 4. Run `./scripts-smoke.sh`: its edge section checks the routes, the headers, the refusals, the
-   limits and readiness, and the live-update stream after it.
+   limits and readiness, the live-update stream and the chat socket after it.
 
 Restarting the edge (`docker compose restart edge`) leaves the web app and the services running;
 port 3000 refuses connections until it is back.
