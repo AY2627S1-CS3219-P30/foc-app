@@ -5,6 +5,12 @@ import { z } from 'zod';
 /** The longest errand period, well inside what a saved deadline can hold. */
 const WEEK_MS = 7 * 24 * 60 * 60_000;
 
+const csv = (value: string): string[] =>
+  value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
 /**
  * This service's required variables: the shared base, plus the two `@foc/auth-client` needs to
  * resolve a caller's live identity from the User Service (USR-07).
@@ -47,6 +53,11 @@ export const env = loadEnv({
     .max(15 * 60_000)
     .default(300_000),
   ...authEnvSchema,
+  /** Credentials trusted on Order's /internal/** surface: the Chat Service's (ADR 0012). */
+  INTERNAL_SERVICE_KEYS: z
+    .string()
+    .transform(csv)
+    .pipe(z.array(z.string().min(16, 'each key must be at least 16 characters')).min(1)),
 });
 
 /** How this service verifies callers: the User Service URL and its own `/internal/**` key. */

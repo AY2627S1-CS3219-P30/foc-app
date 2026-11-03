@@ -68,6 +68,21 @@ describe('order-service honours its published contract', () => {
     );
   });
 
+  it('GET /internal/orders/{orderId}/chat (200, 400, 401, 404)', async () => {
+    const template = '/internal/orders/{orderId}/chat';
+    const lookup = (id: string, key = 'test-chat-key-0123456789') =>
+      http(app).get(`/internal/orders/${id}/chat`).set('X-Service-Key', key);
+    // contract.assert accepts any documented status, so each case also pins its own.
+    contract.assert('get', template, await lookup(SEEDED_ORDER).expect(200));
+    contract.assert('get', template, await lookup('not-a-uuid').expect(400));
+    contract.assert(
+      'get',
+      template,
+      await http(app).get(`/internal/orders/${SEEDED_ORDER}/chat`).expect(401),
+    );
+    contract.assert('get', template, await lookup(randomUUID()).expect(404));
+  });
+
   it('GET /orders/mine (200, 401)', async () => {
     contract.assert(
       'get',
