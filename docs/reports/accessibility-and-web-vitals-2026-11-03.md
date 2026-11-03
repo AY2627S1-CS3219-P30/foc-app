@@ -43,7 +43,7 @@ landmark and heading rules. It runs at 360, 768 and 1440 px. The release suite a
 test, so 768 px runs too. Each screen is scanned once its content has loaded.
 
 - **Student screens:** a requester and a courier walk one errand through, so every screen holds
-  real data.
+  real data. The change-password page is scanned last.
 - **Admin console:** every page, plus one account and one errand.
 
 The test scans every screen first and asserts at the end. It fails on any finding, at any
@@ -75,7 +75,8 @@ page was scanned with a malformed account id (the spec read a field the list doe
 it scanned the page's error state. The "after" run scanned a real account. Totals: **0 critical**
 before and after; **2 serious** (one rule on two screens, at 768 and 1440 px) before and 0 after;
 every moderate finding fixed. 75 screen scans in the final run (25 screens at three widths)
-report nothing at any impact.
+report nothing at any impact. The change-password page (a 26th screen, 78 scans) was added to the
+spec after that run and has not been measured yet.
 
 ### What was fixed
 
