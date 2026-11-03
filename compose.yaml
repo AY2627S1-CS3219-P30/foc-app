@@ -326,6 +326,10 @@ services:
       INTERNAL_SERVICE_KEY: ${CHAT_INTERNAL_KEY:?run ./scripts-init-env.sh}
       # Asked on every request who the errand's participants are (ADR 0012), on its internal port.
       ORDER_SERVICE_URL: http://order-service:4003
+      # ADR 0012 §6: kept this many days after the errand ends, and how often the cleanup runs.
+      CHAT_RETENTION_DAYS: ${CHAT_RETENTION_DAYS:-90}
+      CHAT_CLEANUP_INTERVAL_MS: ${CHAT_CLEANUP_INTERVAL_MS:-86400000}
+      CHAT_CLEANUP_RETRY_MS: ${CHAT_CLEANUP_RETRY_MS:-300000}
     ports: ['127.0.0.1:${CHAT_SERVICE_PORT:-3006}:3006']
     depends_on:
       <<: *consumer-deps
