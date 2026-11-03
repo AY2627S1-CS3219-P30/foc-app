@@ -1,4 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
+import { WsAdapter } from '@nestjs/platform-ws';
 import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { IDENTITY_CHANGE_EVENTS } from '@foc/auth-client';
@@ -30,6 +31,7 @@ describe('identity-change invalidation is wired (USR-07)', () => {
       return subscribe(options);
     });
     app = moduleRef.createNestApplication();
+    app.useWebSocketAdapter(new WsAdapter(app));
     await app.init();
   });
 

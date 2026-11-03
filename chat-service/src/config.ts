@@ -23,6 +23,15 @@ export const env = loadEnv({
     .min(60_000)
     .max(2_147_483_647)
     .default(24 * 60 * 60_000),
+  /** #346: `false` refuses every socket upgrade, and the chat panel keeps polling. */
+  CHAT_SOCKET_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((value) => value === 'true'),
+  /** How often an open socket's session is checked again; a revoked one closes within this. */
+  CHAT_SOCKET_RECHECK_MS: z.coerce.number().int().min(5_000).max(60_000).default(60_000),
+  /** A socket that has not sent its auth frame within this long is closed. */
+  CHAT_SOCKET_AUTH_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(5_000),
   ...authEnvSchema,
 });
 

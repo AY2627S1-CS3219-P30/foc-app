@@ -1,4 +1,5 @@
 import { INestApplication } from '@nestjs/common';
+import { WsAdapter } from '@nestjs/platform-ws';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
@@ -29,6 +30,7 @@ describe('chat-service honours its published contract', () => {
     // The retention cleanup would ask a database this suite does not have; it is tested on its own.
     vi.spyOn(moduleRef.get(RetentionCleanup), 'onApplicationBootstrap').mockReturnValue();
     app = moduleRef.createNestApplication();
+    app.useWebSocketAdapter(new WsAdapter(app));
     app.useGlobalFilters(new ErrorEnvelopeFilter());
     await app.init();
     // /health asks the service's dependencies (PLT-06), and this suite has no database to reach.
