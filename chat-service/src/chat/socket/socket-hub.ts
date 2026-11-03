@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { AUTHENTICATOR, type Authenticator } from '@foc/auth-client';
-import { METRICS, type Metrics } from '@foc/platform';
+import { ApiException, METRICS, type Metrics } from '@foc/platform';
 
 export const SOCKET_OPTIONS = Symbol('FOC_CHAT_SOCKET_OPTIONS');
 
@@ -38,6 +38,10 @@ export interface Nudge {
 export const CLOSE_REASONS = {
   'auth-timeout': { code: 4408, message: 'No auth frame in time.' },
   unauthenticated: { code: 4401, message: 'Not signed in, or the session has ended.' },
+  'identity-unavailable': {
+    code: 4503,
+    message: 'Could not verify your identity. Try again shortly.',
+  },
   'identity-changed': { code: 4401, message: 'The account changed. Sign in again.' },
   'too-many': { code: 4429, message: 'Too many chat sockets are open.' },
   'bad-frame': { code: 4400, message: 'Only one auth frame is accepted.' },
@@ -48,6 +52,16 @@ export type CloseReason = keyof typeof CLOSE_REASONS;
 
 /** How a socket ended: closed by the server for a reason, gone from the client, or unresponsive. */
 type Ending = CloseReason | 'client-closed' | 'no-pong';
+
+/**
+ * Why `authenticate` refused: a User Service that cannot answer says nothing about the token, so
+ * the client must not be told to sign in again.
+ */
+function refusal(err: unknown): CloseReason {
+  return err instanceof ApiException && err.code === 'IDENTITY_UNAVAILABLE'
+    ? 'identity-unavailable'
+    : 'unauthenticated';
+}
 
 type Timer = ReturnType<typeof setTimeout>;
 
@@ -168,8 +182,8 @@ export class SocketHub implements OnModuleDestroy {
     let userId: string;
     try {
       ({ userId } = await this.authenticator.authenticate(`Bearer ${frame.token}`));
-    } catch {
-      if (socket.state === authenticating) this.end(socket, 'unauthenticated');
+    } catch (err) {
+      if (socket.state === authenticating) this.end(socket, refusal(err));
       return;
     }
     if (socket.state !== authenticating) return;
@@ -253,8 +267,8 @@ export class SocketHub implements OnModuleDestroy {
       if (state.phase !== 'open') return;
       try {
         await this.authenticator.authenticate(`Bearer ${state.token}`);
-      } catch {
-        if (socket.state === state) this.end(socket, 'unauthenticated');
+      } catch (err) {
+        if (socket.state === state) this.end(socket, refusal(err));
         return;
       }
       if (socket.state === state) state.recheckTimer = this.scheduleRecheck(socket);

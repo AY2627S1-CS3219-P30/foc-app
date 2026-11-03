@@ -54,9 +54,12 @@ describe('chat sockets (#346)', () => {
   let metrics: Metrics;
   /** Sessions the User Service no longer accepts, by user. */
   const revoked = new Set<string>();
+  /** Set while the User Service cannot answer. */
+  let outage = false;
 
   const authenticator: Authenticator = {
     async authenticate(header) {
+      if (outage) throw authFailure('IDENTITY_UNAVAILABLE');
       const raw = /^Bearer (.+)$/.exec(header ?? '')?.[1] ?? '';
       const sub = (JSON.parse(Buffer.from(raw.split('.')[1] ?? '', 'base64url').toString() || '{}')
         .sub ?? 'nobody') as string;
@@ -97,6 +100,7 @@ describe('chat sockets (#346)', () => {
     metrics = new Metrics('chat-service');
     hub = new SocketHub(OPTIONS, authenticator, metrics);
     revoked.clear();
+    outage = false;
   });
   afterEach(() => {
     hub.onModuleDestroy();
@@ -126,6 +130,18 @@ describe('chat sockets (#346)', () => {
       await hub.received(socket, { type: 'auth', token: 'not-a-token' });
       expect(peer.closed?.code).toBe(4401);
       expect(peer.frames).toEqual([]);
+    });
+
+    it('closes with 4503, not 4401, when the User Service cannot answer', async () => {
+      outage = true;
+      const { peer } = await signIn('requester');
+      expect(peer.closed).toEqual({
+        code: 4503,
+        reason: 'Could not verify your identity. Try again shortly.',
+      });
+      expect(peer.frames).toEqual([]);
+      expect(await closedCount('identity-unavailable')).toBe(1);
+      expect(await closedCount('unauthenticated')).toBe(0);
     });
 
     it('closes with 4400 on a frame that is not an auth frame', async () => {
@@ -237,6 +253,18 @@ describe('chat sockets (#346)', () => {
       await vi.advanceTimersByTimeAsync(1);
       expect(requester.peer.closed?.code).toBe(4401);
       expect(courier.peer.closed).toBeUndefined();
+    });
+
+    it('closes with 4503, not 4401, when the User Service cannot answer a check', async () => {
+      const { peer } = await signIn('requester');
+      outage = true;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(peer.closed).toEqual({
+        code: 4503,
+        reason: 'Could not verify your identity. Try again shortly.',
+      });
+      expect(await closedCount('identity-unavailable')).toBe(1);
+      expect(await closedCount('unauthenticated')).toBe(0);
     });
 
     it("closes at the token's expiry", async () => {
