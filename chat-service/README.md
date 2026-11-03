@@ -56,7 +56,10 @@ whether it has ended, and decides from that alone. Chat keeps no copy of the err
 - **Administrators** read any channel and its messages, to review a dispute. They see
   `myRole: ADMIN` and `lastReadSeq: 0`, since they have no read position. Sending and marking read
   are `403 NOT_PARTICIPANT`. A user who is both an administrator and a participant is treated as
-  the participant, and those reads are not recorded.
+  the participant, and those reads are not recorded. Reads are recorded one row per admin,
+  errand, resource and hour, with a count, the first read's correlation ID and the last read's
+  time. The admin view (#161) should still fetch once and refresh on request, not poll every 2
+  seconds as the participant panel does: a disputed errand stays open until it is decided.
 - **A channel opens** on the first participant request while the errand has a courier and has not
   reached a final status. An administrator's read never opens one. Before that, for an errand that
   ended without one, or for an unknown errand, every route answers `404`.
@@ -86,12 +89,15 @@ A conversation is kept for 90 days after its errand reaches a final status (`CHA
 long enough for a dispute and for questions about it afterwards. From then every route answers
 `404`, to participants and administrators alike.
 
-`RetentionCleanup` runs as the service starts and then daily (`CHAT_CLEANUP_INTERVAL_MS`). It asks
-the Order Service about each channel opened more than 90 days ago (a channel opens only before its
-errand ends, so a younger one cannot be due) and deletes those whose errand ended more than 90 days
-ago, with their messages and read positions. Only a clear answer deletes anything:
+`RetentionCleanup` runs once the service listens and then daily (`CHAT_CLEANUP_INTERVAL_MS`).
+`main.ts` starts it, so an app built in a test never sweeps. It asks the Order Service about each
+channel opened more than 90 days ago (a channel opens only before its errand ends, so a younger one
+cannot be due) and deletes those whose errand ended more than 90 days ago, with their messages and
+read positions. Only a clear answer deletes anything:
 
-- the Order Service does not answer: the channel is skipped and asked about again next run;
+- the Order Service does not answer: the channel is skipped, and the run is tried once more five
+  minutes later (`CHAT_CLEANUP_RETRY_MS`), since on a stack restart chat can be up before the Order
+  Service; if that also skips, the channel waits for the next daily run;
 - the Order Service knows no such errand: it is kept and a warning is logged, since errands are
   never deleted and evidence should not be destroyed on a fault;
 - either way the routes already answer `404` once retention ends, so nothing is shown meanwhile.
@@ -104,12 +110,12 @@ accepted: the message keeps its server time, and chat cannot change the errand e
 
 ### Data model
 
-| Table                 | Holds                                                                                                                                      |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `channels`            | One row per errand that opened a channel, and `latest_seq`, its newest message's number                                                    |
-| `messages`            | `seq` 1, 2, 3… per channel, the sender, the browser's `client_id` (unique per sender) and the body                                         |
-| `read_positions`      | How far each participant has read                                                                                                          |
-| `admin_channel_reads` | Every administrator read: who, which errand, `CHANNEL` or `MESSAGES`, the correlation ID, when. No foreign key, so it outlives the channel |
+| Table                 | Holds                                                                                                                                                                                                            |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `channels`            | One row per errand that opened a channel, and `latest_seq`, its newest message's number                                                                                                                          |
+| `messages`            | `seq` 1, 2, 3… per channel, the sender, the browser's `client_id` (unique per sender) and the body                                                                                                               |
+| `read_positions`      | How far each participant has read                                                                                                                                                                                |
+| `admin_channel_reads` | Administrator reads, one row per who, which errand, `CHANNEL` or `MESSAGES`, and UTC hour: the count, the first read's correlation ID and time, the last read's time. No foreign key, so it outlives the channel |
 
 A send takes the channel's row lock, so concurrent sends get consecutive numbers and a retry
 racing its original is stored once (`test/chat.postgres.test.ts`).
@@ -241,6 +247,7 @@ Optional, with the defaults of ADR 0012:
 | ----------------------------- | ---------- | ------------------------------------------------------------------ |
 | `CHAT_RETENTION_DAYS`         | `90`       | Days after the errand ends that the conversation is kept.          |
 | `CHAT_CLEANUP_INTERVAL_MS`    | `86400000` | How often the cleanup runs; at least a minute, at most ~24.8 days. |
+| `CHAT_CLEANUP_RETRY_MS`       | `300000`   | How soon a run that skipped a channel is tried once more.          |
 | `CHAT_SOCKET_ENABLED`         | `true`     | `false` refuses every socket upgrade, and panels poll.             |
 | `CHAT_SOCKET_RECHECK_MS`      | `55000`    | How often an open socket's session is checked again; 5 s to 55 s.  |
 | `CHAT_SOCKET_AUTH_TIMEOUT_MS` | `5000`     | How long a new socket has to send its auth frame; 1 s to 30 s.     |

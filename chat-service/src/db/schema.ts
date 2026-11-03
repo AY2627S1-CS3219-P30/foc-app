@@ -8,6 +8,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -57,8 +58,11 @@ export const readPositions = pgTable(
 );
 
 /**
- * Every administrator read of a channel or its messages (ADR 0008: admin reads of personal data
- * are recorded). No foreign key to `channels`: the record outlives the channel's 90-day retention.
+ * Administrator reads of a channel or its messages (ADR 0008: admin reads of personal data are
+ * recorded), one row per admin, errand, resource and UTC hour. A view that polls would otherwise
+ * write a row every few seconds. `read_at` and `correlation_id` are the hour's first read,
+ * `last_read_at` its latest, and `read_count` how many there were. No foreign key to `channels`:
+ * the record outlives the channel's 90-day retention.
  */
 export const adminChannelReads = pgTable(
   'admin_channel_reads',
@@ -69,9 +73,18 @@ export const adminChannelReads = pgTable(
     resource: text('resource').notNull(),
     correlationId: text('correlation_id').notNull(),
     readAt: timestamp('read_at', { withTimezone: true }).notNull().defaultNow(),
+    readHour: timestamp('read_hour', { withTimezone: true }).notNull(),
+    readCount: integer('read_count').notNull().default(1),
+    lastReadAt: timestamp('last_read_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     check('admin_channel_reads_resource_enum', sql`${t.resource} IN ('CHANNEL', 'MESSAGES')`),
+    uniqueIndex('admin_channel_reads_hour_key').on(
+      t.adminUserId,
+      t.orderId,
+      t.resource,
+      t.readHour,
+    ),
     index('admin_channel_reads_admin_idx').on(t.adminUserId, t.readAt),
     index('admin_channel_reads_order_idx').on(t.orderId, t.readAt),
   ],

@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { authStatusEvents, AuthModule } from '@foc/auth-client';
 import { EventsModule, PlatformModule } from '@foc/platform';
 import { ChatModule } from './chat/chat.module.js';
-import { RETENTION_OPTIONS, RetentionCleanup } from './chat/retention.js';
 import { socketStatusEvents } from './chat/socket/socket-status.js';
 import { authConfig, env, SERVICE_NAME, SERVICE_VERSION } from './config.js';
 
@@ -42,17 +41,6 @@ const eventModules = env.RABBITMQ_URL
     ChatModule.forRoot(),
     ...eventModules,
   ],
-  providers: [
-    // Here rather than in ChatModule, so the tests' apps run no timer (ADR 0012 §6).
-    RetentionCleanup,
-    {
-      provide: RETENTION_OPTIONS,
-      useValue: {
-        retentionDays: env.CHAT_RETENTION_DAYS,
-        intervalMs: env.CHAT_CLEANUP_INTERVAL_MS,
-      },
-    },
-    ...(env.RABBITMQ_URL ? [...status.providers, ...socketStatus.providers] : []),
-  ],
+  providers: env.RABBITMQ_URL ? [...status.providers, ...socketStatus.providers] : [],
 })
 export class AppModule {}

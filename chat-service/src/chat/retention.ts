@@ -1,10 +1,4 @@
-import {
-  Inject,
-  Injectable,
-  Logger,
-  type OnApplicationBootstrap,
-  type OnApplicationShutdown,
-} from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnApplicationShutdown } from '@nestjs/common';
 import { ChatRepository } from './chat.repository.js';
 import { Upstreams, type OrderForChat } from './upstreams.js';
 
@@ -24,6 +18,8 @@ export const RETENTION_OPTIONS = Symbol('RETENTION_OPTIONS');
 export interface RetentionOptions {
   retentionDays: number;
   intervalMs: number;
+  /** How soon a run that skipped a channel is tried once more, rather than a whole interval on. */
+  retryMs: number;
 }
 
 export interface CleanupResult {
@@ -41,17 +37,21 @@ export interface CleanupResult {
  * and read positions (ADR 0012 §6). Admin read records have no foreign key, so they stay.
  *
  * Only a clear answer from the Order Service deletes anything. A channel it cannot answer for is
- * skipped until the next run, and one whose errand it does not know is kept and logged: an errand
- * is never deleted, so that is a fault to look into, not a reason to destroy dispute evidence.
- * Every route already answers 404 past retention, so a channel kept a day longer shows nothing.
+ * skipped, and the run is tried once more after `retryMs` (5 minutes by default): on a stack
+ * restart chat can be up before the Order Service, and the first run would otherwise skip every
+ * channel for a day. One whose errand it does not know is kept and logged: an errand is never
+ * deleted, so that is a fault to look into, not a reason to destroy dispute evidence. Every route
+ * already answers 404 past retention, so a channel kept a day longer shows nothing.
  *
- * It runs once as soon as the service is ready, so a restart never postpones it by a whole
- * interval, and then every interval (a day by default).
+ * `main.ts` starts it once the service listens, so an app built only to test runs no sweep. It
+ * runs at once, so a restart never postpones it by a whole interval, and then every interval (a
+ * day by default).
  */
 @Injectable()
-export class RetentionCleanup implements OnApplicationBootstrap, OnApplicationShutdown {
+export class RetentionCleanup implements OnApplicationShutdown {
   private readonly logger = new Logger(RetentionCleanup.name);
   private timer?: NodeJS.Timeout;
+  private retry?: NodeJS.Timeout;
   private running?: Promise<CleanupResult>;
 
   constructor(
@@ -60,22 +60,33 @@ export class RetentionCleanup implements OnApplicationBootstrap, OnApplicationSh
     @Inject(RETENTION_OPTIONS) private readonly options: RetentionOptions,
   ) {}
 
-  onApplicationBootstrap(): void {
+  start(): void {
     void this.tick();
     this.timer = setInterval(() => void this.tick(), this.options.intervalMs);
     this.timer.unref();
   }
 
   async onApplicationShutdown(): Promise<void> {
-    if (this.timer) clearInterval(this.timer);
+    clearInterval(this.timer);
+    clearTimeout(this.retry);
+    this.timer = undefined;
     await this.running?.catch(() => undefined);
   }
 
-  private async tick(): Promise<void> {
+  /** `retrying`: this run is the retry, so skipping again waits for the next interval. */
+  private async tick(retrying = false): Promise<void> {
     if (this.running) return;
     this.running = this.sweep();
     try {
-      this.logger.log({ ...(await this.running), msg: 'chat retention cleanup ran' });
+      const result = await this.running;
+      this.logger.log({ ...result, msg: 'chat retention cleanup ran' });
+      if (result.skipped > 0 && !retrying && !this.retry && this.timer) {
+        this.retry = setTimeout(() => {
+          this.retry = undefined;
+          void this.tick(true);
+        }, this.options.retryMs);
+        this.retry.unref();
+      }
     } catch (err) {
       this.logger.error({ err, msg: 'chat retention cleanup failed; will retry next interval' });
     } finally {
@@ -107,7 +118,7 @@ export class RetentionCleanup implements OnApplicationBootstrap, OnApplicationSh
     if (result.skipped > 0) {
       this.logger.warn({
         skipped: result.skipped,
-        msg: 'Order Service unavailable; retry next run',
+        msg: 'Order Service unavailable; skipped channels are asked again later',
       });
     }
     return result;

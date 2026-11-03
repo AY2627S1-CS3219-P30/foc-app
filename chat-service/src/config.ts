@@ -33,6 +33,13 @@ export const env = loadEnv({
   CHAT_SOCKET_RECHECK_MS: z.coerce.number().int().min(5_000).max(55_000).default(55_000),
   /** A socket that has not sent its auth frame within this long is closed. */
   CHAT_SOCKET_AUTH_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(30_000).default(5_000),
+  /** How soon a cleanup run the Order Service did not answer for is tried once more. */
+  CHAT_CLEANUP_RETRY_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(2_147_483_647)
+    .default(5 * 60_000),
   ...authEnvSchema,
 });
 

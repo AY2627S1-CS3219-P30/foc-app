@@ -7,6 +7,7 @@ import { ChatRepository } from './chat.repository.js';
 import { ChatService } from './chat.service.js';
 import { SOCKET_OPTIONS, SocketHub, type SocketOptions } from './socket/socket-hub.js';
 import { SocketGateway } from './socket/socket.gateway.js';
+import { RETENTION_OPTIONS, RetentionCleanup } from './retention.js';
 import { UPSTREAM_FETCH, Upstreams } from './upstreams.js';
 
 const socketOptions: SocketOptions = {
@@ -32,6 +33,15 @@ export class ChatModule {
         { provide: SOCKET_OPTIONS, useValue: socketOptions },
         // Off, nothing handles an upgrade, so every socket is refused and the panel keeps polling.
         ...(env.CHAT_SOCKET_ENABLED ? [SocketGateway] : []),
+        RetentionCleanup,
+        {
+          provide: RETENTION_OPTIONS,
+          useValue: {
+            retentionDays: env.CHAT_RETENTION_DAYS,
+            intervalMs: env.CHAT_CLEANUP_INTERVAL_MS,
+            retryMs: env.CHAT_CLEANUP_RETRY_MS,
+          },
+        },
         { provide: UPSTREAM_FETCH, useValue: fetch },
         {
           provide: CHAT_DB,
@@ -39,7 +49,7 @@ export class ChatModule {
           inject: [LOGGER],
         },
       ],
-      exports: [ChatRepository, Upstreams, SocketHub],
+      exports: [SocketHub],
     };
   }
 }

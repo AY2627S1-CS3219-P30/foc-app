@@ -260,6 +260,17 @@ describe('the Order and User Services', () => {
     expect((await page(orderId).expect(200)).body.items).toEqual([]);
   });
 
+  it('fails closed with 503 when the Order Service answers an end time that is not a date-time', async () => {
+    const orderId = t.upstreams.errand();
+    await channel(orderId).expect(200);
+    t.upstreams.update(orderId, { status: 'COMPLETED', endedAt: 'last Tuesday' });
+    for (const res of [await channel(orderId), await page(orderId, '', 'admin')]) {
+      expect([res.status, res.body.error.code]).toEqual([503, 'UNAVAILABLE']);
+    }
+    t.upstreams.update(orderId, { endedAt: '2026-11-01T09:30:00+08:00' });
+    await channel(orderId).expect(200);
+  });
+
   it('names a participant the User Service no longer has, rather than failing the channel', async () => {
     const orderId = t.upstreams.errand({ requesterId: 'user-ghost' });
     const res = await channel(orderId, 'courier').expect(200);
@@ -318,6 +329,42 @@ describe('administrators read, and only read', () => {
       `SELECT correlation_id FROM admin_channel_reads WHERE resource = 'CHANNEL'`,
     );
     expect(rows[0]!.correlation_id).toBe('dispute-review-1');
+  });
+
+  it('records one row per admin, errand, resource and hour, counting the reads in it', async () => {
+    const orderId = t.upstreams.errand();
+    await channel(orderId).expect(200);
+    const records = async () =>
+      (
+        await t.db.query<{ resource: string; read_count: number; correlation_id: string }>(
+          `SELECT resource, read_count, correlation_id FROM admin_channel_reads
+            WHERE order_id = $1 ORDER BY resource, read_at`,
+          [orderId],
+        )
+      ).rows;
+    const poll = (correlationId: string) =>
+      page(orderId, '', 'admin').set('X-Correlation-Id', correlationId).expect(200);
+
+    await poll('poll-1');
+    await poll('poll-2');
+    await channel(orderId, 'admin').set('X-Correlation-Id', 'open-1').expect(200);
+    expect(await records()).toEqual([
+      { resource: 'CHANNEL', read_count: 1, correlation_id: 'open-1' },
+      { resource: 'MESSAGES', read_count: 2, correlation_id: 'poll-1' },
+    ]);
+
+    // As if those reads were an hour ago: the next one starts a row of its own.
+    await t.db.query(
+      `UPDATE admin_channel_reads SET read_hour = read_hour - interval '1 hour',
+              read_at = read_at - interval '1 hour' WHERE order_id = $1`,
+      [orderId],
+    );
+    await poll('poll-3');
+    expect(await records()).toEqual([
+      { resource: 'CHANNEL', read_count: 1, correlation_id: 'open-1' },
+      { resource: 'MESSAGES', read_count: 2, correlation_id: 'poll-1' },
+      { resource: 'MESSAGES', read_count: 1, correlation_id: 'poll-3' },
+    ]);
   });
 
   it('cannot send or mark read, and neither is recorded as a read', async () => {
@@ -410,7 +457,10 @@ describe('20 new messages a minute per sender', () => {
     await age(1, 50);
     const limited = await send(orderId, message('one too many')).expect(429);
     expect(limited.body.error.code).toBe('RATE_LIMITED');
-    expect(limited.headers['retry-after']).toBe('10');
+    // 10 seconds less however long the runner took since `age`.
+    const retryAfter = Number(limited.headers['retry-after']);
+    expect(retryAfter).toBeGreaterThanOrEqual(8);
+    expect(retryAfter).toBeLessThanOrEqual(10);
     expect((await channel(orderId).expect(200)).body.latestSeq).toBe(20);
     // Another sender has their own allowance.
     await send(orderId, message('still here'), 'courier').expect(201);
@@ -448,6 +498,7 @@ describe('kept 90 days after the errand ends', () => {
     new RetentionCleanup(t.app.get(ChatRepository), t.app.get(Upstreams), {
       retentionDays: 90,
       intervalMs: DAY_MS,
+      retryMs: 5 * 60_000,
     });
   /** A channel with one message, opened `daysOld` days ago. */
   const openedChannel = async (daysOld = 100) => {

@@ -42,12 +42,10 @@ describe('identity-change invalidation is wired (USR-07)', () => {
     vi.stubEnv('RABBITMQ_URL', 'amqp://broker.test');
     // Imported after the variable is set: the module reads its configuration at load time.
     const { AppModule } = await import('../src/app.module.js');
-    const { RetentionCleanup } = await import('../src/chat/retention.js');
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(AUTHENTICATOR)
       .useValue(authenticator)
       .compile();
-    vi.spyOn(moduleRef.get(RetentionCleanup), 'onApplicationBootstrap').mockReturnValue();
     broker = moduleRef.get<BrokerConnection>(BROKER);
     vi.spyOn(broker, 'connect').mockResolvedValue();
     const consumer = moduleRef.get<EventConsumer>(EVENT_CONSUMER);

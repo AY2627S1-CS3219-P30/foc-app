@@ -1,9 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { AuthContext } from '@foc/auth-client';
 import { ApiException } from '@foc/platform';
-import { env } from '../config.js';
 import { ChatRepository, type SendResult } from './chat.repository.js';
-import { pastRetention } from './retention.js';
+import { pastRetention, RETENTION_OPTIONS, type RetentionOptions } from './retention.js';
 import { SocketHub } from './socket/socket-hub.js';
 import { Upstreams, type OrderForChat } from './upstreams.js';
 import type { Page, Send } from './validation.js';
@@ -36,6 +35,7 @@ export class ChatService {
   constructor(
     @Inject(ChatRepository) private readonly chat: ChatRepository,
     @Inject(Upstreams) private readonly upstreams: Upstreams,
+    @Inject(RETENTION_OPTIONS) private readonly retention: RetentionOptions,
     @Inject(SocketHub) private readonly sockets: SocketHub,
   ) {}
 
@@ -128,7 +128,7 @@ export class ChatService {
    */
   private async access(orderId: string, caller: AuthContext): Promise<Access> {
     const order = await this.upstreams.order(orderId);
-    if (!order || pastRetention(order, env.CHAT_RETENTION_DAYS)) throw notFound();
+    if (!order || pastRetention(order, this.retention.retentionDays)) throw notFound();
     const role =
       caller.userId === order.requesterId
         ? 'REQUESTER'

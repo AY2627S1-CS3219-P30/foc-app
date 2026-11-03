@@ -168,6 +168,10 @@ export class ChatRepository {
     return Number(rows[0]!.last_read_seq);
   }
 
+  /**
+   * Counts the read in this admin's row for the errand, resource and UTC hour, on the database
+   * clock. The hour's first read keeps its correlation ID and `read_at`.
+   */
   async recordAdminRead(
     adminUserId: string,
     orderId: string,
@@ -175,8 +179,11 @@ export class ChatRepository {
     correlationId: string,
   ): Promise<void> {
     await this.db.query(
-      `INSERT INTO admin_channel_reads (id, admin_user_id, order_id, resource, correlation_id)
-       VALUES ($1, $2, $3, $4, $5)`,
+      `INSERT INTO admin_channel_reads
+         (id, admin_user_id, order_id, resource, correlation_id, read_hour)
+       VALUES ($1, $2, $3, $4, $5, date_trunc('hour', statement_timestamp(), 'UTC'))
+       ON CONFLICT (admin_user_id, order_id, resource, read_hour) DO UPDATE
+         SET read_count = admin_channel_reads.read_count + 1, last_read_at = statement_timestamp()`,
       [randomUUID(), adminUserId, orderId, resource, correlationId],
     );
   }
