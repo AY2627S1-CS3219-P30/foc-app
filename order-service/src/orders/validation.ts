@@ -186,6 +186,10 @@ export function parseIdempotencyKey(value: string | undefined): string {
   return value;
 }
 
+/** An order command's key is optional: without one, the command runs as it always has. */
+export const parseOptionalIdempotencyKey = (value: string | undefined): string | undefined =>
+  value === undefined ? undefined : parseIdempotencyKey(value);
+
 /** `status=OPEN,ACCEPTED`: one or more statuses, comma-separated, each one the API knows. */
 const statusListSchema = z
   // A repeated `status` arrives as an array; say how to send several instead.

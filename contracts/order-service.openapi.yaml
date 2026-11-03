@@ -172,6 +172,7 @@ paths:
           in: path
           required: true
           schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/CommandIdempotencyKey'
       requestBody:
         required: true
         content:
@@ -200,6 +201,7 @@ paths:
           in: path
           required: true
           schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/CommandIdempotencyKey'
       requestBody:
         required: true
         content:
@@ -228,6 +230,7 @@ paths:
           in: path
           required: true
           schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/CommandIdempotencyKey'
       requestBody:
         required: true
         content:
@@ -258,6 +261,7 @@ paths:
           in: path
           required: true
           schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/CommandIdempotencyKey'
       requestBody:
         required: true
         content:
@@ -288,6 +292,7 @@ paths:
           in: path
           required: true
           schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/CommandIdempotencyKey'
       requestBody:
         required: true
         content:
@@ -318,6 +323,7 @@ paths:
           in: path
           required: true
           schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/CommandIdempotencyKey'
       requestBody:
         required: true
         content:
@@ -348,6 +354,7 @@ paths:
           in: path
           required: true
           schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/CommandIdempotencyKey'
       requestBody:
         required: true
         content:
@@ -380,6 +387,7 @@ paths:
           in: path
           required: true
           schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/CommandIdempotencyKey'
       requestBody:
         required: true
         content:
@@ -544,13 +552,15 @@ paths:
 
         `403 CONFLICT_OF_INTEREST`: the caller was ever this errand's requester or courier.
         `403 NOT_REFERRED_ADMIN`: the dispute is referred to another administrator, or to no one
-        yet. A repeated decision, or one made on a stale version (for example after the dispute was
-        referred to someone else), is a `409` and changes nothing.
+        yet. A repeated decision without the first one's Idempotency-Key, or one made on a stale
+        version (for example after the dispute was referred to someone else), is a `409` and
+        changes nothing.
       parameters:
         - name: orderId
           in: path
           required: true
           schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/CommandIdempotencyKey'
       requestBody:
         required: true
         content:
@@ -798,6 +808,18 @@ components:
       in: header
       name: X-Service-Key
   parameters:
+    CommandIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Optional. A key belongs to the caller who sent it and never expires. A retry with the same
+        key and request gets the first answer back (the same status and body, with a new
+        `serverTime`), even if the errand has moved on since, and changes nothing. Only a command
+        that took effect is kept: after a refusal the key is still free, and a retry with it is
+        judged again. The same key with a different command, errand, `expectedVersion` or decision
+        is `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a retry is judged like any other command.
+      schema: { type: string, minLength: 1, maxLength: 200 }
     Cursor:
       name: cursor
       in: query
@@ -1370,7 +1392,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     InvalidOrderId:
-      description: The order ID is not a UUID.
+      description: The order ID is not a UUID, or a command's Idempotency-Key is empty or over 200 characters.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
@@ -1400,7 +1422,7 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     InvalidOrder:
-      description: Invalid fields, inactive/unknown supplier, or conflicting idempotency reuse.
+      description: Invalid fields, inactive/unknown supplier, or an Idempotency-Key already used for a different request (`IDEMPOTENCY_KEY_REUSED`).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }

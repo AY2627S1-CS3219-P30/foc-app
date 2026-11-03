@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type { AuthContext } from '@foc/auth-client';
-import { ApiException } from '@foc/platform';
+import { ApiException, type Queryable } from '@foc/platform';
 import {
   IdempotencyKeyReusedError,
+  type Acceptance,
   OrdersRepository,
   type TransitionCommand,
+  type TransitionResult,
 } from './orders.repository.js';
 import { encodeCursor } from './cursor.js';
 import { RESOLVE_ACTIONS, SUSPENSION_EFFECTS, type OrderAction } from './order-state-machine.js';
@@ -207,13 +209,23 @@ export class OrdersService {
     expectedVersion: number,
     caller: AuthContext,
     correlationId: string,
+    idempotencyKey?: string,
   ): Promise<OrderView> {
-    const attempt = await this.orders.accept(
-      orderId,
-      caller.userId,
-      expectedVersion,
-      correlationId,
-    );
+    const request = [orderId, 'ACCEPT', expectedVersion];
+    return this.once(caller, idempotencyKey, request, async (tx) => {
+      const attempt = await this.orders.accept(
+        orderId,
+        caller.userId,
+        expectedVersion,
+        correlationId,
+        tx,
+      );
+      return this.acceptance(attempt, caller);
+    });
+  }
+
+  /** The courier's view of the order they accepted, or why they could not. */
+  private acceptance(attempt: Acceptance, caller: AuthContext): OrderView {
     if (attempt.accepted) {
       const projected = projectOrder(attempt.order, caller);
       if (!projected) throw notFound();
@@ -265,16 +277,28 @@ export class OrdersService {
     expectedVersion: number,
     caller: AuthContext,
     correlationId: string,
-    extra: Pick<TransitionCommand, 'reason' | 'verify'> = {},
+    extra: Pick<TransitionCommand, 'reason' | 'verify'> & { idempotencyKey?: string } = {},
   ): Promise<OrderView> {
-    const result = await this.orders.transition({
-      orderId,
-      action,
-      expectedVersion,
-      actor: { kind: 'USER', id: caller.userId, isAdmin: caller.isAdmin },
-      correlationId,
-      ...extra,
+    const { idempotencyKey, ...details } = extra;
+    const request = [orderId, action, expectedVersion, details.reason ?? null];
+    return this.once(caller, idempotencyKey, request, async (tx) => {
+      const result = await this.orders.transition(
+        {
+          orderId,
+          action,
+          expectedVersion,
+          actor: { kind: 'USER', id: caller.userId, isAdmin: caller.isAdmin },
+          correlationId,
+          ...details,
+        },
+        tx,
+      );
+      return this.answer(result, action, caller);
     });
+  }
+
+  /** The caller's view of an applied command, or the refusal it gets. */
+  private answer(result: TransitionResult, action: OrderAction, caller: AuthContext): OrderView {
     if (result.kind === 'applied') {
       const projected = projectOrder(result.order, caller);
       if (!projected) throw notFound();
@@ -314,13 +338,15 @@ export class OrdersService {
   /**
    * An administrator's decision on a dispute referred to them, with a required reason (ORD-11).
    * Anyone who was ever the errand's requester or courier is refused, as is any administrator the
-   * dispute is not referred to; a repeated or stale decision is a 409 like any other command.
+   * dispute is not referred to; a stale decision, or one repeated without its Idempotency-Key, is a
+   * 409 like any other command.
    */
   async resolve(
     orderId: string,
     input: ResolveOrderInput,
     caller: AuthContext,
     correlationId: string,
+    idempotencyKey?: string,
   ): Promise<OrderView> {
     const order = await this.orders.findById(orderId);
     if (!order || !projectOrder(order, caller)) throw notFound();
@@ -335,6 +361,7 @@ export class OrdersService {
     }
     const action = RESOLVE_ACTIONS[input.outcome];
     return this.command(orderId, action, input.expectedVersion, caller, correlationId, {
+      idempotencyKey,
       reason: input.reason,
       // Checked under the row lock, so a decision racing a reassignment cannot slip through.
       verify: (current) => {
@@ -470,11 +497,34 @@ export class OrdersService {
     }
   }
 
+  /**
+   * Runs a command, at most once per Idempotency-Key when the caller sends one: a retry with the
+   * key gets the first answer back, and the same key with any other request is refused.
+   */
+  private async once(
+    caller: AuthContext,
+    idempotencyKey: string | undefined,
+    request: unknown[],
+    run: (tx?: Queryable) => Promise<OrderView>,
+  ): Promise<OrderView> {
+    if (idempotencyKey === undefined) return run();
+    const requestHash = createHash('sha256').update(JSON.stringify(request)).digest('hex');
+    try {
+      return await this.orders.withCommandKey(
+        { callerId: caller.userId, idempotencyKey, requestHash },
+        run,
+      );
+    } catch (error) {
+      if (error instanceof IdempotencyKeyReusedError) throw this.idempotencyReused();
+      throw error;
+    }
+  }
+
   private idempotencyReused(): ApiException {
     return new ApiException(
       422,
       'IDEMPOTENCY_KEY_REUSED',
-      'This Idempotency-Key was already used for a different order request.',
+      'This Idempotency-Key was already used for a different request.',
     );
   }
 }

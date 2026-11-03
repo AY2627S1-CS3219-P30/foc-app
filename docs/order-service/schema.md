@@ -123,6 +123,13 @@ recorded. A trigger refuses every `UPDATE` and `DELETE`, so what a completed err
 Saved with the errand, so a retried create returns the same errand, and reusing a key with a different
 request is refused.
 
+### `order_command_idempotency_keys`
+
+`(caller_id, idempotency_key)` primary key, a hash of the request (command, errand, version and any
+decision), and the answer the caller got. Saved in the transaction of a command that took effect, so
+a retry with the key gets that answer back, and reusing it with a different request is refused. No
+foreign key: the answer is all a retry needs. Never deleted.
+
 ### `processed_events` (the inbox)
 
 `(consumer, event_id)` primary key. Each message received is recorded in the transaction it causes, so

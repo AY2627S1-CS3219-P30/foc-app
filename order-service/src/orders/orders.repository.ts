@@ -17,6 +17,7 @@ import type {
   OrderReceipt,
   OrderRow,
   OrderStatus,
+  OrderView,
   ReleaseReason,
   SupplierSnapshot,
   OrderItem,
@@ -121,9 +122,12 @@ export interface CreatePendingInput extends CreateOrderInput {
   correlationId: string;
 }
 
+export type Acceptance =
+  { accepted: true; order: OrderRow } | { accepted: false; order?: OrderRow };
+
 export class IdempotencyKeyReusedError extends Error {
   constructor() {
-    super('Idempotency-Key was reused with a different order request.');
+    super('Idempotency-Key was reused with a different request.');
     this.name = 'IdempotencyKeyReusedError';
   }
 }
@@ -777,13 +781,52 @@ export class OrdersRepository {
     });
   }
 
+  /**
+   * Runs one caller's order command under their Idempotency-Key, one send of a key at a time. A
+   * key already recorded returns the answer recorded with it, whatever the order has done since,
+   * or throws IdempotencyKeyReusedError if it was recorded for a different request. `run` refuses
+   * by throwing, which records nothing, so only an applied command's answer is kept, in the same
+   * transaction as its transition. Keys never expire.
+   */
+  async withCommandKey(
+    key: { callerId: string; idempotencyKey: string; requestHash: string },
+    run: (tx: Queryable) => Promise<OrderView>,
+  ): Promise<OrderView> {
+    return this.db.transaction(async (tx) => {
+      await tx.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+        `${key.callerId}:${key.idempotencyKey}`,
+      ]);
+      const existing = await tx.query<{ request_hash: string; response: OrderView } & Row>(
+        `SELECT request_hash, response
+           FROM order_command_idempotency_keys
+          WHERE caller_id = $1 AND idempotency_key = $2`,
+        [key.callerId, key.idempotencyKey],
+      );
+      if (existing.rows[0]) {
+        if (existing.rows[0].request_hash !== key.requestHash) {
+          throw new IdempotencyKeyReusedError();
+        }
+        return { ...existing.rows[0].response, serverTime: new Date().toISOString() };
+      }
+      const response = await run(tx);
+      await tx.query(
+        `INSERT INTO order_command_idempotency_keys
+           (caller_id, idempotency_key, request_hash, response)
+         VALUES ($1, $2, $3, $4::jsonb)`,
+        [key.callerId, key.idempotencyKey, key.requestHash, JSON.stringify(response)],
+      );
+      return response;
+    });
+  }
+
   async accept(
     orderId: string,
     courierId: string,
     expectedVersion: number,
     correlationId: string,
-  ): Promise<{ accepted: true; order: OrderRow } | { accepted: false; order?: OrderRow }> {
-    return this.db.transaction(async (tx) => {
+    outer?: Queryable,
+  ): Promise<Acceptance> {
+    const run = async (tx: Queryable): Promise<Acceptance> => {
       const updated = await tx.query<StoredOrder>(
         `UPDATE orders
             SET courier_id = $2, status = 'ACCEPTED', version = version + 1,
@@ -822,7 +865,8 @@ export class OrdersRepository {
         },
       });
       return { accepted: true, order };
-    });
+    };
+    return outer ? run(outer) : this.db.transaction(run);
   }
 
   /**
