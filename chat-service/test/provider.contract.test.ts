@@ -11,11 +11,12 @@ import {
 } from '@foc/platform';
 import { ContractValidator } from '@foc/test-harness';
 import { AppModule } from '../src/app.module.js';
+import { RetentionCleanup } from '../src/chat/retention.js';
 import { as, createTestApp, http as httpOf, message, type TestApp } from './helpers/app.js';
 
 /**
  * Provider contract check (TST-01, EI-NFR3.1.1): real responses from the running module must
- * satisfy contracts/chat-service.openapi.yaml. Only /health is served until #162 adds the channels.
+ * satisfy contracts/chat-service.openapi.yaml.
  */
 describe('chat-service honours its published contract', () => {
   const contract = ContractValidator.for('chat-service');
@@ -25,6 +26,8 @@ describe('chat-service honours its published contract', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    // The retention cleanup would ask a database this suite does not have; it is tested on its own.
+    vi.spyOn(moduleRef.get(RetentionCleanup), 'onApplicationBootstrap').mockReturnValue();
     app = moduleRef.createNestApplication();
     app.useGlobalFilters(new ErrorEnvelopeFilter());
     await app.init();
@@ -84,7 +87,7 @@ describe('chat-service channels honour the contract', () => {
 
   it('GET /channels/{orderId} (200, 400, 401, 403, 404, 503)', async () => {
     const template = '/channels/{orderId}';
-    const get = (id: string, who?: 'requester' | 'stranger') => {
+    const get = (id: string, who?: 'requester' | 'stranger' | 'admin') => {
       const req = httpOf(t).get(`/channels/${id}`);
       return who ? req.set('Authorization', as(who)) : req;
     };
@@ -94,12 +97,24 @@ describe('chat-service channels honour the contract', () => {
     contract.assert('get', template, await get(orderId));
     contract.assert('get', template, await get(orderId, 'stranger'));
     contract.assert('get', template, await get(randomUUID(), 'requester'));
+    const admin = await get(orderId, 'admin');
+    expect(admin.body.myRole).toBe('ADMIN');
+    contract.assert('get', template, admin);
+    const expired = t.upstreams.errand();
+    await get(expired, 'requester');
+    t.upstreams.update(expired, {
+      status: 'COMPLETED',
+      endedAt: new Date(Date.now() - 91 * 24 * 60 * 60_000).toISOString(),
+    });
+    const gone = await get(expired, 'admin');
+    expect(gone.status).toBe(404);
+    contract.assert('get', template, gone);
     t.upstreams.down = true;
     contract.assert('get', template, await get(orderId, 'requester'));
     t.upstreams.down = false;
   });
 
-  it('POST and GET /channels/{orderId}/messages (201, 200, 200 page, 409, 422)', async () => {
+  it('POST and GET /channels/{orderId}/messages (201, 200, 200 page, 403, 409, 422)', async () => {
     const template = '/channels/{orderId}/messages';
     const orderId = t.upstreams.errand();
     const post = (body: object) =>
@@ -116,11 +131,32 @@ describe('chat-service channels honour the contract', () => {
       httpOf(t).get(`/channels/${orderId}/messages${query}`).set('Authorization', as('courier'));
     contract.assert('get', template, await list('?after=0'));
     contract.assert('get', template, await list('?after=0&before=2'));
+    contract.assert('get', template, await list('?after=2147483648'));
+    const asAdmin = await httpOf(t)
+      .post(`/channels/${orderId}/messages`)
+      .set('Authorization', as('admin'))
+      .send(message('as the admin'));
+    expect(asAdmin.status).toBe(403);
+    contract.assert('post', template, asAdmin);
     t.upstreams.update(orderId, { status: 'CANCELLED', endedAt: new Date().toISOString() });
     contract.assert('post', template, await post(message('too late')));
   });
 
-  it('PUT /channels/{orderId}/read (200, 422)', async () => {
+  it('POST /channels/{orderId}/messages (429 with Retry-After)', async () => {
+    const orderId = t.upstreams.errand();
+    const post = () =>
+      httpOf(t)
+        .post(`/channels/${orderId}/messages`)
+        .set('Authorization', as('courier'))
+        .send(message('hello'));
+    // Other tests in this suite share the app, so send until refused rather than exactly 20.
+    let res = await post();
+    for (let i = 0; i < 20 && res.status === 201; i++) res = await post();
+    expect(res.status).toBe(429);
+    contract.assert('post', '/channels/{orderId}/messages', res);
+  });
+
+  it('PUT /channels/{orderId}/read (200, 403, 422)', async () => {
     const template = '/channels/{orderId}/read';
     const orderId = t.upstreams.errand();
     const put = (seq: unknown) =>
@@ -130,6 +166,12 @@ describe('chat-service channels honour the contract', () => {
         .send({ seq });
     contract.assert('put', template, await put(0));
     contract.assert('put', template, await put(5));
+    const asAdmin = await httpOf(t)
+      .put(`/channels/${orderId}/read`)
+      .set('Authorization', as('admin'))
+      .send({ seq: 0 });
+    expect(asAdmin.status).toBe(403);
+    contract.assert('put', template, asAdmin);
     expect((await put(0)).status).toBe(200);
   });
 });

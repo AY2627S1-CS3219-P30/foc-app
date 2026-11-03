@@ -9,6 +9,9 @@ import {
   type Person,
   type TestApp,
 } from './helpers/app.js';
+import { ChatRepository } from '../src/chat/chat.repository.js';
+import { RetentionCleanup } from '../src/chat/retention.js';
+import { Upstreams } from '../src/chat/upstreams.js';
 
 /**
  * NTH-02 (#162, ADR 0012): one channel per errand, open from acceptance to a final status, read
@@ -62,13 +65,17 @@ describe('a channel opens with a courier and is bound to one errand', () => {
 });
 
 describe('who may read and send', () => {
-  it('refuses anyone but the requester and the current courier', async () => {
+  it('refuses anyone but the participants and administrators: 403 to read, send and mark read', async () => {
     const orderId = t.upstreams.errand();
-    for (const who of ['stranger', 'admin'] as const) {
-      expect((await channel(orderId, who).expect(403)).body.error.code).toBe('NOT_PARTICIPANT');
-      await page(orderId, '', who).expect(403);
-      await send(orderId, message('let me in'), who).expect(403);
-      await read(orderId, 0, who).expect(403);
+    await send(orderId, message('private')).expect(201);
+    for (const res of [
+      await channel(orderId, 'stranger'),
+      await page(orderId, '', 'stranger'),
+      await send(orderId, message('let me in'), 'stranger'),
+      await read(orderId, 0, 'stranger'),
+    ]) {
+      expect([res.status, res.body.error.code]).toEqual([403, 'NOT_PARTICIPANT']);
+      expect(JSON.stringify(res.body)).not.toContain('private');
     }
   });
 
@@ -141,6 +148,7 @@ describe('sending', () => {
       message('nul \0 inside'),
       message('x'.repeat(281)),
       message('🙂'.repeat(281)),
+      message(' \n\t\u00a0'),
     ]) {
       expect((await send(orderId, body).expect(422)).body.error.code).toBe('VALIDATION_FAILED');
     }
@@ -212,10 +220,13 @@ describe('paging', () => {
       '?before=0',
       // Past PostgreSQL's integer, which would otherwise be a 500.
       '?after=2147483648',
+      '?before=2147483648',
       '?before=99999999999',
     ]) {
       expect((await page(orderId, query).expect(422)).body.error.code).toBe('VALIDATION_FAILED');
     }
+    await page(orderId, '?after=2147483647').expect(200);
+    await page(orderId, '?before=2147483647').expect(200);
   });
 });
 
@@ -265,5 +276,240 @@ describe('the Order and User Services', () => {
     expect(t.upstreams.calls.length).toBeGreaterThan(0);
     expect(new Set(t.upstreams.calls.map((call) => call.method))).toEqual(new Set(['GET']));
     expect(t.upstreams.errands.get(orderId)).toMatchObject({ status: 'COMPLETED' });
+  });
+});
+
+/** NTH-03 (#163, ADR 0012 §2, §5, §6): administrators read only, the limits, and retention. */
+const DAY_MS = 24 * 60 * 60_000;
+const daysAgo = (days: number) => new Date(Date.now() - days * DAY_MS).toISOString();
+const adminReads = async () =>
+  (
+    await t.db.query<{ admin_user_id: string; order_id: string; resource: string }>(
+      'SELECT admin_user_id, order_id, resource FROM admin_channel_reads ORDER BY read_at',
+    )
+  ).rows;
+const channelRows = async (orderId: string) =>
+  (await t.db.query('SELECT 1 FROM channels WHERE order_id = $1', [orderId])).rows.length;
+
+describe('administrators read, and only read', () => {
+  it('reads any channel and its messages, and every read is recorded', async () => {
+    const orderId = t.upstreams.errand();
+    await send(orderId, message('the agreed price')).expect(201);
+    await read(orderId, 1).expect(200);
+
+    const res = await channel(orderId, 'admin')
+      .set('X-Correlation-Id', 'dispute-review-1')
+      .expect(200);
+    expect(res.body).toMatchObject({
+      myRole: 'ADMIN',
+      requester: PEOPLE.requester,
+      courier: PEOPLE.courier,
+      lastReadSeq: 0,
+      latestSeq: 1,
+    });
+    const messages = await page(orderId, '', 'admin').expect(200);
+    expect(messages.body.items).toMatchObject([{ seq: 1, body: 'the agreed price' }]);
+
+    expect(await adminReads()).toEqual([
+      { admin_user_id: PEOPLE.admin.userId, order_id: orderId, resource: 'CHANNEL' },
+      { admin_user_id: PEOPLE.admin.userId, order_id: orderId, resource: 'MESSAGES' },
+    ]);
+    const { rows } = await t.db.query<{ correlation_id: string }>(
+      `SELECT correlation_id FROM admin_channel_reads WHERE resource = 'CHANNEL'`,
+    );
+    expect(rows[0]!.correlation_id).toBe('dispute-review-1');
+  });
+
+  it('cannot send or mark read, and neither is recorded as a read', async () => {
+    const orderId = t.upstreams.errand();
+    await channel(orderId).expect(200);
+    const sent = await send(orderId, message('as the admin'), 'admin').expect(403);
+    expect(sent.body.error.code).toBe('NOT_PARTICIPANT');
+    expect((await read(orderId, 0, 'admin').expect(403)).body.error.code).toBe('NOT_PARTICIPANT');
+    expect((await page(orderId).expect(200)).body.items).toEqual([]);
+    expect(await adminReads()).toEqual([]);
+  });
+
+  it('gets 404 for a channel never opened, and opens nothing', async () => {
+    const orderId = t.upstreams.errand();
+    expect((await channel(orderId, 'admin').expect(404)).body.error.code).toBe('NOT_FOUND');
+    await page(orderId, '', 'admin').expect(404);
+    expect(await channelRows(orderId)).toBe(0);
+    expect(await adminReads()).toEqual([]);
+  });
+
+  it('is the participant on their own errand: sends, and their reads are not recorded', async () => {
+    const orderId = t.upstreams.errand({ requesterId: PEOPLE.admin.userId });
+    expect((await channel(orderId, 'admin').expect(200)).body.myRole).toBe('REQUESTER');
+    await send(orderId, message('my own errand'), 'admin').expect(201);
+    expect((await read(orderId, 1, 'admin').expect(200)).body).toEqual({ lastReadSeq: 1 });
+    expect(await adminReads()).toEqual([]);
+  });
+});
+
+describe('an errand that has ended', () => {
+  it('rejects a new message with 409 server-side', async () => {
+    const orderId = t.upstreams.errand();
+    await channel(orderId).expect(200);
+    t.upstreams.update(orderId, { status: 'CANCELLED', endedAt: new Date().toISOString() });
+    expect((await send(orderId, message('late')).expect(409)).body.error.code).toBe(
+      'CHANNEL_CLOSED',
+    );
+  });
+
+  it('opens no new channel: 404 if it never had one', async () => {
+    const orderId = t.upstreams.errand({ status: 'COMPLETED', endedAt: new Date().toISOString() });
+    expect((await channel(orderId).expect(404)).body.error.code).toBe('NOT_FOUND');
+    await page(orderId, '', 'courier').expect(404);
+    await send(orderId, message('hello?')).expect(404);
+    expect(await channelRows(orderId)).toBe(0);
+  });
+});
+
+describe('message length', () => {
+  it('counts code points: 280 emoji are accepted, 281 characters are not', async () => {
+    const orderId = t.upstreams.errand();
+    const emoji = '\u{1F600}'.repeat(280);
+    expect(emoji.length).toBe(560);
+    expect((await send(orderId, message(emoji)).expect(201)).body.body).toBe(emoji);
+
+    const tooLong = await send(orderId, message('\u{1F600}'.repeat(281))).expect(422);
+    expect(tooLong.body.error).toMatchObject({
+      code: 'VALIDATION_FAILED',
+      details: [{ field: 'body', message: 'At most 280 characters.' }],
+    });
+  });
+
+  it('refuses a body of only whitespace', async () => {
+    const orderId = t.upstreams.errand();
+    const res = await send(orderId, message('  \n\t ')).expect(422);
+    expect(res.body.error).toMatchObject({
+      code: 'VALIDATION_FAILED',
+      details: [{ field: 'body', message: 'Must not be only whitespace.' }],
+    });
+    await send(orderId, message('  ok  ')).expect(201);
+  });
+});
+
+describe('20 new messages a minute per sender', () => {
+  const sendMany = async (orderId: string, count: number, who: Person = 'requester') => {
+    for (let i = 0; i < count; i++) await send(orderId, message(`m${i}`), who).expect(201);
+  };
+  /** Moves the sender's oldest messages back in time, as if they were sent `seconds` ago. */
+  const age = (count: number, seconds: number) =>
+    t.db.query(
+      `UPDATE messages SET sent_at = now() - make_interval(secs => $2)
+        WHERE (order_id, seq) IN (SELECT order_id, seq FROM messages WHERE sender_id = $1
+                                   ORDER BY sent_at, seq LIMIT $3)`,
+      [PEOPLE.requester.userId, seconds, count],
+    );
+
+  it('refuses the 21st with 429 and the seconds until the oldest leaves the window', async () => {
+    const orderId = t.upstreams.errand();
+    await sendMany(orderId, 20);
+    await age(1, 50);
+    const limited = await send(orderId, message('one too many')).expect(429);
+    expect(limited.body.error.code).toBe('RATE_LIMITED');
+    expect(limited.headers['retry-after']).toBe('10');
+    expect((await channel(orderId).expect(200)).body.latestSeq).toBe(20);
+    // Another sender has their own allowance.
+    await send(orderId, message('still here'), 'courier').expect(201);
+  });
+
+  it('answers a retry of a stored message at the limit, without counting it', async () => {
+    const orderId = t.upstreams.errand();
+    const first = message('first');
+    const stored = await send(orderId, first).expect(201);
+    await sendMany(orderId, 19);
+    expect((await send(orderId, first).expect(200)).body).toEqual(stored.body);
+    await send(orderId, message('new')).expect(429);
+  });
+
+  it('counts across all of the sender’s channels', async () => {
+    const [a, b, c] = [t.upstreams.errand(), t.upstreams.errand(), t.upstreams.errand()];
+    await sendMany(a, 10);
+    await sendMany(b, 10);
+    expect((await send(c, message('third errand')).expect(429)).body.error.code).toBe(
+      'RATE_LIMITED',
+    );
+  });
+
+  it('slides: a message older than 60 seconds no longer counts', async () => {
+    const orderId = t.upstreams.errand();
+    await sendMany(orderId, 20);
+    await age(5, 61);
+    await sendMany(orderId, 5);
+    await send(orderId, message('sixth')).expect(429);
+  });
+});
+
+describe('kept 90 days after the errand ends', () => {
+  const cleanup = () =>
+    new RetentionCleanup(t.app.get(ChatRepository), t.app.get(Upstreams), {
+      retentionDays: 90,
+      intervalMs: DAY_MS,
+    });
+  /** A channel with one message, opened `daysOld` days ago. */
+  const openedChannel = async (daysOld = 100) => {
+    const orderId = t.upstreams.errand();
+    await send(orderId, message('evidence')).expect(201);
+    await t.db.query(
+      `UPDATE channels SET created_at = now() - make_interval(days => $2) WHERE order_id = $1`,
+      [orderId, daysOld],
+    );
+    return orderId;
+  };
+  const end = (orderId: string, days: number) =>
+    t.upstreams.update(orderId, { status: 'COMPLETED', endedAt: daysAgo(days) });
+
+  it('answers 404 on every route, to everyone, once 90 days have passed', async () => {
+    const orderId = await openedChannel();
+    end(orderId, 89);
+    await page(orderId, '', 'admin').expect(200);
+    end(orderId, 91);
+    for (const who of ['requester', 'courier', 'admin', 'stranger'] as const) {
+      for (const res of [
+        await channel(orderId, who),
+        await page(orderId, '', who),
+        await send(orderId, message('anyone?'), who),
+        await read(orderId, 0, who),
+      ]) {
+        expect([res.status, res.body.error.code]).toEqual([404, 'NOT_FOUND']);
+      }
+    }
+  });
+
+  it('deletes only channels past retention, and keeps the admin read records', async () => {
+    const expired = await openedChannel();
+    const recent = await openedChannel();
+    const running = await openedChannel();
+    const unknown = await openedChannel();
+    const youngChannel = await openedChannel(1);
+    await page(expired, '', 'admin').expect(200);
+    end(expired, 91);
+    end(recent, 10);
+    end(youngChannel, 91);
+    t.upstreams.errands.delete(unknown);
+
+    expect(await cleanup().sweep()).toEqual({ deleted: 1, kept: 2, skipped: 0, unknown: 1 });
+    expect(await channelRows(expired)).toBe(0);
+    const left = await t.db.query('SELECT 1 FROM messages WHERE order_id = $1', [expired]);
+    expect(left.rows).toEqual([]);
+    for (const kept of [recent, running, unknown, youngChannel]) {
+      expect(await channelRows(kept)).toBe(1);
+    }
+    expect(await adminReads()).toEqual([
+      { admin_user_id: PEOPLE.admin.userId, order_id: expired, resource: 'MESSAGES' },
+    ]);
+  });
+
+  it('deletes nothing while the Order Service does not answer', async () => {
+    const orderId = await openedChannel();
+    end(orderId, 91);
+    t.upstreams.down = true;
+    expect(await cleanup().sweep()).toEqual({ deleted: 0, kept: 0, skipped: 1, unknown: 0 });
+    expect(await channelRows(orderId)).toBe(1);
+    t.upstreams.down = false;
+    expect((await cleanup().sweep()).deleted).toBe(1);
   });
 });

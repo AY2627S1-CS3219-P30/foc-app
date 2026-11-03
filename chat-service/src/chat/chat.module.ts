@@ -24,6 +24,7 @@ export class ChatModule {
           inject: [LOGGER],
         },
       ],
+      exports: [ChatRepository, Upstreams],
     };
   }
 }

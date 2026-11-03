@@ -9,15 +9,17 @@ info:
     and decides from that answer alone; chat keeps no copy of the errand. If the Order Service or
     the User Service does not answer, the request fails closed with `503 UNAVAILABLE`.
 
-    - **Read:** the requester, the current courier and administrators.
+    - **Read:** the requester, the current courier and administrators. Every administrator read
+      is recorded (ADR 0008); a user who is both is treated as the participant.
     - **Send:** the requester and the current courier, while the channel is open: the errand has a
       courier and has not reached a final status.
     - **Mark read:** the requester and the current courier.
 
-    An authorized request opens a missing channel while the errand has a courier. Otherwise,
-    every channel route answers `404` for an unknown errand, an errand with no channel opened while
-    it had a courier, or an errand whose 90-day retention period has ended. Acceptance alone does
-    not create a channel: a courier can withdraw before anyone opens it.
+    A participant's request opens a missing channel while the errand has a courier and has not
+    reached a final status; an administrator's never does. Otherwise, every channel route answers
+    `404` for an unknown errand, an errand with no channel opened while it had a courier, or an
+    errand whose 90-day retention period has ended. Acceptance alone does not create a channel: a
+    courier can withdraw before anyone opens it.
 servers:
   - url: http://localhost:3006
 security:
@@ -308,8 +310,9 @@ components:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     NotFound:
       description: >-
-        `NOT_FOUND`: the errand is unknown, no channel was opened while it had a courier and it has no
-        current courier to open one, or its 90-day retention period has ended.
+        `NOT_FOUND`: the errand is unknown, no channel was opened while it had a courier and none can
+        open now (it has no current courier, has reached a final status, or the caller is an
+        administrator), or its 90-day retention period has ended.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
