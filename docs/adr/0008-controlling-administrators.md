@@ -92,6 +92,8 @@ revokes the whole session family as soon as the real browser refreshes.
   (`GET /admin/directory`) is not recorded: email, display name, roles and status, enough to find an
   account and see its standing, and nothing of its profile. The console finds and names accounts
   through it.
+  Chat records every admin read of a channel or its messages (`admin_channel_reads`), one row per
+  admin, errand, resource and hour, with a count (ADR 0012, #163).
 - **Alerts** (`GET /admin/alerts`, and a structured warn log) when:
 
   | Alert                      | When                                                      | Default |
@@ -146,6 +148,7 @@ neither stay unnoticed nor be undone quietly.
 | Order    | decide a referred errand (ORD-11)           | reason; audited; conflict-of-interest rule                            |
 | Credit   | read a wallet or ledger                     | admin only; every read recorded; bulk-read alert                      |
 | Credit   | read an errand's credit record, alerts      | admin only; read-only; no balances, so not a recorded wallet read     |
+| Chat     | read a channel or its messages              | admin only; read-only; every read recorded (`admin_channel_reads`)    |
 | Platform | redrive a dead letter (PLT-05)              | admin only; reason; payload unchanged; recorded once, never deleted   |
 | Platform | publish to the broker                       | one broker account per service, limited to its own events (PLT-06)    |
 
