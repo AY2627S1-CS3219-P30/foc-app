@@ -604,7 +604,8 @@ final status changes who may chat from the next request, with no event to follow
 ```
 
 - `courierId` is the current courier: `null` before acceptance and after a withdrawal, pickup
-  timeout or courier suspension.
+  timeout or a courier suspension before pickup. A courier suspended after pickup stays
+  `courierId` while the errand is `DISPUTED`; they cannot sign in, so they cannot use chat.
 - `endedAt` is when the errand reached a final status (`COMPLETED`, `CANCELLED`, `EXPIRED`,
   `REJECTED`), from the status history, which is never rewritten. A `*_PENDING_CREDIT` errand has
   not ended.
@@ -682,6 +683,8 @@ SERVICE_NAME=order-service PORT=3003 \
   CREDIT_SERVICE_URL=http://localhost:3004 RECONCILE_INTERVAL_MS=60000 RECONCILE_RETRY_MS=300000 \
   INTERNAL_SERVICE_KEYS=$ORDER_INBOUND_SERVICE_KEYS \
   npm run dev:order
+# INTERNAL_SERVICE_KEYS must be overridden: .env's value is the User Service's list of every
+# service's key, and an Order started with it would accept them all on /internal/**.
 curl -i http://localhost:3003/health
 ```
 

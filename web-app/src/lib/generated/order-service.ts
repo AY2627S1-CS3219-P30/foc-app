@@ -621,8 +621,10 @@ export interface paths {
         /**
          * Read what the Chat Service decides access from (N1.2, ADR 0012).
          * @description Chat asks on every request and keeps no copy. `courierId` is the current courier: null
-         *     before acceptance and after a withdrawal, timeout or suspension. `endedAt` is when the
-         *     errand reached a final status (`COMPLETED`, `CANCELLED`, `EXPIRED`, `REJECTED`), else null.
+         *     before acceptance and after a withdrawal, pickup timeout or a courier suspension before
+         *     pickup; one suspended after pickup stays courier while the errand is DISPUTED. `endedAt`
+         *     is when the errand reached a final status (`COMPLETED`, `CANCELLED`, `EXPIRED`,
+         *     `REJECTED`), else null.
          */
         get: operations["getOrderForChat"];
         put?: never;
