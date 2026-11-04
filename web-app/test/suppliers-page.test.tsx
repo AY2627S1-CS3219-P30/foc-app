@@ -386,6 +386,88 @@ describe('supplier page: listing', () => {
     expect(container.textContent).toContain('No suppliers found');
     expect(container.textContent).toContain('Try another search, type or building.');
     expect(cards(container)).toHaveLength(0);
+    expect(Array.from(container.querySelectorAll('button')).map((b) => b.textContent)).not.toContain(
+      'Clear search and filters',
+    );
+    expect(buttons(container, 'Clear search')).toHaveLength(0);
+    expect(buttons(container, 'Clear filters')).toHaveLength(0);
+  });
+
+  it('offers to clear the search and filters when they match nothing (UI-FR6.1.1)', async () => {
+    const service = fakeService(3);
+    const clock = fakeClock();
+    try {
+      const container = await renderPage(service);
+      service.override = (call) =>
+        call.method === 'GET' && call.path === '/suppliers' && call.query.has('q')
+          ? json(200, { items: [], page: 1, pageSize: 20, total: 0 })
+          : undefined;
+      await setValue(control<HTMLSelectElement>(container, 'Sort by'), 'building');
+      await setValue(control<HTMLSelectElement>(container, 'Type'), 'CAFE');
+      await setValue(control<HTMLSelectElement>(container, 'Building'), 'COM2');
+      await setValue(control<HTMLInputElement>(container, 'Search suppliers'), 'nothing like this');
+      await clock.advance(300);
+      await flush();
+      expect(container.textContent).toContain('No suppliers found');
+      expect(cards(container)).toHaveLength(0);
+
+      await click(button(container, 'Clear search and filters'));
+
+      const search = control<HTMLInputElement>(container, 'Search suppliers');
+      expect(search.value).toBe('');
+      expect(control<HTMLSelectElement>(container, 'Type').value).toBe('');
+      expect(control<HTMLSelectElement>(container, 'Building').value).toBe('');
+      expect(Object.fromEntries(lastList(service))).toEqual({
+        page: '1',
+        pageSize: '20',
+        sort: 'building',
+        order: 'asc',
+      });
+      expect(cards(container)).toHaveLength(3);
+      expect(buttons(container, 'Clear search and filters')).toHaveLength(0);
+      // The button that had focus is gone, so focus goes back to where a new search starts.
+      expect(window.document.activeElement as unknown).toBe(search);
+    } finally {
+      clock.restore();
+    }
+  });
+
+  it('offers to clear a filter on its own, without any search', async () => {
+    const service = fakeService(3);
+    const container = await renderPage(service);
+    service.override = (call) =>
+      call.method === 'GET' && call.path === '/suppliers' && call.query.has('type')
+        ? json(200, { items: [], page: 1, pageSize: 20, total: 0 })
+        : undefined;
+    await setValue(control<HTMLSelectElement>(container, 'Type'), 'CAFE');
+    await flush();
+
+    await click(button(container, 'Clear filters'));
+
+    expect(lastList(service).has('type')).toBe(false);
+    expect(cards(container)).toHaveLength(3);
+  });
+
+  it('says it clears the search when only a search is set', async () => {
+    const service = fakeService(3);
+    const clock = fakeClock();
+    try {
+      const container = await renderPage(service);
+      service.override = (call) =>
+        call.method === 'GET' && call.path === '/suppliers' && call.query.has('q')
+          ? json(200, { items: [], page: 1, pageSize: 20, total: 0 })
+          : undefined;
+      await setValue(control<HTMLInputElement>(container, 'Search suppliers'), 'nothing like this');
+      await clock.advance(300);
+      await flush();
+
+      await click(button(container, 'Clear search'));
+
+      expect(lastList(service).has('q')).toBe(false);
+      expect(cards(container)).toHaveLength(3);
+    } finally {
+      clock.restore();
+    }
   });
 });
 
