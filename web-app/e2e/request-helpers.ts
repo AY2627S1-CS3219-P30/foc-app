@@ -69,7 +69,12 @@ export async function activeStudent(request: APIRequestContext, email: string): 
 }
 
 /** The errand journey's students, registered once per run by `global-setup.ts`. */
-export const ERRAND_STUDENTS = { requester: "E2E Requester", winner: "E2E Winner", loser: "E2E Loser" };
+export const ERRAND_STUDENTS = {
+  requester: "E2E Requester",
+  winner: "E2E Winner",
+  loser: "E2E Loser",
+  layout: "E2E Layout",
+};
 
 export const errandEmail = (who: keyof typeof ERRAND_STUDENTS) =>
   `e2e-errand-${who}-${process.env.E2E_RUN}@u.nus.edu`;
