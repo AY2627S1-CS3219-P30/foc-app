@@ -1,5 +1,6 @@
-import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
-import { ORDER, ORDER_URL, USER, compose, errandEmail, firstSupplier, signIn } from "./request-helpers";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+import { badge, readOrder, student, waitStatus } from "./release-helpers";
+import { ORDER, ORDER_URL, compose, firstSupplier, releaseEmail, signIn } from "./request-helpers";
 
 /**
  * UI-NFR1.1.1 and UI-NFR1.1.2 (#374), on the screens UI-NFR1.1.1 names, against the real stack.
@@ -8,6 +9,9 @@ import { ORDER, ORDER_URL, USER, compose, errandEmail, firstSupplier, signIn } f
  * control is at least 44 by 44 CSS px, and the screen's primary next action can be seen without the
  * app bar covering it. Every screen is measured before anything is asserted, so one run names every
  * failure.
+ *
+ * In the release suite, on its own stack: it signs in twice per width, and the smoke suite is close
+ * to the real limit of 50 sign-ins per address.
  */
 const MIN_TARGET = 44;
 const PHONE_WIDTH = 480;
@@ -103,119 +107,109 @@ async function check(page: Page, screen: string, findings: Finding[], primary?: 
   }
 }
 
-async function courierPage(browser: Browser, like: Page, email: string): Promise<Page> {
-  const context = await browser.newContext({
-    baseURL: test.info().project.use.baseURL,
-    viewport: like.viewportSize(),
-  });
-  const token = await signIn(context.request, email);
-  const mode = await context.request.patch(`${USER}/users/me`, {
-    headers: { authorization: `Bearer ${token}` },
-    data: { preferredMode: "COURIER" },
-  });
-  expect(mode.ok(), await mode.text()).toBe(true);
-  return context.newPage();
-}
-
 const shown = (page: Page, role: "button" | "link", name: string | RegExp) =>
   page.getByRole(role, { name, exact: typeof name === "string" }).filter({ visible: true }).first();
 
-test("mobile layout: tap targets, primary actions and no sideways scroll on every core screen", async ({
-  browser,
-  page,
-  request,
-}, testInfo) => {
-  test.setTimeout(120_000);
-  const findings: Finding[] = [];
+test.describe("mobile layout @release", () => {
+  test.skip(process.env.E2E_RELEASE !== "1", "Run on the dedicated clean release stack with E2E_RELEASE=1.");
+  test.describe.configure({ timeout: 120_000 });
 
-  await page.goto("/login");
-  const signInButton = shown(page, "button", "Sign in");
-  await expect(signInButton).toBeVisible();
-  await check(page, "sign in", findings, signInButton);
+  test("mobile layout: tap targets, primary actions and no sideways scroll on every core screen", async ({
+    browser,
+    page,
+  }, testInfo) => {
+    const findings: Finding[] = [];
 
-  await page.goto("/register");
-  const createAccount = shown(page, "button", "Create account");
-  await expect(createAccount).toBeVisible();
-  await check(page, "registration", findings, createAccount);
+    await page.goto("/login");
+    const signInButton = shown(page, "button", "Sign in");
+    await expect(signInButton).toBeVisible();
+    await check(page, "sign in", findings, signInButton);
 
-  const token = await signIn(page.request, errandEmail("layout"));
-  const auth = { authorization: `Bearer ${token}` };
+    await page.goto("/register");
+    const createAccount = shown(page, "button", "Create account");
+    await expect(createAccount).toBeVisible();
+    await check(page, "registration", findings, createAccount);
 
-  await page.goto("/suppliers");
-  await expect(page.locator("article").first()).toBeVisible();
-  await check(page, "supplier search", findings, page.getByRole("searchbox", { name: "Search suppliers" }));
-  const filters = page.getByRole("button", { name: "Filters and sort" });
-  if (await filters.isVisible()) {
-    await filters.click();
-    await check(page, "supplier search: filters open", findings);
-  }
-  await page.locator("article").first().getByRole("button").first().click();
-  await check(page, "supplier search: card expanded", findings);
+    const token = await signIn(page.request, releaseEmail("requester"));
+    const auth = { authorization: `Bearer ${token}` };
 
-  const supplier = await firstSupplier(page.request, token);
-  await page.goto("/request/new");
-  const pick = page.getByRole("button", { name: supplier.name });
-  await expect(pick).toBeVisible();
-  await check(page, "request creation: pickup point", findings, pick);
-  await page.goto(`/request/new/details?supplierId=${supplier.supplierId}`);
-  const reviewButton = shown(page, "button", "Review request");
-  await expect(reviewButton).toBeVisible();
-  await check(page, "request creation: details", findings, reviewButton);
+    await page.goto("/suppliers");
+    await expect(page.locator("article").first()).toBeVisible();
+    await check(page, "supplier search", findings, page.getByRole("searchbox", { name: "Search suppliers" }));
+    const filters = page.getByRole("button", { name: "Filters and sort" });
+    if (await filters.isVisible()) {
+      await filters.click();
+      await check(page, "supplier search: filters open", findings);
+    }
+    await page.locator("article").first().getByRole("button").first().click();
+    await check(page, "supplier search: card expanded", findings);
 
-  await compose(page, { supplier: supplier.name, item: `Layout ${testInfo.project.name} ${Date.now()}`, reward: 1 });
-  const post = shown(page, "button", "Post request");
-  await expect(post).toBeEnabled();
-  await check(page, "request creation: review", findings, post);
-  await post.click();
-  await expect(page).toHaveURL(ORDER_URL);
-  const orderId = new URL(page.url()).pathname.split("/").pop()!;
+    const supplier = await firstSupplier(page.request, token);
+    await page.goto("/request/new");
+    const pick = page.getByRole("button", { name: supplier.name });
+    await expect(pick).toBeVisible();
+    await check(page, "request creation: pickup point", findings, pick);
+    await page.goto(`/request/new/details?supplierId=${supplier.supplierId}`);
+    const reviewButton = shown(page, "button", "Review request");
+    await expect(reviewButton).toBeVisible();
+    await check(page, "request creation: details", findings, reviewButton);
 
-  await expect(page.getByText("Open", { exact: true }).filter({ visible: true }).first()).toBeVisible({ timeout: 30_000 });
-  await check(page, "active order: requester", findings, shown(page, "button", /^Cancel/));
+    await compose(page, { supplier: supplier.name, item: `Layout ${testInfo.project.name} ${Date.now()}`, reward: 1 });
+    const post = shown(page, "button", "Post request");
+    await expect(post).toBeEnabled();
+    await check(page, "request creation: review", findings, post);
+    await post.click();
+    await expect(page).toHaveURL(ORDER_URL);
+    const orderId = new URL(page.url()).pathname.split("/").pop()!;
 
-  await page.goto("/feed");
-  const newRequest = shown(page, "button", "New request");
-  await expect(newRequest).toBeVisible();
-  await expect(page.getByText(/^Loading/).filter({ visible: true })).toHaveCount(0);
-  await check(page, "open errands: requester", findings, newRequest);
+    await badge(page, "Open");
+    await check(page, "active order: requester", findings, shown(page, "button", /^Cancel/));
 
-  await page.goto("/wallet");
-  await expect(page.getByText(/^Loading/).filter({ visible: true })).toHaveCount(0);
-  await expect(page.getByText("Available", { exact: false }).filter({ visible: true }).first()).toBeVisible();
-  await check(page, "wallet", findings);
+    await page.goto("/feed");
+    const newRequest = shown(page, "button", "New request");
+    await expect(newRequest).toBeVisible();
+    await expect(page.getByText(/^Loading/).filter({ visible: true })).toHaveCount(0);
+    await check(page, "open errands: requester", findings, newRequest);
 
-  const courier = await courierPage(browser, page, errandEmail("winner"));
-  await courier.goto("/feed");
-  const acceptCard = shown(courier, "button", /^Accept errand from /);
-  await expect(acceptCard).toBeVisible();
-  await expect(courier.getByText(/^Loading/).filter({ visible: true })).toHaveCount(0);
-  await check(courier, "open errands: courier", findings, acceptCard);
+    await page.goto("/wallet");
+    await expect(page.getByText(/^Loading/).filter({ visible: true })).toHaveCount(0);
+    await expect(page.getByText("Available", { exact: false }).filter({ visible: true }).first()).toBeVisible();
+    await check(page, "wallet", findings);
 
-  await courier.goto(`/request/${orderId}`);
-  const accept = shown(courier, "button", "Accept errand");
-  await expect(accept).toBeVisible();
-  await check(courier, "active order: courier, open", findings, accept);
-  await accept.click();
-  const dialog = courier.getByRole("dialog");
-  await expect(dialog).toBeVisible();
-  await check(courier, "active order: confirm dialog", findings, dialog.getByRole("button", { name: "Accept", exact: true }));
-  await dialog.getByRole("button", { name: "Accept", exact: true }).click();
-  const pickup = shown(courier, "button", "I've picked it up");
-  await expect(pickup).toBeVisible();
-  await check(courier, "active order: courier, accepted", findings, pickup);
+    const courier = await student(browser, page, "courier");
+    await courier.goto("/feed");
+    const acceptCard = shown(courier, "button", /^Accept errand from /);
+    await expect(acceptCard).toBeVisible();
+    await expect(courier.getByText(/^Loading/).filter({ visible: true })).toHaveCount(0);
+    await check(courier, "open errands: courier", findings, acceptCard);
 
-  // The requester's credit back, so the shared accounts last the run.
-  const read = await (await request.get(`${ORDER}/orders/${orderId}`, { headers: auth })).json();
-  const cancelled = await request.post(`${ORDER}/orders/${orderId}/cancel`, {
-    headers: auth,
-    data: { expectedVersion: read.version },
+    await courier.goto(`/request/${orderId}`);
+    const accept = shown(courier, "button", "Accept errand");
+    await expect(accept).toBeVisible();
+    await check(courier, "active order: courier, open", findings, accept);
+    await accept.click();
+    const dialog = courier.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await check(courier, "active order: confirm dialog", findings, dialog.getByRole("button", { name: "Accept", exact: true }));
+    await dialog.getByRole("button", { name: "Accept", exact: true }).click();
+    const pickup = shown(courier, "button", "I've picked it up");
+    await expect(pickup).toBeVisible();
+    await check(courier, "active order: courier, accepted", findings, pickup);
+
+    // The requester's credit back, and settled, so the next spec reads a steady wallet.
+    const { version } = await readOrder(page, token, orderId);
+    const cancelled = await page.request.post(`${ORDER}/orders/${orderId}/cancel`, {
+      headers: auth,
+      data: { expectedVersion: version },
+    });
+    expect(cancelled.status(), await cancelled.text()).toBe(200);
+    await waitStatus(page, token, orderId, "CANCELLED");
+    await courier.context().close();
+
+    await testInfo.attach("layout-findings.json", {
+      body: JSON.stringify(findings, null, 2),
+      contentType: "application/json",
+    });
+    expect(findings.map((f) => `${f.screen}: ${f.problem}`)).toEqual([]);
   });
-  expect(cancelled.status(), await cancelled.text()).toBe(200);
-  await courier.context().close();
-
-  await testInfo.attach("layout-findings.json", {
-    body: JSON.stringify(findings, null, 2),
-    contentType: "application/json",
-  });
-  expect(findings.map((f) => `${f.screen}: ${f.problem}`)).toEqual([]);
 });
