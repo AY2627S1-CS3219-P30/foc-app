@@ -23,6 +23,7 @@ coverage/
 backups/
 .recovery-results/
 .release-results/
+.lighthouse-results/
 __pycache__/
 *.tsbuildinfo
 

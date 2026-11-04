@@ -55,10 +55,11 @@
   opacity: 0.7;
 }
 
+/* The ring tells the chosen option from the track at 3:1; the white fill alone does not. */
 .input:checked + .label {
   background: var(--color-surface);
   color: var(--color-primary);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-sm), inset 0 0 0 1px var(--color-primary);
 }
 
 .error {

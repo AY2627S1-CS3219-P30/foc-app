@@ -883,12 +883,19 @@ requirements:
     text: "Automated accessibility scans of every core screen shall report zero critical violations, and text and control contrast shall meet 4.5 to 1 or 3 to 1 for large text."
     tests:
       - "web-app/e2e/account-journey.e2e.ts::account journey: register, activate, sign in, profile, mode switch, log out"
-    gap: "axe runs only on the account screens; the feed, request composer, active order, wallet, history, supplier and admin screens are never scanned."
+      - "web-app/e2e/accessibility.e2e.ts::axe finds no issue on the student screens"
+      - "web-app/e2e/accessibility.e2e.ts::axe finds no issue in the admin console"
+      - "web-app/test/contrast.test.ts::%s meets 3:1 (WCAG 1.4.11)"
+      - "web-app/test/contrast.test.ts::%s text on %s meets 4.5:1"
+    evidence:
+      - "docs/reports/accessibility-and-web-vitals-2026-11-03.md"
   - id: UI-NFR2.1.2
     text: "A keyboard-only test shall complete login, request creation, order acceptance, pickup, delivery, confirmation, and wallet review with visible focus and no focus trap."
     tests:
       - "web-app/e2e/account-journey.e2e.ts::account journey: register, activate, sign in, profile, mode switch, log out"
-    gap: "No keyboard-only test covers request creation, order acceptance, pickup, delivery, confirmation and wallet review (the full keyboard errand journey is missing, ticket #166); only sign-up, activation, sign-in, the mode switch and log-out are keyboard-driven."
+      - "web-app/e2e/keyboard-journey.e2e.ts::an errand from sign-in to the wallet, by keyboard alone"
+    evidence:
+      - "docs/reports/accessibility-and-web-vitals-2026-11-03.md"
   - id: UI-NFR4.1.1
     text: "A failed request shall preserve valid user input and present the error near the affected field or action, plus a retry only when repeating the operation is safe."
     areas: [repeats]
