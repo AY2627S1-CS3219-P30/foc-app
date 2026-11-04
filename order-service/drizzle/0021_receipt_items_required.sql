@@ -1,0 +1,1 @@
+ALTER TABLE "order_receipts" ALTER COLUMN "items" SET NOT NULL;

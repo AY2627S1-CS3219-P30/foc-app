@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { use, useState } from "react";
+import { ChatPanel } from "@/components/ChatPanel";
 import { Button } from "@/components/Button";
 import { FormAlert } from "@/components/FormField";
 import { ErrorState, LoadingState } from "@/components/States";
@@ -201,6 +202,7 @@ function Dispute({ orderId }: { orderId: string }) {
           </Section>
         </>
       )}
+      <ChatPanel orderId={orderId} version={shown?.version} readOnly />
       <ReasonDialog action={action} onClose={() => setAction(null)} />
     </AdminShell>
   );

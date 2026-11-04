@@ -6,5 +6,5 @@ export function Screen({ children }: { children: ReactNode }) {
 }
 
 export function ScreenContent({ children }: { children: ReactNode }) {
-  return <div className={styles.content}>{children}</div>;
+  return <main className={styles.content}>{children}</main>;
 }

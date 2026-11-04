@@ -243,8 +243,9 @@ above policy, and marks the refresh cookie `Secure`.
 `http://localhost`. Safari may drop it over plain http, which would sign you out on reload, and
 every browser drops it at any other http address, such as your laptop's IP from a phone.
 
-Three scripts run their own stacks in development, and each says why: the load test
-(`scripts-load.sh`) raises the sign-in limits, the browser release suite (`scripts-e2e-release.sh`)
+Four scripts run their own stacks in development, and each says why: the load test
+(`scripts-load.sh`) and the Lighthouse runs (`scripts-lighthouse.sh`, whose web app is still the
+production build) raise the sign-in limits, the browser release suite (`scripts-e2e-release.sh`)
 moves the services' clock, and the D4 demo seed (`scripts-seed-demo.sh`) builds a disposable
 fixture, so the stack shown in the D4 demo runs in development too.
 

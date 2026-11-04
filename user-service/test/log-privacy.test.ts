@@ -75,6 +75,18 @@ describe('log privacy (US-NFR2.1.1)', () => {
       .set('x-service-key', SERVICE_KEY)
       .expect(200);
     await http().get(`/internal/users/${created.body.userId}`).expect(401);
+    await http().post('/auth/password-reset').send({ email: reg.email }).expect(202);
+    await vi.waitFor(() => expect(t.mailbox.latestResetFor(reg.email)).toBeDefined());
+    const resetToken = t.mailbox.latestResetFor(reg.email)!.token;
+    const resetPassword = 'a-reset-passphrase-123';
+    await http()
+      .post('/auth/password-reset/confirm')
+      .send({ token: resetToken, password: resetPassword })
+      .expect(204);
+    await http()
+      .post('/auth/password-reset/confirm')
+      .send({ token: resetToken, password: resetPassword })
+      .expect(404); // used-link path
 
     const hash = String(
       (await t.db.query('SELECT password_hash FROM users')).rows[0]!.password_hash,
@@ -84,6 +96,8 @@ describe('log privacy (US-NFR2.1.1)', () => {
 
     expect(output).not.toContain(reg.password);
     expect(output).not.toContain(token);
+    expect(output).not.toContain(resetToken);
+    expect(output).not.toContain(resetPassword);
     expect(output).not.toContain(hash);
     expect(output).not.toContain(SERVICE_KEY);
     expect(output).not.toMatch(/argon2/i);

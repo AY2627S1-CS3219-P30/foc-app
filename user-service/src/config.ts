@@ -44,6 +44,8 @@ export const env = loadEnv({
     .optional(),
   ADMIN_SEED_PASSWORD: z.string().min(12).max(128).optional(),
   ACTIVATION_TOKEN_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
+  /** How long a password reset link works (#309). Short: whoever holds it can take the account. */
+  PASSWORD_RESET_TOKEN_TTL_MINUTES: z.coerce.number().int().min(5).max(1440).default(30),
   /**
    * Where activation email goes. Required in production. Outside production, if unset, messages
    * are kept in memory and nobody receives them; the local stack points this at Mailpit.
@@ -56,7 +58,10 @@ export const env = loadEnv({
   /** STARTTLS is required unless this is `false`; it defaults to required in production only. */
   SMTP_REQUIRE_TLS: z.enum(['true', 'false']).optional(),
   MAIL_FROM: z.string().min(3).default('Friend on Campus <no-reply@foc.local>'),
-  /** The web app's activation page, which the emailed link opens. Required with SMTP_HOST. */
+  /**
+   * The web app's activation page, which the emailed link opens. Required with SMTP_HOST. The
+   * password reset link opens its sibling page, `reset-password`, resolved against this URL.
+   */
   ACTIVATION_URL: z.url().optional(),
   /**
    * Controls on administrators (ADR 0008). Defaults are the agreed policy; they are configuration so

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from './Button';
 import { Field } from './Field';
 import { Input } from './Input';
@@ -47,6 +47,7 @@ export function SupplierPicker({ onSelect }: { onSelect: (supplier: SupplierSumm
   const [results, setResults] = useState<Results | null>(null);
   const [loading, setLoading] = useState(true);
   const [problem, setProblem] = useState('');
+  const searchInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -85,6 +86,14 @@ export function SupplierPicker({ onSelect }: { onSelect: (supplier: SupplierSumm
     return () => controller.abort();
   }, [authed, search, page, revision]);
 
+  const clearSearch = () => {
+    setQuery('');
+    setSearch('');
+    setPage(1);
+    // The button that has focus is about to go, so focus returns to where a new search starts.
+    searchInput.current?.focus();
+  };
+
   return (
     <div className={styles.picker}>
       <Field label="Search pickup points">
@@ -92,6 +101,7 @@ export function SupplierPicker({ onSelect }: { onSelect: (supplier: SupplierSumm
           type="search"
           maxLength={200}
           placeholder="Name or building"
+          ref={searchInput}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
@@ -141,7 +151,18 @@ export function SupplierPicker({ onSelect }: { onSelect: (supplier: SupplierSumm
               )}
             </>
           ) : (
-            <EmptyState title="No pickup points found">Try another name or building.</EmptyState>
+            <EmptyState
+              title="No pickup points found"
+              action={
+                (query.trim() !== '' || search !== '') && (
+                  <Button variant="outline" onClick={clearSearch}>
+                    Clear search
+                  </Button>
+                )
+              }
+            >
+              Try another name or building.
+            </EmptyState>
           )}
         </div>
       )}

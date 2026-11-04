@@ -10,7 +10,8 @@ const orderSchema = z.object({
   version: z.number().int(),
   requesterId: z.string().min(1),
   courierId: z.string().min(1).nullable(),
-  endedAt: z.string().nullable(),
+  // Not a bare string: one Date.parse cannot read would never count as past retention.
+  endedAt: z.iso.datetime({ offset: true }).nullable(),
 });
 export type OrderForChat = z.infer<typeof orderSchema>;
 

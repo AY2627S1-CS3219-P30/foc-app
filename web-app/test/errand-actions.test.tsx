@@ -623,6 +623,8 @@ describe('courier', () => {
     const container = await render(<OrderDetail orderId={ORDER_ID} />, service);
     expect(container.textContent).not.toContain('Delivery instructions');
     expect(buttons(container, 'Accept errand').length).toBeGreaterThan(0);
+    // A reopened errand may still have a channel; only its participants may see or ask for it.
+    expect(service.queries.some((q) => q.startsWith('/channels/'))).toBe(false);
   });
 });
 

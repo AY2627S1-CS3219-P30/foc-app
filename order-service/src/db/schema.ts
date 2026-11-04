@@ -163,6 +163,7 @@ export const orderReceipts = pgTable(
     requesterId: text('requester_id').notNull(),
     courierId: text('courier_id').notNull(),
     supplierSnapshot: jsonb('supplier_snapshot').notNull().$type<SupplierSnapshot>(),
+    items: jsonb('items').notNull().$type<OrderItem[]>(),
     reward: integer('reward').notNull(),
     creditTransactionId: uuid('credit_transaction_id').notNull().unique(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),

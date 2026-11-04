@@ -152,12 +152,15 @@ services:
       # Without a fixed key every restart would sign everyone out (PL-NFR3.1.1).
       JWT_PRIVATE_KEY: ${JWT_PRIVATE_KEY:?run ./scripts-init-env.sh}
       ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD:?run ./scripts-init-env.sh}
-      # Activation email goes to Mailpit (below); the link opens the web app.
+      # Activation and password reset email go to Mailpit (below); the links open the web app
+      # (reset links at /reset-password, beside ACTIVATION_URL).
       SMTP_HOST: mailpit
       SMTP_PORT: 1025
       # Mailpit offers no STARTTLS; a real relay must (the default in production).
       SMTP_REQUIRE_TLS: 'false'
       ACTIVATION_URL: http://localhost:${WEB_APP_PORT:-3000}/activate
+      ACTIVATION_TOKEN_TTL_HOURS: ${ACTIVATION_TOKEN_TTL_HOURS:-24}
+      PASSWORD_RESET_TOKEN_TTL_MINUTES: ${PASSWORD_RESET_TOKEN_TTL_MINUTES:-30}
     ports: ['127.0.0.1:${USER_SERVICE_PORT:-3001}:3001']
     networks: [public, db, broker, services, gateway, mail]
     depends_on:
@@ -326,6 +329,10 @@ services:
       INTERNAL_SERVICE_KEY: ${CHAT_INTERNAL_KEY:?run ./scripts-init-env.sh}
       # Asked on every request who the errand's participants are (ADR 0012), on its internal port.
       ORDER_SERVICE_URL: http://order-service:4003
+      # ADR 0012 §6: kept this many days after the errand ends, and how often the cleanup runs.
+      CHAT_RETENTION_DAYS: ${CHAT_RETENTION_DAYS:-90}
+      CHAT_CLEANUP_INTERVAL_MS: ${CHAT_CLEANUP_INTERVAL_MS:-86400000}
+      CHAT_CLEANUP_RETRY_MS: ${CHAT_CLEANUP_RETRY_MS:-300000}
     ports: ['127.0.0.1:${CHAT_SERVICE_PORT:-3006}:3006']
     depends_on:
       <<: *consumer-deps
@@ -347,6 +354,7 @@ services:
         NEXT_PUBLIC_SUPPLIER_SERVICE_URL: /api/supplier
         NEXT_PUBLIC_ORDER_SERVICE_URL: /api/order
         NEXT_PUBLIC_CREDIT_SERVICE_URL: /api/credit
+        NEXT_PUBLIC_CHAT_SERVICE_URL: /api/chat
         # Linked from the admin console's Operations tab (PLT-05).
         NEXT_PUBLIC_GRAFANA_URL: http://localhost:${GRAFANA_PORT:-3005}
     restart: unless-stopped

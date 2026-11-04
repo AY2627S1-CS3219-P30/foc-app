@@ -1137,14 +1137,15 @@ export class OrdersRepository {
   async insertReceipt(tx: Queryable, order: OrderRow): Promise<void> {
     await tx.query(
       `INSERT INTO order_receipts
-         (order_id, requester_id, courier_id, supplier_snapshot, reward, credit_transaction_id,
+         (order_id, requester_id, courier_id, supplier_snapshot, items, reward, credit_transaction_id,
           created_at, accepted_at, picked_up_at, delivered_at, completion_requested_at, completed_at)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12)`,
+       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
         order.orderId,
         order.requesterId,
         order.courierId,
         JSON.stringify(order.supplierSnapshot),
+        JSON.stringify(order.items),
         order.reward,
         order.creditTransactionId,
         order.createdAt,
@@ -1164,6 +1165,7 @@ export class OrdersRepository {
         requester_id: string;
         courier_id: string;
         supplier_snapshot: SupplierSnapshot;
+        items: OrderItem[];
         reward: number;
         credit_transaction_id: string;
         created_at: Date | string;
@@ -1181,6 +1183,7 @@ export class OrdersRepository {
       requesterId: row.requester_id,
       courierId: row.courier_id,
       supplier: row.supplier_snapshot,
+      items: row.items,
       reward: Number(row.reward),
       creditTransactionId: row.credit_transaction_id,
       timestamps: {

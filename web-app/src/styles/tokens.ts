@@ -11,8 +11,12 @@ export const values = {
     accent: "#ef7c00",
     text: "#0f172a",
     textMuted: "#475569",
-    textSubtle: "#64748b",
+    // 4.5:1 on the page as well as on a surface: #64748b was 4.34:1 on the page (#166).
+    textSubtle: "#5f6d81",
+    // Decorative edges (cards, dividers). A control's own edge uses controlBorder.
     border: "#e2e8f0",
+    // 3:1 against the surface and the page, so a field's boundary can be seen (WCAG 1.4.11).
+    controlBorder: "#7c8aa0",
     surface: "#ffffff",
     page: "#f1f5f9",
     overlay: "rgb(15 23 42 / 0.4)",

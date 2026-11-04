@@ -9,14 +9,14 @@ owner, one consumer owner, and Dev 3 or Dev 4 review; within v1, changes are add
 
 ## Files
 
-| File                            | Status                                                      | Owner              |
-| ------------------------------- | ----------------------------------------------------------- | ------------------ |
-| `user-service.openapi.yaml`     | Implemented                                                 | Anselm             |
-| `supplier-service.openapi.yaml` | Implemented                                                 | Patrick            |
-| `credit-service.openapi.yaml`   | Implemented                                                 | Isaac              |
-| `order-service.openapi.yaml`    | Implemented                                                 | Zhang Yuan         |
-| `chat-service.openapi.yaml`     | Implemented except #163's admin reads, limits and retention | Zhang Yuan, Anselm |
-| `events.schema.json`            | Generated from catalogue                                    | —                  |
+| File                            | Status                   | Owner              |
+| ------------------------------- | ------------------------ | ------------------ |
+| `user-service.openapi.yaml`     | Implemented              | Anselm             |
+| `supplier-service.openapi.yaml` | Implemented              | Patrick            |
+| `credit-service.openapi.yaml`   | Implemented              | Isaac              |
+| `order-service.openapi.yaml`    | Implemented              | Zhang Yuan         |
+| `chat-service.openapi.yaml`     | Implemented              | Zhang Yuan, Anselm |
+| `events.schema.json`            | Generated from catalogue | —                  |
 
 For the implemented operations, the service answers as its file says: each has a provider test
 (`<service>/test/provider.contract.test.ts`), and CI fails a change that breaks a contract against
@@ -124,3 +124,9 @@ Asked of Jonus and Patrick while the first drafts were written; each is now answ
    contract.
 5. **`GET /suppliers` as a page.** Settled: SUP-02 merged, and the listing answers
    `{ items, page, pageSize, total }`.
+
+The participant chat browser client (#161) generates `web-app/src/lib/generated/chat-service.ts`
+from the chat contract and calls all four operations through `/api/chat` at the edge. It accepts
+both send success statuses, preserves `Retry-After` on errors, uses GET pagination for reconnect
+catch-up, and never sends or marks read in the admin console. See the
+[web app chat notes](../web-app/README.md#participant-chat-n12-161) for state and deployment details.

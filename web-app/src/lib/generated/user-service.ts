@@ -92,6 +92,63 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/password-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Email a password reset link (#309)
+         * @description If the address has an account that is `ACTIVE` or `PENDING_ACTIVATION`, emails it a single-use
+         *     link to `/reset-password?token=…` on the web app, and invalidates every earlier reset link. A
+         *     suspended or unknown address gets no email. The answer is the same `202` either way, and is sent
+         *     before the email, so neither the body nor the timing says whether the address has an account.
+         *
+         *     A pending account is included on purpose: whoever registered the address chose its password,
+         *     and the reset link is how the inbox's owner replaces that choice.
+         *
+         *     Rate limited per IP and per normalized address, with limits of its own (not resend's). Both
+         *     count every request, whatever the address, so a `429` reveals nothing either.
+         */
+        post: operations["requestPasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/password-reset/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set a new password with the emailed reset token (#309)
+         * @description Single-use and expiring (30 minutes by default). The new password follows the registration
+         *     policy. In one transaction it:
+         *     - replaces the password and clears a bootstrap administrator's forced change;
+         *     - activates a `PENDING_ACTIVATION` account, publishing its one `UserActivated`, because the link
+         *       proves the inbox as activation does;
+         *     - revokes every session of the account and deletes its unused activation link.
+         *
+         *     It does not sign in, as activation does not: sign in with the new password. A token whose
+         *     account is suspended is refused as invalid and left unused.
+         */
+        post: operations["confirmPasswordReset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/login": {
         parameters: {
             query?: never;
@@ -1169,7 +1226,10 @@ export interface components {
                 "application/json": components["schemas"]["Error"];
             };
         };
-        /** @description An account already exists for this email. No account is created. */
+        /**
+         * @description An account already exists for this email. No account is created. Whoever owns the inbox can
+         *     take the account over with `POST /auth/password-reset`, even if someone else registered it.
+         */
         EmailAlreadyRegistered: {
             headers: {
                 [name: string]: unknown;
@@ -1237,6 +1297,45 @@ export interface components {
                  *       "error": {
                  *         "code": "ACTIVATION_TOKEN_EXPIRED",
                  *         "message": "This activation link has expired.",
+                 *         "correlationId": "5c1f2a9e"
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /**
+         * @description Unknown or already used password reset token, a token a newer request replaced, or one whose
+         *     account is suspended.
+         */
+        ResetTokenInvalid: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "PASSWORD_RESET_TOKEN_INVALID",
+                 *         "message": "This password reset link is not valid.",
+                 *         "correlationId": "5c1f2a9e"
+                 *       }
+                 *     }
+                 */
+                "application/json": components["schemas"]["Error"];
+            };
+        };
+        /** @description Password reset token has expired. */
+        ResetTokenExpired: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "error": {
+                 *         "code": "PASSWORD_RESET_TOKEN_EXPIRED",
+                 *         "message": "This password reset link has expired.",
                  *         "correlationId": "5c1f2a9e"
                  *       }
                  *     }
@@ -1472,6 +1571,86 @@ export interface operations {
             };
             422: components["responses"]["ValidationFailed"];
             429: components["responses"]["RateLimited"];
+        };
+    };
+    requestPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "email": "e0123456@u.nus.edu"
+                 *     }
+                 */
+                "application/json": {
+                    /** Format: email */
+                    email: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Accepted. A link is sent only if the address has an active or pending account. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "message": "If that address has an account, a link to reset its password is on its way."
+                     *     }
+                     */
+                    "application/json": {
+                        message: string;
+                    };
+                };
+            };
+            422: components["responses"]["ValidationFailed"];
+            429: components["responses"]["RateLimited"];
+        };
+    };
+    confirmPasswordReset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    token: string;
+                    password: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Password set (and a pending account activated); every session of the account is revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["ResetTokenInvalid"];
+            410: components["responses"]["ResetTokenExpired"];
+            /**
+             * @description `VALIDATION_FAILED`. `password` outside 12–128 characters or a malformed token, or
+             *     `PASSWORD_UNCHANGED` when a bootstrap administrator chooses the configured bootstrap password.
+             */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
         };
     };
     login: {

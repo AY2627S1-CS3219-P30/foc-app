@@ -1,75 +1,9 @@
 {
-  "id": "14d86f57-188c-4197-82dd-d86159dc9949",
+  "id": "b6610d2e-ae2b-4cf2-9c6d-91450a77c8ec",
   "prevId": "2040a035-9b3f-4a28-84c8-7b6968cd5abb",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.order_command_idempotency_keys": {
-      "name": "order_command_idempotency_keys",
-      "schema": "",
-      "columns": {
-        "caller_id": {
-          "name": "caller_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "idempotency_key": {
-          "name": "idempotency_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "order_id": {
-          "name": "order_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "request_hash": {
-          "name": "request_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "order_command_idempotency_keys_order_id_orders_order_id_fk": {
-          "name": "order_command_idempotency_keys_order_id_orders_order_id_fk",
-          "tableFrom": "order_command_idempotency_keys",
-          "tableTo": "orders",
-          "columnsFrom": [
-            "order_id"
-          ],
-          "columnsTo": [
-            "order_id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "order_command_idempotency_keys_caller_id_idempotency_key_pk": {
-          "name": "order_command_idempotency_keys_caller_id_idempotency_key_pk",
-          "columns": [
-            "caller_id",
-            "idempotency_key"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.order_idempotency_keys": {
       "name": "order_idempotency_keys",
       "schema": "",
@@ -244,6 +178,12 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true
+        },
+        "items": {
+          "name": "items",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
         },
         "reward": {
           "name": "reward",

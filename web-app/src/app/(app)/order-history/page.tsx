@@ -215,7 +215,7 @@ export default function OrderHistoryPage() {
     <>
       <div className="mobileOnly">
         <Screen>
-          <AppBar title="Order History" />
+          <AppBar title="Order History" heading />
           <ScreenContent>{content}</ScreenContent>
         </Screen>
       </div>
