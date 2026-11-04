@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { ConfirmChannel, ConsumeMessage } from 'amqplib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DEAD_LETTERS, createEnvelope, type DeadLetters } from '@foc/platform';
-import { ContractValidator } from '@foc/test-harness';
+import { ContractValidator, loadContract, resolveRef } from '@foc/test-harness';
 import {
   asAdmin,
   asOtherAdmin,
@@ -269,6 +269,50 @@ describe('order-service honours its published contract', () => {
       contract.assert('post', '/orders/{orderId}/withdraw', await call('withdraw', asStranger, 3));
       contract.assert('post', '/orders/{orderId}/cancel', await call('cancel', asRequester, 4));
       contract.assert('post', '/orders/{orderId}/cancel', await call('cancel', asRequester, 5));
+    } finally {
+      await lifecycle.close();
+    }
+  });
+
+  it('order commands take an optional Idempotency-Key: a replay (200) and a reused key (422)', async () => {
+    const doc = loadContract('order-service');
+    const commands = [
+      ...['accept', 'pickup', 'deliver', 'confirm-receipt', 'cancel', 'withdraw'].map(
+        (path) => `/orders/{orderId}/${path}`,
+      ),
+      '/orders/{orderId}/report-non-delivery',
+      '/orders/{orderId}/report-non-receipt',
+      '/admin/orders/{orderId}/resolve',
+    ];
+    for (const template of commands) {
+      const operation = doc.paths[template]!.post as {
+        parameters: unknown[];
+        responses: Record<string, unknown>;
+      };
+      expect(
+        operation.parameters.map((p) => resolveRef(doc, p)),
+        template,
+      ).toContainEqual(
+        expect.objectContaining({ name: 'Idempotency-Key', in: 'header', required: false }),
+      );
+      expect(
+        resolveRef<{ description: string }>(doc, operation.responses['422']).description,
+        template,
+      ).toContain('IDEMPOTENCY_KEY_REUSED');
+    }
+
+    const lifecycle = await createTestApp();
+    try {
+      await advance(lifecycle, 'ACCEPTED');
+      const pickup = (expectedVersion: number) =>
+        http(lifecycle)
+          .post(`/orders/${SEEDED_ORDER}/pickup`)
+          .set('Authorization', asStranger)
+          .set('Idempotency-Key', 'contract-key')
+          .send({ expectedVersion });
+      await pickup(3).expect(200);
+      contract.assert('post', '/orders/{orderId}/pickup', await pickup(3).expect(200));
+      contract.assert('post', '/orders/{orderId}/pickup', await pickup(4).expect(422));
     } finally {
       await lifecycle.close();
     }

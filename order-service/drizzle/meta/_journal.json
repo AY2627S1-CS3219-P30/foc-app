@@ -155,6 +155,13 @@
       "when": 1793722795517,
       "tag": "0021_receipt_items_required",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1793782761919,
+      "tag": "0022_command_idempotency_keys",
+      "breakpoints": true
     }
   ]
 }

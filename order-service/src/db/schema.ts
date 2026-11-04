@@ -249,6 +249,21 @@ export const orderIdempotencyKeys = pgTable(
   (t) => [primaryKey({ columns: [t.requesterId, t.idempotencyKey] })],
 );
 
+/** Each applied order command sent with a key, and the errand a retry with that key answers with. */
+export const orderCommandIdempotencyKeys = pgTable(
+  'order_command_idempotency_keys',
+  {
+    callerId: text('caller_id').notNull(),
+    idempotencyKey: text('idempotency_key').notNull(),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.orderId, { onDelete: 'restrict' }),
+    requestHash: text('request_hash').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.callerId, t.idempotencyKey] })],
+);
+
 export const processedEvents = pgTable(
   'processed_events',
   {

@@ -87,6 +87,8 @@ Each case has a test. The `*.postgres.test.ts` ones run against a real PostgreSQ
 | Acceptance races the acceptance deadline | The errand is accepted or expires, never both: one history row, and a release only if it expired. | `test/order-expiry.postgres.test.ts` |
 | Acceptance races the requester's cancellation | Whichever commits first wins. If an acceptance wins, the cancellation, sent with the open errand's version, gets `409 ORDER_CHANGED` with the new status and version; the requester can still cancel the accepted errand by sending that version. If the cancellation wins, every acceptance gets `409 ORDER_NOT_OPEN` and no courier is assigned. Either way one release is requested at most. | `test/order-acceptance.postgres.test.ts` |
 | Receipt confirmed twice | The first confirmation moves the errand to COMPLETION\_PENDING\_CREDIT and requests one transfer. A second one, sent at the same time or later, gets `409 INVALID_ORDER_STATE` and requests nothing, so the courier is paid once. | `test/order-completion.postgres.test.ts` |
+| One command sent many times at once with one `Idempotency-Key` | Sends of a key wait for each other. The first applies it; every other gets the same answer, and the errand changes once. | `test/order-command-idempotency.postgres.test.ts` |
+| One `Idempotency-Key` sent at once with different commands or errands | One applies; every other gets `422 IDEMPOTENCY_KEY_REUSED` and changes nothing. | `test/order-command-idempotency.postgres.test.ts` |
 | The requester's report, their confirmation and auto-confirmation land together | One outcome: one history row, and one transfer request only if the errand was confirmed, by the requester or the timer. The others are refused or skipped. | `test/order-outcomes.postgres.test.ts` |
 | A reservation reply races the requester's suspension | The errand is never left open. Either the reply finds the requester suspended and cancels it, or it opens the errand and the suspension, waiting on the row lock, cancels it. One release is requested either way. | `test/participant-suspension.postgres.test.ts` |
 | A supplier is renamed, moved or deactivated after an errand is posted | The errand keeps the copy of the supplier taken at creation, in its details and in the open list, and its receipt copies the same snapshot. Reading an errand never asks the Supplier Service again. A new errand for the deactivated supplier gets `422 INVALID_SUPPLIER`. | `test/order-creation.test.ts` |
@@ -140,7 +142,8 @@ and another of its own status changes, for the live-update streams it holds (N1.
 Why PostgreSQL, and every table and column: [`docs/order-service/schema.md`](../docs/order-service/schema.md).
 
 The generated migration under `order-service/drizzle/` creates the Order-owned `orders`,
-`order_status_history`, `order_idempotency_keys`, `processed_events`, and `outbox_events` tables.
+`order_status_history`, `order_idempotency_keys`, `order_command_idempotency_keys`,
+`processed_events`, and `outbox_events` tables.
 Database constraints enforce the closed
 status set, reward range, non-empty item list, version counter, terminal rejection shape, and the
 courier required by assigned/delivery states. `order_status_history` records the previous and new
@@ -244,6 +247,23 @@ history row and every emitted event in one transaction. A caller who may never d
 `403 ACTION_FORBIDDEN`; a wrong state gets `409 INVALID_ORDER_STATE`; a stale version gets
 `409 ORDER_CHANGED`. Each carries the current status and version, and none of them changes anything.
 
+### Retrying a command (OS-FR7.1.1)
+
+Every command (accept, pickup, deliver, confirm-receipt, cancel, withdraw, both reports and an
+administrator's decision) takes an optional `Idempotency-Key` header of 1 to 200 characters; a
+malformed one gets `400` before anything changes. A key belongs to the caller who sent it, never
+expires, and is separate from the keys on `POST /orders`. When a command sent with a key takes
+effect, the key is saved in `order_command_idempotency_keys` in the same transaction, so a retry
+with the same key and request changes nothing, even after the service has restarted. Like a retried
+create, it gets the command's usual success status with the errand read again and shown as the
+caller may see it now: a courier who has since withdrawn gets the errand without its private
+details. Sends of one key wait for each other on a transaction-scoped advisory lock, so duplicates
+sent at once still apply once. A refused command
+saves nothing, so a retry with its key is judged again: a report refused as too early goes through
+with the same key once the period has passed. The same key with a different command, errand,
+`expectedVersion` or decision gets `422 IDEMPOTENCY_KEY_REUSED`. Without a key, a command behaves as
+it always has, and a retry is judged like any other command.
+
 Confirmation moves the order to `COMPLETION_PENDING_CREDIT` and writes `order.completion-requested`
 (order, requester, courier, reward) to the outbox. No participant, administrator or timer action
 exists from that state in the transition table, so only Credit's reply can move it (OS-FR7.1.3).
@@ -320,8 +340,8 @@ such run logs a warning until the errand is referred.
 `RELEASE_PENDING_CREDIT` (cancelled) and requests the release. The reason is kept on the history row
 with the administrator and time; that row is the record of the decision. An administrator who was
 ever the errand's requester or courier gets `403 CONFLICT_OF_INTEREST`; any other administrator than
-the referred one gets `403 NOT_REFERRED_ADMIN` (checked again under the row lock); a repeated or
-stale decision gets `409` and requests nothing. A dispute raised before delivery and resolved for the
+the referred one gets `403 NOT_REFERRED_ADMIN` (checked again under the row lock); a stale decision,
+or one repeated without the first one's `Idempotency-Key`, gets `409` and requests nothing. A dispute raised before delivery and resolved for the
 courier completes with a receipt whose `deliveredAt` is null.
 
 `GET /admin/orders/referred` lists the caller's referrals with their private details and every

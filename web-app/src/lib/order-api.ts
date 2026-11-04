@@ -124,15 +124,19 @@ const COMMAND_PATHS = {
 
 export type Command = keyof typeof COMMAND_PATHS;
 
-/** Every command is sent with the version the caller last saw, so a stale view is refused with `409`. */
+/**
+ * Every command is sent with the version the caller last saw, so a stale view is refused with `409`,
+ * and with its confirmation's key, so a retry of a send whose answer was lost gets that answer back.
+ */
 export const sendCommand = (
   token: string,
   command: Command,
   { orderId, version }: Pick<Order, "orderId" | "version">,
+  idempotencyKey: string,
 ) =>
   unwrap(
     orderApi.POST(COMMAND_PATHS[command], {
-      params: { path: { orderId } },
+      params: { path: { orderId }, header: { "Idempotency-Key": idempotencyKey } },
       body: { expectedVersion: version },
       headers: bearer(token),
     }),

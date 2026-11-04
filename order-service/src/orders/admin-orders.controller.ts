@@ -6,7 +6,12 @@ import { z } from 'zod';
 import { env } from '../config.js';
 import { OperationsRepository } from './operations.repository.js';
 import { OrdersService } from './orders.service.js';
-import { parseAdminOrdersQuery, parseOrderId, parseResolveOrder } from './validation.js';
+import {
+  parseAdminOrdersQuery,
+  parseOptionalIdempotencyKey,
+  parseOrderId,
+  parseResolveOrder,
+} from './validation.js';
 
 const orderIdSchema = z.uuid();
 
@@ -76,6 +81,7 @@ export class AdminOrdersController {
       parseResolveOrder(body),
       caller,
       request.correlationId ?? 'unknown',
+      parseOptionalIdempotencyKey(request.header('idempotency-key')),
     );
   }
 

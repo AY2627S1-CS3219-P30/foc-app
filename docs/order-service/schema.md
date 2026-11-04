@@ -65,6 +65,7 @@ erDiagram
     orders ||--o{ order_operator_alerts : raises
     orders ||--o{ order_reconciliation_attempts : "checked by"
     orders ||--o{ order_idempotency_keys : "created by"
+    orders ||--o{ order_command_idempotency_keys : "changed by"
 ```
 
 `outbox_events`, `processed_events` and `dead_letters` hold messages, keyed by the errand ID as text
@@ -124,6 +125,13 @@ filled in the items, once, on receipts written before receipts listed them.
 `(requester_id, idempotency_key)` primary key, the `order_id` it created, and a hash of the request.
 Saved with the errand, so a retried create returns the same errand, and reusing a key with a different
 request is refused.
+
+### `order_command_idempotency_keys`
+
+`(caller_id, idempotency_key)` primary key, the `order_id` the command changed, and a hash of the
+request (command, errand, version and any decision). Saved in the transaction of a command that took
+effect, so a retry with the key changes nothing and answers with the errand as the caller may see it
+now, and reusing it with a different request is refused. Never deleted.
 
 ### `processed_events` (the inbox)
 
