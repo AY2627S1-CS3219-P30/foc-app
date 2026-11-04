@@ -18,7 +18,7 @@ const PHONE_WIDTH = 480;
 
 type Finding = { screen: string; problem: string };
 
-/** What a tap lands on: a checkbox or a radio takes its whole label, and a slider its row. */
+/** Measured by what a tap lands on: a checkbox or a radio takes its whole label. */
 async function measure(page: Page) {
   return page.evaluate((minTarget) => {
     const selector = [
@@ -43,11 +43,14 @@ async function measure(page: Page) {
       if (el.tagName === "INPUT" && ["checkbox", "radio"].includes(input.type)) return input.labels?.[0] ?? el;
       return el;
     };
-    /** A row that scrolls sideways on its own is allowed to run past the page's edge. */
-    const scrollsOnItsOwn = (el: Element) => {
+    const hides = (overflow: string) => overflow === "hidden" || overflow === "clip";
+    /** Whether a parent that hides its overflow cuts this box off. */
+    const cutOffByParent = (el: Element, box: DOMRect) => {
       for (let up = el.parentElement; up && up !== document.body; up = up.parentElement) {
-        const { overflowX } = getComputedStyle(up);
-        if (overflowX === "auto" || overflowX === "scroll") return true;
+        const { overflowX, overflowY } = getComputedStyle(up);
+        const outer = up.getBoundingClientRect();
+        if (hides(overflowX) && (box.left < outer.left - 0.5 || box.right > outer.right + 0.5)) return true;
+        if (hides(overflowY) && (box.top < outer.top - 0.5 || box.bottom > outer.bottom + 0.5)) return true;
       }
       return false;
     };
@@ -61,10 +64,19 @@ async function measure(page: Page) {
       // Half a pixel of rounding, so a 44 px control scaled to 43.99 is not a failure.
       if (box.width < minTarget - 0.5 || box.height < minTarget - 0.5) small.push(`${describe(el)} is ${size}`);
       const offPage = box.left < -0.5 || box.right > document.documentElement.clientWidth + 0.5;
-      if (offPage && !scrollsOnItsOwn(el)) clipped.push(`${describe(el)} runs off the page`);
+      if (offPage) clipped.push(`${describe(el)} runs off the page`);
+      else if (cutOffByParent(el, box)) clipped.push(`${describe(el)} is cut off by a parent`);
       const { overflowX } = getComputedStyle(el);
       if (["BUTTON", "A"].includes(el.tagName) && overflowX !== "visible" && el.scrollWidth > el.clientWidth + 1)
         clipped.push(`${describe(el)} cuts off its label`);
+    }
+    // The page's own width can't show this: a modal dialog's overflow is auto, so what runs past its
+    // edge scrolls inside it and the page stays narrow. No core screen is meant to scroll sideways.
+    for (const el of document.body.querySelectorAll("*")) {
+      if (["INPUT", "SELECT", "TEXTAREA"].includes(el.tagName) || !el.checkVisibility()) continue;
+      const { overflowX } = getComputedStyle(el);
+      if ((overflowX === "auto" || overflowX === "scroll") && el.scrollWidth > el.clientWidth + 1)
+        clipped.push(`${describe(el)} scrolls sideways by ${el.scrollWidth - el.clientWidth}px`);
     }
     return {
       overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -141,7 +153,9 @@ test.describe("mobile layout @release", () => {
       await filters.click();
       await check(page, "supplier search: filters open", findings);
     }
-    await page.locator("article").first().getByRole("button").first().click();
+    const card = page.locator("article").first();
+    await card.getByRole("button", { name: "View details" }).click();
+    await expect(card.getByRole("button", { name: "Hide details" })).toHaveAttribute("aria-expanded", "true");
     await check(page, "supplier search: card expanded", findings);
 
     const supplier = await firstSupplier(page.request, token);
