@@ -197,6 +197,18 @@ describe('opening hours (SS-FR1.1.3)', () => {
     expect(await countSuppliers()).toBe(0);
   });
 
+  it('does not hold a refused period against the ones after it', async () => {
+    const res = await withHours([
+      period('MON', '08:00', '12:00'),
+      period('MON', '11:00', '13:00'),
+      period('MON', '12:30', '14:00'),
+    ]);
+    expect(res.status).toBe(422);
+    expect(res.body.error.details.map((d: { field: string }) => d.field)).toEqual([
+      'openingHours.1',
+    ]);
+  });
+
   it('refuses the same period twice', async () => {
     const res = await withHours([period('MON', '08:00', '12:00'), period('MON', '08:00', '12:00')]);
     expect(res.status).toBe(422);

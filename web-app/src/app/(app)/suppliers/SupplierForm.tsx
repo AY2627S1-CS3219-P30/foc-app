@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type FormEvent, type Ref } from 'react';
+import { useEffect, useId, useState, type FormEvent, type Ref } from 'react';
 import { Button } from '@/components/Button';
 import { Field } from '@/components/Field';
 import { Input } from '@/components/Input';
@@ -78,6 +78,7 @@ export function SupplierForm({
   const [pristine] = useState(() => initial(supplier));
   const [form, setForm] = useState(pristine);
   const buildings = useBuildings(false);
+  const formId = useId();
   const dirty = asSaved(form) !== asSaved(pristine);
   useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
   const [errors, setErrors] = useState<FieldError[]>([]);
@@ -115,11 +116,8 @@ export function SupplierForm({
       isFilled(period) ? [{ day, index, ...period }] : [],
     ),
   );
-  // An overlap is on the period as a whole, so it marks both its inputs.
-  const periodError = (day: string, index: number, time: keyof Period) => {
-    const entry = `openingHours.${submittedPeriods.indexOf(`${day}:${index}`)}`;
-    return error(`${entry}.${time}`) ?? errors.find((item) => item.field === entry)?.message;
-  };
+  const periodEntry = (day: string, index: number) =>
+    `openingHours.${submittedPeriods.indexOf(`${day}:${index}`)}`;
   const setPeriods = (day: string, change: (periods: Period[]) => Period[]) =>
     setForm((previous) => ({
       ...previous,
@@ -250,6 +248,11 @@ export function SupplierForm({
             <div key={day} className={styles.dayPeriods}>
               {periods.map((period, index) => {
                 const label = index === 0 ? day : `${day}, period ${index + 1}`;
+                const entry = periodEntry(day, index);
+                // An overlap is on the period as a whole: it marks both inputs, and its message
+                // shows once, under `opens`, with `closes` pointing at it.
+                const whole = errors.find((item) => item.field === entry)?.message;
+                const opensId = `${formId}-${day}-${index}-opens`;
                 const setTime = (time: keyof Period, value: string) =>
                   setPeriods(day, (current) =>
                     current.map((item, at) => (at === index ? { ...item, [time]: value } : item)),
@@ -257,16 +260,22 @@ export function SupplierForm({
                 return (
                   <div key={index} className={styles.dayRow}>
                     <span>{index === 0 && day}</span>
-                    <Field label={`${label} opens`} error={periodError(day, index, 'opens')}>
+                    <Field
+                      id={opensId}
+                      label={`${label} opens`}
+                      error={[error(`${entry}.opens`), whole].filter(Boolean).join(' ') || undefined}
+                    >
                       <Input
                         type="time"
                         value={period.opens}
                         onChange={(e) => setTime('opens', e.target.value)}
                       />
                     </Field>
-                    <Field label={`${label} closes`} error={periodError(day, index, 'closes')}>
+                    <Field label={`${label} closes`} error={error(`${entry}.closes`)}>
                       <Input
                         type="time"
+                        aria-invalid={whole ? true : undefined}
+                        aria-describedby={whole ? `${opensId}-error` : undefined}
                         value={period.closes}
                         onChange={(e) => setTime('closes', e.target.value)}
                       />
@@ -283,7 +292,9 @@ export function SupplierForm({
                             (item) => !item.field.startsWith('openingHours'),
                           );
                           setErrors(others);
-                          if (!others.length) setMessage('');
+                          // Only when that cleared something: a save that failed outright has
+                          // no field errors, and its message is the only sign it failed.
+                          if (errors.length && !others.length) setMessage('');
                           setPeriods(day, (current) => current.filter((_, at) => at !== index));
                         }}
                       >

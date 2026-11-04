@@ -525,10 +525,14 @@ describe('supplier form: more than one opening period a day (SS-FR1.1.3)', () =>
     for (const label of ['MON, period 2 opens', 'MON, period 2 closes', 'TUE closes']) {
       expect(form.control(label).getAttribute('aria-invalid')).toBe('true');
     }
-    const described = window.document.getElementById(
-      form.control('MON, period 2 opens').getAttribute('aria-describedby')!,
-    );
-    expect(described?.textContent).toBe('MON overlaps.');
+    // Both inputs point at one message, so it is neither shown nor announced twice.
+    for (const label of ['MON, period 2 opens', 'MON, period 2 closes']) {
+      const described = window.document.getElementById(
+        form.control(label).getAttribute('aria-describedby')!,
+      );
+      expect(described?.textContent).toBe('MON overlaps.');
+    }
+    expect(form.scope.textContent?.match(/MON overlaps\./g)).toHaveLength(1);
     for (const label of ['MON opens', 'MON closes', 'TUE opens']) {
       expect(form.control(label).getAttribute('aria-invalid')).toBeNull();
     }
@@ -584,6 +588,22 @@ describe('supplier form: more than one opening period a day (SS-FR1.1.3)', () =>
     expect(form.scope.textContent).toContain('Name is required.');
     expect(form.scope.textContent).not.toContain('MON overlaps.');
     expect(form.scope.textContent).toContain('One or more fields are invalid.');
+    await act(() => form.root.unmount());
+  });
+
+  it('keeps a failed save\'s message when removing a period clears nothing', async () => {
+    const form = await openForm(
+      [period('MON', '08:00', '12:00'), period('MON', '13:00', '20:00')],
+      async () => {
+        throw new Error('The network went away.');
+      },
+    );
+    await form.save();
+    expect(form.scope.textContent).toContain('Could not save the supplier. Try again.');
+
+    await form.click(form.button('Remove')[1]!);
+
+    expect(form.scope.textContent).toContain('Could not save the supplier. Try again.');
     await act(() => form.root.unmount());
   });
 

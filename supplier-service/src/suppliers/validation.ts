@@ -59,8 +59,9 @@ function spansOfTheWeek({ day, opens, closes }: Period): [number, number][] {
 /**
  * A day holds zero or more periods (SS-FR1.1.3): none is a closed day, two a midday break. No two
  * periods may overlap, in whatever order they come, and a late close counts against the next day.
- * A problem is reported against the later of the entries that cause it. They are stored by day, then
- * opening time, so every reader gets them in that order.
+ * A problem is reported against the later of the entries that cause it, and a refused entry isn't
+ * held against those after it, so one mistake doesn't make the rest of its day look wrong. They are
+ * stored by day, then opening time, so every reader gets them in that order.
  */
 const openingHoursSchema = z
   .array(openingHoursEntry)
@@ -72,7 +73,6 @@ const openingHoursSchema = z
       const refuse = (code: string, message: string) =>
         ctx.addIssue({ code: 'custom', path: [index], params: { code }, message });
       if (opens === closes) {
-        // Not counted: one mistyped entry shouldn't make the rest of its day look wrong.
         refuse('EMPTY_PERIOD', `${day} ${opens}–${closes} opens and closes at the same time.`);
         return;
       }
@@ -85,12 +85,15 @@ const openingHoursSchema = z
           'TOO_MANY_PERIODS',
           `${day} can have at most ${MAX_PERIODS_PER_DAY} opening periods.`,
         );
-      } else if (clash) {
+        return;
+      }
+      if (clash) {
         const { day: otherDay, opens: otherOpens, closes: otherCloses } = clash.period;
         refuse(
           'OVERLAPPING_HOURS',
           `${day} ${opens}–${closes} overlaps ${otherDay} ${otherOpens}–${otherCloses}.`,
         );
+        return;
       }
       seen.push({ period, spans });
     });
