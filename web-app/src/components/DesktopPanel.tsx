@@ -20,16 +20,16 @@ export function DesktopPanel({
   return (
     <div className={styles.page}>
       <div className={styles.panel} style={{ maxWidth: width }}>
-        <div className={styles.header}>
+        <header className={styles.header}>
           <button className={styles.back} aria-label="Back" onClick={onBack ?? (() => router.back())}>
             ←
           </button>
-          <span className={styles.title}>{title}</span>
+          <h1 className={styles.title}>{title}</h1>
           <span className={styles.live}>
             <LiveLabel />
           </span>
-        </div>
-        <div className={styles.body}>{children}</div>
+        </header>
+        <main className={styles.body}>{children}</main>
       </div>
     </div>
   );

@@ -266,9 +266,10 @@ describe("disputes referred to an administrator (#271)", () => {
 
   it("decides a dispute with the outcome, the reason and the version it was read at", async () => {
     const { client, seen } = api(() => json(200, {}));
-    await client.resolveDispute("t1", orderId, { outcome: "COURIER", reason: "Photo of the handover", expectedVersion: 6 });
+    await client.resolveDispute("t1", orderId, { outcome: "COURIER", reason: "Photo of the handover", expectedVersion: 6 }, "key-1");
     expect(seen[0].method).toBe("POST");
     expect(seen[0].url).toBe(`http://order.test/admin/orders/${orderId}/resolve`);
+    expect(seen[0].headers.get("idempotency-key")).toBe("key-1");
     expect(await seen[0].json()).toEqual({ outcome: "COURIER", reason: "Photo of the handover", expectedVersion: 6 });
   });
 

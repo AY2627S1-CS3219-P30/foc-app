@@ -11,6 +11,7 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { formatWhen } from "@/lib/admin-labels";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth";
+import { itemsLabel } from "@/lib/composer";
 import { creditLabel } from "@/lib/credit-label";
 import { getReceipt, type Receipt } from "@/lib/order-api";
 import { usePoll } from "@/lib/use-poll";
@@ -22,6 +23,7 @@ function ReceiptBody({ receipt, me }: { receipt: Receipt; me: string | undefined
   return (
     <>
       <NavRow label="Supplier" value={`${supplier.name}, ${supplier.building}, floor ${supplier.floor}`} />
+      <NavRow label="Items" value={itemsLabel(receipt.items)} />
       <NavRow label="Reward" value={creditLabel(receipt.reward)} />
       <NavRow label="Requester" value={who(receipt.requesterId)} />
       <NavRow label="Courier" value={who(receipt.courierId)} />

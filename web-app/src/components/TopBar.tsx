@@ -18,7 +18,7 @@ export function TopBar({
   const { available } = useCredits();
   const name = user?.profile.displayName ?? "";
   return (
-    <div className={styles.bar}>
+    <header className={styles.bar}>
       <span className={styles.logo}>{logoText}</span>
       <div className={styles.right}>
         <LiveLabel />
@@ -30,6 +30,6 @@ export function TopBar({
           <span aria-hidden="true">{name.charAt(0).toUpperCase()}</span>
         </Link>
       </div>
-    </div>
+    </header>
   );
 }

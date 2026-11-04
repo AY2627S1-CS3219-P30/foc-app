@@ -121,9 +121,12 @@ export interface CreatePendingInput extends CreateOrderInput {
   correlationId: string;
 }
 
+export type Acceptance =
+  { accepted: true; order: OrderRow } | { accepted: false; order?: OrderRow };
+
 export class IdempotencyKeyReusedError extends Error {
   constructor() {
-    super('Idempotency-Key was reused with a different order request.');
+    super('Idempotency-Key was reused with a different request.');
     this.name = 'IdempotencyKeyReusedError';
   }
 }
@@ -777,52 +780,104 @@ export class OrdersRepository {
     });
   }
 
+  /**
+   * Runs one caller's order command on `orderId` under their Idempotency-Key, one send of a key at
+   * a time. A key already recorded returns the order it was recorded for, as it is now, or throws
+   * IdempotencyKeyReusedError if it was recorded for a different request. `run` refuses by
+   * throwing, which records nothing, so only an applied command's key is kept, in the same
+   * transaction as its transition. Keys never expire, and are apart from the keys on POST /orders.
+   */
+  async withCommandKey<T>(
+    key: { callerId: string; idempotencyKey: string; requestHash: string; orderId: string },
+    run: (tx: Queryable) => Promise<T>,
+  ): Promise<{ applied: T } | { replayed: OrderRow }> {
+    return this.db.transaction(async (tx) => {
+      await tx.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+        `order-command:${key.callerId}:${key.idempotencyKey}`,
+      ]);
+      const existing = await tx.query<{ request_hash: string; order_id: string } & Row>(
+        `SELECT request_hash, order_id
+           FROM order_command_idempotency_keys
+          WHERE caller_id = $1 AND idempotency_key = $2`,
+        [key.callerId, key.idempotencyKey],
+      );
+      if (existing.rows[0]) {
+        if (existing.rows[0].request_hash !== key.requestHash) {
+          throw new IdempotencyKeyReusedError();
+        }
+        const order = await this.findByIdUsing(tx, existing.rows[0].order_id);
+        if (!order) throw new Error('Idempotency record references a missing order.');
+        return { replayed: order };
+      }
+      const applied = await run(tx);
+      await tx.query(
+        `INSERT INTO order_command_idempotency_keys
+           (caller_id, idempotency_key, order_id, request_hash)
+         VALUES ($1, $2, $3, $4)`,
+        [key.callerId, key.idempotencyKey, key.orderId, key.requestHash],
+      );
+      return { applied };
+    });
+  }
+
   async accept(
     orderId: string,
     courierId: string,
     expectedVersion: number,
     correlationId: string,
-  ): Promise<{ accepted: true; order: OrderRow } | { accepted: false; order?: OrderRow }> {
-    return this.db.transaction(async (tx) => {
-      const updated = await tx.query<StoredOrder>(
-        `UPDATE orders
-            SET courier_id = $2, status = 'ACCEPTED', version = version + 1,
-                accepted_at = now(), updated_at = now()
-          WHERE order_id = $1
-            AND status = 'OPEN'
-            AND version = $3
-            AND requester_id <> $2
-            AND acceptance_deadline_at > now()
-        RETURNING ${ORDER_COLUMNS}`,
-        [orderId, courierId, expectedVersion],
-      );
-      if (!updated.rows[0]) {
-        return { accepted: false, order: await this.findByIdUsing(tx, orderId) };
-      }
+    tx?: Queryable,
+  ): Promise<Acceptance> {
+    if (tx) return this.acceptUsing(tx, orderId, courierId, expectedVersion, correlationId);
+    return this.db.transaction((inner) =>
+      this.acceptUsing(inner, orderId, courierId, expectedVersion, correlationId),
+    );
+  }
 
-      const order = mapOrder(updated.rows[0]);
-      const occurredAt = order.updatedAt;
-      await tx.query(
-        `INSERT INTO order_status_history
-           (history_id, order_id, previous_status, new_status, action, actor_type, actor_id,
-            order_version, occurred_at)
-         VALUES ($1, $2, 'OPEN', 'ACCEPTED', 'ACCEPT', 'STUDENT', $3, $4, $5)`,
-        [randomUUID(), orderId, courierId, order.version, occurredAt],
-      );
-      await insertOutboxEvent(tx, {
-        eventType: EVENTS.ORDER_STATUS_CHANGED,
-        aggregateId: orderId,
-        correlationId,
-        payload: {
-          orderId,
-          previousStatus: 'OPEN',
-          newStatus: 'ACCEPTED',
-          occurredAt,
-          orderVersion: order.version,
-        },
-      });
-      return { accepted: true, order };
+  private async acceptUsing(
+    tx: Queryable,
+    orderId: string,
+    courierId: string,
+    expectedVersion: number,
+    correlationId: string,
+  ): Promise<Acceptance> {
+    const updated = await tx.query<StoredOrder>(
+      `UPDATE orders
+          SET courier_id = $2, status = 'ACCEPTED', version = version + 1,
+              accepted_at = now(), updated_at = now()
+        WHERE order_id = $1
+          AND status = 'OPEN'
+          AND version = $3
+          AND requester_id <> $2
+          AND acceptance_deadline_at > now()
+      RETURNING ${ORDER_COLUMNS}`,
+      [orderId, courierId, expectedVersion],
+    );
+    if (!updated.rows[0]) {
+      return { accepted: false, order: await this.findByIdUsing(tx, orderId) };
+    }
+
+    const order = mapOrder(updated.rows[0]);
+    const occurredAt = order.updatedAt;
+    await tx.query(
+      `INSERT INTO order_status_history
+         (history_id, order_id, previous_status, new_status, action, actor_type, actor_id,
+          order_version, occurred_at)
+       VALUES ($1, $2, 'OPEN', 'ACCEPTED', 'ACCEPT', 'STUDENT', $3, $4, $5)`,
+      [randomUUID(), orderId, courierId, order.version, occurredAt],
+    );
+    await insertOutboxEvent(tx, {
+      eventType: EVENTS.ORDER_STATUS_CHANGED,
+      aggregateId: orderId,
+      correlationId,
+      payload: {
+        orderId,
+        previousStatus: 'OPEN',
+        newStatus: 'ACCEPTED',
+        occurredAt,
+        orderVersion: order.version,
+      },
     });
+    return { accepted: true, order };
   }
 
   /**
@@ -1082,14 +1137,15 @@ export class OrdersRepository {
   async insertReceipt(tx: Queryable, order: OrderRow): Promise<void> {
     await tx.query(
       `INSERT INTO order_receipts
-         (order_id, requester_id, courier_id, supplier_snapshot, reward, credit_transaction_id,
+         (order_id, requester_id, courier_id, supplier_snapshot, items, reward, credit_transaction_id,
           created_at, accepted_at, picked_up_at, delivered_at, completion_requested_at, completed_at)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12)`,
+       VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
         order.orderId,
         order.requesterId,
         order.courierId,
         JSON.stringify(order.supplierSnapshot),
+        JSON.stringify(order.items),
         order.reward,
         order.creditTransactionId,
         order.createdAt,
@@ -1109,6 +1165,7 @@ export class OrdersRepository {
         requester_id: string;
         courier_id: string;
         supplier_snapshot: SupplierSnapshot;
+        items: OrderItem[];
         reward: number;
         credit_transaction_id: string;
         created_at: Date | string;
@@ -1126,6 +1183,7 @@ export class OrdersRepository {
       requesterId: row.requester_id,
       courierId: row.courier_id,
       supplier: row.supplier_snapshot,
+      items: row.items,
       reward: Number(row.reward),
       creditTransactionId: row.credit_transaction_id,
       timestamps: {

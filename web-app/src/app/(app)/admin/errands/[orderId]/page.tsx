@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { use, useState } from "react";
+import { ChatPanel } from "@/components/ChatPanel";
 import { Button } from "@/components/Button";
 import { FormAlert } from "@/components/FormField";
 import { ErrorState, LoadingState } from "@/components/States";
 import { adminApi, type AccountErrand, type DisputeOutcome } from "@/lib/admin-api";
-import { ApiError } from "@/lib/api-client";
+import { ApiError, newCorrelationId } from "@/lib/api-client";
 import {
   DISPUTE_OUTCOMES,
   disputeCause,
@@ -54,6 +55,8 @@ function Dispute({ orderId }: { orderId: string }) {
 
   const decide = (outcome: DisputeOutcome) => {
     if (!shown) return;
+    // One key per decision: trying again from the dialog resends it.
+    const key = newCorrelationId();
     setAction({
       title: outcome === "COURIER" ? "Decide for the courier?" : "Decide for the requester?",
       intro: (
@@ -67,7 +70,7 @@ function Dispute({ orderId }: { orderId: string }) {
         let decided: AccountErrand;
         try {
           decided = await authed((t) =>
-            adminApi.resolveDispute(t, orderId, { outcome, reason, expectedVersion: shown.version }),
+            adminApi.resolveDispute(t, orderId, { outcome, reason, expectedVersion: shown.version }, key),
           );
         } catch (err) {
           // Decided in another tab, or referred to someone else since this page was read: show where
@@ -199,6 +202,7 @@ function Dispute({ orderId }: { orderId: string }) {
           </Section>
         </>
       )}
+      <ChatPanel orderId={orderId} version={shown?.version} readOnly />
       <ReasonDialog action={action} onClose={() => setAction(null)} />
     </AdminShell>
   );

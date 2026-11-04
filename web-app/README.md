@@ -73,6 +73,10 @@ page polls every 30 seconds: a new errand reaches a courier's open board within 
 courier's accept reaches the requester's open errand page within 3 s. Refused its stream first, the
 page says *Updating every 30 s* and still works, at every width.
 
+`e2e/mobile-layout.e2e.ts` (TST-04, release suite) measures the core screens, from sign-in to the wallet: at
+every width no sideways scroll and no control cut off, and at 360 px every control at least 44 by 44
+px, with the screen's primary action clear of the app bar. A failure names the screen and the control.
+
 `e2e/dispute-outcome.e2e.ts` covers both administrative dispute decisions at all three widths.
 The requester reports non-receipt, the referred administrator decides through the console, and
 both participants read the outcome, reason and time on their errand page and expand its status
@@ -129,9 +133,9 @@ npm ci
 This resets **only `foc-e2e-release` and its volumes**, on ports 14500–14510 (override with
 `E2E_PORT_BASE`). It generates `.env` if absent, builds the stack, runs its API smoke, and creates
 activated test identities through public APIs for each clean run. It does not reset `foc` or
-`foc-d4-demo`. There are 42 browser cases across 360, 768 and 1440 px, with no retries in release mode.
-CI requires both `Browser journeys (smoke)` (18 baseline cases, release-only cases skipped) and
-`Browser journeys (release)` (all 42 cases twice from clean volumes). The latter reuses the job's
+`foc-d4-demo`. There are 57 browser cases across 360, 768 and 1440 px, with no retries in release mode.
+CI requires both `Browser journeys (smoke)` (24 baseline cases, release-only cases skipped) and
+`Browser journeys (release)` (all 57 cases twice from clean volumes). The latter reuses the job's
 baked images with `E2E_IMAGE_TAG=ci`; leave that unset for local source builds.
 
 `release-journeys.e2e.ts` covers the composer, withdrawal/reacceptance and cancellation before
@@ -141,6 +145,12 @@ keeps the reservation for a replacement courier; cancellation releases it. That 
 state-machine contract, clarifying the audit checklist's ambiguous “with credits returned.”
 `zz-release-clock.e2e.ts` covers server expiry/refund, automatic confirmation/payment without a
 requester click, and non-delivery reporting only after its period followed by an admin decision.
+`accessibility.e2e.ts` runs axe (WCAG 2.0/2.1 A and AA plus best practices) on every student
+screen, the composer to the wallet, and every admin console page, and fails on a critical or
+serious issue; `keyboard-journey.e2e.ts` completes the errand journey from sign-in to the wallet by
+keyboard alone and times each action's feedback (UI-NFR2.1.1, UI-NFR2.1.2, UI-NFR3.1.2). Both pay
+from a requester of their own. Lighthouse is not in CI: `./scripts-lighthouse.sh` (see the
+[report of 3 Nov](../docs/reports/accessibility-and-web-vitals-2026-11-03.md)).
 The existing suites supply registration, the acceptance race, receipt/ledger navigation, both
 dispute outcomes and outsider denial, reconnection idempotency and the admin financial audit.
 
@@ -292,7 +302,10 @@ reserved its reward once.
   version on screen as `expectedVersion`. A refusal because the errand moved on (`409`, `403`,
   `404`: someone else accepted it, it changed, or a report came too early or too late) closes the
   dialog, says what happened and re-reads, so the screen never keeps a button for a state that has
-  gone. A network or server failure stays in the dialog to try again.
+  gone. A network or server failure stays in the dialog to try again. Each command sends an
+  `Idempotency-Key`, and confirming it again at the same version, from the dialog or after closing
+  it, sends the same one, so a send whose answer was lost is answered as done rather than refused.
+  An administrator's dispute decision keeps its key the same way while its dialog is open.
 
 Every state's label and plain-language explanation is in `src/lib/order-status.ts`, typed from the
 generated contract so all twelve are covered.
@@ -491,3 +504,42 @@ the [repository README](../README.md#6-run-the-whole-stack-in-docker)). That is 
 mode. There is no hosted deployment: the Vercel workflow was removed in
 [PLT-11 #286](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/286), because a hosted web app
 had no hosted back end to call, and its `SameSite=Strict` refresh cookie is not sent across sites.
+
+## Participant chat (N1.2, #161)
+
+An errand's detail page has one `ChatPanel` and one `useChat` lifecycle across all widths:
+collapsible with unread count at 360px, expanded below the details at 768px, and beside details and
+history at 1440px. Drafts survive resizing. The admin errand page independently asks the Chat Service
+for the same history in read-only mode, even when the Order Service refuses private errand details.
+The Chat Service decides authorization; console reads never send or mark read. The admin view
+fetches once and has a Refresh conversation button instead of a recurring timer, including after
+transient errors. Order revisions, tab return and reconnect still refresh its history.
+
+`src/lib/chat-api.ts` uses generated `chat-service` contract types and the shared authentication,
+timeout, correlation and error handling. Set **NEXT_PUBLIC_CHAT_SERVICE_URL=/api/chat at build time**
+for deployments behind the edge; Compose and the Dockerfile pass it through. Local development
+without that setting uses `http://localhost:3006`. Errors retain response headers, including
+`Retry-After`, for rate-limit feedback.
+
+Messages merge by channel `seq`; optimistic sends carry a browser UUID `clientId`. A retry preserves
+that UUID and the exact original body, and both 200 replays and 201 creations confirm it. Failed sends
+remain visibly failed. Validation counts 1–280 Unicode code points and rejects whitespace-only text.
+Two-second polling pages `after` until caught up, including on reconnect; older history uses `before`.
+The fetch cursor advances only through GET pages, so a send cannot skip concurrent incoming messages.
+Initial reads also fetch every unread message, even beyond the latest history page. Metadata refreshes
+pick up reads made on another device. Timed polling stops when closed; order revisions and returning
+online recheck availability. The notify-only WebSocket is deferred to #346 (ADR 0012).
+
+Unread counts exclude your own messages. Read positions advance only for a visible, expanded
+conversation at the bottom of its scroll area, using messages fetched through GET. New messages
+follow automatically while at the bottom; otherwise a New messages button returns there. Loading
+older messages preserves the scroll offset. A 404 hides unavailable chat; a closed channel keeps its
+history readable. Final errands, closed channels and CHANNEL_CLOSED responses disable sending with
+a reason. Account/order changes replace all private state and stale async responses are ignored.
+
+`test/chat-state.test.ts` covers paging, merges, reconciliation, retries, read positions, access,
+closure and identity cleanup. `test/chat-panel.test.tsx` uses Happy DOM for responsive lifecycle and
+read visibility. `e2e/chat-journey.e2e.ts` runs only in the dedicated release suite at every width:
+send/receive in two sessions, offline catch-up, outsider refusal and final-state closure. Run the real
+stack with `./scripts-e2e-release.sh --twice` from the repository root; it requires Docker and sets
+`E2E_RELEASE=1`. Ordinary smoke runs skip this journey to stay within their shared login limits.

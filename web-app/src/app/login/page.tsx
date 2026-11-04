@@ -13,6 +13,14 @@ import { ApiError } from "@/lib/user-api";
 import { safeNext, validateLogin, type Errors } from "@/lib/validation";
 import { vars } from "@/styles/tokens";
 
+/** A tall enough target without moving the text: UI-NFR1.1.2's 44 px. */
+const passwordLink = {
+  color: vars.color.primary,
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: vars.size.control,
+} as const;
+
 export default function LoginPage() {
   const { login, status, logoutPending, retryLogout } = useAuth();
   const router = useRouter();
@@ -112,11 +120,11 @@ export default function LoginPage() {
             {submitting ? "Signing in…" : "Sign in"}
           </Button>
           <p style={{ fontSize: vars.text.sm, textAlign: "center" }}>
-            <Link href="/forgot-password" style={{ color: vars.color.primary }}>
+            <Link href="/forgot-password" style={passwordLink}>
               Forgot your password?
             </Link>
             {" · "}
-            <Link href="/change-password" style={{ color: vars.color.primary }}>
+            <Link href="/change-password" style={passwordLink}>
               Change your password
             </Link>
           </p>

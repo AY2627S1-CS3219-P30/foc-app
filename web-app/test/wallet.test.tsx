@@ -53,6 +53,10 @@ const receipt: Receipt = {
     floor: "1",
     locationDescription: "By the stairs",
   },
+  items: [
+    { name: "Kopi O", quantity: 2, note: "Less sugar" },
+    { name: "Kaya toast", quantity: 1 },
+  ],
   reward: 3,
   creditTransactionId: PAYMENT,
   timestamps: {
@@ -280,6 +284,12 @@ describe("from a receipt to its ledger entry and back (WEB-03)", () => {
     expect(text).toContain("Not recorded: an administrator decided it for the courier");
     expect(link("See it in your wallet")?.getAttribute("href")).toBe(`/wallet?tx=${PAYMENT}`);
     expect(asked[0]!.pathname).toBe(`/orders/${ORDER}/receipt`);
+  });
+
+  it("lists the items delivered, with their quantities and notes (ORD-16)", async () => {
+    serve();
+    await render(<ReceiptPage params={Promise.resolve({ id: ORDER })} />);
+    expect(container.textContent).toContain("Items2 × Kopi O (Less sugar), 1 × Kaya toast");
   });
 
   it("says when there is no receipt yet, with the way back to the errand", async () => {

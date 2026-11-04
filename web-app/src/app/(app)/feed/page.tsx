@@ -298,6 +298,7 @@ export default function FeedPage() {
         <Screen>
           <AppBar
             title={mode === "REQUESTER" ? title : "Feed"}
+            heading
             onPlusClick={mode === "REQUESTER" ? () => router.push("/request/new") : undefined}
           />
           <ScreenContent>{content}</ScreenContent>

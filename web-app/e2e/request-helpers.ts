@@ -74,8 +74,17 @@ export const ERRAND_STUDENTS = { requester: "E2E Requester", winner: "E2E Winner
 export const errandEmail = (who: keyof typeof ERRAND_STUDENTS) =>
   `e2e-errand-${who}-${process.env.E2E_RUN}@u.nus.edu`;
 
-/** Release actors are shared across widths; suspension tests must restore their account. */
-export const RELEASE_STUDENTS = { requester: "Release Requester", courier: "Release Courier", replacement: "Release Replacement" };
+/**
+ * Release actors are shared across widths; suspension tests must restore their account. The
+ * accessibility and keyboard journeys complete an errand each per width, so they pay from a
+ * requester of their own and leave the release requester's credits to the release journeys.
+ */
+export const RELEASE_STUDENTS = {
+  requester: "Release Requester",
+  courier: "Release Courier",
+  replacement: "Release Replacement",
+  a11y: "Keyboard Requester",
+};
 export const releaseEmail = (who: keyof typeof RELEASE_STUDENTS) =>
   `e2e-release-${who}-${process.env.E2E_RUN}@u.nus.edu`;
 

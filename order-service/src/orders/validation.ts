@@ -172,18 +172,28 @@ export function parseOpenOrdersQuery(value: unknown): OpenOrdersQuery {
   return { ...query, after: decodeCursor(openCursorSchema, cursor) };
 }
 
+const invalidIdempotencyKey = () =>
+  new ApiException(
+    400,
+    'INVALID_IDEMPOTENCY_KEY',
+    'Idempotency-Key must contain 1 to 200 characters.',
+  );
+
 export function parseIdempotencyKey(value: string | undefined): string {
   if (!value) {
     throw new ApiException(400, 'IDEMPOTENCY_KEY_REQUIRED', 'Idempotency-Key is required.');
   }
-  if (value.length > 200 || value.trim().length === 0) {
-    throw new ApiException(
-      400,
-      'INVALID_IDEMPOTENCY_KEY',
-      'Idempotency-Key must contain 1 to 200 characters.',
-    );
-  }
+  if (value.length > 200 || value.trim().length === 0) throw invalidIdempotencyKey();
   return value;
+}
+
+/**
+ * An order command's key is optional: without one, the command runs as it always has. One sent
+ * empty is malformed, not missing.
+ */
+export function parseOptionalIdempotencyKey(value: string | undefined): string | undefined {
+  if (value === '') throw invalidIdempotencyKey();
+  return value === undefined ? undefined : parseIdempotencyKey(value);
 }
 
 /** `status=OPEN,ACCEPTED`: one or more statuses, comma-separated, each one the API knows. */

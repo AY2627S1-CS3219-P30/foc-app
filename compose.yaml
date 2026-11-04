@@ -356,6 +356,7 @@ services:
         NEXT_PUBLIC_SUPPLIER_SERVICE_URL: /api/supplier
         NEXT_PUBLIC_ORDER_SERVICE_URL: /api/order
         NEXT_PUBLIC_CREDIT_SERVICE_URL: /api/credit
+        NEXT_PUBLIC_CHAT_SERVICE_URL: /api/chat
         # Linked from the admin console's Operations tab (PLT-05).
         NEXT_PUBLIC_GRAFANA_URL: http://localhost:${GRAFANA_PORT:-3005}
     restart: unless-stopped

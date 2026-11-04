@@ -75,6 +75,7 @@ function serve(order: (url: URL, request: Request) => Response | undefined = () 
     const request = input instanceof Request ? input : new Request(input, init);
     seen.push(request);
     const url = new URL(request.url);
+    if (url.port === "3006") return json(404, { error: { code: "NOT_FOUND", message: "No chat yet" } });
     if (url.port === "3003") {
       const answer = order(url, request);
       if (answer) return answer;
@@ -200,6 +201,36 @@ describe("one dispute, opened by an administrator (#271)", () => {
     expect(container.textContent).toContain("The requester reported it never arrived");
   });
 
+  it("retries a decision whose answer was lost with the same key, and shows it decided", async () => {
+    const keys: (string | null)[] = [];
+    serve((url, request) => {
+      if (url.pathname !== `/admin/orders/${MINE}/resolve`) return undefined;
+      keys.push(request.headers.get("Idempotency-Key"));
+      if (keys.length === 1) throw new TypeError("Failed to fetch");
+      return json(200, { ...privateErrand, status: "COMPLETION_PENDING_CREDIT", version: 7 });
+    });
+    await open(MINE);
+
+    await act(async () => button("Decide for the courier")!.click());
+    const reason = container.querySelector("textarea")!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!;
+      setter.call(reason, "Handover photo");
+      reason.dispatchEvent(new window.Event("input", { bubbles: true }) as unknown as Event);
+    });
+    const submit = async () => {
+      await act(async () => (container.querySelector("dialog form") as HTMLFormElement).requestSubmit());
+      await settle();
+    };
+    await submit();
+    expect(container.querySelector("dialog[open]")).not.toBeNull();
+
+    await submit();
+    expect(keys[0]).toBeTruthy();
+    expect(keys).toEqual([keys[0], keys[0]]);
+    expect(container.textContent).toContain("Decided for the courier");
+  });
+
   it("shows where the errand stands now when a decision is refused as stale (409)", async () => {
     let reads = 0;
     serve((url) => {
@@ -255,4 +286,31 @@ describe("one dispute, opened by an administrator (#271)", () => {
     expect(button("Decide for the courier")).toBeUndefined();
     expect(button("Decide for the requester")).toBeUndefined();
   });
+});
+
+it("reads admin chat independently when Order refuses the errand's private details", async () => {
+  serve((url) => url.pathname === `/orders/${MINE}`
+    ? json(403, { error: { code: "NOT_REFERRED_ADMIN", message: "Private errand refused" } })
+    : undefined);
+  const fallback = globalThis.fetch;
+  const observer = globalThis.IntersectionObserver;
+  globalThis.IntersectionObserver = window.IntersectionObserver as unknown as typeof IntersectionObserver;
+  const chatMethods: string[] = [];
+  globalThis.fetch = (async (request: Request, init?: RequestInit) => {
+    const url = new URL(request.url);
+    if (url.port !== "3006") return fallback(request, init);
+    chatMethods.push(request.method);
+    return json(200, url.pathname.endsWith("/messages")
+      ? { items: [{ seq: 1, clientId: "admin-evidence", senderId: REQUESTER, body: "Please meet at the COM2 entrance.", sentAt: base.createdAt }], hasMore: false }
+      : { orderId: MINE, open: true, myRole: "ADMIN", requester: { userId: REQUESTER, displayName: "Mei Tan" }, courier: { userId: COURIER, displayName: "Arun Kumar" }, lastReadSeq: 0, latestSeq: 1 });
+  }) as typeof fetch;
+  try {
+    await render(<DisputePage params={Promise.resolve({ orderId: MINE })} />);
+    expect(container.textContent).toContain("You can't read this errand's private details");
+    expect(container.textContent).toContain("Please meet at the COM2 entrance.");
+    expect(container.textContent).toContain("Mei Tan");
+    expect(container.querySelector("textarea")).toBeNull();
+    expect(chatMethods.length).toBeGreaterThan(0);
+    expect(chatMethods.every(method => method === "GET")).toBe(true);
+  } finally { globalThis.IntersectionObserver = observer; }
 });
