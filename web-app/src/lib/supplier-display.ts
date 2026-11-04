@@ -10,10 +10,16 @@ export const TYPE_LABELS: Record<SupplierType, string> = {
 };
 
 export const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'] as const;
+/** The contract's `maxItems` shared across the days; a test keeps them in step. */
+export const MAX_PERIODS_PER_DAY = 4;
 
 export function hoursLabel(hours: Supplier['openingHours']): string {
   if (!hours?.length) return 'Hours not provided';
-  return hours.map(({ day, opens, closes }) => `${day} ${opens}–${closes}`).join(' · ');
+  const days = new Map<string, string[]>();
+  for (const { day, opens, closes } of hours) {
+    days.set(day, [...(days.get(day) ?? []), `${opens}–${closes}`]);
+  }
+  return [...days].map(([day, periods]) => `${day} ${periods.join(', ')}`).join(' · ');
 }
 
 export function displayImageUrl(url: string | null): string | null {

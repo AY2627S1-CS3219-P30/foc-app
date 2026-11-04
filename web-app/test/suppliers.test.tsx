@@ -1,8 +1,9 @@
+import { readFileSync } from 'node:fs';
 import { afterAll, describe, expect, it, mock } from 'bun:test';
 import { Window } from 'happy-dom';
 import { ApiError } from '../src/lib/api-client';
-import { displayImageUrl, hoursLabel } from '../src/lib/supplier-display';
-import type { Supplier } from '../src/lib/supplier-api';
+import { displayImageUrl, hoursLabel, MAX_PERIODS_PER_DAY } from '../src/lib/supplier-display';
+import type { Supplier, SupplierInput } from '../src/lib/supplier-api';
 
 const window = new Window();
 Object.assign(globalThis, { window, document: window.document, IS_REACT_ACT_ENVIRONMENT: true });
@@ -76,6 +77,16 @@ describe('supplier listing', () => {
       'https://raw.githubusercontent.com/team/repo/main/data/image.jpeg',
     );
     expect(hoursLabel(null)).toBe('Hours not provided');
+  });
+
+  it('groups the periods of a day in its hours label', () => {
+    expect(
+      hoursLabel([
+        { day: 'MON', opens: '08:00', closes: '12:00' },
+        { day: 'MON', opens: '13:00', closes: '20:00' },
+        { day: 'TUE', opens: '09:00', closes: '17:00' },
+      ]),
+    ).toBe('MON 08:00–12:00, 13:00–20:00 · TUE 09:00–17:00');
   });
 
   it('keeps entered values and marks every field rejected by the service', async () => {
@@ -370,5 +381,264 @@ describe('supplier version conflicts', () => {
       restore();
       await act(() => root.unmount());
     }
+  });
+});
+
+describe('supplier form: more than one opening period a day (SS-FR1.1.3)', () => {
+  const period = (day: 'MON' | 'TUE', opens: string, closes: string) => ({ day, opens, closes });
+
+  async function openForm(
+    openingHours: Supplier['openingHours'],
+    onSave: (body: SupplierInput) => Promise<void> = async () => {},
+    onDirtyChange?: (dirty: boolean) => void,
+  ) {
+    const { container, root } = await render(
+      <SupplierForm
+        supplier={{ ...supplier, openingHours }}
+        onCancel={() => {}}
+        onSave={onSave}
+        onDirtyChange={onDirtyChange}
+      />,
+    );
+    const scope = container as unknown as HTMLElement;
+    const control = (label: string) => {
+      const found = Array.from(scope.querySelectorAll('label')).find(
+        (l) => l.textContent === label,
+      );
+      if (!found) throw new Error(`No field labelled "${label}"`);
+      return window.document.getElementById(found.htmlFor) as unknown as HTMLInputElement;
+    };
+    const button = (text: string) =>
+      Array.from(scope.querySelectorAll('button')).filter((b) => b.textContent === text);
+    const fill = (label: string, value: string) =>
+      act(() => {
+        const input = control(label);
+        Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!.set!.call(
+          input,
+          value,
+        );
+        input.dispatchEvent(new window.Event('input', { bubbles: true }) as unknown as Event);
+      });
+    const click = (target: HTMLElement) => act(async () => target.click());
+    const save = () =>
+      act(async () => {
+        scope
+          .querySelector('form')!
+          .dispatchEvent(
+            new window.Event('submit', { bubbles: true, cancelable: true }) as unknown as Event,
+          );
+      });
+    return { scope, root, control, button, fill, click, save };
+  }
+
+  /** What the form saves, once it has saved. */
+  const recorder = () => {
+    const saved: SupplierInput[] = [];
+    return { saved, onSave: async (body: SupplierInput) => void saved.push(body) };
+  };
+
+  it('shows every period and keeps them all when the supplier is saved unchanged', async () => {
+    const hours = [
+      period('MON', '08:00', '12:00'),
+      period('MON', '13:00', '20:00'),
+      period('TUE', '09:00', '17:00'),
+    ];
+    const { saved, onSave } = recorder();
+    const form = await openForm(hours, onSave);
+
+    expect(form.control('MON opens').value).toBe('08:00');
+    expect(form.control('MON closes').value).toBe('12:00');
+    expect(form.control('MON, period 2 opens').value).toBe('13:00');
+    expect(form.control('MON, period 2 closes').value).toBe('20:00');
+    expect(form.control('TUE opens').value).toBe('09:00');
+    await form.save();
+
+    expect(saved[0]!.openingHours).toEqual(hours);
+    await act(() => form.root.unmount());
+  });
+
+  it('adds a period to a day that has hours, and sends it', async () => {
+    const { saved, onSave } = recorder();
+    const form = await openForm([period('MON', '08:00', '12:00')], onSave);
+
+    await form.click(form.button('Add period')[0]!);
+    await form.fill('MON, period 2 opens', '13:00');
+    await form.fill('MON, period 2 closes', '20:00');
+    await form.save();
+
+    expect(saved[0]!.openingHours).toEqual([
+      period('MON', '08:00', '12:00'),
+      period('MON', '13:00', '20:00'),
+    ]);
+    await act(() => form.root.unmount());
+  });
+
+  it('offers no second period until a day has its first, and stops at four', async () => {
+    const form = await openForm(null);
+
+    expect(form.button('Add period')).toHaveLength(0);
+    await form.fill('MON opens', '08:00');
+    expect(form.button('Add period')).toHaveLength(0);
+    await form.fill('MON closes', '09:00');
+
+    for (const n of [2, 3, 4]) {
+      await form.click(form.button('Add period')[0]!);
+      await form.fill(`MON, period ${n} opens`, `1${n}:00`);
+      await form.fill(`MON, period ${n} closes`, `1${n}:30`);
+    }
+    expect(form.button('Add period')).toHaveLength(0);
+    await act(() => form.root.unmount());
+  });
+
+  it('removes a period, and leaves blank ones out of what it sends', async () => {
+    const { saved, onSave } = recorder();
+    const form = await openForm(
+      [period('MON', '08:00', '12:00'), period('MON', '13:00', '20:00')],
+      onSave,
+    );
+
+    await form.click(form.button('Remove')[1]!);
+    expect(form.button('Remove')).toHaveLength(0);
+    await form.click(form.button('Add period')[0]!);
+    await form.save();
+
+    expect(saved[0]!.openingHours).toEqual([period('MON', '08:00', '12:00')]);
+    await act(() => form.root.unmount());
+  });
+
+  it('marks both inputs of a period the service refuses as a whole', async () => {
+    const form = await openForm(
+      [
+        period('MON', '08:00', '12:00'),
+        period('MON', '11:00', '13:00'),
+        period('TUE', '09:00', '17:00'),
+      ],
+      async () => {
+        throw new ApiError(422, 'VALIDATION_FAILED', 'One or more fields are invalid.', [
+          { field: 'openingHours.1', code: 'OVERLAPPING_HOURS', message: 'MON overlaps.' },
+          { field: 'openingHours.2.closes', code: 'INVALID', message: 'Bad closing time.' },
+        ]);
+      },
+    );
+    await form.save();
+
+    for (const label of ['MON, period 2 opens', 'MON, period 2 closes', 'TUE closes']) {
+      expect(form.control(label).getAttribute('aria-invalid')).toBe('true');
+    }
+    // Both inputs point at one message, so it is neither shown nor announced twice.
+    for (const label of ['MON, period 2 opens', 'MON, period 2 closes']) {
+      const described = window.document.getElementById(
+        form.control(label).getAttribute('aria-describedby')!,
+      );
+      expect(described?.textContent).toBe('MON overlaps.');
+    }
+    expect(form.scope.textContent?.match(/MON overlaps\./g)).toHaveLength(1);
+    for (const label of ['MON opens', 'MON closes', 'TUE opens']) {
+      expect(form.control(label).getAttribute('aria-invalid')).toBeNull();
+    }
+    // Shown beside the period, so the hours' own alert doesn't say it again.
+    expect(form.scope.querySelector('fieldset > [role="alert"]')).toBeNull();
+    await act(() => form.root.unmount());
+  });
+
+  it('keeps an error on the hours as a whole in the alert', async () => {
+    const form = await openForm([period('MON', '08:00', '12:00')], async () => {
+      throw new ApiError(422, 'VALIDATION_FAILED', 'One or more fields are invalid.', [
+        { field: 'openingHours', code: 'TOO_BIG', message: 'Too many periods.' },
+      ]);
+    });
+    await form.save();
+
+    expect(form.scope.querySelector('fieldset > [role="alert"]')?.textContent).toBe(
+      'Too many periods.',
+    );
+    await act(() => form.root.unmount());
+  });
+
+  it('can remove the first of two periods', async () => {
+    const { saved, onSave } = recorder();
+    const form = await openForm(
+      [period('MON', '08:00', '12:00'), period('MON', '13:00', '20:00')],
+      onSave,
+    );
+
+    expect(form.button('Remove')).toHaveLength(2);
+    await form.click(form.button('Remove')[0]!);
+    expect(form.button('Remove')).toHaveLength(0);
+    expect(form.control('MON opens').value).toBe('13:00');
+    await form.save();
+
+    expect(saved[0]!.openingHours).toEqual([period('MON', '13:00', '20:00')]);
+    await act(() => form.root.unmount());
+  });
+
+  it('removing a period clears only the errors on the hours', async () => {
+    const form = await openForm(
+      [period('MON', '08:00', '12:00'), period('MON', '11:00', '13:00')],
+      async () => {
+        throw new ApiError(422, 'VALIDATION_FAILED', 'One or more fields are invalid.', [
+          { field: 'name', code: 'TOO_SMALL', message: 'Name is required.' },
+          { field: 'openingHours.1', code: 'OVERLAPPING_HOURS', message: 'MON overlaps.' },
+        ]);
+      },
+    );
+    await form.save();
+    await form.click(form.button('Remove')[1]!);
+
+    expect(form.scope.textContent).toContain('Name is required.');
+    expect(form.scope.textContent).not.toContain('MON overlaps.');
+    expect(form.scope.textContent).toContain('One or more fields are invalid.');
+    await act(() => form.root.unmount());
+  });
+
+  it('keeps a failed save\'s message when removing a period clears nothing', async () => {
+    const form = await openForm(
+      [period('MON', '08:00', '12:00'), period('MON', '13:00', '20:00')],
+      async () => {
+        throw new Error('The network went away.');
+      },
+    );
+    await form.save();
+    expect(form.scope.textContent).toContain('Could not save the supplier. Try again.');
+
+    await form.click(form.button('Remove')[1]!);
+
+    expect(form.scope.textContent).toContain('Could not save the supplier. Try again.');
+    await act(() => form.root.unmount());
+  });
+
+  it('drops the form-level message when the last error was on the hours', async () => {
+    const form = await openForm(
+      [period('MON', '08:00', '12:00'), period('MON', '11:00', '13:00')],
+      async () => {
+        throw new ApiError(422, 'VALIDATION_FAILED', 'One or more fields are invalid.', [
+          { field: 'openingHours.1', code: 'OVERLAPPING_HOURS', message: 'MON overlaps.' },
+        ]);
+      },
+    );
+    await form.save();
+    await form.click(form.button('Remove')[1]!);
+
+    expect(form.scope.textContent).not.toContain('One or more fields are invalid.');
+    await act(() => form.root.unmount());
+  });
+
+  it('does not count a blank period as a change', async () => {
+    const dirty: boolean[] = [];
+    const form = await openForm([period('MON', '08:00', '12:00')], undefined, (value) => {
+      dirty.push(value);
+    });
+
+    await form.click(form.button('Add period')[0]!);
+    expect(dirty.at(-1)).toBe(false);
+    await form.fill('MON, period 2 opens', '13:00');
+    expect(dirty.at(-1)).toBe(true);
+    await act(() => form.root.unmount());
+  });
+
+  it('agrees with the contract on the limit', () => {
+    const contract = readFileSync('../contracts/supplier-service.openapi.yaml', 'utf8');
+    const maxItems = /openingHours:\s+type: \[array, 'null'\]\s+maxItems: (\d+)/.exec(contract)?.[1];
+    expect(Number(maxItems)).toBe(7 * MAX_PERIODS_PER_DAY);
   });
 });

@@ -99,7 +99,7 @@ export function normalizeTime(raw: string): string | null {
 /**
  * Builds per-day opening hours from a single start/close pair applied to all
  * seven days (the source has no per-day data). `0000`–`2359` is open all day; a
- * close at or before the open (e.g. `1100`–`0200`) runs past midnight.
+ * close earlier than the open (e.g. `1100`–`0200`) runs past midnight.
  */
 export function normalizeOpeningHours(start: string, close: string): OpeningHours[] | null {
   const opens = normalizeTime(start);

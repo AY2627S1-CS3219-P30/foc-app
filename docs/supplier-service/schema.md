@@ -99,19 +99,25 @@ supplier instead of a second row or a 409.
 
 ## 3. Opening-hours representation (decision)
 
-Stored as a JSONB array of per-day windows:
+Stored as a JSONB array of opening periods:
 
 ```json
-[{ "day": "MON", "opens": "09:00", "closes": "18:00" }, ...]
+[{ "day": "MON", "opens": "08:00", "closes": "12:00" },
+ { "day": "MON", "opens": "13:00", "closes": "20:00" }, ...]
 ```
 
 - `day` ∈ `MON…SUN`; `opens`/`closes` are 24-hour `HH:MM`.
+- A day has zero or more periods (SS-FR1.1.3): none is a closed day, two a midday
+  break. Validation allows up to four a day and refuses any that overlap, including
+  a late close running into the next day, and from Sunday into Monday. Periods are
+  stored by day, then opening time, so every reader gets them in that order.
 - The source gives one start/close pair per supplier, so the seed applies it to
   all seven days. A real per-day schedule is representable without a migration.
 - **Open all day** (`0000hrs`–`2359hrs`) is stored as `00:00`–`23:59`.
 - **Past-midnight** closes (e.g. `1100hrs`–`0200hrs`) are stored verbatim; a
-  `closes` at or before `opens` means the window runs into the next day. This
-  keeps one row per day and avoids inventing a synthetic `24:00`.
+  `closes` earlier than `opens` means the period runs into the next day. This avoids
+  inventing a synthetic `24:00`. A period that opens and closes at the same time is
+  refused, as it can only be a typing mistake.
 
 Chosen over a fixed 7×2 column layout (rigid, mostly-null) and over a separate
 `opening_hours` table (a join and a second write for data that is always read with

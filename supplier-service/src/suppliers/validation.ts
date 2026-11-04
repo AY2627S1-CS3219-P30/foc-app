@@ -27,28 +27,82 @@ const openingHoursEntry = z.strictObject({
   closes: z.string().regex(HHMM, 'Time must be HH:MM (24-hour).'),
 });
 
+/** Enough for a midday break and more, and it keeps the stored array bounded. */
+export const MAX_PERIODS_PER_DAY = 4;
+
+const MINUTES_PER_DAY = 24 * 60;
+const MINUTES_PER_WEEK = DAYS.length * MINUTES_PER_DAY;
+
+const minutes = (time: string): number => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
+
+type Period = z.infer<typeof openingHoursEntry>;
+
 /**
- * Each day may appear at most once: the model carries a single window per day,
- * so a repeated `day` is a caller mistake rather than a split shift (split
- * shifts are not supported). Reported against the first duplicate's position so
- * the error points at the offending entry.
+ * Where a period falls in the week, in minutes from Monday 00:00. One closing earlier than it opens
+ * runs into the next day, so a late Sunday is two spans, the second at the start of the week. 23:59
+ * is how the catalogue writes the end of the day, so it counts as midnight.
+ */
+function spansOfTheWeek({ day, opens, closes }: Period): [number, number][] {
+  const midnight = DAYS.indexOf(day) * MINUTES_PER_DAY;
+  const open = minutes(opens);
+  const close = closes === '23:59' ? MINUTES_PER_DAY : minutes(closes);
+  const start = midnight + open;
+  const end = midnight + (close > open ? close : close + MINUTES_PER_DAY);
+  return end <= MINUTES_PER_WEEK
+    ? [[start, end]]
+    : [
+        [start, MINUTES_PER_WEEK],
+        [0, end - MINUTES_PER_WEEK],
+      ];
+}
+
+/**
+ * A day holds zero or more periods (SS-FR1.1.3): none is a closed day, two a midday break. No two
+ * periods may overlap, in whatever order they come, and a late close counts against the next day.
+ * A problem is reported against the later of the entries that cause it, and a refused entry isn't
+ * held against those after it, so one mistake doesn't make the rest of its day look wrong. They are
+ * stored by day, then opening time, so every reader gets them in that order.
  */
 const openingHoursSchema = z
   .array(openingHoursEntry)
-  .max(7)
+  .max(DAYS.length * MAX_PERIODS_PER_DAY)
   .superRefine((entries, ctx) => {
-    const seen = new Set<string>();
-    entries.forEach((entry, index) => {
-      if (seen.has(entry.day)) {
-        ctx.addIssue({
-          code: 'custom',
-          path: [index, 'day'],
-          message: `Duplicate opening hours for ${entry.day}; each day may appear at most once.`,
-        });
+    const seen: { period: Period; spans: [number, number][] }[] = [];
+    entries.forEach((period, index) => {
+      const { day, opens, closes } = period;
+      const refuse = (code: string, message: string) =>
+        ctx.addIssue({ code: 'custom', path: [index], params: { code }, message });
+      if (opens === closes) {
+        refuse('EMPTY_PERIOD', `${day} ${opens}–${closes} opens and closes at the same time.`);
+        return;
       }
-      seen.add(entry.day);
+      const spans = spansOfTheWeek(period);
+      const clash = seen.find((other) =>
+        other.spans.some(([start, end]) => spans.some(([s, e]) => s < end && start < e)),
+      );
+      if (seen.filter((other) => other.period.day === day).length === MAX_PERIODS_PER_DAY) {
+        refuse(
+          'TOO_MANY_PERIODS',
+          `${day} can have at most ${MAX_PERIODS_PER_DAY} opening periods.`,
+        );
+        return;
+      }
+      if (clash) {
+        const { day: otherDay, opens: otherOpens, closes: otherCloses } = clash.period;
+        refuse(
+          'OVERLAPPING_HOURS',
+          `${day} ${opens}–${closes} overlaps ${otherDay} ${otherOpens}–${otherCloses}.`,
+        );
+        return;
+      }
+      seen.push({ period, spans });
     });
-  });
+  })
+  .transform((entries) =>
+    [...entries].sort(
+      (a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || a.opens.localeCompare(b.opens),
+    ),
+  );
 
 /** The always-present fields, shared by create (all required) and update (all optional). */
 const baseFields = {

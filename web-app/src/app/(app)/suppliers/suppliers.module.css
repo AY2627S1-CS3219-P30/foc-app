@@ -90,6 +90,13 @@
 .dayRow > span {
   font-weight: var(--weight-semibold);
 }
+.dayPeriods {
+  display: grid;
+  gap: var(--space-2);
+}
+.periodAction {
+  justify-self: start;
+}
 @media (min-width: 768px) {
   .filterGrid {
     display: grid;
@@ -103,5 +110,11 @@
   }
   .dayRow {
     grid-template-columns: 4rem repeat(2, minmax(0, 1fr));
+  }
+  .dayRow .periodAction {
+    grid-column: 2 / -1;
+  }
+  .dayPeriods > .periodAction {
+    margin-left: calc(4rem + var(--space-2));
   }
 }

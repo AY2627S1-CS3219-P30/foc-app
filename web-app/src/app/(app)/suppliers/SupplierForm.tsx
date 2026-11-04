@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type FormEvent, type Ref } from 'react';
+import { useEffect, useId, useState, type FormEvent, type Ref } from 'react';
 import { Button } from '@/components/Button';
 import { Field } from '@/components/Field';
 import { Input } from '@/components/Input';
@@ -8,9 +8,13 @@ import { Select } from '@/components/Select';
 import { Textarea } from '@/components/Textarea';
 import { ApiError, type FieldError } from '@/lib/api-client';
 import type { Supplier, SupplierInput } from '@/lib/supplier-api';
-import { DAYS, SUPPLIER_TYPES, TYPE_LABELS } from '@/lib/supplier-display';
+import { DAYS, MAX_PERIODS_PER_DAY, SUPPLIER_TYPES, TYPE_LABELS } from '@/lib/supplier-display';
 import { useBuildings } from '@/lib/use-buildings';
 import styles from './suppliers.module.css';
+
+type Period = { opens: string; closes: string };
+const BLANK_PERIOD: Period = { opens: '', closes: '' };
+const isFilled = ({ opens, closes }: Period) => Boolean(opens || closes);
 
 type InputData = {
   name: string;
@@ -22,8 +26,15 @@ type InputData = {
   latitude: string;
   longitude: string;
   tags: string;
-  hours: Record<string, { opens: string; closes: string }>;
+  hours: Record<string, Period[]>;
 };
+
+/** The form as it would be saved: a blank period isn't a change, since it is never sent. */
+const asSaved = (data: InputData) =>
+  JSON.stringify({
+    ...data,
+    hours: Object.values(data.hours).map((periods) => periods.filter(isFilled)),
+  });
 
 function initial(supplier?: Supplier): InputData {
   return {
@@ -37,13 +48,12 @@ function initial(supplier?: Supplier): InputData {
     longitude: supplier?.longitude?.toString() ?? '',
     tags: supplier?.tags?.join(', ') ?? '',
     hours: Object.fromEntries(
-      DAYS.map((day) => [
-        day,
-        {
-          opens: supplier?.openingHours?.find((h) => h.day === day)?.opens ?? '',
-          closes: supplier?.openingHours?.find((h) => h.day === day)?.closes ?? '',
-        },
-      ]),
+      DAYS.map((day) => {
+        const periods = (supplier?.openingHours ?? [])
+          .filter((h) => h.day === day)
+          .map(({ opens, closes }) => ({ opens, closes }));
+        return [day, periods.length ? periods : [BLANK_PERIOD]];
+      }),
     ),
   };
 }
@@ -68,11 +78,12 @@ export function SupplierForm({
   const [pristine] = useState(() => initial(supplier));
   const [form, setForm] = useState(pristine);
   const buildings = useBuildings(false);
-  const dirty = JSON.stringify(form) !== JSON.stringify(pristine);
+  const formId = useId();
+  const dirty = asSaved(form) !== asSaved(pristine);
   useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
   const [errors, setErrors] = useState<FieldError[]>([]);
-  // Server errors reference openingHours by submitted index, so keep the submitted day order.
-  const [submittedDays, setSubmittedDays] = useState<string[]>([]);
+  // Server errors reference openingHours by submitted index, so keep the submitted order.
+  const [submittedPeriods, setSubmittedPeriods] = useState<string[]>([]);
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const set = <K extends keyof Omit<InputData, 'hours'>>(key: K, value: InputData[K]) =>
@@ -87,8 +98,8 @@ export function SupplierForm({
       )
       .map((item) => item.message)
       .join(' ') || undefined;
-  // Fieldset-level hours errors: skip per-day opens/closes errors, which are
-  // already shown (and announced) at that day's input.
+  // Fieldset-level hours errors: skip those on a period or its opens/closes, which are
+  // already shown (and announced) at that period's inputs.
   const hoursError =
     errors
       .filter(
@@ -96,11 +107,22 @@ export function SupplierForm({
           (item.field === 'openingHours' ||
             item.field.startsWith('openingHours.') ||
             item.field.startsWith('openingHours[')) &&
-          !/^openingHours(?:\.\d+|\[\d+\])\.(?:opens|closes)$/.test(item.field),
+          !/^openingHours(?:\.\d+|\[\d+\])(?:\.(?:opens|closes))?$/.test(item.field),
       )
       .map((item) => item.message)
       .join(' ') || undefined;
-  const daysWithHours = DAYS.filter((day) => form.hours[day].opens || form.hours[day].closes);
+  const filledPeriods = DAYS.flatMap((day) =>
+    form.hours[day].flatMap((period, index) =>
+      isFilled(period) ? [{ day, index, ...period }] : [],
+    ),
+  );
+  const periodEntry = (day: string, index: number) =>
+    `openingHours.${submittedPeriods.indexOf(`${day}:${index}`)}`;
+  const setPeriods = (day: string, change: (periods: Period[]) => Period[]) =>
+    setForm((previous) => ({
+      ...previous,
+      hours: { ...previous.hours, [day]: change(previous.hours[day]) },
+    }));
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -121,7 +143,7 @@ export function SupplierForm({
       return;
     }
     setSaving(true);
-    setSubmittedDays(daysWithHours);
+    setSubmittedPeriods(filledPeriods.map(({ day, index }) => `${day}:${index}`));
     try {
       await onSave({
         name: form.name,
@@ -139,11 +161,7 @@ export function SupplierForm({
             .filter(Boolean);
           return tags.length ? tags : null;
         })(),
-        openingHours: daysWithHours.map((day) => ({
-          day,
-          opens: form.hours[day].opens,
-          closes: form.hours[day].closes,
-        })),
+        openingHours: filledPeriods.map(({ day, opens, closes }) => ({ day, opens, closes })),
       });
     } catch (cause) {
       if (cause instanceof ApiError) {
@@ -222,48 +240,84 @@ export function SupplierForm({
       </Field>
       <fieldset className={styles.hoursField}>
         <legend>Opening hours</legend>
-        <p>Leave a day blank if hours are unavailable.</p>
-        {DAYS.map((day) => (
-          <div key={day} className={styles.dayRow}>
-            <span>{day}</span>
-            <Field
-              label={`${day} opens`}
-              error={error(`openingHours.${submittedDays.indexOf(day)}.opens`)}
-            >
-              <Input
-                type="time"
-                value={form.hours[day].opens}
-                onChange={(e) =>
-                  setForm((previous) => ({
-                    ...previous,
-                    hours: {
-                      ...previous.hours,
-                      [day]: { ...previous.hours[day], opens: e.target.value },
-                    },
-                  }))
-                }
-              />
-            </Field>
-            <Field
-              label={`${day} closes`}
-              error={error(`openingHours.${submittedDays.indexOf(day)}.closes`)}
-            >
-              <Input
-                type="time"
-                value={form.hours[day].closes}
-                onChange={(e) =>
-                  setForm((previous) => ({
-                    ...previous,
-                    hours: {
-                      ...previous.hours,
-                      [day]: { ...previous.hours[day], closes: e.target.value },
-                    },
-                  }))
-                }
-              />
-            </Field>
-          </div>
-        ))}
+        <p>Leave a day blank if it is closed or its hours are unavailable.</p>
+        {DAYS.map((day) => {
+          const periods = form.hours[day];
+          const last = periods[periods.length - 1];
+          return (
+            <div key={day} className={styles.dayPeriods}>
+              {periods.map((period, index) => {
+                const label = index === 0 ? day : `${day}, period ${index + 1}`;
+                const entry = periodEntry(day, index);
+                // An overlap is on the period as a whole: it marks both inputs, and its message
+                // shows once, under `opens`, with `closes` pointing at it.
+                const whole = errors.find((item) => item.field === entry)?.message;
+                const opensId = `${formId}-${day}-${index}-opens`;
+                const setTime = (time: keyof Period, value: string) =>
+                  setPeriods(day, (current) =>
+                    current.map((item, at) => (at === index ? { ...item, [time]: value } : item)),
+                  );
+                return (
+                  <div key={index} className={styles.dayRow}>
+                    <span>{index === 0 && day}</span>
+                    <Field
+                      id={opensId}
+                      label={`${label} opens`}
+                      error={[error(`${entry}.opens`), whole].filter(Boolean).join(' ') || undefined}
+                    >
+                      <Input
+                        type="time"
+                        value={period.opens}
+                        onChange={(e) => setTime('opens', e.target.value)}
+                      />
+                    </Field>
+                    <Field label={`${label} closes`} error={error(`${entry}.closes`)}>
+                      <Input
+                        type="time"
+                        aria-invalid={whole ? true : undefined}
+                        aria-describedby={whole ? `${opensId}-error` : undefined}
+                        value={period.closes}
+                        onChange={(e) => setTime('closes', e.target.value)}
+                      />
+                    </Field>
+                    {periods.length > 1 && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className={styles.periodAction}
+                        aria-label={`Remove ${label}`}
+                        onClick={() => {
+                          // What the service refused was numbered before this period went.
+                          const others = errors.filter(
+                            (item) => !item.field.startsWith('openingHours'),
+                          );
+                          setErrors(others);
+                          // Only when that cleared something: a save that failed outright has
+                          // no field errors, and its message is the only sign it failed.
+                          if (errors.length && !others.length) setMessage('');
+                          setPeriods(day, (current) => current.filter((_, at) => at !== index));
+                        }}
+                      >
+                        Remove
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+              {last.opens && last.closes && periods.length < MAX_PERIODS_PER_DAY && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={styles.periodAction}
+                  aria-label={`Add a period on ${day}`}
+                  onClick={() => setPeriods(day, (current) => [...current, BLANK_PERIOD])}
+                >
+                  Add period
+                </Button>
+              )}
+            </div>
+          );
+        })}
         {hoursError && <p role="alert">{hoursError}</p>}
       </fieldset>
       {message && (
