@@ -774,6 +774,8 @@ export interface components {
             requesterId: string;
             courierId: string;
             supplier: components["schemas"]["SupplierSnapshot"];
+            /** @description What was asked for, as it was when the errand was posted. */
+            items: components["schemas"]["OrderItem"][];
             reward: number;
             /** Format: uuid */
             creditTransactionId: string;

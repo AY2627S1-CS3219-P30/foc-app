@@ -9,6 +9,7 @@ import {
   RESERVATION_RESULTS_QUEUE,
   ReservationResultsConsumer,
 } from '../../src/reservation-results.consumer.js';
+import type { OrderItem } from '../../src/orders/types.js';
 import { asRequester, asStranger, http, type TestApp } from '../helpers/app.js';
 
 export const SEEDED_ORDER = '00000000-0000-4000-8000-000000000129';
@@ -214,14 +215,18 @@ export const SECRET = {
 };
 
 /** Creates a PENDING_CREDIT order through the API, carrying the private markers above. */
-export async function createPending(t: TestApp, auth = asRequester): Promise<string> {
+export async function createPending(
+  t: TestApp,
+  auth = asRequester,
+  items: OrderItem[] = [{ name: 'Coffee', quantity: 1, note: SECRET.note }],
+): Promise<string> {
   const response = await http(t)
     .post('/orders')
     .set('Authorization', auth)
     .set('Idempotency-Key', randomUUID())
     .send({
       supplierId: '00000000-0000-4000-8000-000000000125',
-      items: [{ name: 'Coffee', quantity: 1, note: SECRET.note }],
+      items,
       deliveryZone: 'COM2 Lobby',
       deliveryInstructions: SECRET.instructions,
       reward: SEEDED_REWARD,
