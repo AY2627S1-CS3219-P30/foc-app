@@ -6,13 +6,30 @@ import { loadEnv } from '@foc/platform';
  * The Chat Service's own required variables, on top of the shared base and
  * the two `@foc/auth-client` needs to resolve a caller's live identity.
  *
- * Nothing here has a default: a missing value must stop the service at boot
- * rather than silently fall back to something insecure.
+ * Nothing that reaches another service or the database has a default: a missing value must stop
+ * the service at boot rather than silently fall back to something insecure. Only the retention
+ * policy has one, ADR 0012's.
  */
 export const env = loadEnv({
   DATABASE_URL: z.string().min(1),
   /** The Order Service's internal port, for the lookup every request asks (ADR 0012). */
   ORDER_SERVICE_URL: z.url(),
+  /** A conversation is kept this long after its errand ends; from then every route answers 404. */
+  CHAT_RETENTION_DAYS: z.coerce.number().int().positive().default(90),
+  /** How often the cleanup deletes channels past retention. setInterval holds at most ~24.8 days. */
+  CHAT_CLEANUP_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(60_000)
+    .max(2_147_483_647)
+    .default(24 * 60 * 60_000),
+  /** How soon a cleanup run the Order Service did not answer for is tried once more. */
+  CHAT_CLEANUP_RETRY_MS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(2_147_483_647)
+    .default(5 * 60_000),
   ...authEnvSchema,
 });
 

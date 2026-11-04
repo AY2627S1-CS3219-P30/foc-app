@@ -9,8 +9,12 @@ export interface ActivationEmail {
   token: string;
 }
 
+/** A password reset link (#309): the same shape, and the same rule about the token. */
+export type PasswordResetEmail = ActivationEmail;
+
 export interface Mailer {
   sendActivation(email: ActivationEmail): Promise<void>;
+  sendPasswordReset(email: PasswordResetEmail): Promise<void>;
 }
 
 export const MAILER = Symbol('MAILER');

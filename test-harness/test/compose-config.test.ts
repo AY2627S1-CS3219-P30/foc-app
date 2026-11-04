@@ -169,6 +169,12 @@ describe('production mode (PLT-10, #285)', () => {
     expect(env.ACTIVATION_URL).toBeDefined();
   });
 
+  it('forwards the link lifetimes to the User Service with their defaults', () => {
+    const env = services['user-service']!.environment!;
+    expect(env.ACTIVATION_TOKEN_TTL_HOURS).toBe('${ACTIVATION_TOKEN_TTL_HOURS:-24}');
+    expect(env.PASSWORD_RESET_TOKEN_TTL_MINUTES).toBe('${PASSWORD_RESET_TOKEN_TTL_MINUTES:-30}');
+  });
+
   it('has the smoke test prove the cookie is Secure on a production stack', () => {
     const smoke = read('scripts-smoke.sh');
     expect(smoke).toContain('if [[ "${NODE_ENV:-}" == production ]]; then');
@@ -301,6 +307,19 @@ describe('containers get only what they need (PL-NFR2.1.2)', () => {
     expect(services['order-service']!.environment!.CREDIT_SERVICE_URL).toBe(
       'http://credit-service:4004',
     );
+  });
+
+  it("forwards chat's retention settings, with the defaults .env.example shows", () => {
+    const examples = assignments(read('.env.example'));
+    for (const name of [
+      'CHAT_RETENTION_DAYS',
+      'CHAT_CLEANUP_INTERVAL_MS',
+      'CHAT_CLEANUP_RETRY_MS',
+    ]) {
+      const example = examples.find((assignment) => assignment.name === name);
+      expect(example, name).toBeDefined();
+      expect(services['chat-service']!.environment![name]).toBe(`\${${name}:-${example!.value}}`);
+    }
   });
 
   it('publishes an internal port only in the development override, and there only to this machine', () => {

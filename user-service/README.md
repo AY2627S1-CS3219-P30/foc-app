@@ -29,24 +29,25 @@ Run these from the repository root.
 
 ### Required environment
 
-| Variable                     | Example                                            | Notes                                                         |
-| ---------------------------- | -------------------------------------------------- | ------------------------------------------------------------- |
-| `SERVICE_NAME`               | `user-service`                                     | Tags every log line                                           |
-| `PORT`                       | `3001`                                             | Bind port                                                     |
-| `NODE_ENV`                   | `development`                                      | `development` \| `test` \| `production`                       |
-| `LOG_LEVEL`                  | `info`                                             | Defaults to `info`                                            |
-| `DATABASE_URL`               | `postgres://user_service:…@postgres:5432/foc_user` | Supplied by Compose                                           |
-| `ALLOWED_EMAIL_DOMAINS`      | `u.nus.edu,nus.edu.sg`                             | Registration is limited to these domains                      |
-| `INTERNAL_SERVICE_KEYS`      | (16+ chars each)                                   | Keys other services send as `X-Service-Key` on `/internal/**` |
-| `ACTIVATION_TOKEN_TTL_HOURS` | `24`                                               | Optional; 1–168                                               |
-| `SMTP_HOST`                  | `mailpit`                                          | Where activation email goes. Required in production           |
-| `SMTP_PORT`                  | `1025`                                             | Defaults to `587`; `465` means implicit TLS                   |
-| `SMTP_USER`, `SMTP_PASSWORD` | (secret store)                                     | Optional, both or neither. Never committed                    |
-| `SMTP_REQUIRE_TLS`           | `false`                                            | Defaults to required in production; `false` only for Mailpit  |
-| `MAIL_FROM`                  | `Friend on Campus <no-reply@foc.local>`            | Optional; the default is shown                                |
-| `ACTIVATION_URL`             | `http://localhost:3000/activate`                   | The web app page the email links to. Required with SMTP       |
+| Variable                           | Example                                            | Notes                                                                                                   |
+| ---------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `SERVICE_NAME`                     | `user-service`                                     | Tags every log line                                                                                     |
+| `PORT`                             | `3001`                                             | Bind port                                                                                               |
+| `NODE_ENV`                         | `development`                                      | `development` \| `test` \| `production`                                                                 |
+| `LOG_LEVEL`                        | `info`                                             | Defaults to `info`                                                                                      |
+| `DATABASE_URL`                     | `postgres://user_service:…@postgres:5432/foc_user` | Supplied by Compose                                                                                     |
+| `ALLOWED_EMAIL_DOMAINS`            | `u.nus.edu,nus.edu.sg`                             | Registration is limited to these domains                                                                |
+| `INTERNAL_SERVICE_KEYS`            | (16+ chars each)                                   | Keys other services send as `X-Service-Key` on `/internal/**`                                           |
+| `ACTIVATION_TOKEN_TTL_HOURS`       | `24`                                               | Optional; 1–168                                                                                         |
+| `PASSWORD_RESET_TOKEN_TTL_MINUTES` | `30`                                               | Optional; 5–1440. How long a password reset link works                                                  |
+| `SMTP_HOST`                        | `mailpit`                                          | Where activation and reset email goes. Required in production                                           |
+| `SMTP_PORT`                        | `1025`                                             | Defaults to `587`; `465` means implicit TLS                                                             |
+| `SMTP_USER`, `SMTP_PASSWORD`       | (secret store)                                     | Optional, both or neither. Never committed                                                              |
+| `SMTP_REQUIRE_TLS`                 | `false`                                            | Defaults to required in production; `false` only for Mailpit                                            |
+| `MAIL_FROM`                        | `Friend on Campus <no-reply@foc.local>`            | Optional; the default is shown                                                                          |
+| `ACTIVATION_URL`                   | `http://localhost:3000/activate`                   | The web app page the email links to. Required with SMTP. Reset links open its sibling, `reset-password` |
 
-**Mail.** Compose sends activation email to Mailpit, a local inbox at <http://localhost:8025>.
+**Mail.** Compose sends activation and password reset email to Mailpit, a local inbox at <http://localhost:8025>.
 Without `SMTP_HOST`, outside production, each email is kept in memory where nobody receives it,
 and a warning at boot says so. Run `docker compose -f compose.yaml -f compose.dev.yaml up -d` and set
 `SMTP_HOST=localhost SMTP_PORT=1025` to send to the stack's inbox from `npm run dev:user`. With
@@ -84,13 +85,15 @@ user and declares a `HEALTHCHECK`. `compose.yaml` wiring arrives with PLT-02.
 
 ### What is implemented (USR-01)
 
-| Endpoint                              | Purpose                                                                                                                                 |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /auth/register`                 | Normalise the email, enforce the domain allowlist, reject duplicates, hash the password with Argon2id, email a one-time activation link |
-| `POST /auth/activate`                 | Single-use, expiring, replay-idempotent; publishes exactly one `UserActivated` to the outbox                                            |
-| `POST /auth/activation/resend`        | Mails a new link to a pending account and invalidates the old ones. Same `202` for any address; 3 per address and 20 per IP an hour     |
-| `GET /internal/users/:id`             | Least-data identity lookup (`X-Service-Key` required)                                                                                   |
-| `GET /internal/users/:id/permissions` | Effective permissions for admin authorisation (`X-Service-Key` required)                                                                |
+| Endpoint                              | Purpose                                                                                                                                                          |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /auth/register`                 | Normalise the email, enforce the domain allowlist, reject duplicates, hash the password with Argon2id, email a one-time activation link                          |
+| `POST /auth/activate`                 | Single-use, expiring, replay-idempotent; publishes exactly one `UserActivated` to the outbox                                                                     |
+| `POST /auth/activation/resend`        | Mails a new link to a pending account and invalidates the old ones. Same `202` for any address; 3 per address and 20 per IP an hour                              |
+| `POST /auth/password-reset`           | Mails a reset link to an active or pending account and invalidates the old ones. Same `202` for any address; its own 3 per address and 20 per IP an hour         |
+| `POST /auth/password-reset/confirm`   | Sets the password from the link (registration policy), activates a pending account, revokes every session, deletes the unused activation link. `204`; no sign-in |
+| `GET /internal/users/:id`             | Least-data identity lookup (`X-Service-Key` required)                                                                                                            |
+| `GET /internal/users/:id/permissions` | Effective permissions for admin authorisation (`X-Service-Key` required)                                                                                         |
 
 The contract is `contracts/user-service.openapi.yaml`; role and schema design are in
 `docs/user-service/`, and every decision with its trade-offs is in `docs/user-service/decisions.md`. Migrations are forward-only, live in `drizzle/`, and are applied by `npm run db:migrate -w @foc/user-service` before the service starts; the service never migrates at boot.
@@ -101,6 +104,13 @@ database server or Docker. Runtime uses `pg` against the Compose Postgres.
 A registration that never activated, and whose every link has expired, is not a duplicate:
 registering it again replaces its password and display name and emails a new link. Until the
 address is proven, whoever registers last sets the password, as for any new sign-up.
+
+**Password reset (#309).** Whoever owns the inbox can always replace the password, even on an account
+someone else registered: `POST /auth/password-reset` mails a single-use link (30 minutes by default,
+stored hashed, the newest only), and confirming it sets the new password, activates the account if it
+was pending (one `user.activated`), revokes every session and deletes the old activation link. So a
+stranger who registers a student's address with their own password and keeps resending its activation
+link cannot keep the account: see [decisions.md O2](../docs/user-service/decisions.md).
 
 **Try it** (needs the Compose stack): register, read the token from the email in Mailpit, activate.
 Or open <http://localhost:8025> and click the link.

@@ -5,7 +5,12 @@ import { hashPassword } from '../auth/passwords.js';
 import { sessionsRepository as sessions } from '../auth/sessions.repository.js';
 import { newOpaqueToken, sha256Hex } from '../auth/tokens.js';
 import { DB, type Database } from '../db/db.js';
-import { MAILER, type ActivationEmail, type Mailer } from '../mail/mailer.js';
+import {
+  MAILER,
+  type ActivationEmail,
+  type Mailer,
+  type PasswordResetEmail,
+} from '../mail/mailer.js';
 import { isAllowedDomain, normalizeEmail } from './email.js';
 import { usersRepository as repo, type AccountStatus, type Role } from './users.repository.js';
 import { validationFailed } from './validation.js';
@@ -15,6 +20,7 @@ export const USER_SETTINGS = Symbol('USER_SETTINGS');
 export interface UserSettings {
   allowedEmailDomains: readonly string[];
   activationTokenTtlHours: number;
+  passwordResetTokenTtlMinutes: number;
 }
 
 export interface IdentityLookup {
@@ -123,6 +129,47 @@ export class UsersService {
       if (userId) await this.sendActivation({ to: email, userId, token });
     } catch (err) {
       this.logger.error({ err, msg: 'activation resend failed' });
+    }
+  }
+
+  /**
+   * #309 — mails a password reset link to an active or pending account, invalidating its earlier
+   * ones. A pending account is included on purpose: whoever registered the address chose its
+   * password, and the link is how the inbox's owner replaces that choice. Like resend, the caller
+   * learns nothing (an unknown or suspended address gets no email and the same answer), and this
+   * never throws, so the controller answers before it finishes.
+   *
+   * No domain check: an address that has an account may reset it even if the allowlist has since
+   * changed, and one that has none gets nothing anyway.
+   */
+  async requestPasswordReset(rawEmail: string): Promise<void> {
+    try {
+      const email = normalizeEmail(rawEmail);
+      const token = newOpaqueToken();
+      const userId = await this.db.transaction(async (tx) => {
+        const id = await repo.lockResettableUser(tx, email);
+        if (!id) return null;
+        await repo.deleteUnconsumedPasswordResetTokens(tx, id);
+        await repo.insertPasswordResetToken(tx, {
+          id: randomUUID(),
+          userId: id,
+          tokenHash: sha256Hex(token),
+          ttlMinutes: this.settings.passwordResetTokenTtlMinutes,
+        });
+        return id;
+      });
+      if (userId) await this.sendPasswordReset({ to: email, userId, token });
+    } catch (err) {
+      this.logger.error({ err, msg: 'password reset request failed' });
+    }
+  }
+
+  /** Never throws, so a caller may leave it running without an unhandled rejection. */
+  private async sendPasswordReset(email: PasswordResetEmail): Promise<void> {
+    try {
+      await this.mailer.sendPasswordReset(email);
+    } catch (err) {
+      this.logger.error({ err, userId: email.userId, msg: 'password reset email not sent' });
     }
   }
 

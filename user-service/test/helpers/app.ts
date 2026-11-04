@@ -21,7 +21,7 @@ export interface TestApp {
   db: PgliteDb;
   /** The Drizzle handle the service queries through, for driving a repository or the seed directly. */
   orm: Database;
-  /** Where the service's activation email lands, so a test can read the token. */
+  /** Where the service's activation and password reset email lands, so a test can read the token. */
   mailbox: MemoryMailbox;
   close(): Promise<void>;
 }
@@ -113,4 +113,6 @@ export const openLimiters = (): AuthRateLimiters => ({
   stepUpPerUser: new RateLimiter(1_000_000, 60_000),
   resendPerEmail: new RateLimiter(1_000_000, 60_000),
   resendPerIp: new RateLimiter(1_000_000, 60_000),
+  resetPerEmail: new RateLimiter(1_000_000, 60_000),
+  resetPerIp: new RateLimiter(1_000_000, 60_000),
 });

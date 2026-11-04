@@ -103,6 +103,24 @@ export const activationTokens = pgTable(
 );
 
 /**
+ * Password reset links (#309). Kept like activation tokens: only the SHA-256 is stored, each expires,
+ * and each works once. Issuing one deletes the account's unused others, so only the newest link works.
+ */
+export const passwordResetTokens = pgTable(
+  'password_reset_tokens',
+  {
+    id: uuid('id').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true }),
+  },
+  (t) => [index('password_reset_tokens_user_idx').on(t.userId)],
+);
+
+/**
  * Events are written here in the same transaction as the change that caused
  * them; the platform's OutboxRelay publishes committed rows (EVT-02).
  */

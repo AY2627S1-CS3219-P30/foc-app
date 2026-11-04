@@ -187,7 +187,7 @@ Service's address below.
 
 ## Talking to the services
 
-**Accounts are live (USR-05).** Register, activate, sign in, change password, profile and the
+**Accounts are live (USR-05).** Register, activate, sign in, change or reset password, profile and the
 requester↔courier switch call the real User Service (`src/lib/user-api.ts`, `src/lib/auth.tsx`).
 The supplier listing calls the real Supplier Service through `src/lib/supplier-api.ts`.
 Search, type and building filters, sort order, and paging are sent to `GET /suppliers`;
@@ -376,6 +376,16 @@ Mailpit's inbox at <http://localhost:8025>. Its link opens `/activate?token=…`
 `/activate` also offers **Send a new link** (`POST /auth/activation/resend`) for an email that never
 came or a link that expired or was replaced. Its confirmation reads the same whether or not the address
 has an account, as the service's answer does.
+
+### Password reset
+
+**Forgot your password?** on `/login` opens `/forgot-password`, which asks `POST /auth/password-reset`
+for a link and then says the same thing whatever the address. The emailed link opens
+`/reset-password?token=…`: a new password and its confirmation, checked by the sign-up rules, then
+`POST /auth/password-reset/confirm` and a link to sign in (it does not sign in by itself, as activation
+does not). The reset also activates an account still waiting for activation, so when sign-up answers
+that an address is taken, the page links to `/forgot-password?email=…`: that is how a student takes back
+an address someone else registered (#309).
 
 ### Tests
 

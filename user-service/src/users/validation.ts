@@ -115,6 +115,15 @@ export const activateSchema = z.strictObject({
   token: z.string().min(20).max(200),
 });
 
+/** `POST /auth/password-reset`: an address, exactly as resend takes it. */
+export const passwordResetRequestSchema = resendActivationSchema;
+
+/** `POST /auth/password-reset/confirm`: the emailed token and a password under the registration policy. */
+export const passwordResetConfirmSchema = z.strictObject({
+  token: z.string().min(20).max(200),
+  password: z.string().min(12).max(128),
+});
+
 export const userIdSchema = z.uuid();
 
 export interface FieldError {

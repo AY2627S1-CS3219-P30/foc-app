@@ -128,6 +128,8 @@ const PUBLIC = new Set([
   'POST /auth/register',
   'POST /auth/activate',
   'POST /auth/activation/resend',
+  'POST /auth/password-reset',
+  'POST /auth/password-reset/confirm',
   'POST /auth/login',
   'POST /auth/password',
   'POST /auth/refresh',
