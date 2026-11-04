@@ -210,6 +210,37 @@ describe('SupplierPicker', () => {
     await act(() => root.unmount());
   });
 
+  it('offers nothing to clear when the list is empty and nothing has been searched', async () => {
+    serve(() => page([]));
+    const { container, root } = await render(<SupplierPicker onSelect={() => {}} />);
+    expect(container.textContent).toContain('No pickup points found');
+    expect(button(container, 'Clear search')).toBeUndefined();
+    await act(() => root.unmount());
+  });
+
+  it('offers to clear a search that matches nothing (UI-FR6.1.1)', async () => {
+    const urls = serve((url) => page(url.searchParams.has('q') ? [] : [cafe, kopi]));
+    const { container, root } = await render(<SupplierPicker onSelect={() => {}} />);
+    const input = container.querySelector('input') as HTMLInputElement;
+    await type(input, 'nothing like this');
+    await debounce();
+    await settle();
+    expect(container.textContent).toContain('No pickup points found');
+
+    await act(async () => button(container, 'Clear search').click());
+    await settle();
+
+    expect(input.value).toBe('');
+    expect(urls.at(-1)!.searchParams.has('q')).toBe(false);
+    expect(buttons(container).map((b) => b.textContent)).toEqual([
+      'Campus CaféCafé · COM2',
+      'Kopi CornerCafé · COM2',
+    ]);
+    // The button that had focus is gone, so focus goes back to where a new search starts.
+    expect(window.document.activeElement as unknown).toBe(input);
+    await act(() => root.unmount());
+  });
+
   it('shows the error and loads again on retry', async () => {
     let fail = true;
     const urls = serve(() =>
