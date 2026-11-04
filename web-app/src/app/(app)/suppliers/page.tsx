@@ -62,6 +62,7 @@ export default function SuppliersPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
+  const searchInput = useRef<HTMLInputElement>(null);
   // Read again with the list: a save or a delete can add a building to the filter or empty one.
   const buildings = useBuildings(true, revision);
   const [listing, setListing] = useState<Listing | null>(null);
@@ -307,6 +308,16 @@ export default function SuppliersPage() {
     change();
     setPage(1);
   };
+  const narrowed = query.trim() !== '' || search !== '' || type !== '' || building !== '';
+  const clearSearchAndFilters = () => {
+    setQuery('');
+    setSearch('');
+    setType('');
+    setBuilding('');
+    setPage(1);
+    // The button that has focus is about to go, so focus returns to where a new search starts.
+    searchInput.current?.focus();
+  };
 
   return (
     <ResponsiveShell
@@ -338,6 +349,7 @@ export default function SuppliersPage() {
               type="search"
               maxLength={200}
               placeholder="Name or location"
+              ref={searchInput}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
@@ -441,7 +453,16 @@ export default function SuppliersPage() {
                   ))}
                 </div>
               ) : (
-                <EmptyState title="No suppliers found">
+                <EmptyState
+                  title="No suppliers found"
+                  action={
+                    narrowed && (
+                      <Button variant="outline" onClick={clearSearchAndFilters}>
+                        Clear search and filters
+                      </Button>
+                    )
+                  }
+                >
                   Try another search, type or building.
                 </EmptyState>
               )}
