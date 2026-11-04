@@ -8,14 +8,13 @@ import { Select } from '@/components/Select';
 import { Textarea } from '@/components/Textarea';
 import { ApiError, type FieldError } from '@/lib/api-client';
 import type { Supplier, SupplierInput } from '@/lib/supplier-api';
-import { DAYS, SUPPLIER_TYPES, TYPE_LABELS } from '@/lib/supplier-display';
+import { DAYS, MAX_PERIODS_PER_DAY, SUPPLIER_TYPES, TYPE_LABELS } from '@/lib/supplier-display';
 import { useBuildings } from '@/lib/use-buildings';
 import styles from './suppliers.module.css';
 
 type Period = { opens: string; closes: string };
 const BLANK_PERIOD: Period = { opens: '', closes: '' };
-/** The service's limit (SS-FR1.1.3). */
-const MAX_PERIODS_PER_DAY = 4;
+const isFilled = ({ opens, closes }: Period) => Boolean(opens || closes);
 
 type InputData = {
   name: string;
@@ -29,6 +28,13 @@ type InputData = {
   tags: string;
   hours: Record<string, Period[]>;
 };
+
+/** The form as it would be saved: a blank period isn't a change, since it is never sent. */
+const asSaved = (data: InputData) =>
+  JSON.stringify({
+    ...data,
+    hours: Object.values(data.hours).map((periods) => periods.filter(isFilled)),
+  });
 
 function initial(supplier?: Supplier): InputData {
   return {
@@ -72,7 +78,7 @@ export function SupplierForm({
   const [pristine] = useState(() => initial(supplier));
   const [form, setForm] = useState(pristine);
   const buildings = useBuildings(false);
-  const dirty = JSON.stringify(form) !== JSON.stringify(pristine);
+  const dirty = asSaved(form) !== asSaved(pristine);
   useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
   const [errors, setErrors] = useState<FieldError[]>([]);
   // Server errors reference openingHours by submitted index, so keep the submitted order.
@@ -91,8 +97,8 @@ export function SupplierForm({
       )
       .map((item) => item.message)
       .join(' ') || undefined;
-  // Fieldset-level hours errors: skip per-day opens/closes errors, which are
-  // already shown (and announced) at that day's input.
+  // Fieldset-level hours errors: skip those on a period or its opens/closes, which are
+  // already shown (and announced) at that period's inputs.
   const hoursError =
     errors
       .filter(
@@ -100,17 +106,20 @@ export function SupplierForm({
           (item.field === 'openingHours' ||
             item.field.startsWith('openingHours.') ||
             item.field.startsWith('openingHours[')) &&
-          !/^openingHours(?:\.\d+|\[\d+\])\.(?:opens|closes)$/.test(item.field),
+          !/^openingHours(?:\.\d+|\[\d+\])(?:\.(?:opens|closes))?$/.test(item.field),
       )
       .map((item) => item.message)
       .join(' ') || undefined;
   const filledPeriods = DAYS.flatMap((day) =>
     form.hours[day].flatMap((period, index) =>
-      period.opens || period.closes ? [{ day, index, ...period }] : [],
+      isFilled(period) ? [{ day, index, ...period }] : [],
     ),
   );
-  const periodError = (day: string, index: number, time: keyof Period) =>
-    error(`openingHours.${submittedPeriods.indexOf(`${day}:${index}`)}.${time}`);
+  // An overlap is on the period as a whole, so it marks both its inputs.
+  const periodError = (day: string, index: number, time: keyof Period) => {
+    const entry = `openingHours.${submittedPeriods.indexOf(`${day}:${index}`)}`;
+    return error(`${entry}.${time}`) ?? errors.find((item) => item.field === entry)?.message;
+  };
   const setPeriods = (day: string, change: (periods: Period[]) => Period[]) =>
     setForm((previous) => ({
       ...previous,
@@ -262,7 +271,7 @@ export function SupplierForm({
                         onChange={(e) => setTime('closes', e.target.value)}
                       />
                     </Field>
-                    {index > 0 && (
+                    {periods.length > 1 && (
                       <Button
                         type="button"
                         variant="outline"
@@ -270,7 +279,11 @@ export function SupplierForm({
                         aria-label={`Remove ${label}`}
                         onClick={() => {
                           // What the service refused was numbered before this period went.
-                          setErrors([]);
+                          const others = errors.filter(
+                            (item) => !item.field.startsWith('openingHours'),
+                          );
+                          setErrors(others);
+                          if (!others.length) setMessage('');
                           setPeriods(day, (current) => current.filter((_, at) => at !== index));
                         }}
                       >

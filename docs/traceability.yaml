@@ -157,14 +157,17 @@ requirements:
       - "supplier-service/test/suppliers.test.ts::refuses a case-insensitive duplicate of name+building among active suppliers"
       - "supplier-service/test/suppliers.test.ts::rejects latitude without longitude"
       - "supplier-service/test/suppliers.test.ts::refuses a building off the campus list and writes nothing"
-    gap: "No test sends malformed opening hours to the API."
+      - "supplier-service/test/suppliers.test.ts::refuses a malformed time and an unknown day, naming each, and writes nothing"
   - id: SS-FR1.1.3
     text: "Opening hours, where given, shall be recorded for each day of the week as zero or more pairs of opening and closing times in 24-hour format, so that a closed day, a midday break, or a supplier open all day can be represented; a closing time earlier than its opening time means closing after midnight."
     tests:
       - "supplier-service/test/units.test.ts::treats 0000-2359 as an all-day window across every day"
       - "supplier-service/test/units.test.ts::keeps a post-midnight close (opens > closes)"
       - "supplier-service/test/units.test.ts::converts 0900hrs to 09:00"
-    gap: "Validation allows each day at most once ('split shifts are not supported'), so a day with two opening periods such as a midday break cannot be stored, and no test shows a closed day or 24-hour times through the API (these tests cover only seed normalization)."
+      - "supplier-service/test/suppliers.test.ts::stores a midday break, a closed day, an all-day day and a late close unchanged"
+      - "supplier-service/test/suppliers.test.ts::refuses periods on one day that overlap, naming the entry, and writes nothing"
+      - "supplier-service/test/suppliers.test.ts::refuses a period the night before runs into, against the entry that comes later"
+      - "web-app/test/suppliers.test.tsx::shows every period and keeps them all when the supplier is saved unchanged"
   - id: SS-FR2.1.1
     text: "Any signed-in, active user may list, search, and view suppliers; only an administrator may create, update, or delete one, and each accepted change shall record when it was made."
     areas: [roles]
@@ -207,7 +210,8 @@ requirements:
     text: "A lookup by identifier shall return every stored field, including opening hours and the location description; an identifier that matches no supplier shall be reported as not found."
     tests:
       - "supplier-service/test/provider.contract.test.ts::POST, GET, PUT and DELETE /suppliers with success and error responses"
-    gap: "No test checks that GET /suppliers/{id} for an unknown id answers 404 NOT_FOUND (the contract check also accepts a 422 or 503 there), or that stored opening hours and location description come back unchanged."
+      - "supplier-service/test/suppliers.test.ts::stores a midday break, a closed day, an all-day day and a late close unchanged"
+    gap: "No test checks that GET /suppliers/{id} for an unknown id answers 404 NOT_FOUND (the contract check also accepts a 422 or 503 there), or that a stored location description comes back unchanged."
   - id: SS-FR4.1.1
     text: "Seeding shall load the template data, with its building names made consistent, plus additions, for at least 30 active suppliers covering every type and at least 10 campus buildings; running it again shall not duplicate or change existing suppliers."
     areas: [repeats]

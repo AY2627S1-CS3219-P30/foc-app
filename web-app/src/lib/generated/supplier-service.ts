@@ -129,7 +129,7 @@ export interface components {
         /** @enum {string} */
         Day: "MON" | "TUE" | "WED" | "THU" | "FRI" | "SAT" | "SUN";
         /**
-         * @description One opening period of a day, 24-hour `HH:MM`. `closes` at or before `opens` runs past
+         * @description One opening period of a day, 24-hour `HH:MM`. `closes` earlier than `opens` runs past
          *     midnight; `00:00`–`23:59` is open all day. A day with no period is closed.
          */
         OpeningHours: {
@@ -151,6 +151,7 @@ export interface components {
              */
             floor: string;
             locationDescription: string;
+            /** @description By day, then opening time. */
             openingHours: components["schemas"]["OpeningHours"][] | null;
             latitude: number | null;
             longitude: number | null;
@@ -173,9 +174,11 @@ export interface components {
             floor: string;
             locationDescription: string;
             /**
-             * @description Up to four periods a day, such as two around a midday break. Periods on one day may not
-             *     overlap: `422 VALIDATION_FAILED`, with `OVERLAPPING_HOURS` or `TOO_MANY_PERIODS` on the
-             *     offending entry.
+             * @description Up to 4 periods a day, such as two around a midday break, in any order: they are stored
+             *     by day, then opening time. No two periods may overlap, and a period running past midnight
+             *     counts against the next day: `422 VALIDATION_FAILED`, on the later entry, with
+             *     `OVERLAPPING_HOURS`, `TOO_MANY_PERIODS`, or `EMPTY_PERIOD` for one that opens and closes
+             *     at the same time.
              */
             openingHours?: components["schemas"]["OpeningHours"][] | null;
             latitude?: number | null;

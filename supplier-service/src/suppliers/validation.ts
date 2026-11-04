@@ -28,46 +28,78 @@ const openingHoursEntry = z.strictObject({
 });
 
 /** Enough for a midday break and more, and it keeps the stored array bounded. */
-const MAX_PERIODS_PER_DAY = 4;
+export const MAX_PERIODS_PER_DAY = 4;
+
+const MINUTES_PER_DAY = 24 * 60;
+const MINUTES_PER_WEEK = DAYS.length * MINUTES_PER_DAY;
 
 const minutes = (time: string): number => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
 
+type Period = z.infer<typeof openingHoursEntry>;
+
 /**
- * A day holds zero or more periods (SS-FR1.1.3): none is a closed day, two a midday break. The
- * periods of a day may not overlap, in whatever order they come. A period closing at or before it
- * opens runs past midnight, so on its own day it lasts to the end, and any period after it
- * overlaps. Days are checked one at a time, so one running into the next morning is not compared
- * with that morning's first period. A problem is reported against the entry that causes it.
+ * Where a period falls in the week, in minutes from Monday 00:00. One closing earlier than it opens
+ * runs into the next day, so a late Sunday is two spans, the second at the start of the week. 23:59
+ * is how the catalogue writes the end of the day, so it counts as midnight.
+ */
+function spansOfTheWeek({ day, opens, closes }: Period): [number, number][] {
+  const midnight = DAYS.indexOf(day) * MINUTES_PER_DAY;
+  const open = minutes(opens);
+  const close = closes === '23:59' ? MINUTES_PER_DAY : minutes(closes);
+  const start = midnight + open;
+  const end = midnight + (close > open ? close : close + MINUTES_PER_DAY);
+  return end <= MINUTES_PER_WEEK
+    ? [[start, end]]
+    : [
+        [start, MINUTES_PER_WEEK],
+        [0, end - MINUTES_PER_WEEK],
+      ];
+}
+
+/**
+ * A day holds zero or more periods (SS-FR1.1.3): none is a closed day, two a midday break. No two
+ * periods may overlap, in whatever order they come, and a late close counts against the next day.
+ * A problem is reported against the later of the entries that cause it. They are stored by day, then
+ * opening time, so every reader gets them in that order.
  */
 const openingHoursSchema = z
   .array(openingHoursEntry)
   .max(DAYS.length * MAX_PERIODS_PER_DAY)
   .superRefine((entries, ctx) => {
-    const days = new Map<string, { opens: string; closes: string; start: number; end: number }[]>();
-    entries.forEach(({ day, opens, closes }, index) => {
-      const periods = days.get(day) ?? [];
-      days.set(day, periods);
-      const start = minutes(opens);
-      const end = minutes(closes) > start ? minutes(closes) : 24 * 60;
-      const clash = periods.find((other) => start < other.end && other.start < end);
-      if (periods.length === MAX_PERIODS_PER_DAY) {
-        ctx.addIssue({
-          code: 'custom',
-          path: [index],
-          params: { code: 'TOO_MANY_PERIODS' },
-          message: `${day} can have at most ${MAX_PERIODS_PER_DAY} opening periods.`,
-        });
-      } else if (clash) {
-        ctx.addIssue({
-          code: 'custom',
-          path: [index],
-          params: { code: 'OVERLAPPING_HOURS' },
-          message: `${day} ${opens}–${closes} overlaps ${clash.opens}–${clash.closes}.`,
-        });
+    const seen: { period: Period; spans: [number, number][] }[] = [];
+    entries.forEach((period, index) => {
+      const { day, opens, closes } = period;
+      const refuse = (code: string, message: string) =>
+        ctx.addIssue({ code: 'custom', path: [index], params: { code }, message });
+      if (opens === closes) {
+        // Not counted: one mistyped entry shouldn't make the rest of its day look wrong.
+        refuse('EMPTY_PERIOD', `${day} ${opens}–${closes} opens and closes at the same time.`);
+        return;
       }
-      periods.push({ opens, closes, start, end });
+      const spans = spansOfTheWeek(period);
+      const clash = seen.find((other) =>
+        other.spans.some(([start, end]) => spans.some(([s, e]) => s < end && start < e)),
+      );
+      if (seen.filter((other) => other.period.day === day).length === MAX_PERIODS_PER_DAY) {
+        refuse(
+          'TOO_MANY_PERIODS',
+          `${day} can have at most ${MAX_PERIODS_PER_DAY} opening periods.`,
+        );
+      } else if (clash) {
+        const { day: otherDay, opens: otherOpens, closes: otherCloses } = clash.period;
+        refuse(
+          'OVERLAPPING_HOURS',
+          `${day} ${opens}–${closes} overlaps ${otherDay} ${otherOpens}–${otherCloses}.`,
+        );
+      }
+      seen.push({ period, spans });
     });
-  });
+  })
+  .transform((entries) =>
+    [...entries].sort(
+      (a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || a.opens.localeCompare(b.opens),
+    ),
+  );
 
 /** The always-present fields, shared by create (all required) and update (all optional). */
 const baseFields = {

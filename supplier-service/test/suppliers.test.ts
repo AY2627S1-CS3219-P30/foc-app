@@ -1,4 +1,7 @@
+import { readFileSync } from 'node:fs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { DAYS } from '../src/suppliers/types.js';
+import { MAX_PERIODS_PER_DAY } from '../src/suppliers/validation.js';
 import {
   asAdmin,
   asStudent,
@@ -155,13 +158,20 @@ describe('opening hours (SS-FR1.1.3)', () => {
     await withHours([period('MON', '08:00', '12:00'), period('MON', '12:00', '14:00')]).expect(201);
   });
 
-  it('checks each day on its own, whatever order the periods come in', async () => {
-    await withHours([
-      period('TUE', '08:00', '12:00'),
-      period('MON', '13:00', '20:00'),
-      period('MON', '08:00', '12:00'),
+  it('takes periods in any order, and stores them by day, then opening time', async () => {
+    const created = await withHours([
       period('TUE', '13:00', '20:00'),
+      period('MON', '13:00', '20:00'),
+      period('TUE', '08:00', '12:00'),
+      period('MON', '08:00', '12:00'),
     ]).expect(201);
+
+    expect(created.body.openingHours).toEqual([
+      period('MON', '08:00', '12:00'),
+      period('MON', '13:00', '20:00'),
+      period('TUE', '08:00', '12:00'),
+      period('TUE', '13:00', '20:00'),
+    ]);
   });
 
   it('refuses periods on one day that overlap, naming the entry, and writes nothing', async () => {
@@ -199,6 +209,47 @@ describe('opening hours (SS-FR1.1.3)', () => {
     expect(res.body.error.details[0].code).toBe('OVERLAPPING_HOURS');
   });
 
+  it('refuses a period the night before runs into, against the entry that comes later', async () => {
+    const res = await withHours([period('MON', '20:00', '03:00'), period('TUE', '01:00', '05:00')]);
+    expect(res.status).toBe(422);
+    expect(res.body.error.details).toEqual([
+      expect.objectContaining({ field: 'openingHours.1', code: 'OVERLAPPING_HOURS' }),
+    ]);
+
+    const reversed = await withHours([
+      period('TUE', '01:00', '05:00'),
+      period('MON', '20:00', '03:00'),
+    ]);
+    expect(reversed.status).toBe(422);
+    expect(reversed.body.error.details[0].field).toBe('openingHours.1');
+  });
+
+  it('runs a late Sunday into Monday', async () => {
+    const res = await withHours([period('SUN', '22:00', '04:00'), period('MON', '00:00', '06:00')]);
+    expect(res.status).toBe(422);
+    expect(res.body.error.details[0].code).toBe('OVERLAPPING_HOURS');
+  });
+
+  it('allows a late close that ends as the next day opens', async () => {
+    await withHours([period('MON', '20:00', '03:00'), period('TUE', '03:00', '05:00')]).expect(201);
+  });
+
+  it('refuses a period that opens and closes at the same time, and blames only it', async () => {
+    const res = await withHours([period('MON', '12:00', '12:00'), period('MON', '14:00', '18:00')]);
+    expect(res.status).toBe(422);
+    expect(res.body.error.details).toEqual([
+      expect.objectContaining({ field: 'openingHours.0', code: 'EMPTY_PERIOD' }),
+    ]);
+  });
+
+  it('counts 23:59 as the end of the day, as the catalogue writes all day', async () => {
+    const res = await withHours([period('MON', '00:00', '23:59'), period('MON', '23:59', '06:00')]);
+    expect(res.status).toBe(422);
+    expect(res.body.error.details[0].code).toBe('OVERLAPPING_HOURS');
+
+    await withHours([period('MON', '00:00', '23:59'), period('TUE', '00:00', '23:59')]).expect(201);
+  });
+
   it('allows a period before one running past midnight', async () => {
     await withHours([period('MON', '08:00', '12:00'), period('MON', '18:00', '02:00')]).expect(201);
   });
@@ -211,9 +262,20 @@ describe('opening hours (SS-FR1.1.3)', () => {
     expect(res.body.error.details[0].field).toBe('openingHours.4');
   });
 
+  it('publishes the limit it applies', () => {
+    const contract = readFileSync(
+      new URL('../../contracts/supplier-service.openapi.yaml', import.meta.url),
+      'utf8',
+    );
+    const maxItems = /openingHours:\s+type: \[array, 'null'\]\s+maxItems: (\d+)/.exec(
+      contract,
+    )?.[1];
+    expect(Number(maxItems)).toBe(DAYS.length * MAX_PERIODS_PER_DAY);
+    expect(contract).toContain(`Up to ${MAX_PERIODS_PER_DAY} periods a day`);
+  });
+
   it('accepts four periods on all seven days', async () => {
-    const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
-    const openingHours = days.flatMap((day) =>
+    const openingHours = DAYS.flatMap((day) =>
       ['08', '10', '12', '14'].map((hour) => period(day, `${hour}:00`, `${hour}:30`)),
     );
     await withHours(openingHours).expect(201);
