@@ -495,3 +495,42 @@ the [repository README](../README.md#6-run-the-whole-stack-in-docker)). That is 
 mode. There is no hosted deployment: the Vercel workflow was removed in
 [PLT-11 #286](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/286), because a hosted web app
 had no hosted back end to call, and its `SameSite=Strict` refresh cookie is not sent across sites.
+
+## Participant chat (N1.2, #161)
+
+An errand's detail page has one `ChatPanel` and one `useChat` lifecycle across all widths:
+collapsible with unread count at 360px, expanded below the details at 768px, and beside details and
+history at 1440px. Drafts survive resizing. The admin errand page independently asks the Chat Service
+for the same history in read-only mode, even when the Order Service refuses private errand details.
+The Chat Service decides authorization; console reads never send or mark read. The admin view
+fetches once and has a Refresh conversation button instead of a recurring timer, including after
+transient errors. Order revisions, tab return and reconnect still refresh its history.
+
+`src/lib/chat-api.ts` uses generated `chat-service` contract types and the shared authentication,
+timeout, correlation and error handling. Set **NEXT_PUBLIC_CHAT_SERVICE_URL=/api/chat at build time**
+for deployments behind the edge; Compose and the Dockerfile pass it through. Local development
+without that setting uses `http://localhost:3006`. Errors retain response headers, including
+`Retry-After`, for rate-limit feedback.
+
+Messages merge by channel `seq`; optimistic sends carry a browser UUID `clientId`. A retry preserves
+that UUID and the exact original body, and both 200 replays and 201 creations confirm it. Failed sends
+remain visibly failed. Validation counts 1–280 Unicode code points and rejects whitespace-only text.
+Two-second polling pages `after` until caught up, including on reconnect; older history uses `before`.
+The fetch cursor advances only through GET pages, so a send cannot skip concurrent incoming messages.
+Initial reads also fetch every unread message, even beyond the latest history page. Metadata refreshes
+pick up reads made on another device. Timed polling stops when closed; order revisions and returning
+online recheck availability. The notify-only WebSocket is deferred to #346 (ADR 0012).
+
+Unread counts exclude your own messages. Read positions advance only for a visible, expanded
+conversation at the bottom of its scroll area, using messages fetched through GET. New messages
+follow automatically while at the bottom; otherwise a New messages button returns there. Loading
+older messages preserves the scroll offset. A 404 hides unavailable chat; a closed channel keeps its
+history readable. Final errands, closed channels and CHANNEL_CLOSED responses disable sending with
+a reason. Account/order changes replace all private state and stale async responses are ignored.
+
+`test/chat-state.test.ts` covers paging, merges, reconciliation, retries, read positions, access,
+closure and identity cleanup. `test/chat-panel.test.tsx` uses Happy DOM for responsive lifecycle and
+read visibility. `e2e/chat-journey.e2e.ts` runs only in the dedicated release suite at every width:
+send/receive in two sessions, offline catch-up, outsider refusal and final-state closure. Run the real
+stack with `./scripts-e2e-release.sh --twice` from the repository root; it requires Docker and sets
+`E2E_RELEASE=1`. Ordinary smoke runs skip this journey to stay within their shared login limits.

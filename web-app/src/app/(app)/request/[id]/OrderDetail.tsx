@@ -6,10 +6,10 @@ import { useRouter } from "next/navigation";
 import { ActionDialog } from "@/components/ActionDialog";
 import { Badge } from "@/components/Badge";
 import { Button, buttonClass } from "@/components/Button";
-import { DesktopPanel } from "@/components/DesktopPanel";
+import { ChatPanel } from "@/components/ChatPanel";
+import styles from "./order-detail.module.css";
 import { FormAlert } from "@/components/FormField";
 import { NavRow } from "@/components/NavRow";
-import { Screen, ScreenContent } from "@/components/Screen";
 import { ScreenHeader } from "@/components/ScreenHeader";
 import { ErrorState, LoadingState } from "@/components/States";
 import { ErrandHistory } from "@/components/ErrandHistory";
@@ -248,7 +248,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
   useUrlFlag("replayed", () => setReplayed(true));
 
   const body = order ? (
-    <>
+    <div className={styles.details}>
       <StatusBody
         order={order}
         replayed={replayed}
@@ -268,7 +268,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
         onRetry={() => refresh()}
       />
       {role && <ErrandHistory {...history} />}
-    </>
+    </div>
   ) : problem ? (
     <ErrorState
       title={problem.status === 404 ? "This request no longer exists." : "Could not load this request"}
@@ -282,15 +282,15 @@ export function OrderDetail({ orderId }: { orderId: string }) {
 
   return (
     <>
-      <div className="mobileOnly">
-        <Screen>
-          <ScreenHeader title={title} />
-          <ScreenContent>{body}</ScreenContent>
-        </Screen>
-      </div>
-      <div className="desktopOnly">
-        <DesktopPanel title={title}>{body}</DesktopPanel>
-      </div>
+      <main className={styles.page}>
+        <div className={styles.panel}>
+          <ScreenHeader title={title} className={styles.header} />
+          <div className={styles.body}>
+            {body}
+            {order && role && <ChatPanel orderId={orderId} version={order.version} final={isFinal(order.status)} />}
+          </div>
+        </div>
+      </main>
       <ActionDialog state={act} />
     </>
   );

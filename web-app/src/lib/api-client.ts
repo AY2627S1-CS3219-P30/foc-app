@@ -15,12 +15,15 @@ export const CORRELATION_HEADER = "x-correlation-id";
 /**
  * A fresh ID for one request. `crypto.randomUUID` exists only on secure origins (HTTPS or
  * localhost), and a demo served over plain HTTP on a LAN address must still work, so it falls back
- * to random bytes, which every origin has.
+ * to a UUID v4 built from random bytes, which every origin has.
  */
 export function newCorrelationId(): string {
   if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
   const bytes = crypto.getRandomValues(new Uint8Array(16));
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 /**
@@ -40,6 +43,7 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
     readonly details: FieldError[] = [],
+    readonly headers: Headers = new Headers(),
   ) {
     super(message);
     this.name = "ApiError";
@@ -52,7 +56,7 @@ export class ApiError extends Error {
 }
 
 /** Turns a non-2xx response body into an {@link ApiError}, tolerating a body that is not the envelope. */
-export function toApiError(status: number, body: unknown): ApiError {
+export function toApiError(status: number, body: unknown, headers?: Headers): ApiError {
   const error = (body as { error?: Record<string, unknown> } | null)?.error;
   const code = typeof error?.code === "string" ? error.code : status >= 500 ? "INTERNAL" : "ERROR";
   const message =
@@ -65,7 +69,7 @@ export function toApiError(status: number, body: unknown): ApiError {
           typeof (d as FieldError).message === "string",
       )
     : [];
-  return new ApiError(status, code, message, details);
+  return new ApiError(status, code, message, details, headers);
 }
 
 const timedOut = () =>
@@ -156,7 +160,7 @@ export async function unwrap<T>(
   const { data, error, response } = await call.catch((err: unknown) => {
     throw err instanceof SyntaxError ? unreachable() : err;
   });
-  if (!response.ok) throw toApiError(response.status, error ?? null);
+  if (!response.ok) throw toApiError(response.status, error ?? null, response.headers);
   if (data === undefined && response.status !== 204) throw unreachable();
   return data as T;
 }
