@@ -831,7 +831,7 @@ describe('supplier page: admin writes', () => {
       await setValue(control<HTMLInputElement>(form(container), 'Name'), 'New Stall');
       await submit(form(container));
 
-      expect(postKeys(service)[0]).toMatch(/^[0-9a-f]{32}$/);
+      expect(postKeys(service)[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
       expect(form(container)).toBeNull();
     } finally {
       if (own) Object.defineProperty(crypto, 'randomUUID', own);
