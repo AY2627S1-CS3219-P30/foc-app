@@ -308,7 +308,8 @@ export default function SuppliersPage() {
     change();
     setPage(1);
   };
-  const narrowed = query.trim() !== '' || search !== '' || type !== '' || building !== '';
+  const searching = query.trim() !== '' || search !== '';
+  const filtering = type !== '' || building !== '';
   const clearSearchAndFilters = () => {
     setQuery('');
     setSearch('');
@@ -456,9 +457,13 @@ export default function SuppliersPage() {
                 <EmptyState
                   title="No suppliers found"
                   action={
-                    narrowed && (
+                    (searching || filtering) && (
                       <Button variant="outline" onClick={clearSearchAndFilters}>
-                        Clear search and filters
+                        {searching && filtering
+                          ? 'Clear search and filters'
+                          : searching
+                            ? 'Clear search'
+                            : 'Clear filters'}
                       </Button>
                     )
                   }

@@ -386,7 +386,11 @@ describe('supplier page: listing', () => {
     expect(container.textContent).toContain('No suppliers found');
     expect(container.textContent).toContain('Try another search, type or building.');
     expect(cards(container)).toHaveLength(0);
-    expect(buttons(container, 'Clear search and filters')).toHaveLength(0);
+    expect(Array.from(container.querySelectorAll('button')).map((b) => b.textContent)).not.toContain(
+      'Clear search and filters',
+    );
+    expect(buttons(container, 'Clear search')).toHaveLength(0);
+    expect(buttons(container, 'Clear filters')).toHaveLength(0);
   });
 
   it('offers to clear the search and filters when they match nothing (UI-FR6.1.1)', async () => {
@@ -438,10 +442,32 @@ describe('supplier page: listing', () => {
     await setValue(control<HTMLSelectElement>(container, 'Type'), 'CAFE');
     await flush();
 
-    await click(button(container, 'Clear search and filters'));
+    await click(button(container, 'Clear filters'));
 
     expect(lastList(service).has('type')).toBe(false);
     expect(cards(container)).toHaveLength(3);
+  });
+
+  it('says it clears the search when only a search is set', async () => {
+    const service = fakeService(3);
+    const clock = fakeClock();
+    try {
+      const container = await renderPage(service);
+      service.override = (call) =>
+        call.method === 'GET' && call.path === '/suppliers' && call.query.has('q')
+          ? json(200, { items: [], page: 1, pageSize: 20, total: 0 })
+          : undefined;
+      await setValue(control<HTMLInputElement>(container, 'Search suppliers'), 'nothing like this');
+      await clock.advance(300);
+      await flush();
+
+      await click(button(container, 'Clear search'));
+
+      expect(lastList(service).has('q')).toBe(false);
+      expect(cards(container)).toHaveLength(3);
+    } finally {
+      clock.restore();
+    }
   });
 });
 

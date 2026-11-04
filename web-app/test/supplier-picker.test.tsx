@@ -210,6 +210,14 @@ describe('SupplierPicker', () => {
     await act(() => root.unmount());
   });
 
+  it('offers nothing to clear when the list is empty and nothing has been searched', async () => {
+    serve(() => page([]));
+    const { container, root } = await render(<SupplierPicker onSelect={() => {}} />);
+    expect(container.textContent).toContain('No pickup points found');
+    expect(button(container, 'Clear search')).toBeUndefined();
+    await act(() => root.unmount());
+  });
+
   it('offers to clear a search that matches nothing (UI-FR6.1.1)', async () => {
     const urls = serve((url) => page(url.searchParams.has('q') ? [] : [cafe, kopi]));
     const { container, root } = await render(<SupplierPicker onSelect={() => {}} />);
