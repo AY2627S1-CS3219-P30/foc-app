@@ -73,6 +73,10 @@ page polls every 30 seconds: a new errand reaches a courier's open board within 
 courier's accept reaches the requester's open errand page within 3 s. Refused its stream first, the
 page says *Updating every 30 s* and still works, at every width.
 
+`e2e/mobile-layout.e2e.ts` (TST-04, release suite) measures the core screens, from sign-in to the wallet: at
+every width no sideways scroll and no control cut off, and at 360 px every control at least 44 by 44
+px, with the screen's primary action clear of the app bar. A failure names the screen and the control.
+
 `e2e/dispute-outcome.e2e.ts` covers both administrative dispute decisions at all three widths.
 The requester reports non-receipt, the referred administrator decides through the console, and
 both participants read the outcome, reason and time on their errand page and expand its status
