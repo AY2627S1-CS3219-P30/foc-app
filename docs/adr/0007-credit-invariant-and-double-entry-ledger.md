@@ -1,6 +1,6 @@
 # ADR 0007 — Credit invariant and double-entry ledger
 
-- **Status:** Proposed; implementation basis; amended 2026-10-20 by CRD-09 (see [Amendment](#amendment--crd-09-2026-10-20))
+- **Status:** Accepted; amended 2026-10-20 by CRD-09 (see [Amendment](#amendment--crd-09-2026-10-20))
 - **Date:** 2026-10-01
 - **Deciders:** Group 30; approvals tracked in [the ADR index](README.md)
 - **Ticket:** [CRD-00 #132](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/132)

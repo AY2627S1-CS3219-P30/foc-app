@@ -1,8 +1,17 @@
-import { Body, Controller, Get, Inject, Param, Post, Put, Query, Res } from '@nestjs/common';
-import { Authenticated, CurrentUser, type AuthContext } from '@foc/auth-client';
+import { Body, Controller, Get, Inject, Param, Post, Put, Query, Req, Res } from '@nestjs/common';
+import { Authenticated, CurrentUser, type AuthContext, type AuthedRequest } from '@foc/auth-client';
+import { ApiException } from '@foc/platform';
 import type { Response } from 'express';
-import { ChatService } from './chat.service.js';
+import { SEND_LIMIT } from './chat.repository.js';
+import { ChatService, type Caller } from './chat.service.js';
 import { parseMarkRead, parseOrderId, parsePage, parseSend } from './validation.js';
+
+type CorrelatedRequest = AuthedRequest & { correlationId?: string; id?: string };
+
+const caller = (user: AuthContext, request: CorrelatedRequest): Caller => ({
+  user,
+  correlationId: request.correlationId ?? request.id ?? 'unknown',
+});
 
 /** contracts/chat-service.openapi.yaml */
 @Controller('channels')
@@ -11,8 +20,12 @@ export class ChatController {
 
   @Get(':orderId')
   @Authenticated()
-  channel(@Param('orderId') orderId: string, @CurrentUser() caller: AuthContext) {
-    return this.chat.channel(parseOrderId(orderId), caller);
+  channel(
+    @Param('orderId') orderId: string,
+    @CurrentUser() user: AuthContext,
+    @Req() request: CorrelatedRequest,
+  ) {
+    return this.chat.channel(parseOrderId(orderId), caller(user, request));
   }
 
   @Get(':orderId/messages')
@@ -20,9 +33,10 @@ export class ChatController {
   messages(
     @Param('orderId') orderId: string,
     @Query() query: unknown,
-    @CurrentUser() caller: AuthContext,
+    @CurrentUser() user: AuthContext,
+    @Req() request: CorrelatedRequest,
   ) {
-    return this.chat.messages(parseOrderId(orderId), caller, parsePage(query));
+    return this.chat.messages(parseOrderId(orderId), caller(user, request), parsePage(query));
   }
 
   @Post(':orderId/messages')
@@ -30,21 +44,25 @@ export class ChatController {
   async send(
     @Param('orderId') orderId: string,
     @Body() body: unknown,
-    @CurrentUser() caller: AuthContext,
+    @CurrentUser() user: AuthContext,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const sent = await this.chat.send(parseOrderId(orderId), caller, parseSend(body));
+    const sent = await this.chat.send(parseOrderId(orderId), user, parseSend(body));
+    if ('retryAfter' in sent) {
+      response.setHeader('Retry-After', String(sent.retryAfter));
+      throw new ApiException(
+        429,
+        'RATE_LIMITED',
+        `You have sent ${SEND_LIMIT.messages} messages in the last minute. Try again shortly.`,
+      );
+    }
     response.status(sent.created ? 201 : 200);
     return sent.message;
   }
 
   @Put(':orderId/read')
   @Authenticated()
-  read(
-    @Param('orderId') orderId: string,
-    @Body() body: unknown,
-    @CurrentUser() caller: AuthContext,
-  ) {
-    return this.chat.markRead(parseOrderId(orderId), caller, parseMarkRead(body));
+  read(@Param('orderId') orderId: string, @Body() body: unknown, @CurrentUser() user: AuthContext) {
+    return this.chat.markRead(parseOrderId(orderId), user, parseMarkRead(body));
   }
 }

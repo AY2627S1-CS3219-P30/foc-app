@@ -1,0 +1,107 @@
+.panel {
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  padding: var(--space-4);
+}
+.header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.header h2 {
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  margin-right: auto;
+}
+.unread,
+.people,
+.empty,
+.delivery {
+  font-size: var(--text-md);
+  color: var(--color-text-muted);
+}
+.unread,
+.meta time {
+  font-variant-numeric: tabular-nums;
+}
+.toggle {
+  min-height: var(--size-control);
+  text-decoration: underline;
+  font-size: var(--text-md);
+}
+.people {
+  margin-block: var(--space-3);
+  overflow-wrap: anywhere;
+}
+.log {
+  max-height: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  overflow-anchor: none;
+  padding: var(--space-1);
+  margin-block: var(--space-3);
+}
+.messages {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.message,
+.own {
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-page);
+  overflow-wrap: anywhere;
+}
+.own {
+  margin-left: var(--space-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+.messages p {
+  white-space: pre-wrap;
+  font-size: var(--text-md);
+}
+.failure {
+  color: var(--color-danger);
+}
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.composer button {
+  align-self: flex-end;
+}
+.announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+@media (min-width: 768px) {
+  .toggle {
+    display: none;
+  }
+}
+
+/* Observe the bottom itself: a partially visible panel cannot mark off-screen messages read. */
+.end {
+  height: 1px;
+}

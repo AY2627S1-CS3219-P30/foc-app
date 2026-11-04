@@ -47,6 +47,15 @@
   text-decoration: underline;
 }
 
+/* A tall enough target without moving the text: UI-NFR1.1.2's 44 px. */
+.footer a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--size-control);
+  min-height: var(--size-control);
+}
+
 @media (min-width: 768px) {
   .page {
     align-items: center;

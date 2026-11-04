@@ -18,6 +18,7 @@ TST-01 #145). Each service fills the suites with its own cases.
 | End-to-end (browser)    | `web-app/e2e/*.e2e.ts` (Playwright)           | the Compose stack        | `cd web-app && bun run e2e` (CI's browser job; the journeys still to add are in #160) |
 | Load and report         | `system-tests/scripts/conservation-report.ts` | Docker (Compose)         | `npm run report:conservation` (not run in CI)           |
 | Load and latency        | `load/*.js` (k6), `load/live.mjs` (N1.4)      | Docker (Compose)         | `./scripts-load.sh` (not run in CI; `--quick` to check it) |
+| Web vitals (Lighthouse) | `web-app/scripts/lighthouse.mts`              | Docker (Compose), Node 24 | `./scripts-lighthouse.sh` (not run in CI; [report](reports/accessibility-and-web-vitals-2026-11-03.md)) |
 | Coverage                | every package's suites, with `--coverage`     | nothing more             | `npm test -w @foc/<package> -- --coverage` (reported in CI, not gated) |
 
 Suites that need a real server skip themselves when their variable is unset, so `npm test` passes on

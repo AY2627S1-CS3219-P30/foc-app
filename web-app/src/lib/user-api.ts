@@ -67,6 +67,12 @@ export function createUserApi({
     /** Answers the same whether or not the address has an account waiting for activation. */
     resendActivation: (email: string, id?: string) =>
       unwrap(api.POST("/auth/activation/resend", { body: { email }, ...as(id) })),
+    /** Answers the same whether or not the address has an account (#309). */
+    requestPasswordReset: (email: string, id?: string) =>
+      unwrap(api.POST("/auth/password-reset", { body: { email }, ...as(id) })),
+    /** Sets the password from an emailed reset link, and activates a pending account. Does not sign in. */
+    confirmPasswordReset: (token: string, password: string, id?: string) =>
+      unwrap(api.POST("/auth/password-reset/confirm", { body: { token, password }, ...as(id) })),
     login: (email: string, password: string, id?: string) =>
       unwrap(api.POST("/auth/login", { body: { email, password }, ...as(id) })),
     refresh: (id?: string) => unwrap(api.POST("/auth/refresh", as(id))),

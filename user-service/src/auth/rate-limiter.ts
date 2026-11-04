@@ -43,6 +43,13 @@ export interface AuthRateLimiters {
   /** Resending activation mails an inbox, so it is limited per address as well as per client. */
   resendPerEmail: RateLimiter;
   resendPerIp: RateLimiter;
+  /**
+   * Asking for a password reset mails an inbox too, so it is limited the same way. Its own counters:
+   * sharing resend's would let someone who keeps an address's activation link alive by resending
+   * (#309) use up the budget the student needs to take the address back.
+   */
+  resetPerEmail: RateLimiter;
+  resetPerIp: RateLimiter;
 }
 
 export const RATE_LIMITERS = Symbol('RATE_LIMITERS');
@@ -102,4 +109,6 @@ export const createRateLimiters = (
   stepUpPerUser: new RateLimiter(10, 15 * 60_000),
   resendPerEmail: new RateLimiter(3, 60 * 60_000),
   resendPerIp: new RateLimiter(20, 60 * 60_000),
+  resetPerEmail: new RateLimiter(3, 60 * 60_000),
+  resetPerIp: new RateLimiter(20, 60 * 60_000),
 });

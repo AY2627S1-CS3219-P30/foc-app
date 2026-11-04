@@ -124,6 +124,8 @@ ended.
 - The stack goes from four services to five: Compose, a database and login, CI, the edge, backup
   and recovery (#345).
 - Administrators' channel reads are not yet counted towards the unusual-activity alert of ADR 0008.
+- Administrators' channel reads are recorded (`admin_channel_reads`), one row per admin, errand,
+  resource and hour, with a count; settled in #163 and #358.
 
 ## Revisit if
 

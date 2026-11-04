@@ -30,7 +30,11 @@
   font-weight: var(--weight-semibold);
 }
 
+/* inline-flex for a tall enough target without moving the text: UI-NFR1.1.2's 44 px. */
 .label a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--size-control);
   color: var(--color-primary);
   text-decoration: underline;
   text-underline-offset: 2px;
