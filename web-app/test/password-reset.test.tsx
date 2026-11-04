@@ -9,7 +9,12 @@ const { createRoot } = await import("react-dom/client");
 // One object each, so they keep their identity across renders like the real hooks'.
 const router = { push: () => {}, replace: () => {} };
 const auth = { login: async () => {}, status: "signedOut", logoutPending: false, retryLogout: async () => true };
-mock.module("next/navigation", () => ({ useRouter: () => router }));
+// With useSearchParams too: Bun keeps a module mock for the whole run, so a file that runs after this
+// one and imports it from next/navigation would otherwise fail to load.
+mock.module("next/navigation", () => ({
+  useRouter: () => router,
+  useSearchParams: () => new URLSearchParams(),
+}));
 mock.module("../src/lib/auth", () => ({ useAuth: () => auth }));
 const { default: ForgotPasswordPage } = await import("../src/app/forgot-password/page");
 const { default: ResetPasswordPage } = await import("../src/app/reset-password/page");

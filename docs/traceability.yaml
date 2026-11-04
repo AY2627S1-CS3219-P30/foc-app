@@ -148,14 +148,16 @@ requirements:
       - "supplier-service/test/provider.contract.test.ts::POST, GET, PUT and DELETE /suppliers with success and error responses"
       - "supplier-service/test/suppliers.test.ts::lets an admin create a supplier (201) and returns it"
       - "supplier-service/test/seed.test.ts::gives every record all required fields, one allowed type and a stable id"
-    gap: "The service checks buildings against no campus list (normalizeBuilding keeps unknown buildings, and tests create suppliers in made-up buildings such as 'B0' and 'Zebra Hall'), so no test can prove a supplier's building comes from that list."
+      - "supplier-service/test/suppliers.test.ts::refuses a building off the campus list and writes nothing"
+      - "supplier-service/test/seed.test.ts::puts every row in a building on the campus list"
   - id: SS-FR1.1.2
     text: "The service shall reject a supplier with a missing or blank required field, a type or building not on its list, or malformed opening hours or coordinates, naming every field that failed and why, and shall save nothing. Two suppliers in one building may not share a name, ignoring letter case; branches of one brand in different buildings are separate suppliers."
     tests:
       - "supplier-service/test/suppliers.test.ts::reports an invalid type, a blank required field and a malformed coordinate together"
       - "supplier-service/test/suppliers.test.ts::refuses a case-insensitive duplicate of name+building among active suppliers"
       - "supplier-service/test/suppliers.test.ts::rejects latitude without longitude"
-    gap: "No test rejects a building that is not on a campus list (the service accepts any building), sends malformed opening hours to the API, or checks that nothing was saved after a 422."
+      - "supplier-service/test/suppliers.test.ts::refuses a building off the campus list and writes nothing"
+    gap: "No test sends malformed opening hours to the API."
   - id: SS-FR1.1.3
     text: "Opening hours, where given, shall be recorded for each day of the week as zero or more pairs of opening and closing times in 24-hour format, so that a closed day, a midday break, or a supplier open all day can be represented; a closing time earlier than its opening time means closing after midnight."
     tests:
@@ -632,7 +634,11 @@ requirements:
       - "scripts-restart-check.sh::no table in any of the five databases lost a row"
       - "scripts-restart-check.sh::the errand from before is as it was (OPEN), read with the token issued before"
       - "scripts-restart-check.sh::no table lost a row while Postgres was away"
-    gap: "Nothing automated restores from the documented backup or measures the 24 h recovery point and 60 min recovery time; only restart/recreate survival is checked (PLT-09, #284, adds the backup, restore and drill)."
+      - "test-harness/test/recovery-tools.test.ts::keeps recovery in the required Compose CI job and never accepts a mutable rollback tag"
+    evidence:
+      - "scripts-recovery-drill.sh"
+      - "docs/reports/2026-10-28-stack-recovery.md"
+    gap: "CI restores from the documented backup and fails past 60 minutes, but nothing automated checks the 24 h recovery point: taking daily backups is left to the operator."
   - id: CS-NFR5.1.1
     text: "A student may view only their own wallet and history; an administrator's access shall be read-only and recorded; only verified platform services may cause a credit movement."
     areas: [roles]
@@ -724,7 +730,9 @@ requirements:
     tests:
       - "scripts-restart-check.sh::the edge reaches the recreated Order Service without restarting"
       - "scripts-smoke.sh::the Order Service started again makes the stack ready again, the edge not restarted"
-    gap: "No automated check rebuilds one service's image on its own, and none checks that a service recreated alone keeps its stored data: the recreate reuses the existing image, and the row-loss checks are aimed at whole-stack restarts and the Postgres outage."
+    evidence:
+      - ".github/workflows/ci.yml"
+    gap: "CI builds each changed service's image on its own, but no automated check shows that a service recreated alone keeps its stored data: the recreate reuses the existing image, and the row-loss checks are aimed at whole-stack restarts and the Postgres outage."
   - id: PL-NFR2.1.1
     text: "Passwords, signing keys, and credentials for the platform's own infrastructure shall be supplied at deployment time and shall not appear in source control, the built application, code sent to browsers, or logs."
     tests:
@@ -812,7 +820,7 @@ requirements:
       - "web-app/test/errand-actions.test.tsx::counts down from the time the server gave and removes the card at zero"
       - "web-app/e2e/errand-journey.e2e.ts::errand journey: a lost acceptance race, fulfilment, and the requester confirming"
       - "order-service/test/order-acceptance.test.ts::leaves the caller's own errands out of discovery"
-    gap: "No feed test asserts that the item summary, delivery zone or reward appear on an open card; only the supplier name and time remaining are checked."
+    gap: "No feed test asserts that the delivery zone or reward appear on an open card; the journey finds a card by its item summary, and the supplier name and time remaining are checked."
   - id: UI-FR3.1.2
     text: "The active-order view shall offer only the actions the current user may take in the errand's current state, ask for confirmation before any of them, and refresh when an action is refused because someone else changed the errand first."
     areas: [roles, transitions]
@@ -853,7 +861,9 @@ requirements:
       - "web-app/test/suppliers.integration.test.tsx::lets a student browse the seeded suppliers"
       - "web-app/test/suppliers-page.test.tsx::shows the empty state when nothing matches"
       - "web-app/test/supplier-picker.test.tsx::shows an empty state when nothing matches"
-    gap: "The empty state only says nothing matched; no action to clear the search and filters exists in the UI or is tested."
+      - "web-app/test/suppliers-page.test.tsx::offers to clear the search and filters when they match nothing (UI-FR6.1.1)"
+      - "web-app/test/suppliers-page.test.tsx::offers to clear a filter on its own, without any search"
+      - "web-app/test/supplier-picker.test.tsx::offers to clear a search that matches nothing (UI-FR6.1.1)"
   - id: UI-FR6.1.2
     text: "Supplier forms shall show each field the service rejected beside that field; hiding administrator controls from other users shall be for clarity only, since the service refuses their changes regardless (SS-FR2.1.2)."
     areas: [roles]
