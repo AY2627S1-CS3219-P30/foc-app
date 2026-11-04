@@ -134,6 +134,34 @@
       "when": 1793204885249,
       "tag": "0018_open_errands_keyset",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793722776438,
+      "tag": "0019_receipt_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793722782127,
+      "tag": "0020_receipt_items_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1793722795517,
+      "tag": "0021_receipt_items_required",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1793782761919,
+      "tag": "0022_command_idempotency_keys",
+      "breakpoints": true
     }
   ]
 }

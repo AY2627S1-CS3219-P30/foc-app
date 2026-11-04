@@ -22,6 +22,7 @@ import {
   parseIdempotencyKey,
   parseMyOrdersQuery,
   parseOpenOrdersQuery,
+  parseOptionalIdempotencyKey,
   parseOrderId,
 } from './validation.js';
 
@@ -78,7 +79,13 @@ export class OrdersController {
   ) {
     const orderId = parseOrderId(id);
     const { expectedVersion } = parseAcceptOrder(body);
-    return this.orders.accept(orderId, expectedVersion, caller, request.correlationId ?? 'unknown');
+    return this.orders.accept(
+      orderId,
+      expectedVersion,
+      caller,
+      request.correlationId ?? 'unknown',
+      parseOptionalIdempotencyKey(request.header('idempotency-key')),
+    );
   }
 
   @Get(':id/history')
@@ -186,12 +193,14 @@ export class OrdersController {
   ) {
     const orderId = parseOrderId(id);
     const { expectedVersion } = parseAcceptOrder(body);
+    const idempotencyKey = parseOptionalIdempotencyKey(request.header('idempotency-key'));
     return this.orders.command(
       orderId,
       action,
       expectedVersion,
       caller,
       request.correlationId ?? 'unknown',
+      { idempotencyKey },
     );
   }
 

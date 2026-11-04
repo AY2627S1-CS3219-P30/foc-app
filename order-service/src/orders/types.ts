@@ -71,6 +71,8 @@ export interface OrderReceipt {
   requesterId: string;
   courierId: string;
   supplier: SupplierSnapshot;
+  /** What was asked for, as it was when the errand was posted. */
+  items: OrderItem[];
   reward: number;
   creditTransactionId: string;
   timestamps: {

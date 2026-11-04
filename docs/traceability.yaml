@@ -363,8 +363,11 @@ requirements:
     areas: [transfers]
     tests:
       - "order-service/test/order-fulfilment.test.ts::completes only on a matching transfer, once, and writes the immutable receipt"
+      - "order-service/test/order-fulfilment.test.ts::lists the errand’s items on its receipt as they were posted (ORD-16)"
+      - "order-service/test/order-fulfilment.test.ts::gives a receipt written before receipts listed items the errand’s items (ORD-16)"
+      - "web-app/test/wallet.test.tsx::lists the items delivered, with their quantities and notes (ORD-16)"
       - "web-app/e2e/errand-journey.e2e.ts::errand journey: a lost acceptance race, fulfilment, and the requester confirming"
-    gap: "The receipt has no items field (OrderReceipt in order-service/src/orders/types.ts holds none, and nor does the order_receipts table), so items cannot be on it; and no test checks the receipt's supplier snapshot beyond supplierId."
+    gap: "No test checks the receipt's supplier snapshot beyond supplierId."
   - id: OS-FR6.1.1
     text: "The requester may cancel an open or accepted errand before pickup, and an assigned courier may withdraw from an accepted errand before pickup; withdrawal reopens the errand if its deadline has not passed and otherwise expires it, while cancellation releases the reserved credits."
     areas: [transitions, returns, roles]
@@ -393,6 +396,10 @@ requirements:
       - "order-service/test/order-creation.test.ts::returns the original result for repeated requests without rechecking Supplier"
       - "order-service/test/order-creation.test.ts::refuses an idempotency key reused with different facts"
       - "web-app/e2e/reconnect-journey.e2e.ts::reconnect journey: a lost or offline post creates one errand"
+      - "order-service/test/order-command-idempotency.test.ts::a repeated $name returns the first answer and changes nothing more"
+      - "order-service/test/order-command-idempotency.test.ts::the same key with a different %s is refused and changes nothing"
+      - "order-service/test/order-command-idempotency.postgres.test.ts::an instance started after another stopped replays what the first recorded"
+      - "web-app/test/errand-actions.test.tsx::retries a pickup whose answer was lost with the same key, and shows the replayed answer as done"
   - id: OS-FR7.1.2
     text: "Every status change shall be recorded with the previous and new status, who or what made the change, and when it happened."
     areas: [transitions]
@@ -887,12 +894,19 @@ requirements:
     text: "Automated accessibility scans of every core screen shall report zero critical violations, and text and control contrast shall meet 4.5 to 1 or 3 to 1 for large text."
     tests:
       - "web-app/e2e/account-journey.e2e.ts::account journey: register, activate, sign in, profile, mode switch, log out"
-    gap: "axe runs only on the account screens; the feed, request composer, active order, wallet, history, supplier and admin screens are never scanned."
+      - "web-app/e2e/accessibility.e2e.ts::axe finds no issue on the student screens"
+      - "web-app/e2e/accessibility.e2e.ts::axe finds no issue in the admin console"
+      - "web-app/test/contrast.test.ts::%s meets 3:1 (WCAG 1.4.11)"
+      - "web-app/test/contrast.test.ts::%s text on %s meets 4.5:1"
+    evidence:
+      - "docs/reports/accessibility-and-web-vitals-2026-11-03.md"
   - id: UI-NFR2.1.2
     text: "A keyboard-only test shall complete login, request creation, order acceptance, pickup, delivery, confirmation, and wallet review with visible focus and no focus trap."
     tests:
       - "web-app/e2e/account-journey.e2e.ts::account journey: register, activate, sign in, profile, mode switch, log out"
-    gap: "No keyboard-only test covers request creation, order acceptance, pickup, delivery, confirmation and wallet review (the full keyboard errand journey is missing, ticket #166); only sign-up, activation, sign-in, the mode switch and log-out are keyboard-driven."
+      - "web-app/e2e/keyboard-journey.e2e.ts::an errand from sign-in to the wallet, by keyboard alone"
+    evidence:
+      - "docs/reports/accessibility-and-web-vitals-2026-11-03.md"
   - id: UI-NFR4.1.1
     text: "A failed request shall preserve valid user input and present the error near the affected field or action, plus a retry only when repeating the operation is safe."
     areas: [repeats]
