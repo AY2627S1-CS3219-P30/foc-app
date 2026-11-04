@@ -129,8 +129,8 @@ export interface components {
         /** @enum {string} */
         Day: "MON" | "TUE" | "WED" | "THU" | "FRI" | "SAT" | "SUN";
         /**
-         * @description One window per day, 24-hour `HH:MM`. `closes` at or before `opens` runs past midnight;
-         *     `00:00`–`23:59` is open all day.
+         * @description One opening period of a day, 24-hour `HH:MM`. `closes` at or before `opens` runs past
+         *     midnight; `00:00`–`23:59` is open all day. A day with no period is closed.
          */
         OpeningHours: {
             day: components["schemas"]["Day"];
@@ -172,7 +172,11 @@ export interface components {
             building: string;
             floor: string;
             locationDescription: string;
-            /** @description Each day at most once. */
+            /**
+             * @description Up to four periods a day, such as two around a midday break. Periods on one day may not
+             *     overlap: `422 VALIDATION_FAILED`, with `OVERLAPPING_HOURS` or `TOO_MANY_PERIODS` on the
+             *     offending entry.
+             */
             openingHours?: components["schemas"]["OpeningHours"][] | null;
             latitude?: number | null;
             longitude?: number | null;

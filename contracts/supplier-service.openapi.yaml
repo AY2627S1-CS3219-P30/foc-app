@@ -337,8 +337,8 @@ components:
       required: [day, opens, closes]
       additionalProperties: false
       description: |
-        One window per day, 24-hour `HH:MM`. `closes` at or before `opens` runs past midnight;
-        `00:00`–`23:59` is open all day.
+        One opening period of a day, 24-hour `HH:MM`. `closes` at or before `opens` runs past
+        midnight; `00:00`–`23:59` is open all day. A day with no period is closed.
       properties:
         day: { $ref: '#/components/schemas/Day' }
         opens: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$' }
@@ -403,8 +403,11 @@ components:
         locationDescription: { type: string, minLength: 1, maxLength: 500 }
         openingHours:
           type: [array, 'null']
-          maxItems: 7
-          description: Each day at most once.
+          maxItems: 28
+          description: |
+            Up to four periods a day, such as two around a midday break. Periods on one day may not
+            overlap: `422 VALIDATION_FAILED`, with `OVERLAPPING_HOURS` or `TOO_MANY_PERIODS` on the
+            offending entry.
           items: { $ref: '#/components/schemas/OpeningHours' }
         latitude: { type: [number, 'null'], minimum: -90, maximum: 90 }
         longitude: { type: [number, 'null'], minimum: -180, maximum: 180 }
@@ -428,7 +431,8 @@ components:
         type: { $ref: '#/components/schemas/SupplierType' }
         building: { $ref: '#/components/schemas/SupplierInput/properties/building' }
         floor: { $ref: '#/components/schemas/SupplierInput/properties/floor' }
-        locationDescription: { $ref: '#/components/schemas/SupplierInput/properties/locationDescription' }
+        locationDescription:
+          { $ref: '#/components/schemas/SupplierInput/properties/locationDescription' }
         openingHours: { $ref: '#/components/schemas/SupplierInput/properties/openingHours' }
         latitude: { $ref: '#/components/schemas/SupplierInput/properties/latitude' }
         longitude: { $ref: '#/components/schemas/SupplierInput/properties/longitude' }
@@ -505,7 +509,13 @@ components:
     SupplierPage:
       value:
         items:
-          - { supplierId: 3f0c9a52-8a8e-5f5c-9d7e-1b6a2c4e8f10, name: The Deck, type: FOOD, building: The Deck, imageUrl: null }
+          - {
+              supplierId: 3f0c9a52-8a8e-5f5c-9d7e-1b6a2c4e8f10,
+              name: The Deck,
+              type: FOOD,
+              building: The Deck,
+              imageUrl: null,
+            }
         page: 1
         pageSize: 20
         total: 1
@@ -517,21 +527,32 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example:
-            error: { code: TOKEN_EXPIRED, message: The access token has expired. Refresh and retry., correlationId: 5c1f2a9e }
+            error:
+              {
+                code: TOKEN_EXPIRED,
+                message: The access token has expired. Refresh and retry.,
+                correlationId: 5c1f2a9e,
+              }
     AccountNotActive:
       description: The account is suspended or not yet activated.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example:
-            error: { code: ACCOUNT_SUSPENDED, message: This account is suspended., correlationId: 5c1f2a9e }
+            error:
+              {
+                code: ACCOUNT_SUSPENDED,
+                message: This account is suspended.,
+                correlationId: 5c1f2a9e,
+              }
     Forbidden:
       description: Not an administrator, or the account is not active.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example:
-            error: { code: FORBIDDEN, message: Administrator role required., correlationId: 5c1f2a9e }
+            error:
+              { code: FORBIDDEN, message: Administrator role required., correlationId: 5c1f2a9e }
     NotFound:
       description: No supplier has this id.
       content:
@@ -550,33 +571,61 @@ components:
               message: One or more fields are invalid.
               correlationId: 5c1f2a9e
               details:
-                - { field: type, code: INVALID_VALUE, message: 'Invalid option: expected one of "FOOD"|"CAFE"|"PRINTING"|"SHOPPING"|"LANDMARK"' }
-                - { field: name, code: DUPLICATE_NAME_BUILDING, message: An active supplier with this name already exists in this building. }
+                - {
+                    field: type,
+                    code: INVALID_VALUE,
+                    message: 'Invalid option: expected one of "FOOD"|"CAFE"|"PRINTING"|"SHOPPING"|"LANDMARK"',
+                  }
+                - {
+                    field: name,
+                    code: DUPLICATE_NAME_BUILDING,
+                    message: An active supplier with this name already exists in this building.,
+                  }
     BadRequest:
       description: Malformed JSON, an invalid If-Match version, or an oversized Idempotency-Key.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example:
-            error: { code: BAD_REQUEST, message: If-Match must be a positive integer version., correlationId: 5c1f2a9e }
+            error:
+              {
+                code: BAD_REQUEST,
+                message: If-Match must be a positive integer version.,
+                correlationId: 5c1f2a9e,
+              }
     StaleVersion:
       description: The supplier changed since the version in `If-Match`. Nothing was written.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example:
-            error: { code: STALE_VERSION, message: The supplier has changed since version 3. Reload it and retry., correlationId: 5c1f2a9e }
+            error:
+              {
+                code: STALE_VERSION,
+                message: The supplier has changed since version 3. Reload it and retry.,
+                correlationId: 5c1f2a9e,
+              }
     PreconditionRequired:
       description: '`If-Match` is missing.'
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example:
-            error: { code: PRECONDITION_REQUIRED, message: An If-Match header with the supplier version is required to update., correlationId: 5c1f2a9e }
+            error:
+              {
+                code: PRECONDITION_REQUIRED,
+                message: An If-Match header with the supplier version is required to update.,
+                correlationId: 5c1f2a9e,
+              }
     IdentityUnavailable:
       description: The User Service could not be asked who the caller is. Fails closed.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example:
-            error: { code: IDENTITY_UNAVAILABLE, message: Could not verify your identity. Try again shortly., correlationId: 5c1f2a9e }
+            error:
+              {
+                code: IDENTITY_UNAVAILABLE,
+                message: Could not verify your identity. Try again shortly.,
+                correlationId: 5c1f2a9e,
+              }

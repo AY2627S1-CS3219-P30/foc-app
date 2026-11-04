@@ -131,6 +131,111 @@ describe('validation (422, every field at once)', () => {
   });
 });
 
+describe('opening hours (SS-FR1.1.3)', () => {
+  const period = (day: string, opens: string, closes: string) => ({ day, opens, closes });
+  const withHours = (openingHours: unknown) => create({ ...validSupplier(), openingHours });
+
+  it('stores a midday break, a closed day, an all-day day and a late close unchanged', async () => {
+    const openingHours = [
+      period('MON', '08:00', '12:00'),
+      period('MON', '13:00', '20:00'),
+      period('TUE', '00:00', '23:59'),
+      period('WED', '18:00', '02:00'),
+    ];
+    const created = await withHours(openingHours).expect(201);
+
+    const read = await http(t)
+      .get(`/suppliers/${created.body.supplierId}`)
+      .set('Authorization', asStudent)
+      .expect(200);
+    expect(read.body.openingHours).toEqual(openingHours);
+  });
+
+  it('lets one period end as the next begins', async () => {
+    await withHours([period('MON', '08:00', '12:00'), period('MON', '12:00', '14:00')]).expect(201);
+  });
+
+  it('checks each day on its own, whatever order the periods come in', async () => {
+    await withHours([
+      period('TUE', '08:00', '12:00'),
+      period('MON', '13:00', '20:00'),
+      period('MON', '08:00', '12:00'),
+      period('TUE', '13:00', '20:00'),
+    ]).expect(201);
+  });
+
+  it('refuses periods on one day that overlap, naming the entry, and writes nothing', async () => {
+    const res = await withHours([
+      period('TUE', '08:00', '12:00'),
+      period('MON', '08:00', '12:00'),
+      period('MON', '11:00', '13:00'),
+    ]).expect(422);
+    expect(res.body.error.details).toEqual([
+      expect.objectContaining({ field: 'openingHours.2', code: 'OVERLAPPING_HOURS' }),
+    ]);
+    expect(res.body.error.details[0].message).toContain('MON');
+    expect(await countSuppliers()).toBe(0);
+  });
+
+  it('refuses a malformed time and an unknown day, naming each, and writes nothing', async () => {
+    const res = await withHours([
+      period('MON', '8am', '12:00'),
+      period('FUNDAY', '08:00', '12:00'),
+    ]).expect(422);
+    const fields = res.body.error.details.map((d: { field: string }) => d.field);
+    expect(fields).toEqual(['openingHours.0.opens', 'openingHours.1.day']);
+    expect(await countSuppliers()).toBe(0);
+  });
+
+  it('refuses the same period twice', async () => {
+    const res = await withHours([period('MON', '08:00', '12:00'), period('MON', '08:00', '12:00')]);
+    expect(res.status).toBe(422);
+    expect(res.body.error.details[0].field).toBe('openingHours.1');
+  });
+
+  it('refuses a period that opens after one running past midnight', async () => {
+    const res = await withHours([period('MON', '18:00', '02:00'), period('MON', '20:00', '22:00')]);
+    expect(res.status).toBe(422);
+    expect(res.body.error.details[0].code).toBe('OVERLAPPING_HOURS');
+  });
+
+  it('allows a period before one running past midnight', async () => {
+    await withHours([period('MON', '08:00', '12:00'), period('MON', '18:00', '02:00')]).expect(201);
+  });
+
+  it('refuses more than four periods on a day', async () => {
+    const res = await withHours(
+      ['08', '10', '12', '14', '16'].map((hour) => period('MON', `${hour}:00`, `${hour}:30`)),
+    );
+    expect(res.status).toBe(422);
+    expect(res.body.error.details[0].field).toBe('openingHours.4');
+  });
+
+  it('accepts four periods on all seven days', async () => {
+    const days = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    const openingHours = days.flatMap((day) =>
+      ['08', '10', '12', '14'].map((hour) => period(day, `${hour}:00`, `${hour}:30`)),
+    );
+    await withHours(openingHours).expect(201);
+  });
+
+  it('applies the same rule on an update, and keeps the hours it refused to change', async () => {
+    const created = await withHours([period('MON', '08:00', '12:00')]).expect(201);
+    const res = await http(t)
+      .put(`/suppliers/${created.body.supplierId}`)
+      .set('Authorization', asAdmin)
+      .set('If-Match', '1')
+      .send({ openingHours: [period('MON', '08:00', '12:00'), period('MON', '09:00', '10:00')] });
+    expect(res.status).toBe(422);
+
+    const read = await http(t)
+      .get(`/suppliers/${created.body.supplierId}`)
+      .set('Authorization', asAdmin)
+      .expect(200);
+    expect(read.body.openingHours).toEqual([period('MON', '08:00', '12:00')]);
+  });
+});
+
 describe('idempotent create (Idempotency-Key)', () => {
   it('returns the original supplier on a repeat, not a 409 or a second row', async () => {
     const first = await create(validSupplier(), asAdmin, { 'Idempotency-Key': 'abc-123' }).expect(

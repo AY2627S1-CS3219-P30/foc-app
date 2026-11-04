@@ -12,6 +12,11 @@ import { DAYS, SUPPLIER_TYPES, TYPE_LABELS } from '@/lib/supplier-display';
 import { useBuildings } from '@/lib/use-buildings';
 import styles from './suppliers.module.css';
 
+type Period = { opens: string; closes: string };
+const BLANK_PERIOD: Period = { opens: '', closes: '' };
+/** The service's limit (SS-FR1.1.3). */
+const MAX_PERIODS_PER_DAY = 4;
+
 type InputData = {
   name: string;
   type: Supplier['type'];
@@ -22,7 +27,7 @@ type InputData = {
   latitude: string;
   longitude: string;
   tags: string;
-  hours: Record<string, { opens: string; closes: string }>;
+  hours: Record<string, Period[]>;
 };
 
 function initial(supplier?: Supplier): InputData {
@@ -37,13 +42,12 @@ function initial(supplier?: Supplier): InputData {
     longitude: supplier?.longitude?.toString() ?? '',
     tags: supplier?.tags?.join(', ') ?? '',
     hours: Object.fromEntries(
-      DAYS.map((day) => [
-        day,
-        {
-          opens: supplier?.openingHours?.find((h) => h.day === day)?.opens ?? '',
-          closes: supplier?.openingHours?.find((h) => h.day === day)?.closes ?? '',
-        },
-      ]),
+      DAYS.map((day) => {
+        const periods = (supplier?.openingHours ?? [])
+          .filter((h) => h.day === day)
+          .map(({ opens, closes }) => ({ opens, closes }));
+        return [day, periods.length ? periods : [BLANK_PERIOD]];
+      }),
     ),
   };
 }
@@ -71,8 +75,8 @@ export function SupplierForm({
   const dirty = JSON.stringify(form) !== JSON.stringify(pristine);
   useEffect(() => onDirtyChange?.(dirty), [dirty, onDirtyChange]);
   const [errors, setErrors] = useState<FieldError[]>([]);
-  // Server errors reference openingHours by submitted index, so keep the submitted day order.
-  const [submittedDays, setSubmittedDays] = useState<string[]>([]);
+  // Server errors reference openingHours by submitted index, so keep the submitted order.
+  const [submittedPeriods, setSubmittedPeriods] = useState<string[]>([]);
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const set = <K extends keyof Omit<InputData, 'hours'>>(key: K, value: InputData[K]) =>
@@ -100,7 +104,18 @@ export function SupplierForm({
       )
       .map((item) => item.message)
       .join(' ') || undefined;
-  const daysWithHours = DAYS.filter((day) => form.hours[day].opens || form.hours[day].closes);
+  const filledPeriods = DAYS.flatMap((day) =>
+    form.hours[day].flatMap((period, index) =>
+      period.opens || period.closes ? [{ day, index, ...period }] : [],
+    ),
+  );
+  const periodError = (day: string, index: number, time: keyof Period) =>
+    error(`openingHours.${submittedPeriods.indexOf(`${day}:${index}`)}.${time}`);
+  const setPeriods = (day: string, change: (periods: Period[]) => Period[]) =>
+    setForm((previous) => ({
+      ...previous,
+      hours: { ...previous.hours, [day]: change(previous.hours[day]) },
+    }));
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -121,7 +136,7 @@ export function SupplierForm({
       return;
     }
     setSaving(true);
-    setSubmittedDays(daysWithHours);
+    setSubmittedPeriods(filledPeriods.map(({ day, index }) => `${day}:${index}`));
     try {
       await onSave({
         name: form.name,
@@ -139,11 +154,7 @@ export function SupplierForm({
             .filter(Boolean);
           return tags.length ? tags : null;
         })(),
-        openingHours: daysWithHours.map((day) => ({
-          day,
-          opens: form.hours[day].opens,
-          closes: form.hours[day].closes,
-        })),
+        openingHours: filledPeriods.map(({ day, opens, closes }) => ({ day, opens, closes })),
       });
     } catch (cause) {
       if (cause instanceof ApiError) {
@@ -222,48 +233,67 @@ export function SupplierForm({
       </Field>
       <fieldset className={styles.hoursField}>
         <legend>Opening hours</legend>
-        <p>Leave a day blank if hours are unavailable.</p>
-        {DAYS.map((day) => (
-          <div key={day} className={styles.dayRow}>
-            <span>{day}</span>
-            <Field
-              label={`${day} opens`}
-              error={error(`openingHours.${submittedDays.indexOf(day)}.opens`)}
-            >
-              <Input
-                type="time"
-                value={form.hours[day].opens}
-                onChange={(e) =>
-                  setForm((previous) => ({
-                    ...previous,
-                    hours: {
-                      ...previous.hours,
-                      [day]: { ...previous.hours[day], opens: e.target.value },
-                    },
-                  }))
-                }
-              />
-            </Field>
-            <Field
-              label={`${day} closes`}
-              error={error(`openingHours.${submittedDays.indexOf(day)}.closes`)}
-            >
-              <Input
-                type="time"
-                value={form.hours[day].closes}
-                onChange={(e) =>
-                  setForm((previous) => ({
-                    ...previous,
-                    hours: {
-                      ...previous.hours,
-                      [day]: { ...previous.hours[day], closes: e.target.value },
-                    },
-                  }))
-                }
-              />
-            </Field>
-          </div>
-        ))}
+        <p>Leave a day blank if it is closed or its hours are unavailable.</p>
+        {DAYS.map((day) => {
+          const periods = form.hours[day];
+          const last = periods[periods.length - 1];
+          return (
+            <div key={day} className={styles.dayPeriods}>
+              {periods.map((period, index) => {
+                const label = index === 0 ? day : `${day}, period ${index + 1}`;
+                const setTime = (time: keyof Period, value: string) =>
+                  setPeriods(day, (current) =>
+                    current.map((item, at) => (at === index ? { ...item, [time]: value } : item)),
+                  );
+                return (
+                  <div key={index} className={styles.dayRow}>
+                    <span>{index === 0 && day}</span>
+                    <Field label={`${label} opens`} error={periodError(day, index, 'opens')}>
+                      <Input
+                        type="time"
+                        value={period.opens}
+                        onChange={(e) => setTime('opens', e.target.value)}
+                      />
+                    </Field>
+                    <Field label={`${label} closes`} error={periodError(day, index, 'closes')}>
+                      <Input
+                        type="time"
+                        value={period.closes}
+                        onChange={(e) => setTime('closes', e.target.value)}
+                      />
+                    </Field>
+                    {index > 0 && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className={styles.periodAction}
+                        aria-label={`Remove ${label}`}
+                        onClick={() => {
+                          // What the service refused was numbered before this period went.
+                          setErrors([]);
+                          setPeriods(day, (current) => current.filter((_, at) => at !== index));
+                        }}
+                      >
+                        Remove
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+              {last.opens && last.closes && periods.length < MAX_PERIODS_PER_DAY && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={styles.periodAction}
+                  aria-label={`Add a period on ${day}`}
+                  onClick={() => setPeriods(day, (current) => [...current, BLANK_PERIOD])}
+                >
+                  Add period
+                </Button>
+              )}
+            </div>
+          );
+        })}
         {hoursError && <p role="alert">{hoursError}</p>}
       </fieldset>
       {message && (

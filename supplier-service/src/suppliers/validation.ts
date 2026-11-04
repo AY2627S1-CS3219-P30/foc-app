@@ -27,26 +27,45 @@ const openingHoursEntry = z.strictObject({
   closes: z.string().regex(HHMM, 'Time must be HH:MM (24-hour).'),
 });
 
+/** Enough for a midday break and more, and it keeps the stored array bounded. */
+const MAX_PERIODS_PER_DAY = 4;
+
+const minutes = (time: string): number => Number(time.slice(0, 2)) * 60 + Number(time.slice(3));
+
 /**
- * Each day may appear at most once: the model carries a single window per day,
- * so a repeated `day` is a caller mistake rather than a split shift (split
- * shifts are not supported). Reported against the first duplicate's position so
- * the error points at the offending entry.
+ * A day holds zero or more periods (SS-FR1.1.3): none is a closed day, two a midday break. The
+ * periods of a day may not overlap, in whatever order they come. A period closing at or before it
+ * opens runs past midnight, so on its own day it lasts to the end, and any period after it
+ * overlaps. Days are checked one at a time, so one running into the next morning is not compared
+ * with that morning's first period. A problem is reported against the entry that causes it.
  */
 const openingHoursSchema = z
   .array(openingHoursEntry)
-  .max(7)
+  .max(DAYS.length * MAX_PERIODS_PER_DAY)
   .superRefine((entries, ctx) => {
-    const seen = new Set<string>();
-    entries.forEach((entry, index) => {
-      if (seen.has(entry.day)) {
+    const days = new Map<string, { opens: string; closes: string; start: number; end: number }[]>();
+    entries.forEach(({ day, opens, closes }, index) => {
+      const periods = days.get(day) ?? [];
+      days.set(day, periods);
+      const start = minutes(opens);
+      const end = minutes(closes) > start ? minutes(closes) : 24 * 60;
+      const clash = periods.find((other) => start < other.end && other.start < end);
+      if (periods.length === MAX_PERIODS_PER_DAY) {
         ctx.addIssue({
           code: 'custom',
-          path: [index, 'day'],
-          message: `Duplicate opening hours for ${entry.day}; each day may appear at most once.`,
+          path: [index],
+          params: { code: 'TOO_MANY_PERIODS' },
+          message: `${day} can have at most ${MAX_PERIODS_PER_DAY} opening periods.`,
+        });
+      } else if (clash) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [index],
+          params: { code: 'OVERLAPPING_HOURS' },
+          message: `${day} ${opens}–${closes} overlaps ${clash.opens}–${clash.closes}.`,
         });
       }
-      seen.add(entry.day);
+      periods.push({ opens, closes, start, end });
     });
   });
 
