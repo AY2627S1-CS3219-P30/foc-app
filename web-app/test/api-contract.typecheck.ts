@@ -28,3 +28,11 @@ export function checkErrandQuery(api: import("../src/lib/admin-api").AdminApi) {
   // @ts-expect-error A status the Order Service does not know is refused at compile time.
   api.errands("t", { status: ["NOPE"] });
 }
+
+// N1.2: all chat calls are checked against the agreed contract.
+export function checkChat(api: import("openapi-fetch").Client<import("../src/lib/generated/chat-service").paths>) {
+  api.GET("/channels/{orderId}/messages", { params: { path: { orderId: "id" }, query: { after: 2, limit: 100 } } });
+  api.POST("/channels/{orderId}/messages", { params: { path: { orderId: "id" } }, body: { clientId: "uuid", body: "Hello" } });
+  // @ts-expect-error Sending must carry an idempotency clientId.
+  api.POST("/channels/{orderId}/messages", { params: { path: { orderId: "id" } }, body: { body: "Hello" } });
+}

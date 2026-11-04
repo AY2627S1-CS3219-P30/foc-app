@@ -865,7 +865,9 @@ requirements:
       - "web-app/test/suppliers.integration.test.tsx::lets a student browse the seeded suppliers"
       - "web-app/test/suppliers-page.test.tsx::shows the empty state when nothing matches"
       - "web-app/test/supplier-picker.test.tsx::shows an empty state when nothing matches"
-    gap: "The empty state only says nothing matched; no action to clear the search and filters exists in the UI or is tested."
+      - "web-app/test/suppliers-page.test.tsx::offers to clear the search and filters when they match nothing (UI-FR6.1.1)"
+      - "web-app/test/suppliers-page.test.tsx::offers to clear a filter on its own, without any search"
+      - "web-app/test/supplier-picker.test.tsx::offers to clear a search that matches nothing (UI-FR6.1.1)"
   - id: UI-FR6.1.2
     text: "Supplier forms shall show each field the service rejected beside that field; hiding administrator controls from other users shall be for clarity only, since the service refuses their changes regardless (SS-FR2.1.2)."
     areas: [roles]

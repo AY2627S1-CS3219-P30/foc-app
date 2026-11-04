@@ -124,3 +124,9 @@ Asked of Jonus and Patrick while the first drafts were written; each is now answ
    contract.
 5. **`GET /suppliers` as a page.** Settled: SUP-02 merged, and the listing answers
    `{ items, page, pageSize, total }`.
+
+The participant chat browser client (#161) generates `web-app/src/lib/generated/chat-service.ts`
+from the chat contract and calls all four operations through `/api/chat` at the edge. It accepts
+both send success statuses, preserves `Retry-After` on errors, uses GET pagination for reconnect
+catch-up, and never sends or marks read in the admin console. See the
+[web app chat notes](../web-app/README.md#participant-chat-n12-161) for state and deployment details.
