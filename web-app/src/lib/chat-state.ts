@@ -146,11 +146,12 @@ export function createChatState(orderId: string, userId: string, authed: Authed,
       }
       update({ loading: false, error: null, hasOlder: (state.messages[0]?.seq ?? 1) > 1 });
       // Polling for now. A notify-only WebSocket replaces this timer later (ADR 0012); reads stay on GET /messages.
-      return channel.open && !state.closed && !final ? 2_000 : null;
+      return !readOnly && channel.open && !state.closed && !final ? 2_000 : null;
     } catch (err) {
       if (!valid()) return null;
       failed(err);
-      return [401, 403, 404].includes(asError(err).status) ||
+      return readOnly ||
+        [401, 403, 404].includes(asError(err).status) ||
         final ||
         state.closed ||
         state.channel?.open === false

@@ -498,7 +498,9 @@ An errand's detail page has one `ChatPanel` and one `useChat` lifecycle across a
 collapsible with unread count at 360px, expanded below the details at 768px, and beside details and
 history at 1440px. Drafts survive resizing. The admin errand page independently asks the Chat Service
 for the same history in read-only mode, even when the Order Service refuses private errand details.
-The Chat Service decides authorization; console reads never send or mark read.
+The Chat Service decides authorization; console reads never send or mark read. The admin view
+fetches once and has a Refresh conversation button instead of a recurring timer, including after
+transient errors. Order revisions, tab return and reconnect still refresh its history.
 
 `src/lib/chat-api.ts` uses generated `chat-service` contract types and the shared authentication,
 timeout, correlation and error handling. Set **NEXT_PUBLIC_CHAT_SERVICE_URL=/api/chat at build time**
@@ -524,7 +526,7 @@ a reason. Account/order changes replace all private state and stale async respon
 
 `test/chat-state.test.ts` covers paging, merges, reconciliation, retries, read positions, access,
 closure and identity cleanup. `test/chat-panel.test.tsx` uses Happy DOM for responsive lifecycle and
-read visibility. `e2e/chat-journey.e2e.ts` joins the normal Playwright/release suite at every width:
+read visibility. `e2e/chat-journey.e2e.ts` runs only in the dedicated release suite at every width:
 send/receive in two sessions, offline catch-up, outsider refusal and final-state closure. Run the real
-stack with `./scripts-e2e-release.sh --twice` from the repository root; it requires Docker. Admin,
-rate-limit and retention integration requires the backend implementation in PR #358.
+stack with `./scripts-e2e-release.sh --twice` from the repository root; it requires Docker and sets
+`E2E_RELEASE=1`. Ordinary smoke runs skip this journey to stay within their shared login limits.

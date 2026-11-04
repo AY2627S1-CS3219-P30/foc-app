@@ -192,7 +192,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
-        /** @description `NOT_FOUND`: the errand is unknown, no channel was opened while it had a courier and it has no current courier to open one, or its 90-day retention period has ended. */
+        /** @description `NOT_FOUND`: the errand is unknown, no channel was opened while it had a courier and none can open now (it has no current courier, has reached a final status, or the caller is an administrator), or its 90-day retention period has ended. */
         NotFound: {
             headers: {
                 [name: string]: unknown;

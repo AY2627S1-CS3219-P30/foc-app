@@ -182,6 +182,47 @@ it("keeps the admin console read only even when the API identifies a participant
   await act(async () => observer?.([{ isIntersecting: true }]));
   await settle();
   expect(requests.every((r) => r.method === "GET")).toBe(true);
+  expect(timers).toEqual([]);
+});
+
+it("refreshes admin history on request and order revisions without scheduling polls", async () => {
+  nextChannel = { ...channel, myRole: "ADMIN" };
+  await render({ readOnly: true, version: 1 });
+  await open();
+  expect(timers).toEqual([]);
+  requests = [];
+  nextChannel = { ...nextChannel, latestSeq: 2 };
+  items = [{ ...message, seq: 2, clientId: "incoming-2", body: "Here now." }];
+  await act(async () => button("Refresh conversation").click());
+  await settle();
+  expect(requests.map((r) => new URL(r.url).pathname)).toEqual([
+    "/channels/order",
+    "/channels/order/messages",
+  ]);
+  expect(container.textContent).toContain("Here now.");
+  expect(timers).toEqual([]);
+  requests = [];
+  await render({ readOnly: true, version: 2 });
+  expect(requests).toHaveLength(1);
+  expect(requests[0].method).toBe("GET");
+  expect(timers).toEqual([]);
+});
+
+it("does not poll transient admin errors and retries when requested", async () => {
+  status = 503;
+  await render({ readOnly: true });
+  await open();
+  expect(container.textContent).toContain("Could not refresh chat");
+  expect(timers).toEqual([]);
+  expect(requests).toHaveLength(1);
+  status = 200;
+  await act(async () => button("Try again").click());
+  await settle();
+  expect(container.textContent).toContain(message.body);
+  expect(container.textContent).not.toContain("Could not refresh chat");
+  expect(requests).toHaveLength(3);
+  expect(requests.every((r) => r.method === "GET")).toBe(true);
+  expect(timers).toEqual([]);
 });
 
 it("shows service authorization refusal without private names or text", async () => {

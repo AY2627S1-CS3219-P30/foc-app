@@ -138,6 +138,11 @@ function Conversation({
         <span className={styles.unread} role="status">
           {chat.unread} unread
         </span>
+        {readOnly && chat.channel && (
+          <Button type="button" variant="outline" onClick={chat.refresh}>
+            Refresh conversation
+          </Button>
+        )}
         <button
           type="button"
           className={styles.toggle}

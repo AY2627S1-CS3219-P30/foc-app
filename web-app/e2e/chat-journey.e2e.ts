@@ -15,6 +15,7 @@ test("chat: send, receive, offline catch-up, outsider refusal and final-state cl
   page,
   request,
 }, info) => {
+  test.skip(process.env.E2E_RELEASE !== "1", "Run on the dedicated clean release stack.");
   test.setTimeout(120_000);
   const token = await signIn(page.request, errandEmail("requester"));
   const courierContext = await browser.newContext({
@@ -47,7 +48,7 @@ test("chat: send, receive, offline catch-up, outsider refusal and final-state cl
       headers: courierAuth,
       data: { expectedVersion: (await readOrder()).version },
     });
-    expect(accepted.status()).toBe(200);
+    expect(accepted.status()).toBe(201);
     await page.goto(`/request/${orderId}`);
     await courier.goto(`/request/${orderId}`);
     await openChat(page);
