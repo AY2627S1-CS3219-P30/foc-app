@@ -10,7 +10,7 @@ export function ResponsivePanel({ title, children }: { title: string; children: 
   return (
     <main className={styles.page}>
       <div className={styles.panel}>
-        <ScreenHeader title={title} className={styles.header} />
+        <ScreenHeader title={title} />
         <div className={styles.body}>{children}</div>
       </div>
     </main>

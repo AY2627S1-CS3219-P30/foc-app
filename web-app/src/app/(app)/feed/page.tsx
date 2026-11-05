@@ -294,12 +294,12 @@ export default function FeedPage() {
     <>
       <ResponsiveShell
         title={title}
-        barTitle={mode === "REQUESTER" ? title : "Feed"}
         navItems={STUDENT_NAV}
         activeHref="/feed"
-        onPlusClick={mode === "REQUESTER" ? () => router.push("/request/new") : undefined}
-        actions={
-          mode === "REQUESTER" && <Button onClick={() => router.push("/request/new")}>New request</Button>
+        primaryAction={
+          mode === "REQUESTER"
+            ? { label: "New request", onClick: () => router.push("/request/new") }
+            : undefined
         }
       >
         {content}

@@ -36,15 +36,9 @@
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-md);
-  }
-
-  .panel .header {
-    padding: var(--space-5);
-  }
-
-  .panel .header h1 {
-    font-size: var(--text-xl);
-    font-weight: var(--weight-bold);
+    --screen-header-padding: var(--space-5);
+    --screen-header-title-size: var(--text-xl);
+    --screen-header-title-weight: var(--weight-bold);
   }
 
   .body {

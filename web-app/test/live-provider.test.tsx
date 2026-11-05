@@ -28,7 +28,6 @@ const { CreditsProvider } = await import("../src/lib/credits");
 const { StoreProvider } = await import("../src/lib/store");
 const { TopBar } = await import("../src/components/TopBar");
 const { AppBar } = await import("../src/components/AppBar");
-const { ScreenHeader } = await import("../src/components/ScreenHeader");
 const { ResponsivePanel } = await import("../src/components/ResponsivePanel");
 
 /**
@@ -347,17 +346,16 @@ describe("the label in the top bar", () => {
     expect(container.textContent).toContain("Feed");
   });
 
-  it("is in the own headers of the errand and receipt pages", async () => {
+  it("is in the header the errand and receipt pages share", async () => {
     const stream = fakeStream();
     await render(
       <LiveProvider connect={stream.connect}>
-        <ScreenHeader title="Your request" />
         <ResponsivePanel title="Receipt">{null}</ResponsivePanel>
       </LiveProvider>,
     );
     await stream.status("live");
     const labels = [...container.querySelectorAll('[role="status"]')].map((l) => l.textContent);
-    expect(labels).toEqual(["Live", "Live"]);
+    expect(labels).toEqual(["Live"]);
   });
 
   it("is not shown where live updates are off", async () => {

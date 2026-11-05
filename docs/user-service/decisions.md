@@ -691,11 +691,12 @@ got `401`, and both tabs were signed out; **with** it, B waited, presented A's n
 - **Rejected:** a `BroadcastChannel` "leader" tab (more code, and a closing leader loses the refresh) and `localStorage` mutexes (racy).
 - **Fallback:** a browser without `navigator.locks` still gets the in-tab single-flight; only simultaneous multi-tab restore is exposed.
 
-### W3. One responsive tree for account screens — ✅
-The existing screens render a mobile tree and a desktop tree and let CSS pick one. A form must not: two copies would duplicate ids,
-split typed input between hidden and visible copies, and confuse assistive technology. `AuthCard` is one tree, full-bleed at 360 px
-and a centred card from 768 px. The profile screen holds a form too, so it uses `ResponsiveShell`: one tree whose app bar, top
-bar and sidebar CSS shows or hides by width.
+### W3. One responsive tree for every screen — ✅
+A screen renders one tree, and CSS changes its layout by width. Two copies would duplicate ids, split typed input between hidden
+and visible copies, confuse assistive technology, and leave a page with two `<main>` and two `<h1>` (#367). `AuthCard` is full-bleed
+at 360 px and a centred card from 768 px. Screens in the app frame use `ResponsiveShell`, whose app bar, top bar and sidebar CSS shows
+or hides by width. A page that is one panel uses `ResponsivePanel`, the whole screen on a phone and a card from 768 px. The
+accessibility spec fails if a scanned screen has more than one `<main>` or `<h1>`.
 
 ### W4. Errors stay beside the field; input is never cleared — ✅
 Controlled inputs, `aria-invalid` + `aria-describedby`, and a `role="alert"` summary that stays mounted (empty until needed), so

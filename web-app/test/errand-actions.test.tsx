@@ -17,25 +17,18 @@ mock.module('next/navigation', () => ({
   useRouter: () => router,
   useSearchParams: () => new URLSearchParams(),
 }));
+/** What the page asked the shell for; `responsive-shell.test.tsx` tests what the shell does with it. */
+let shell: { title?: string; barTitle?: string; primaryAction?: { label: string; onClick: () => void } } = {};
 mock.module('../src/components/ResponsiveShell', () => ({
-  ResponsiveShell: ({
-    title,
-    onPlusClick,
-    actions,
-    children,
-  }: {
-    title: string;
-    onPlusClick?: () => void;
-    actions?: React.ReactNode;
-    children: React.ReactNode;
-  }) => (
-    <>
-      <h1>{title}</h1>
-      {onPlusClick && <button aria-label="New request" onClick={onPlusClick} />}
-      {actions}
-      {children}
-    </>
-  ),
+  ResponsiveShell: ({ children, ...props }: { children: React.ReactNode; title: string }) => {
+    shell = props;
+    return (
+      <>
+        <h1>{props.title}</h1>
+        {children}
+      </>
+    );
+  },
 }));
 const { default: FeedPage } = await import('../src/app/(app)/feed/page');
 const { default: OrderHistoryPage } = await import('../src/app/(app)/order-history/page');
@@ -383,6 +376,13 @@ describe('feed', () => {
     expect(service.queries.filter((query) => query.startsWith('/orders')).at(-1)).toContain('minReward=4');
   });
 
+  it('names the page the same at every width, with nothing to post, in courier mode', async () => {
+    await render(<FeedPage />, fakeOrderService());
+    expect(shell.title).toBe('Open errands');
+    expect(shell.barTitle).toBeUndefined();
+    expect(shell.primaryAction).toBeUndefined();
+  });
+
   it('counts down from the time the server gave and removes the card at zero', async () => {
     const clock = fakeClock();
     const service = fakeOrderService();
@@ -516,7 +516,10 @@ describe('requester open requests', () => {
     expect(service.queries).not.toContain('/orders');
     expect(container.querySelector('a[href="/request/past"]')).toBeNull();
     expect(buttons(container, 'Accept')).toEqual([]);
-    expect(container.querySelector('button[aria-label="New request"]')).not.toBeNull();
+    expect(shell.title).toBe('Active requests');
+    expect(shell.primaryAction?.label).toBe('New request');
+    shell.primaryAction!.onClick();
+    expect(router.push).toHaveBeenCalledWith('/request/new');
   });
 
   it('shows a withdrawal notice immediately in requester mode', async () => {

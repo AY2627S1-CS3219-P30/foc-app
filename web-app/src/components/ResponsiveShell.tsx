@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { AppBar } from './AppBar';
+import { Button } from './Button';
 import { Sidebar, type NavItem } from './Sidebar';
 import { TopBar } from './TopBar';
 import styles from './ResponsiveShell.module.css';
@@ -11,35 +12,29 @@ import styles from './ResponsiveShell.module.css';
  */
 export function ResponsiveShell({
   title,
-  barTitle = title,
   navItems,
   activeHref,
   showCreditPill = true,
   logoText,
   onBack,
-  onPlusClick,
-  actions,
+  primaryAction,
   children,
 }: {
   title: string;
-  /** The phone app bar's title, where it is shorter than the page's. */
-  barTitle?: string;
   navItems: NavItem[];
   activeHref: string;
   showCreditPill?: boolean;
   /** The top bar's logo; the admin console's pages pass its own (`TopBar`'s default otherwise). */
   logoText?: string;
   onBack?: () => void;
-  /** The app bar's `+`, the phone's form of `actions`. */
-  onPlusClick?: () => void;
-  /** Beside the heading, from 768 px. */
-  actions?: ReactNode;
+  /** The screen's main action: the app bar's `+` on a phone, a button by the heading from 768 px. */
+  primaryAction?: { label: string; onClick: () => void };
   children: ReactNode;
 }) {
   return (
     <div className={styles.shell}>
       <div className={styles.appBar}>
-        <AppBar title={barTitle} onBack={onBack} onPlusClick={onPlusClick} />
+        <AppBar title={title} onBack={onBack} action={primaryAction} />
       </div>
       <div className={styles.topBar}>
         <TopBar logoText={logoText} showCreditPill={showCreditPill} />
@@ -56,7 +51,11 @@ export function ResponsiveShell({
               </button>
             )}
             <h1 className={styles.heading}>{title}</h1>
-            {actions && <div className={styles.actions}>{actions}</div>}
+            {primaryAction && (
+              <div className={styles.actions}>
+                <Button onClick={primaryAction.onClick}>{primaryAction.label}</Button>
+              </div>
+            )}
           </div>
           {children}
         </main>

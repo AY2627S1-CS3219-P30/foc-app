@@ -7,11 +7,12 @@ import { LiveLabel } from "./LiveLabel";
 export function AppBar({
   title,
   onBack,
-  onPlusClick,
+  action,
 }: {
   title: string;
   onBack?: () => void;
-  onPlusClick?: () => void;
+  /** The screen's main action, as a `+`. */
+  action?: { label: string; onClick: () => void };
 }) {
   const { setMenuOpen } = useStore();
   return (
@@ -29,8 +30,8 @@ export function AppBar({
         <span className={styles.title}>{title}</span>
         <LiveLabel onBar />
       </span>
-      {onPlusClick ? (
-        <button className={styles.iconBtn} aria-label="New request" onClick={onPlusClick}>
+      {action ? (
+        <button className={styles.iconBtn} aria-label={action.label} onClick={action.onClick}>
           +
         </button>
       ) : (
