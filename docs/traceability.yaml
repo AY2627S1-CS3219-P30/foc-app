@@ -363,11 +363,11 @@ requirements:
     areas: [transfers]
     tests:
       - "order-service/test/order-fulfilment.test.ts::completes only on a matching transfer, once, and writes the immutable receipt"
+      - "order-service/test/order-fulfilment.test.ts::keeps the supplier on its receipt as it was when the errand was posted"
       - "order-service/test/order-fulfilment.test.ts::lists the errand’s items on its receipt as they were posted (ORD-16)"
       - "order-service/test/order-fulfilment.test.ts::gives a receipt written before receipts listed items the errand’s items (ORD-16)"
       - "web-app/test/wallet.test.tsx::lists the items delivered, with their quantities and notes (ORD-16)"
       - "web-app/e2e/errand-journey.e2e.ts::errand journey: a lost acceptance race, fulfilment, and the requester confirming"
-    gap: "No test checks the receipt's supplier snapshot beyond supplierId."
   - id: OS-FR6.1.1
     text: "The requester may cancel an open or accepted errand before pickup, and an assigned courier may withdraw from an accepted errand before pickup; withdrawal reopens the errand if its deadline has not passed and otherwise expires it, while cancellation releases the reserved credits."
     areas: [transitions, returns, roles]
@@ -510,6 +510,7 @@ requirements:
       - "order-service/test/order-privacy.test.ts::leaks nothing to a former courier, an unrelated student or an unreferred administrator"
       - "order-service/test/order-privacy.test.ts::removes a timed-out courier from private access and keeps closed orders private"
       - "order-service/test/order-privacy.test.ts::opens a dispute to its assigned administrator only, and moves that access on replacement"
+      - "order-service/test/order-command-idempotency.test.ts::a courier who left the errand replays their accept without its private details"
   - id: OS-NFR5.1.2
     text: "Every unauthorised or invalid action shall be rejected with a clear reason and shall leave the errand unchanged."
     areas: [roles, transitions]
@@ -886,10 +887,12 @@ requirements:
     text: "At 360, 768, and 1440 CSS-pixel widths, registration, supplier search, request creation, open errands, active order, and wallet screens shall have no horizontal page scroll or clipped control."
     tests:
       - "web-app/e2e/account-journey.e2e.ts::account journey: register, activate, sign in, profile, mode switch, log out"
-    gap: "Only the account screens (register, activate, login, profile) are checked for sideways scroll at 360/768/1440; supplier search, request creation, open errands, active order and wallet are never checked for overflow, and no screen is checked for clipped controls."
+      - "web-app/e2e/mobile-layout.e2e.ts::mobile layout: tap targets, primary actions and no sideways scroll on every core screen"
   - id: UI-NFR1.1.2
     text: "Interactive targets shall be at least 44 by 44 CSS pixels on mobile, and the primary next action shall remain visible without overlapping fixed navigation."
-    gap: "No automated test measures 44x44 CSS-px tap targets on mobile or checks that the primary action stays visible clear of the fixed navigation."
+    tests:
+      - "web-app/e2e/mobile-layout.e2e.ts::mobile layout: tap targets, primary actions and no sideways scroll on every core screen"
+    gap: "Measured on sign-in and the screens UI-NFR1.1.1 names. Order history, the receipt, profile and the admin console are not measured."
   - id: UI-NFR2.1.1
     text: "Automated accessibility scans of every core screen shall report zero critical violations, and text and control contrast shall meet 4.5 to 1 or 3 to 1 for large text."
     tests:

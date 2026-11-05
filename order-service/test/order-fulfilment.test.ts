@@ -250,6 +250,38 @@ describe('fulfilment, completion saga and receipt (ORD-04)', () => {
     expect(receipt.body.items).toEqual(items);
   });
 
+  it('keeps the supplier on its receipt as it was when the errand was posted', async () => {
+    let supplier = {
+      supplierId: '00000000-0000-4000-8000-000000000125',
+      name: 'The Deck',
+      type: 'FOOD',
+      building: 'COM2',
+      floor: '1',
+      locationDescription: 'Level 1 canteen',
+      active: true,
+    };
+    t = await createTestApp((async () => Response.json(supplier)) as unknown as typeof fetch);
+    const { active: _, ...snapshot } = supplier;
+    const orderId = await createPending(t);
+    await reservationReply(t, orderId);
+
+    supplier = {
+      ...supplier,
+      name: 'The Deck (renamed)',
+      building: 'COM3',
+      locationDescription: 'Moved upstairs',
+      active: false,
+    };
+    await advance(t, 'COMPLETION_PENDING_CREDIT', orderId);
+    await deliver(t, TRANSFER_RESULTS_QUEUE, transferred({ orderId }));
+
+    const receipt = await http(t)
+      .get(`/orders/${orderId}/receipt`)
+      .set('Authorization', asRequester)
+      .expect(200);
+    expect(receipt.body.supplier).toEqual(snapshot);
+  });
+
   it('gives a receipt written before receipts listed items the errand’s items (ORD-16)', async () => {
     const db = await PgliteDb.create();
     try {
