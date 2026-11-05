@@ -143,7 +143,8 @@ No password, key or token is in this repository. `.env.example` lists every
 variable and marks each secret `<generated>`; the script writes `.env` with a
 random value for each, made on your machine. `.env` is git-ignored and readable
 by you alone. Run the script again after pulling: it adds whatever is new and
-never changes a value you already have.
+never changes a value you already have, except to add a service's key to a list
+of keys that lacks it.
 
 **If you already had a `.env`** (a copy of the old example), it holds the old
 shared key and default passwords. The script names them and stops. Delete

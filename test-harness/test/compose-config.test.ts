@@ -452,6 +452,44 @@ describe('the edge (PLT-10)', () => {
     expect(nginx).toMatch(/^\s+worker_connections 4096;$/m);
   });
 
+  it('upgrades the chat socket at one exact path, and nothing else under /api/chat/ (#346)', () => {
+    const block = nginx.match(/location = \/api\/chat\/socket \{([^}]*)\}/)?.[1];
+    // Before the prefix, so the prefix's cleared `Connection` never reaches the socket.
+    expect(nginx.indexOf('location = /api/chat/socket {')).toBeLessThan(
+      nginx.indexOf('location /api/chat/ {'),
+    );
+    expect(block).toContain('set $upstream chat-service:3006;');
+    expect(block).toContain('proxy_pass http://$upstream$api_path;');
+    expect(block).toContain('proxy_set_header Upgrade $http_upgrade;');
+    expect(block).toContain('proxy_set_header Connection $connection_upgrade;');
+    expect(nginx).toMatch(
+      /map \$http_upgrade \$connection_upgrade \{\s+default upgrade;\s+"" close;\s+\}/,
+    );
+    // A header set here replaces every one the server sets, so each is set again: the services
+    // count per-address limits by X-Forwarded-For, and log under X-Correlation-Id.
+    for (const header of [
+      'proxy_set_header Host $host;',
+      'proxy_set_header X-Forwarded-For $remote_addr;',
+      'proxy_set_header X-Forwarded-Proto $scheme;',
+      'proxy_set_header X-Correlation-Id $correlation_id;',
+    ]) {
+      expect(block).toContain(header);
+    }
+    // An add_header here would drop the security headers the server block sets.
+    expect(block).not.toContain('add_header');
+    // Past the service's 25 s pings, unbuffered, and capped per address apart from the streams.
+    expect(block).toMatch(/^\s+proxy_read_timeout 75s;$/m);
+    expect(block).toMatch(/^\s+proxy_buffering off;$/m);
+    expect(nginx).toMatch(/limit_conn_zone \$binary_remote_addr zone=sockets:/);
+    expect(block).toMatch(/^\s+limit_conn sockets 10;$/m);
+    expect(block).toMatch(/^\s+limit_conn_status 429;$/m);
+    expect(block).toContain('error_page 502 504 =503 @unavailable;');
+    // The rest of /api/chat/ stays plain HTTP.
+    const prefix = nginx.match(/location \/api\/chat\/ \{([^}]*)\}/)?.[1];
+    expect(prefix).not.toContain('Upgrade');
+    expect(nginx).toContain('proxy_set_header Connection "";');
+  });
+
   it('tells each service the client’s address, which the service believes from the edge alone', () => {
     expect(nginx).toContain('proxy_set_header X-Forwarded-For $remote_addr;');
     for (const name of APPLICATION) {
@@ -633,6 +671,97 @@ describe('scripts-init-env.sh', () => {
       expect(said).not.toContain(shared);
     }
     expect(readFileSync(join(dir, '.env'), 'utf8')).toBe(old);
+  });
+
+  /** An .env from before Chat joined: complete by name, but its key isn't in User's list. */
+  function fromBeforeChat() {
+    const box = sandbox();
+    box.run();
+    const before = box.env();
+    const stale = readFileSync(join(box.dir, '.env'), 'utf8').replace(
+      `,${before.CHAT_INTERNAL_KEY}`,
+      '',
+    );
+    writeFileSync(join(box.dir, '.env'), stale);
+    return { ...box, before, stale };
+  }
+
+  it('--check fails when a list of keys lacks a service’s key, naming both and changing nothing', () => {
+    const { dir, run, before, stale } = fromBeforeChat();
+
+    const result = run('--check');
+
+    const said = result.stdout + result.stderr;
+    expect(result.status).toBe(1);
+    expect(said).toContain('INTERNAL_SERVICE_KEYS does not include CHAT_INTERNAL_KEY');
+    expect(said).toContain('./scripts-init-env.sh');
+    expect(said).not.toContain(before.CHAT_INTERNAL_KEY!);
+    expect(readFileSync(join(dir, '.env'), 'utf8')).toBe(stale);
+  });
+
+  it('adds a service’s key a list lacks, says to restart, and then --check passes', () => {
+    const { run, env, before } = fromBeforeChat();
+
+    const result = run();
+
+    const said = result.stdout + result.stderr;
+    expect(result.status).toBe(0);
+    expect(env().INTERNAL_SERVICE_KEYS).toBe(before.INTERNAL_SERVICE_KEYS);
+    expect(said).toContain('INTERNAL_SERVICE_KEYS now includes CHAT_INTERNAL_KEY');
+    expect(said).toContain('docker compose up -d');
+    expect(said).not.toContain(before.CHAT_INTERNAL_KEY!);
+    expect(run('--check').status).toBe(0);
+  });
+
+  it('keeps what a list holds beyond its services’ keys, in any order', () => {
+    const { dir, run, env } = sandbox();
+    run();
+    const v = env();
+    const mine = [v.CHAT_INTERNAL_KEY, 'a-key-being-rotated-out-0123456789', v.ORDER_INTERNAL_KEY];
+    const list = [...mine, v.CREDIT_INTERNAL_KEY, v.SUPPLIER_INTERNAL_KEY].join(',');
+    const changed = readFileSync(join(dir, '.env'), 'utf8').replace(
+      /^INTERNAL_SERVICE_KEYS=.*$/m,
+      `INTERNAL_SERVICE_KEYS=${list}`,
+    );
+    writeFileSync(join(dir, '.env'), changed);
+
+    expect(run('--check').status).toBe(0);
+    expect(run().status).toBe(0);
+
+    expect(readFileSync(join(dir, '.env'), 'utf8')).toBe(changed);
+  });
+
+  it('fills a list left empty, with no stray comma', () => {
+    const { dir, run, env } = sandbox();
+    run();
+    const v = env();
+    writeFileSync(
+      join(dir, '.env'),
+      readFileSync(join(dir, '.env'), 'utf8').replace(
+        /^CREDIT_INBOUND_SERVICE_KEYS=.*$/m,
+        'CREDIT_INBOUND_SERVICE_KEYS=',
+      ),
+    );
+
+    expect(run('--check').status).toBe(1);
+    expect(run().status).toBe(0);
+
+    expect(env().CREDIT_INBOUND_SERVICE_KEYS).toBe(v.ORDER_INTERNAL_KEY);
+  });
+
+  it('leaves a value built from others alone when it is not a list, such as a URL', () => {
+    const { dir, run } = sandbox();
+    run();
+    const changed = readFileSync(join(dir, '.env'), 'utf8').replace(
+      /^HOST_POSTGRES_URL=.*$/m,
+      'HOST_POSTGRES_URL=postgres://someone:else@db.example:5432/postgres',
+    );
+    writeFileSync(join(dir, '.env'), changed);
+
+    expect(run('--check').status).toBe(0);
+    expect(run().status).toBe(0);
+
+    expect(readFileSync(join(dir, '.env'), 'utf8')).toBe(changed);
   });
 
   it('says to start the volumes afresh when it adds a database password to an existing .env', () => {
