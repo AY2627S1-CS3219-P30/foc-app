@@ -554,6 +554,28 @@ describe('kept 90 days after the errand ends', () => {
     ]);
   });
 
+  it('pages past the channels it has just deleted, and leaves the young ones', async () => {
+    const expired = [];
+    for (let i = 0; i < 5; i += 1) {
+      const orderId = await openedChannel();
+      end(orderId, 91);
+      expired.push(orderId);
+    }
+    const young = await openedChannel(1);
+    end(young, 91);
+    const small = new RetentionCleanup(t.app.get(ChatRepository), t.app.get(Upstreams), {
+      retentionDays: 90,
+      intervalMs: DAY_MS,
+      retryMs: 5 * 60_000,
+      batchSize: 2,
+      concurrency: 2,
+    });
+
+    expect(await small.sweep()).toEqual({ deleted: 5, kept: 0, skipped: 0, unknown: 0 });
+    for (const orderId of expired) expect(await channelRows(orderId)).toBe(0);
+    expect(await channelRows(young)).toBe(1);
+  });
+
   it('deletes nothing while the Order Service does not answer', async () => {
     const orderId = await openedChannel();
     end(orderId, 91);

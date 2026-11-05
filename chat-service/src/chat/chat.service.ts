@@ -3,6 +3,7 @@ import type { AuthContext } from '@foc/auth-client';
 import { ApiException } from '@foc/platform';
 import { ChatRepository, type SendResult } from './chat.repository.js';
 import { pastRetention, RETENTION_OPTIONS, type RetentionOptions } from './retention.js';
+import { SocketHub } from './socket/socket-hub.js';
 import { Upstreams, type OrderForChat } from './upstreams.js';
 import type { Page, Send } from './validation.js';
 
@@ -35,6 +36,7 @@ export class ChatService {
     @Inject(ChatRepository) private readonly chat: ChatRepository,
     @Inject(Upstreams) private readonly upstreams: Upstreams,
     @Inject(RETENTION_OPTIONS) private readonly retention: RetentionOptions,
+    @Inject(SocketHub) private readonly sockets: SocketHub,
   ) {}
 
   async channel(orderId: string, { user, correlationId }: Caller) {
@@ -72,10 +74,11 @@ export class ChatService {
 
   /**
    * A repeated `clientId` answers the stored message, even once the channel has closed or the
-   * sender has reached the limit. Over the limit, the result carries `retryAfter` instead.
+   * sender has reached the limit. Over the limit, the result carries `retryAfter` instead. A new
+   * message nudges both participants' sockets, the sender's other tabs included (#346).
    */
   async send(orderId: string, caller: AuthContext, { clientId, body }: Send): Promise<SendResult> {
-    const { open } = await this.participantAccess(orderId, caller);
+    const { open, order } = await this.participantAccess(orderId, caller);
     const stored = await this.chat.findSent(orderId, caller.userId, clientId);
     if (!stored && !open) {
       throw new ApiException(409, 'CHANNEL_CLOSED', 'This errand has ended or has no courier.');
@@ -89,6 +92,12 @@ export class ChatService {
         'IDEMPOTENCY_KEY_REUSED',
         'This clientId already sent a different message.',
       );
+    }
+    if ('message' in sent && sent.created) {
+      this.sockets.notify([order.requesterId, order.courierId], {
+        orderId,
+        latestSeq: sent.message.seq,
+      });
     }
     return sent;
   }
