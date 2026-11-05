@@ -271,9 +271,14 @@ published port, and production refused to boot because no other adapter existed.
     password, activate with one `user.activated`, delete every other unused activation and reset link,
     revoke every session. The token is looked up before Argon2 runs; a replay of a used link on an active
     account still answers `200 alreadyActivated` and ignores the password it carries.
-  - **Schema:** `users.password_hash` is nullable, with `CHECK (password_hash IS NOT NULL OR status =
-    'PENDING_ACTIVATION')`. Migration 0007 sets it to NULL on every pending account, which wipes any
-    password someone planted before this change. A NULL hash never authenticates: login verifies the
+  - **Schema:** `users.password_hash` is nullable, and only a pending account may have none. The
+    service enforces that. Migration 0007 is rollback-safe, as the rollback runbook requires: it adds no
+    CHECK and rewrites no account. An image from before #309 activates without setting a password, and
+    `CHECK (password_hash IS NOT NULL OR status = 'PENDING_ACTIVATION')` would refuse it, so that CHECK
+    waits for a release after the rollback window. On such a rollback, an account registered under #309
+    activates with no password, cannot sign in (a NULL hash never matches, there either), and its owner
+    sets one through password reset. A pending account keeps a password set before #309: activation
+    always replaces it, and a pending account cannot sign in. A NULL hash never authenticates: login verifies the
     password against the dummy hash, as for an unknown address, and answers `401 INVALID_CREDENTIALS`
     whatever the password, so the timing and answer match an unknown address. Step-up, password change and
     the login session check all require a stored hash.

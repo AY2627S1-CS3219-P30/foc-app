@@ -47,7 +47,7 @@ erDiagram
 | ------------------- | ------------- | --------------------------------------------------------------------------- |
 | `id`                | uuid PK       | Never editable. Generated server-side.                                       |
 | `email`             | text NOT NULL, UNIQUE index on `lower(email)` | Normalized. Duplicate → rejected, no row created. |
-| `password_hash`     | text NULL     | Argon2id, encoded string including the per-hash random salt and parameters. NULL while `PENDING_ACTIVATION` (#309): set at activation. `CHECK users_password_unless_pending`: only a pending account may have none (migration 0007, which also cleared it on every pending account). |
+| `password_hash`     | text NULL     | Argon2id, encoded string including the per-hash random salt and parameters. NULL while `PENDING_ACTIVATION` (#309): set at activation. Only a pending account may have none; the service enforces it, and the CHECK waits for a release after #309's rollback window (migration 0007). |
 | `status`            | text NOT NULL | `CHECK IN ('PENDING_ACTIVATION','ACTIVE','SUSPENDED')`                       |
 | `is_seeded_admin`   | boolean NOT NULL DEFAULT false | Set only by the boot seed. Never writable through any API. |
 | `must_change_password` | boolean NOT NULL DEFAULT false | Set by the boot seed; cleared by `POST /auth/password` or `POST /auth/password-reset/confirm`. While set, login starts no session (`PASSWORD_CHANGE_REQUIRED`). Migration 004 set it on every existing bootstrap admin. |

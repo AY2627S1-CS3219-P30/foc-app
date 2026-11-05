@@ -1,7 +1,7 @@
 import { userActivatedPayload } from '@foc/platform';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { verifyPassword } from '../src/auth/passwords.js';
+import { hashPassword, verifyPassword } from '../src/auth/passwords.js';
 import {
   activation,
   createTestApp,
@@ -309,5 +309,24 @@ describe('the pre-registration hijack (#309)', () => {
     expect(
       (await t.db.query("SELECT 1 FROM outbox_events WHERE event_type = 'user.activated'")).rows,
     ).toHaveLength(1);
+  });
+
+  it('replaces a password planted before #309 on a still-pending account', async () => {
+    // Migration 0007 keeps a pending account's hash, for images from before #309 to roll back to.
+    await http().post('/auth/register').send(validRegistration(EMAIL)).expect(201);
+    await t.db.query('UPDATE users SET password_hash = $1', [
+      await hashPassword(ATTACKER_PASSWORD),
+    ]);
+
+    // Pending: the planted password starts no session.
+    const early = await signIn(ATTACKER_PASSWORD).expect(403);
+    expect(early.body.error.code).toBe('ACCOUNT_NOT_ACTIVATED');
+    expect(await count('refresh_sessions')).toBe(0);
+
+    await activate(t.mailbox.latestFor(EMAIL)!.token, STUDENT_PASSWORD).expect(200);
+    await signIn(STUDENT_PASSWORD).expect(200);
+    expect((await signIn(ATTACKER_PASSWORD).expect(401)).body.error.code).toBe(
+      'INVALID_CREDENTIALS',
+    );
   });
 });

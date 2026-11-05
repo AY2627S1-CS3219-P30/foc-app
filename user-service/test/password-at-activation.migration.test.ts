@@ -9,8 +9,9 @@ import { MIGRATIONS_DIR } from './helpers/migrate.js';
 import { PgliteDb } from './helpers/pglite-db.js';
 
 /**
- * Migration 0007 (#309) on a database that already holds accounts: a password set at registration
- * was chosen before the inbox was proven, so every pending account loses it; no other does.
+ * Migration 0007 (#309) on a database that already holds accounts. It must stay rollback-safe
+ * (docs/runbooks/backup-restore-rollback.md): it rewrites no account and adds no constraint an image
+ * from before #309 could trip, and only shortens activation links still waiting to be used.
  */
 let db: PgliteDb;
 let before: string;
@@ -37,7 +38,7 @@ const accounts = () =>
     'SELECT email, status, password_hash FROM users ORDER BY email',
   );
 
-it('removes the password from every pending account, and only from those', async () => {
+it('keeps every account as it was, and cuts live activation links to 30 minutes', async () => {
   const orm = drizzle(db.client, { schema });
   await migrate(orm, { migrationsFolder: before });
   await db.exec(`
@@ -56,7 +57,8 @@ it('removes the password from every pending account, and only from those', async
   await migrate(orm, { migrationsFolder: MIGRATIONS_DIR });
 
   expect((await accounts()).rows).toEqual([
-    { email: 'a-pending@u.nus.edu', status: 'PENDING_ACTIVATION', password_hash: null },
+    // Activation now always replaces it, and a pending account cannot sign in.
+    { email: 'a-pending@u.nus.edu', status: 'PENDING_ACTIVATION', password_hash: 'planted-hash' },
     { email: 'b-active@u.nus.edu', status: 'ACTIVE', password_hash: 'active-hash' },
     { email: 'c-suspended@u.nus.edu', status: 'SUSPENDED', password_hash: 'suspended-hash' },
   ]);
@@ -73,11 +75,16 @@ it('removes the password from every pending account, and only from those', async
   expect(new Date(used!.expires_at).toISOString()).toBe('2030-01-01T00:00:00.000Z');
 });
 
-it('refuses an account that is not pending but has no password', async () => {
-  await expect(
-    db.exec(`UPDATE users SET password_hash = NULL WHERE email = 'b-active@u.nus.edu'`),
-  ).rejects.toThrow(/users_password_unless_pending/);
-  await expect(
-    db.exec(`UPDATE users SET status = 'ACTIVE' WHERE email = 'a-pending@u.nus.edu'`),
-  ).rejects.toThrow(/users_password_unless_pending/);
+it('lets an image from before #309 activate a pending account that has no password', async () => {
+  // Registered after #309, so no password yet; an older image activates without setting one. The
+  // account then cannot sign in (a NULL hash never matches) until its owner resets the password.
+  await db.exec(`
+    INSERT INTO users (id, email, password_hash, status) VALUES
+      ('00000000-0000-4000-8000-000000000004', 'd-new@u.nus.edu', NULL, 'PENDING_ACTIVATION');
+    UPDATE users SET status = 'ACTIVE', activated_at = now() WHERE email = 'd-new@u.nus.edu';
+  `);
+  const rows = await db.query<{ status: string; password_hash: string | null }>(
+    `SELECT status, password_hash FROM users WHERE email = 'd-new@u.nus.edu'`,
+  );
+  expect(rows.rows).toEqual([{ status: 'ACTIVE', password_hash: null }]);
 });

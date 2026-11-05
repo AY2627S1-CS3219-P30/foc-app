@@ -47,11 +47,8 @@ export const users = pgTable(
   },
   (t) => [
     check('users_status_enum', sql`${t.status} IN ('PENDING_ACTIVATION', 'ACTIVE', 'SUSPENDED')`),
-    // Only an account still waiting for activation may have no password.
-    check(
-      'users_password_unless_pending',
-      sql`${t.passwordHash} IS NOT NULL OR ${t.status} = 'PENDING_ACTIVATION'`,
-    ),
+    // Only an account still waiting for activation may have no password. The service enforces it;
+    // the CHECK waits for a release after #309's rollback window (migration 0007 says why).
     // Uniqueness is enforced by the database, not just the service: a duplicate
     // cannot slip in through a race or a future code path.
     uniqueIndex('users_email_lower_key').on(sql`lower(${t.email})`),

@@ -1227,10 +1227,6 @@
         "users_status_enum": {
           "name": "users_status_enum",
           "value": "\"users\".\"status\" IN ('PENDING_ACTIVATION', 'ACTIVE', 'SUSPENDED')"
-        },
-        "users_password_unless_pending": {
-          "name": "users_password_unless_pending",
-          "value": "\"users\".\"password_hash\" IS NOT NULL OR \"users\".\"status\" = 'PENDING_ACTIVATION'"
         }
       },
       "isRLSEnabled": false
