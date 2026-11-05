@@ -29,7 +29,7 @@ const { StoreProvider } = await import("../src/lib/store");
 const { TopBar } = await import("../src/components/TopBar");
 const { AppBar } = await import("../src/components/AppBar");
 const { ScreenHeader } = await import("../src/components/ScreenHeader");
-const { DesktopPanel } = await import("../src/components/DesktopPanel");
+const { ResponsivePanel } = await import("../src/components/ResponsivePanel");
 
 /**
  * N1.4 (#331): which reads a nudge from the live-update stream sets off. The stream is faked; the
@@ -347,12 +347,12 @@ describe("the label in the top bar", () => {
     expect(container.textContent).toContain("Feed");
   });
 
-  it("is in the errand page's own headers, on a phone and on a desktop", async () => {
+  it("is in the own headers of the errand and receipt pages", async () => {
     const stream = fakeStream();
     await render(
       <LiveProvider connect={stream.connect}>
         <ScreenHeader title="Your request" />
-        <DesktopPanel title="Your request">{null}</DesktopPanel>
+        <ResponsivePanel title="Receipt">{null}</ResponsivePanel>
       </LiveProvider>,
     );
     await stream.status("live");

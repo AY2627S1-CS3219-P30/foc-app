@@ -2,11 +2,9 @@
 
 import Link from "next/link";
 import { useCallback, useState } from "react";
-import { AppBar } from "@/components/AppBar";
+import { ResponsiveShell } from "@/components/ResponsiveShell";
 import { Button, buttonClass } from "@/components/Button";
-import { DesktopShell } from "@/components/DesktopShell";
 import { ErrandCard, ErrandGrid } from "@/components/ErrandCard";
-import { Screen, ScreenContent } from "@/components/Screen";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { formatWhen } from "@/lib/admin-labels";
 import { ApiError } from "@/lib/api-client";
@@ -212,19 +210,8 @@ export default function OrderHistoryPage() {
   );
 
   return (
-    <>
-      <div className="mobileOnly">
-        <Screen>
-          <AppBar title="Order History" heading />
-          <ScreenContent>{content}</ScreenContent>
-        </Screen>
-      </div>
-
-      <div className="desktopOnly">
-        <DesktopShell navItems={STUDENT_NAV} activeHref="/order-history" heading="Order history">
-          {content}
-        </DesktopShell>
-      </div>
-    </>
+    <ResponsiveShell title="Order history" navItems={STUDENT_NAV} activeHref="/order-history">
+      {content}
+    </ResponsiveShell>
   );
 }

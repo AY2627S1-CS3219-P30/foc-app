@@ -6,13 +6,10 @@ import { LiveLabel } from "./LiveLabel";
 
 export function AppBar({
   title,
-  heading = false,
   onBack,
   onPlusClick,
 }: {
   title: string;
-  /** The title is the page's heading, on a screen with no other (ResponsiveShell has its own). */
-  heading?: boolean;
   onBack?: () => void;
   onPlusClick?: () => void;
 }) {
@@ -29,7 +26,7 @@ export function AppBar({
         </button>
       )}
       <span className={styles.titleBlock}>
-        {heading ? <h1 className={styles.title}>{title}</h1> : <span className={styles.title}>{title}</span>}
+        <span className={styles.title}>{title}</span>
         <LiveLabel onBar />
       </span>
       {onPlusClick ? (

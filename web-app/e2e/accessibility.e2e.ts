@@ -27,6 +27,14 @@ async function scan(page: Page, testInfo: TestInfo, screen: string, findings: Fi
     });
   }
   testInfo.annotations.push({ type: "axe", description: `${screen}: ${JSON.stringify(counts)}` });
+  // axe ignores a copy hidden by CSS, so it can't see a page with two trees (#367). Count them all.
+  const { main, h1 } = await page.evaluate(() => ({
+    main: document.querySelectorAll("main").length,
+    h1: document.querySelectorAll("h1").length,
+  }));
+  if (main !== 1 || h1 !== 1) {
+    findings.push({ screen, impact: "structure", id: "one-main-and-h1", targets: [`${main} main, ${h1} h1`] });
+  }
 }
 
 async function report(testInfo: TestInfo, findings: Finding[]) {

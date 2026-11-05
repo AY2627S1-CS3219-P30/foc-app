@@ -3,12 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ActionDialog } from "@/components/ActionDialog";
-import { AppBar } from "@/components/AppBar";
+import { ResponsiveShell } from "@/components/ResponsiveShell";
 import { Button } from "@/components/Button";
-import { DesktopShell } from "@/components/DesktopShell";
 import { ErrandCard, ErrandGrid } from "@/components/ErrandCard";
 import { FormAlert, FormField } from "@/components/FormField";
-import { Screen, ScreenContent } from "@/components/Screen";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth";
@@ -294,29 +292,18 @@ export default function FeedPage() {
 
   return (
     <>
-      <div className="mobileOnly">
-        <Screen>
-          <AppBar
-            title={mode === "REQUESTER" ? title : "Feed"}
-            heading
-            onPlusClick={mode === "REQUESTER" ? () => router.push("/request/new") : undefined}
-          />
-          <ScreenContent>{content}</ScreenContent>
-        </Screen>
-      </div>
-
-      <div className="desktopOnly">
-        <DesktopShell
-          navItems={STUDENT_NAV}
-          activeHref="/feed"
-          heading={title}
-          actions={
-            mode === "REQUESTER" && <Button onClick={() => router.push("/request/new")}>New request</Button>
-          }
-        >
-          {content}
-        </DesktopShell>
-      </div>
+      <ResponsiveShell
+        title={title}
+        barTitle={mode === "REQUESTER" ? title : "Feed"}
+        navItems={STUDENT_NAV}
+        activeHref="/feed"
+        onPlusClick={mode === "REQUESTER" ? () => router.push("/request/new") : undefined}
+        actions={
+          mode === "REQUESTER" && <Button onClick={() => router.push("/request/new")}>New request</Button>
+        }
+      >
+        {content}
+      </ResponsiveShell>
 
       <ActionDialog state={accept} />
     </>

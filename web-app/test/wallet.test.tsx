@@ -286,6 +286,12 @@ describe("from a receipt to its ledger entry and back (WEB-03)", () => {
     expect(asked[0]!.pathname).toBe(`/orders/${ORDER}/receipt`);
   });
 
+  it("renders the receipt once, at every width (#367)", async () => {
+    serve();
+    await render(<ReceiptPage params={Promise.resolve({ id: ORDER })} />);
+    expect(container.textContent!.match(/Kopi Corner, COM2, floor 1/g)).toHaveLength(1);
+  });
+
   it("lists the items delivered, with their quantities and notes (ORD-16)", async () => {
     serve();
     await render(<ReceiptPage params={Promise.resolve({ id: ORDER })} />);

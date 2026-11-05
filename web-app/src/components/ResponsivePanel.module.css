@@ -1,0 +1,53 @@
+/* Phone first: the whole screen, in the same frame as ResponsiveShell's. */
+.panel {
+  max-width: var(--size-phone);
+  margin: 0 auto;
+  min-height: 100vh;
+  background: var(--color-surface);
+  box-shadow: 0 0 0 1px var(--color-border);
+  display: flex;
+  flex-direction: column;
+}
+
+.body {
+  flex: 1;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* From 768 px: a card on the page. */
+@media (min-width: 768px) {
+  .page {
+    min-height: 100vh;
+    background: var(--color-page);
+    display: flex;
+    justify-content: center;
+    padding: var(--space-8) var(--space-5);
+  }
+
+  .panel {
+    width: 100%;
+    max-width: 560px;
+    min-height: 0;
+    height: fit-content;
+    margin: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+  }
+
+  .panel .header {
+    padding: var(--space-5);
+  }
+
+  .panel .header h1 {
+    font-size: var(--text-xl);
+    font-weight: var(--weight-bold);
+  }
+
+  .body {
+    padding: var(--space-5);
+  }
+}

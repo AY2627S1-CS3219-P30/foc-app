@@ -17,8 +17,25 @@ mock.module('next/navigation', () => ({
   useRouter: () => router,
   useSearchParams: () => new URLSearchParams(),
 }));
-mock.module('../src/components/DesktopShell', () => ({
-  DesktopShell: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+mock.module('../src/components/ResponsiveShell', () => ({
+  ResponsiveShell: ({
+    title,
+    onPlusClick,
+    actions,
+    children,
+  }: {
+    title: string;
+    onPlusClick?: () => void;
+    actions?: React.ReactNode;
+    children: React.ReactNode;
+  }) => (
+    <>
+      <h1>{title}</h1>
+      {onPlusClick && <button aria-label="New request" onClick={onPlusClick} />}
+      {actions}
+      {children}
+    </>
+  ),
 }));
 const { default: FeedPage } = await import('../src/app/(app)/feed/page');
 const { default: OrderHistoryPage } = await import('../src/app/(app)/order-history/page');
@@ -331,19 +348,19 @@ describe('feed', () => {
     expect(button(container, 'Load more')).toBeTruthy();
     await act(async () => button(container, 'Load more').click());
     await flush();
-    const mobile = () => container.querySelector('.mobileOnly')!.textContent!;
-    expect(mobile()).toContain('Older cafe');
-    expect(mobile().match(/First cafe/g)).toHaveLength(1);
+    const feed = () => container.textContent!;
+    expect(feed()).toContain('Older cafe');
+    expect(feed().match(/First cafe/g)).toHaveLength(1);
 
     await act(async () => window.dispatchEvent(new window.Event('online')));
     await flush();
-    expect(mobile()).toContain('Older cafe');
+    expect(feed()).toContain('Older cafe');
 
     const workingFeed = service.feed;
     service.feed = () => failure(503, 'INTERNAL');
     await act(async () => window.dispatchEvent(new window.Event('online')));
     await flush();
-    expect(mobile()).toContain('Older cafe');
+    expect(feed()).toContain('Older cafe');
     service.feed = workingFeed;
 
     const building = container.querySelector('input[placeholder="e.g. COM2"]') as HTMLInputElement;
@@ -353,8 +370,8 @@ describe('feed', () => {
     });
     await flush();
     expect(service.queries.filter((query) => query.startsWith('/orders')).at(-1)).toContain('pickupBuilding=COM2');
-    expect(mobile()).toContain('Filtered cafe');
-    expect(mobile()).not.toContain('Older cafe');
+    expect(feed()).toContain('Filtered cafe');
+    expect(feed()).not.toContain('Older cafe');
     expect(buttons(container, 'Load more')).toEqual([]);
 
     const reward = container.querySelector('input[type="number"]') as HTMLInputElement;
