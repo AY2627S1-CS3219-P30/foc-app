@@ -4,6 +4,11 @@ import { Upstreams, type OrderForChat } from './upstreams.js';
 
 const DAY_MS = 24 * 60 * 60_000;
 
+/** How many channels a run holds in memory at once. */
+const SWEEP_BATCH_SIZE = 100;
+/** How many channels a run asks the Order Service about, and deletes, at once. */
+const SWEEP_CONCURRENCY = 5;
+
 /** ADR 0012 §6: true once the errand ended more than `retentionDays` ago. */
 export function pastRetention(
   order: Pick<OrderForChat, 'endedAt'>,
@@ -20,6 +25,8 @@ export interface RetentionOptions {
   intervalMs: number;
   /** How soon a run that skipped a channel is tried once more, rather than a whole interval on. */
   retryMs: number;
+  batchSize?: number;
+  concurrency?: number;
 }
 
 export interface CleanupResult {
@@ -33,6 +40,26 @@ export interface CleanupResult {
 }
 
 /**
+ * Runs `work` on every item, on at most `limit` at once. It settles only when nothing is left
+ * running, so a shutdown that waits for a run waits for all of it, and then throws the first
+ * failure.
+ */
+async function eachAtMost<T>(
+  items: T[],
+  limit: number,
+  work: (item: T) => Promise<void>,
+): Promise<void> {
+  const queue = items.values();
+  const worker = async () => {
+    for (const item of queue) await work(item);
+  };
+  const workers = Array.from({ length: Math.min(limit, items.length) }, worker);
+  for (const outcome of await Promise.allSettled(workers)) {
+    if (outcome.status === 'rejected') throw outcome.reason;
+  }
+}
+
+/**
  * Deletes each channel whose errand ended more than the retention period ago, with its messages
  * and read positions (ADR 0012 §6). Admin read records have no foreign key, so they stay.
  *
@@ -42,6 +69,10 @@ export interface CleanupResult {
  * channel for a day. One whose errand it does not know is kept and logged: an errand is never
  * deleted, so that is a fault to look into, not a reason to destroy dispute evidence. Every route
  * already answers 404 past retention, so a channel kept a day longer shows nothing.
+ *
+ * A run reads channels a page at a time and asks about a few at once, so its memory stays flat and
+ * its length doesn't grow one lookup at a time with the channel count. A failed delete ends the run:
+ * the page under way finishes, and the next interval starts again.
  *
  * `main.ts` starts it once the service listens, so an app built only to test runs no sweep. It
  * runs at once, so a restart never postpones it by a whole interval, and then every interval (a
@@ -97,23 +128,13 @@ export class RetentionCleanup implements OnApplicationShutdown {
   async sweep(now = Date.now()): Promise<CleanupResult> {
     const result: CleanupResult = { deleted: 0, kept: 0, skipped: 0, unknown: 0 };
     const cutoff = new Date(now - this.options.retentionDays * DAY_MS);
-    for (const orderId of await this.chat.channelsOpenedBefore(cutoff)) {
-      let order: OrderForChat | undefined;
-      try {
-        order = await this.upstreams.order(orderId);
-      } catch {
-        result.skipped += 1;
-        continue;
-      }
-      if (!order) {
-        result.unknown += 1;
-        this.logger.warn({ orderId, msg: 'Order Service knows no errand for this channel; kept' });
-      } else if (pastRetention(order, this.options.retentionDays, now)) {
-        await this.chat.deleteChannel(orderId);
-        result.deleted += 1;
-      } else {
-        result.kept += 1;
-      }
+    const { batchSize = SWEEP_BATCH_SIZE, concurrency = SWEEP_CONCURRENCY } = this.options;
+    let after: string | undefined;
+    for (;;) {
+      const page = await this.chat.channelsOpenedBefore(cutoff, batchSize, after);
+      await eachAtMost(page, concurrency, (orderId) => this.settle(orderId, result, now));
+      if (page.length < batchSize) break;
+      after = page[page.length - 1];
     }
     if (result.skipped > 0) {
       this.logger.warn({
@@ -122,5 +143,25 @@ export class RetentionCleanup implements OnApplicationShutdown {
       });
     }
     return result;
+  }
+
+  /** Asks about one channel and acts on the answer, counting the outcome in `result`. */
+  private async settle(orderId: string, result: CleanupResult, now: number): Promise<void> {
+    let order: OrderForChat | undefined;
+    try {
+      order = await this.upstreams.order(orderId);
+    } catch {
+      result.skipped += 1;
+      return;
+    }
+    if (!order) {
+      result.unknown += 1;
+      this.logger.warn({ orderId, msg: 'Order Service knows no errand for this channel; kept' });
+    } else if (pastRetention(order, this.options.retentionDays, now)) {
+      await this.chat.deleteChannel(orderId);
+      result.deleted += 1;
+    } else {
+      result.kept += 1;
+    }
   }
 }

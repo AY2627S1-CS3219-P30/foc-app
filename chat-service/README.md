@@ -100,6 +100,10 @@ read positions. Only a clear answer deletes anything:
   never deleted and evidence should not be destroyed on a fault;
 - either way the routes already answer `404` once retention ends, so nothing is shown meanwhile.
 
+A run reads 100 channels at a time and asks about five at once, so it holds a small, fixed number of
+IDs however many channels there are, and the Order Service never sees more than five of its lookups
+together.
+
 Administrators' read records are not deleted with the channel: they are the audit trail.
 
 Chat only ever reads the errand: no route can change it. A message sent in the moment the errand
