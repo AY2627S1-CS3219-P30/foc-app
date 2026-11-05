@@ -27,8 +27,8 @@ isn't measured. Page-load and input figures are in
 
 Prerequisites: Docker Desktop running; Git, Python 3 and npm installed; the current repository
 checked out. All services run as **local Compose containers**, behind the edge (PLT-11 #286).
-The dedicated project is `foc-d4-demo`; ports 14000–14010 leave the ordinary `foc` project alone.
-`D4_PORT_BASE=15000` selects another contiguous eleven ports if needed.
+The dedicated project is `foc-d4-demo`; ports 14000–14011 leave the ordinary `foc` project alone.
+`D4_PORT_BASE=15000` selects another contiguous twelve ports if needed.
 
 From the repository root:
 
@@ -47,6 +47,24 @@ seeds idempotently; it preserves existing story progress. Use `--fresh` before e
 because accepted/completed/expired errands cannot be rewound by rerunning a seed. An `.env` older
 than the Chat Service lacks its key in `INTERNAL_SERVICE_KEYS`, and chat then answers “Could not
 verify your identity”; `./scripts-init-env.sh`, which `--fresh` runs, adds it (#384).
+
+That builds your checkout. To rehearse a release, start from a checkout of its tag and name it:
+
+```bash
+git checkout rc1-d4
+FOC_IMAGE_TAG=rc1-d4 ./scripts-seed-demo.sh --fresh
+```
+
+It runs that release's images, which CI built and scanned, and builds nothing. It pulls them before
+deleting anything, so a tag it cannot pull leaves the demo as it was. It prints `Demo images: rc1-d4`,
+and with the demo context selected, `docker compose images` shows that tag on every application
+image. The stack stays on those images: later commands need no tag, `--fresh` included.
+`FOC_IMAGE_TAG= ./scripts-seed-demo.sh --fresh` goes back to building your checkout.
+
+The images are the release's, but two things are still the demo's own. The services run with
+`NODE_ENV=development`, because the seed refuses anything else. And the admin console's Grafana link
+goes to `localhost:3005`, built into the image, rather than this demo's port: use the Grafana tab
+below instead.
 
 The tab helper opens five **separate Chrome profiles** on macOS; each has all its required tabs.
 Sign each profile in with its corresponding private credential from

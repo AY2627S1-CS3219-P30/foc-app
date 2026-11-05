@@ -266,7 +266,9 @@ fixture, so the stack shown in the D4 demo runs in development too.
 | `./scripts-demo-journey.sh`           | A student, an errand and its credits, by API  |
 
 For the named D4 demonstration on a separate local stack, run `./scripts-seed-demo.sh --fresh`.
-It prepares five personas, three errands and a clean financial audit on ports 14000–14010.
+It prepares five personas, three errands and a clean financial audit on ports 14000–14011.
+To rehearse a release's images instead of building, name it:
+`FOC_IMAGE_TAG=rc1-d4 ./scripts-seed-demo.sh --fresh`.
 Use `./scripts-seed-demo.sh --check` for the demo smoke check, and follow the
 [D4 runbook](docs/demo/d4-runbook.md) for all browser profiles/tabs, the 17-minute script and
 the outstanding real-rehearsal gates.
@@ -1198,19 +1200,19 @@ through `docker buildx bake`, so a published image has exactly `compose.yaml`'s 
   group of its own, so none is dropped or cancelled while another runs; only a pull request's
   superseded run is cancelled. As runs can then finish out of order, a run moves `main` only while
   its commit is still the newest on `main`.
-- **What is pushed is what was scanned.** The publish job builds all five images, scans every one,
+- **What is pushed is what was scanned.** The publish job builds all six images, scans every one,
   changed in that push or not, and only then pushes them. A critical vulnerability with a fix,
   disclosed since an image was last scanned, stops the publish: nothing is pushed.
 - **Only the publish job and a release may write to the registry.** In CI, the publish job alone
   has `packages: write`, and it runs only after the `CI` job passed on a push to `main`. A release
   has it to add a tag to images already pushed.
 - **A release names images that already exist.** Pushing a tag such as `rc1-d4` or `v1.0-d4` gives
-  that commit's five images the same name, without rebuilding them, and records the commit and their
+  that commit's six images the same name, without rebuilding them, and records the commit and their
   digests in a GitHub Release (REL-03, [#169](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/169)).
   `FOC_IMAGE_TAG` takes that name too. See [Cutting a release](docs/runbooks/release.md).
 - **Fast after the first.** It reads and writes the per-service layer cache that the image builds
   use, from `main`, which every later run, pull requests included, can read.
-- **If `pull` says `denied`,** the package is still private: an organisation owner makes it public
+- **If `pull` says `unauthorized` or `denied`,** the package is still private: an organisation owner makes it public
   under the package's settings, or you sign in first with
   `docker login ghcr.io -u <github-user>` and a token that has `read:packages`.
 
