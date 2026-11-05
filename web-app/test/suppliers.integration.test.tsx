@@ -280,11 +280,7 @@ async function post(path: string, body: unknown) {
 async function signUpStudent(run: string): Promise<string> {
   const email = `supplier-it-${run}@u.nus.edu`;
   const password = 'supplier-integration-student';
-  const registered = await post('/auth/register', {
-    email,
-    password,
-    displayName: 'Supplier IT Student',
-  });
+  const registered = await post('/auth/register', { email, displayName: 'Supplier IT Student' });
   if (registered.status !== 201) throw new Error(`Register: ${JSON.stringify(registered)}`);
   let token: string | undefined;
   const query = encodeURIComponent(`to:"${email}"`);
@@ -300,7 +296,8 @@ async function signUpStudent(run: string): Promise<string> {
     if (!token) await new Promise((resolve) => setTimeout(resolve, 100));
   }
   if (!token) throw new Error(`No activation email for ${email} in Mailpit (${MAILPIT_URL})`);
-  const activated = await post('/auth/activate', { token });
+  // The password is chosen at activation (#309).
+  const activated = await post('/auth/activate', { token, password });
   if (activated.status !== 200) throw new Error(`Activate: ${JSON.stringify(activated)}`);
   return logIn(email, password);
 }

@@ -3,32 +3,39 @@ import {
   safeNext,
   validateLogin,
   validatePasswordChange,
+  validateActivation,
   validateRegistration,
 } from "../src/lib/validation";
 import { ApiError, toApiError } from "../src/lib/user-api";
 import { navForMode } from "../src/lib/nav";
 
 describe("registration validation mirrors the User Service", () => {
-  const ok = {
-    email: "e0123456@u.nus.edu",
-    displayName: "Alex",
-    password: "correct-horse-battery",
-    confirm: "correct-horse-battery",
-  };
-
-  it("accepts a valid form", () => {
-    expect(validateRegistration(ok)).toEqual({});
+  it("accepts a valid form, which has no password (#309)", () => {
+    expect(validateRegistration({ email: "e0123456@u.nus.edu", displayName: "Alex" })).toEqual({});
   });
 
   it("names every offending field, and only those", () => {
-    const errors = validateRegistration({ email: "nope", displayName: " ", password: "short", confirm: "x" });
-    expect(Object.keys(errors).sort()).toEqual(["confirm", "displayName", "email", "password"]);
+    const errors = validateRegistration({ email: "nope", displayName: " " });
+    expect(Object.keys(errors).sort()).toEqual(["displayName", "email"]);
+  });
+});
+
+describe("activation validation mirrors the User Service (#309)", () => {
+  const ok = { token: "a".repeat(43), password: "correct-horse-battery", confirm: "correct-horse-battery" };
+
+  it("accepts a valid form", () => {
+    expect(validateActivation(ok)).toEqual({});
+  });
+
+  it("names every offending field, and only those", () => {
+    const errors = validateActivation({ token: " ", password: "short", confirm: "x" });
+    expect(Object.keys(errors).sort()).toEqual(["confirm", "password", "token"]);
   });
 
   it("uses the 12–128 character policy with no composition rules", () => {
-    expect(validateRegistration({ ...ok, password: "a".repeat(11), confirm: "a".repeat(11) }).password).toBeDefined();
-    expect(validateRegistration({ ...ok, password: "a".repeat(12), confirm: "a".repeat(12) })).toEqual({});
-    expect(validateRegistration({ ...ok, password: "a".repeat(129), confirm: "a".repeat(129) }).password).toBeDefined();
+    expect(validateActivation({ ...ok, password: "a".repeat(11), confirm: "a".repeat(11) }).password).toBeDefined();
+    expect(validateActivation({ ...ok, password: "a".repeat(12), confirm: "a".repeat(12) })).toEqual({});
+    expect(validateActivation({ ...ok, password: "a".repeat(129), confirm: "a".repeat(129) }).password).toBeDefined();
   });
 });
 

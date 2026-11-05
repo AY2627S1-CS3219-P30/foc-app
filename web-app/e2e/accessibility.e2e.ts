@@ -57,6 +57,10 @@ test.describe("accessibility of every core screen @release", () => {
 
   test("axe finds no issue on the student screens", async ({ browser, page }, testInfo) => {
     const findings: Finding[] = [];
+    // Opened from an emailed link, the page asks for a password and activates nothing (#309).
+    await page.goto(`/activate?token=${"a".repeat(43)}`);
+    await expect(page.getByRole("button", { name: "Activate account" })).toBeEnabled();
+    await scan(page, testInfo, "activate: choose a password", findings);
     const token = await signIn(page.request, releaseEmail("a11y"));
     const courier = await student(browser, page, "courier");
     try {

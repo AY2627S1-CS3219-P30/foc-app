@@ -5,7 +5,10 @@
 
 export type Errors = Partial<Record<string, string>>;
 
-/** The registration policy (US-FR1.1.1, decisions.md S7): 12–128 characters, no composition rules. */
+/**
+ * The password policy (US-FR1.1.1, decisions.md S7): 12–128 characters, no composition rules. A
+ * password is chosen at activation (#309), and again through a reset or a change.
+ */
 export const PASSWORD_MIN = 12;
 export const PASSWORD_MAX = 128;
 
@@ -31,19 +34,12 @@ export function validateDisplayName(name: string): string | undefined {
   return undefined;
 }
 
-export function validateRegistration(input: {
-  email: string;
-  displayName: string;
-  password: string;
-  confirm: string;
-}): Errors {
-  const errors: Errors = {
+/** Sign-up takes no password: it is chosen at activation, once the inbox is proven (#309). */
+export function validateRegistration(input: { email: string; displayName: string }): Errors {
+  return compact({
     email: validateEmail(input.email),
     displayName: validateDisplayName(input.displayName),
-    password: validateNewPassword(input.password),
-    confirm: input.confirm !== input.password ? "The passwords don't match." : undefined,
-  };
-  return compact(errors);
+  });
 }
 
 export function validateLogin(input: { email: string; password: string }): Errors {
@@ -71,11 +67,19 @@ export function validatePasswordChange(input: {
   });
 }
 
-/** A new password chosen from a reset link: the registration policy, typed twice. */
+/** A new password chosen from a reset link: the password policy, typed twice. */
 export function validatePasswordReset(input: { password: string; confirm: string }): Errors {
   return compact({
     password: validateNewPassword(input.password),
     confirm: input.confirm !== input.password ? "The passwords don't match." : undefined,
+  });
+}
+
+/** Activation (#309): the emailed code, and a password chosen as from a reset link. */
+export function validateActivation(input: { token: string; password: string; confirm: string }): Errors {
+  return compact({
+    token: input.token.trim() ? undefined : "Paste the activation code from the email.",
+    ...validatePasswordReset(input),
   });
 }
 

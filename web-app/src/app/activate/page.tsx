@@ -1,115 +1,136 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { AuthCard } from "@/components/AuthCard";
 import { Button, buttonClass } from "@/components/Button";
 import { FormAlert, FormField } from "@/components/FormField";
 import { useHydrated } from "@/lib/use-hydrated";
 import { useQueryParam } from "@/lib/use-query-param";
 import { ApiError, userApi } from "@/lib/user-api";
+import { PASSWORD_MIN, validateActivation, type Errors } from "@/lib/validation";
 import { vars } from "@/styles/tokens";
 
-type State = "idle" | "working" | "done" | "error";
 type ResendState = "idle" | "sending" | "sent" | "error";
 
+/**
+ * Opened from the activation email (`/activate?token=…`), or reached to paste its code. The student
+ * chooses their password here (#309): the emailed token proves the inbox, so only its owner's choice
+ * becomes the account's. Opening the link activates nothing: only submitting the form does, with
+ * `POST /auth/activate`. Like a reset, it does not sign in: the success state leads to sign-in.
+ */
 export default function ActivatePage() {
   const hydrated = useHydrated();
   const linkToken = useQueryParam("token");
-  const [token, setToken] = useState("");
-  const [state, setState] = useState<State>("idle");
-  const [message, setMessage] = useState<string | null>(null);
-  const [fieldError, setFieldError] = useState<string | undefined>();
-  const autoSubmitted = useRef(false);
+  const [form, setForm] = useState({ token: "", password: "", confirm: "" });
+  const [errors, setErrors] = useState<Errors>({});
+  const [alert, setAlert] = useState<React.ReactNode>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState<null | "activated" | "alreadyActive">(null);
   const resendEmail = useRef<HTMLInputElement>(null);
 
-  async function activate(value: string) {
-    setState("working");
-    setMessage(null);
-    try {
-      const res = await userApi.activate(value);
-      setState("done");
-      setMessage(
-        res.alreadyActivated ? "This account is already active." : "Your account is active.",
-      );
-    } catch (err) {
-      setState("error");
-      if (err instanceof ApiError && err.code === "ACTIVATION_TOKEN_EXPIRED") {
-        setMessage("This activation link has expired. Ask for a new one below.");
-        resendEmail.current?.focus();
-      } else if (err instanceof ApiError && err.code === "ACTIVATION_TOKEN_INVALID") {
-        // Also what an older link says once a newer one has been sent.
-        setMessage(
-          "This activation link isn't valid. Check you copied all of it, " +
-            "or use the newest email we sent. You can ask for a new link below.",
-        );
-      } else if (err instanceof ApiError && err.details.length > 0) {
-        setFieldError("Paste the whole code from the email.");
-        setMessage("Check the highlighted field.");
-      } else {
-        setMessage(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
-      }
-    }
-  }
+  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((f) => ({ ...f, [key]: e.target.value }));
 
-  // Opened from the email link: activate straight away, once (a replay is harmless but noisy).
-  useEffect(() => {
-    if (!linkToken || autoSubmitted.current) return;
-    autoSubmitted.current = true;
-    setToken(linkToken);
-    void activate(linkToken);
-  }, [linkToken]);
-
-  function onSubmit(e: FormEvent) {
+  async function onSubmit(e: FormEvent) {
     e.preventDefault();
-    const value = token.trim();
-    if (!value) {
-      setFieldError("Paste the activation code from the email.");
-      return;
-    }
-    setFieldError(undefined);
-    void activate(value);
-  }
+    setAlert(null);
+    const token = linkToken ?? form.token;
+    const found = validateActivation({ ...form, token });
+    setErrors(found);
+    if (Object.keys(found).length > 0) return;
 
-  const done = state === "done";
+    setSubmitting(true);
+    try {
+      const res = await userApi.activate(token.trim(), form.password);
+      setDone(res.alreadyActivated ? "alreadyActive" : "activated");
+    } catch (err) {
+      setAlert(describe(err));
+      if (err instanceof ApiError && err.code === "ACTIVATION_TOKEN_EXPIRED") {
+        resendEmail.current?.focus();
+      } else if (err instanceof ApiError && err.details.length > 0) {
+        setErrors(
+          Object.fromEntries(
+            err.details.map((d) => [d.field, d.field === "token" ? "Paste the whole code from the email." : d.message]),
+          ),
+        );
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   // One card for every step, so each message lands in a live region that was already there.
   return (
     <AuthCard
       title={done ? "Account activated" : "Activate your account"}
-      intro={done ? undefined : "Open the link in the email we sent, or paste its code here."}
+      intro={
+        done
+          ? undefined
+          : linkToken
+            ? "Choose a password to finish activating your account."
+            : "Paste the code from the email we sent, and choose a password."
+      }
       footer={
-        done ? (
+        done === "alreadyActive" ? (
           <>
-            Didn&apos;t choose a password yourself? <Link href="/forgot-password">Reset it</Link>
+            Forgot your password? <Link href="/forgot-password">Reset it</Link>
           </>
-        ) : (
+        ) : done ? undefined : (
           <Link href="/login">Back to sign in</Link>
         )
       }
     >
-      <FormAlert tone="success">{done && message}</FormAlert>
+      <FormAlert tone="success">
+        {done === "activated" && "Your account is active. Sign in with your new password."}
+        {done === "alreadyActive" &&
+          "This account is already active, and its password hasn't changed. Sign in with the password you chose."}
+      </FormAlert>
       {done ? (
         <Link className={buttonClass({ full: true })} href="/login">
           Sign in
         </Link>
       ) : (
-        <form method="post" onSubmit={onSubmit} noValidate aria-busy={state === "working"}>
+        // method="post": if it were ever submitted natively, the passwords must not end up in a URL.
+        <form method="post" onSubmit={onSubmit} noValidate aria-busy={submitting}>
           <div style={{ display: "flex", flexDirection: "column", gap: vars.space[4] }}>
-            <FormAlert tone="info">{state === "working" && "Activating…"}</FormAlert>
-            <FormAlert>{state === "error" && message}</FormAlert>
+            <FormAlert>{alert}</FormAlert>
+            {/* From the link, the token is already in hand: only a pasted code needs a field. */}
+            {linkToken === null && (
+              <FormField
+                label="Activation code"
+                name="token"
+                autoComplete="one-time-code"
+                spellCheck={false}
+                value={form.token}
+                onChange={set("token")}
+                error={errors.token}
+                required
+              />
+            )}
             <FormField
-              label="Activation code"
-              name="token"
-              autoComplete="one-time-code"
-              spellCheck={false}
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              error={fieldError}
+              label="Password"
+              type="password"
+              name="password"
+              autoComplete="new-password"
+              hint={`At least ${PASSWORD_MIN} characters. A short phrase works well.`}
+              value={form.password}
+              onChange={set("password")}
+              error={errors.password}
               required
             />
-            <Button type="submit" full disabled={!hydrated || state === "working"}>
-              Activate
+            <FormField
+              label="Confirm password"
+              type="password"
+              name="confirm"
+              autoComplete="new-password"
+              value={form.confirm}
+              onChange={set("confirm")}
+              error={errors.confirm}
+              required
+            />
+            <Button type="submit" full disabled={!hydrated || submitting}>
+              {submitting ? "Activating…" : "Activate account"}
             </Button>
           </div>
         </form>
@@ -117,6 +138,25 @@ export default function ActivatePage() {
       {!done && <ResendForm inputRef={resendEmail} />}
     </AuthCard>
   );
+}
+
+/** A form-level message for each way activation can fail. The typed passwords are never cleared. */
+function describe(err: unknown): React.ReactNode {
+  if (!(err instanceof ApiError)) return "Something went wrong. Please try again.";
+  switch (err.code) {
+    case "ACTIVATION_TOKEN_EXPIRED":
+      return "This activation link has expired. Ask for a new one below.";
+    case "ACTIVATION_TOKEN_INVALID":
+      // Also what an older link says once a newer one has been sent.
+      return (
+        "This activation link isn't valid. Check you copied all of it, " +
+        "or use the newest email we sent. You can ask for a new link below."
+      );
+    case "VALIDATION_FAILED":
+      return "Check the highlighted fields.";
+    default:
+      return err.message;
+  }
 }
 
 /** "Send a new link": the service answers the same whether or not the address has an account. */

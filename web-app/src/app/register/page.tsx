@@ -7,12 +7,16 @@ import { Button, buttonClass } from "@/components/Button";
 import { FormAlert, FormField } from "@/components/FormField";
 import { useHydrated } from "@/lib/use-hydrated";
 import { ApiError, userApi } from "@/lib/user-api";
-import { PASSWORD_MIN, validateRegistration, type Errors } from "@/lib/validation";
+import { validateRegistration, type Errors } from "@/lib/validation";
 import { vars } from "@/styles/tokens";
 
+/**
+ * Sign-up asks for no password (#309): whoever signs up has not yet proven the inbox, so the password
+ * is chosen on the activation page the emailed link opens.
+ */
 export default function RegisterPage() {
   const hydrated = useHydrated();
-  const [form, setForm] = useState({ email: "", displayName: "", password: "", confirm: "" });
+  const [form, setForm] = useState({ email: "", displayName: "" });
   const [errors, setErrors] = useState<Errors>({});
   const [alert, setAlert] = useState<React.ReactNode>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -31,11 +35,7 @@ export default function RegisterPage() {
     setSubmitting(true);
     const email = form.email.trim();
     try {
-      await userApi.register({
-        email,
-        password: form.password,
-        displayName: form.displayName.trim(),
-      });
+      await userApi.register({ email, displayName: form.displayName.trim() });
       setRegistered(email);
     } catch (err) {
       if (!(err instanceof ApiError)) {
@@ -91,8 +91,8 @@ export default function RegisterPage() {
       <FormAlert tone="success">
         {registered && (
           <>
-            We sent an activation link to <strong>{registered}</strong>. Open it to activate your
-            account, then sign in.
+            We sent an activation link to <strong>{registered}</strong>. Open it soon to choose your
+            password and activate your account, then sign in.
           </>
         )}
       </FormAlert>
@@ -101,7 +101,6 @@ export default function RegisterPage() {
           I have an activation code
         </Link>
       ) : (
-        // method="post": if it were ever submitted natively, the password must not end up in a URL.
         <form method="post" onSubmit={onSubmit} noValidate aria-busy={submitting}>
           <div style={{ display: "flex", flexDirection: "column", gap: vars.space[4] }}>
             <FormAlert>{alert}</FormAlert>
@@ -126,27 +125,6 @@ export default function RegisterPage() {
               onChange={set("displayName")}
               error={errors.displayName}
               maxLength={50}
-              required
-            />
-            <FormField
-              label="Password"
-              type="password"
-              name="password"
-              autoComplete="new-password"
-              hint={`At least ${PASSWORD_MIN} characters. A short phrase works well.`}
-              value={form.password}
-              onChange={set("password")}
-              error={errors.password}
-              required
-            />
-            <FormField
-              label="Confirm password"
-              type="password"
-              name="confirm"
-              autoComplete="new-password"
-              value={form.confirm}
-              onChange={set("confirm")}
-              error={errors.confirm}
               required
             />
             <Button type="submit" full disabled={!hydrated || submitting}>

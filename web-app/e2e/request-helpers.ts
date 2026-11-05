@@ -33,14 +33,16 @@ export const visible = (page: Page, text: string | RegExp) => page.getByText(tex
 export const row = (page: Page, label: string) =>
   page.locator("div", { has: page.getByText(label, { exact: true }) }).last();
 
-/** Registers and activates with the emailed token. Every call counts against the sign-up limit. */
+/**
+ * Registers, then activates with the emailed token and {@link PASSWORD}, chosen at activation (#309).
+ * Every call counts against the sign-up limit.
+ */
 export async function register(request: APIRequestContext, email: string, displayName = "E2E Requester") {
-  const registered = await request.post(`${USER}/auth/register`, {
-    data: { email, password: PASSWORD, displayName },
-  });
+  const registered = await request.post(`${USER}/auth/register`, { data: { email, displayName } });
   expect(registered.ok(), await registered.text()).toBe(true);
   const token = new URL(await activationLink(request, email)).searchParams.get("token");
-  expect((await request.post(`${USER}/auth/activate`, { data: { token } })).ok()).toBe(true);
+  const activated = await request.post(`${USER}/auth/activate`, { data: { token, password: PASSWORD } });
+  expect(activated.ok(), await activated.text()).toBe(true);
 }
 
 /**
