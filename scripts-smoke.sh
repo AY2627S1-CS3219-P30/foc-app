@@ -201,7 +201,15 @@ post_json() { # path json body-file [extra curl arguments...]
 wallet_step=""
 response=$(mktemp)
 
+# The password is chosen at activation (#309). Images from before #309, which the recovery drill
+# rolls back to, still take it at registration and refuse it at activation, so a 422 here retries
+# the older way, and activation below then sends the token alone.
+password_at_registration=""
 registered=$(post_json /auth/register "{\"email\":\"$SMOKE_EMAIL\",\"displayName\":\"Smoke test\"}" "$response")
+if [[ "$registered" == 422 ]]; then
+  password_at_registration=1
+  registered=$(post_json /auth/register "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"$SMOKE_PASSWORD\",\"displayName\":\"Smoke test\"}" "$response")
+fi
 [[ "$registered" == 2* ]] || wallet_step="registering returned ${registered:-no answer}"
 
 # The token in the newest activation email to an address. The stack mails every link to Mailpit,
@@ -219,8 +227,9 @@ if [[ -z "$wallet_step" ]]; then
   [[ -n "$activation_token" ]] || wallet_step="no activation email reached Mailpit"
 fi
 if [[ -z "$wallet_step" ]]; then
-  # The password is chosen at activation (#309).
-  activated=$(post_json /auth/activate "{\"token\":\"$activation_token\",\"password\":\"$SMOKE_PASSWORD\"}" "$response" -H 'x-correlation-id: smoke-wallet')
+  activation="{\"token\":\"$activation_token\",\"password\":\"$SMOKE_PASSWORD\"}"
+  [[ -z "$password_at_registration" ]] || activation="{\"token\":\"$activation_token\"}"
+  activated=$(post_json /auth/activate "$activation" "$response" -H 'x-correlation-id: smoke-wallet')
   [[ "$activated" == 2* ]] || wallet_step="activating returned ${activated:-no answer}"
 fi
 access_token=""
