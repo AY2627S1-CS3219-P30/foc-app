@@ -1,4 +1,5 @@
 import { INestApplication } from '@nestjs/common';
+import { WsAdapter } from '@nestjs/platform-ws';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { randomUUID } from 'node:crypto';
@@ -26,6 +27,7 @@ describe('chat-service honours its published contract', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
+    app.useWebSocketAdapter(new WsAdapter(app));
     app.useGlobalFilters(new ErrorEnvelopeFilter());
     await app.init();
     // /health asks the service's dependencies (PLT-06), and this suite has no database to reach.

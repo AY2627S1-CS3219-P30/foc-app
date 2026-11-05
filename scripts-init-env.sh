@@ -11,7 +11,9 @@
 #   NAME=<generated:ed25519>    a signing key (base64 of a PKCS#8 PEM)
 #   NAME=<from:...{OTHER}...>   built from other variables, such as a list of keys or a URL
 #
-# A value that is already set is never changed and never printed. Running this
+# A value that is already set is never printed, and never changed but for one
+# case: a list of keys gains a key it lacks. A service added since `.env` was made
+# is otherwise refused at run time, though every variable has a value. Running this
 # again after pulling adds whatever a newer `.env.example` introduced. `.env` is
 # git-ignored and readable by you alone.
 #
@@ -29,6 +31,7 @@ CHECK=0
 ASSIGNMENT='^([A-Za-z_][A-Za-z0-9_]*)=(.*)$'
 DERIVED='^<from:(.*)>$'
 REFERENCE='\{([A-Za-z_][A-Za-z0-9_]*)\}'
+KEY_LIST='^\{[A-Za-z_][A-Za-z0-9_]*\}(,\{[A-Za-z_][A-Za-z0-9_]*\})*$'
 
 random_hex() {
   if command -v openssl >/dev/null 2>&1; then
@@ -123,6 +126,36 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   printf '%s\n' "$line" >>"$done_file"
 done <"$work"
 
+# Pass 3: a list of keys already set must hold every key it is built from. It may hold more,
+# such as a key being rotated out, and in any order.
+list_gaps=""
+while IFS= read -r line || [[ -n "$line" ]]; do
+  [[ "$line" =~ $ASSIGNMENT ]] || continue
+  name="${BASH_REMATCH[1]}"
+  [[ "${BASH_REMATCH[2]}" =~ $DERIVED ]] || continue
+  template="${BASH_REMATCH[1]}"
+  [[ "$template" =~ $KEY_LIST ]] || continue
+  value=$(value_of "$name" "$done_file")
+  full="$value"
+  while [[ "$template" =~ $REFERENCE ]]; do
+    ref="${BASH_REMATCH[1]}"
+    template="${template//\{$ref\}/}"
+    ref_value=$(value_of "$ref" "$done_file")
+    if [[ ",$full," != *",$ref_value,"* ]]; then
+      full="${full:+$full,}$ref_value"
+      list_gaps="$list_gaps$name does not include $ref
+"
+    fi
+  done
+  if [[ "$full" != "$value" ]]; then
+    NAME="$name" VALUE="$full" awk \
+      'index($0, ENVIRON["NAME"] "=") == 1 { print ENVIRON["NAME"] "=" ENVIRON["VALUE"]; next } { print }' \
+      "$done_file" >"$done_file.next"
+    mv "$done_file.next" "$done_file"
+    [[ " $changed " == *" $name "* ]] || note "$name"
+  fi
+done <"$EXAMPLE"
+
 # An .env from before this script: every secret it marks must be long, the file's own, and
 # not shared between variables. The old example gave three services one key and wrote short
 # default passwords; a copy of it is still "complete", and must not pass for safe.
@@ -170,6 +203,7 @@ if [[ $CHECK -eq 1 ]]; then
   fi
   if [[ -n "$changed" ]]; then
     echo "$TARGET is missing:$changed"
+    printf '%s' "$list_gaps"
     echo "Run ./scripts-init-env.sh to add them."
     exit 1
   fi
@@ -196,6 +230,10 @@ if [[ $created -eq 1 ]]; then
   echo "run 'docker compose down -v' once, then 'docker compose up -d --build'."
 else
   echo "Updated $TARGET, adding:$changed"
+  if [[ -n "$list_gaps" ]]; then
+    printf '%s' "${list_gaps//does not include/now includes}"
+    echo "A running stack takes the new list with: docker compose up -d"
+  fi
   if [[ "$changed" == *_DB_PASSWORD* || "$changed" == *POSTGRES_PASSWORD* ]]; then
     echo "A database password is new. A stack started before has volumes with other passwords:"
     echo "run 'docker compose down -v' once, then 'docker compose up -d --build'."

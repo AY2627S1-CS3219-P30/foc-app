@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
+import { WsAdapter } from '@nestjs/platform-ws';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AUTHENTICATOR, AuthModule, authFailure, type AuthContext } from '@foc/auth-client';
 import { ErrorEnvelopeFilter, PlatformModule } from '@foc/platform';
 import { ChatModule } from '../../src/chat/chat.module.js';
+import { SOCKET_OPTIONS, type SocketOptions } from '../../src/chat/socket/socket-hub.js';
 import { UPSTREAM_FETCH, type OrderForChat } from '../../src/chat/upstreams.js';
 import { CHAT_DB } from '../../src/db/db.js';
 import { applyMigrations } from './migrate.js';
@@ -37,6 +39,7 @@ const fakeAuthenticator = {
   requireAdmin(context: AuthContext): void {
     if (!context.isAdmin) throw authFailure('FORBIDDEN');
   },
+  invalidateUser(): void {},
 };
 
 /**
@@ -90,6 +93,15 @@ export interface TestApp {
   close(): Promise<void>;
 }
 
+/** The chat socket's limits in these tests: as deployed, except a sign-in deadline short enough to wait out. */
+export const TEST_SOCKET_OPTIONS: SocketOptions = {
+  authTimeoutMs: 300,
+  recheckMs: 60_000,
+  pingMs: 25_000,
+  perUser: 5,
+  perInstance: 1_000,
+};
+
 /** The real chat modules over a fresh in-memory PostgreSQL with the migrations applied. */
 export async function createTestApp(): Promise<TestApp> {
   const db = await PgliteDb.create();
@@ -111,8 +123,11 @@ export async function createTestApp(): Promise<TestApp> {
     .useValue(fakeAuthenticator)
     .overrideProvider(UPSTREAM_FETCH)
     .useValue(upstreams.fetch)
+    .overrideProvider(SOCKET_OPTIONS)
+    .useValue(TEST_SOCKET_OPTIONS)
     .compile();
   const app = moduleRef.createNestApplication();
+  app.useWebSocketAdapter(new WsAdapter(app));
   app.useGlobalFilters(new ErrorEnvelopeFilter());
   await app.listen(0, '127.0.0.1');
   return {
