@@ -22,6 +22,11 @@ For the implemented operations, the service answers as its file says: each has a
 (`<service>/test/provider.contract.test.ts`), and CI fails a change that breaks a contract against
 the branch's merge base (locally: `npm run test:contract`, against `origin/main`).
 
+A WebSocket cannot be described in OpenAPI. The Chat Service's notify-only socket (`/socket`,
+#346) is documented in its contract's description and, in full, in
+[chat-service/README.md](../chat-service/README.md#the-socket). Its frames carry no data beyond an
+errand's ID and latest message number; everything else is read through the routes in the file.
+
 `events.schema.json` is generated from `platform/src/events/catalogue.ts` by `npm run
 contracts:events`; do not edit it by hand. CI fails a pull request that changes any file here
 incompatibly (removed or redefined required field, removed operation, newly required request
