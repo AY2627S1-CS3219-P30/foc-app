@@ -7,6 +7,8 @@ import { SocketHub } from './socket/socket-hub.js';
 import { Upstreams, type OrderForChat } from './upstreams.js';
 import type { Page, Send } from './validation.js';
 
+const channelClosed = () =>
+  new ApiException(409, 'CHANNEL_CLOSED', 'This errand has ended or has no courier.');
 const notFound = () => new ApiException(404, 'NOT_FOUND', 'This errand has no chat.');
 const notParticipant = () =>
   new ApiException(403, 'NOT_PARTICIPANT', "You are not this errand's requester or courier.");
@@ -80,12 +82,14 @@ export class ChatService {
   async send(orderId: string, caller: AuthContext, { clientId, body }: Send): Promise<SendResult> {
     const { open, order } = await this.participantAccess(orderId, caller);
     const stored = await this.chat.findSent(orderId, caller.userId, clientId);
-    if (!stored && !open) {
-      throw new ApiException(409, 'CHANNEL_CLOSED', 'This errand has ended or has no courier.');
-    }
+    if (!stored && !open) throw channelClosed();
     const sent = stored
       ? { message: stored, created: false }
       : await this.chat.send(orderId, caller.userId, clientId, body);
+    if ('closed' in sent) throw channelClosed();
+    if ('busy' in sent) {
+      throw new ApiException(503, 'UNAVAILABLE', 'Chat is busy right now. Try again shortly.');
+    }
     if ('message' in sent && !sent.created && sent.message.body !== body) {
       throw new ApiException(
         422,
