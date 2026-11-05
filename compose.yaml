@@ -329,6 +329,8 @@ services:
       INTERNAL_SERVICE_KEY: ${CHAT_INTERNAL_KEY:?run ./scripts-init-env.sh}
       # Asked on every request who the errand's participants are (ADR 0012), on its internal port.
       ORDER_SERVICE_URL: http://order-service:4003
+      # #346: `false` refuses every chat socket; the panel then polls, as before.
+      CHAT_SOCKET_ENABLED: ${CHAT_SOCKET_ENABLED:-true}
       # ADR 0012 §6: kept this many days after the errand ends, and how often the cleanup runs.
       CHAT_RETENTION_DAYS: ${CHAT_RETENTION_DAYS:-90}
       CHAT_CLEANUP_INTERVAL_MS: ${CHAT_CLEANUP_INTERVAL_MS:-86400000}
