@@ -1,11 +1,17 @@
-# D4 local demonstration — 30-minute rehearsal runbook (REL-01, #167)
+# D4 local demonstration: 17-minute rehearsal runbook (REL-01, #167)
 
-Status: preparation, **not signed-off rehearsal evidence**. The complete browser release journeys
-(#160) merged in #325: 42 cases at 360/768/1440 px passed twice from clean volumes, locally and in
-CI run 40651088404. Two non-owners must actually execute this runbook and record their results
-below before #167 closes. Chat is not implemented on the main snapshot used to prepare
-this document; its owners must supply and rehearse that segment. Do not present planned work as live.
-This runbook does not change the D3 runbook.
+Status: preparation, **not signed-off rehearsal evidence**. The 30-minute slot is about 12 minutes
+of slides, 17 of this demo and 1 spare, followed by 10 minutes of questions. The deck hands over to
+this demo after its Deployment slide and comes back for the decisions. The complete browser release
+journeys (#160) merged in #325: 42 cases at 360/768/1440 px passed twice from clean volumes, locally
+and in CI run 40651088404. Two non-owners must actually execute this runbook and record their
+results below before #167 closes.
+
+A script walked the story below once in a browser, on a fresh seed of commit `fa392df` (5 Nov), to
+check its errands, chat, dispute, role approval, broker stop and audit. It runs far faster than a
+person, so it says nothing about timing, and it is not a rehearsal. Do not present planned work as
+live: the AWS deployment and chat's WebSocket are not part of this demo. This runbook does not
+change the D3 runbook.
 
 The permanent conservation evidence is `docs/reports/credit-conservation-2026-10-01.md`
 (generated report and accompanying JSON); recovery evidence is
@@ -38,7 +44,9 @@ waits for readiness, creates the named data and checks the financial audit. It c
 the ignored `.env` if needed. No production seed route, direct database balance edit or service
 authentication bypass is added. All records go through the public APIs. `--up` starts/resumes and
 seeds idempotently; it preserves existing story progress. Use `--fresh` before each clean rehearsal
-because accepted/completed/expired errands cannot be rewound by rerunning a seed.
+because accepted/completed/expired errands cannot be rewound by rerunning a seed. An `.env` older
+than the Chat Service lacks its key in `INTERNAL_SERVICE_KEYS`, and chat then answers “Could not
+verify your identity”; `./scripts-init-env.sh`, which `--fresh` runs, adds it (#384).
 
 The tab helper opens five **separate Chrome profiles** on macOS; each has all its required tabs.
 Sign each profile in with its corresponding private credential from
@@ -94,7 +102,8 @@ open "https://github.com/AY2627S1-CS3219-P30/foc-app/actions/workflows/ci.yml"
 ```
 
 The first four tabs are Prometheus alerts, Grafana, RabbitMQ management and Mailpit; the remaining
-four are the conservation, recovery, live-update reports and CI evidence. Mailpit is local demo
+four are the conservation, recovery, live-update reports and CI evidence. The timed script uses
+Mailpit, the conservation report and CI; keep the others ready for questions. Mailpit is local demo
 infrastructure and catches every activation email for this isolated project. Use the configured
 private operator credentials from `.env` locally, never place them in a command argument or
 screenshot. The exported ports also handle a non-default `D4_PORT_BASE`.
@@ -109,10 +118,10 @@ tab closes its stream and catches up when shown again, so switching between hidd
 does not demonstrate delivery to an already-visible page.
 
 1. Ben: select the existing **Feed** (`/feed`) tab; keep its **Live** label visible.
-2. Alyssa: select **Suppliers** for the minute-5 composer. On submission, keep the resulting
+2. Alyssa: select **Suppliers** for the composer at 01:30. On submission, keep the resulting
    “D4 dispute example” detail page visible alongside Ben's feed. Do not accept that example yet;
    its acceptance belongs to the later dispute segment.
-3. Before the prints acceptance at minute 8–13, select Alyssa's existing **prints** detail tab
+3. Before the prints acceptance at 04:30, select Alyssa's existing **prints** detail tab
    and Ben's existing **prints** detail tab. Confirm **Live** on both, then leave Alyssa untouched
    while Ben accepts. Show Alyssa changing from **Open** to **Accepted** without reloading.
 4. Keep only the windows needed on screen; close duplicate windows from earlier helper runs.
@@ -132,29 +141,38 @@ fail) with disabling only the stream.
 
 ## Timed script and expected observations
 
-Presenter allocation follows the existing service/N2H ownership. Confirm the handoffs during the
+The story follows the course's own example: Alyssa needs her CS3219 project prints brought from SoC
+to PGP. Explain why a choice was made rather than narrating every click; the slides after the demo
+carry the detail. Presenters are proposed from the deck's team slide, so confirm the handoffs in the
 two real rehearsals. Every segment below has a fallback; a fallback is disclosed evidence, not a
 claim that a failed live action succeeded.
 
 | Time | Presenter | Action and words to say | Evidence / fallback |
 | --- | --- | --- | --- |
-| 00:00–02:00 | Jonus | Show `docker compose ps`, `/edge/ready` and the architecture diagram. “The browser has one origin; User, Supplier, Order and Credit own separate databases. This demonstration is local containers.” | If not ready, show which dependency is named, recover it, rerun `--check`; do not start transactions on a failed preflight. |
-| 02:00–05:00 | Anselm | Show Alyssa's profile and the private/role boundaries. For the live activation flow, register one clearly fictional extra address, open its message in Mailpit at `http://localhost:${MAILPIT_PORT}`, and click the activation link. “Activation creates the wallet through an event; the browser never sets a balance.” The five core personas already exist. | If the email is delayed, use **Send a new link** once on `/activate`, then refresh/search Mailpit. Keep the address and link private after the demonstration. If activation succeeds but the wallet is delayed, show Credit's dead letters/audit evidence; do not register repeatedly or display passwords. |
-| 05:00–08:00 | Patrick, Jonus | Alyssa: Suppliers → search for Printer @ Com 2 → compose one additional request, reward **1**, delivery PGP House 7. Name it “D4 dispute example”. Review the available/reserved projection and submit. Keep its resulting detail tab open for the dispute segment. **N1.4:** Ben already has Feed visible with **Live**; show the new card appearing without refresh, then leave it unaccepted. | If composer fails, preserve the refusal/trace and use the preseeded prints errand for the core flow. The composer is covered by the merged release suite (#160, `release-journeys.e2e.ts`); do not mark a live failure passed from a seed API call. |
-| 08:00–13:00 | Zhang Yuan, Isaac, Jonus | Ben and Chloe: open the preseeded **race** card in their separate feed tabs and both open Accept. Confirm Ben first, then Chloe's stale confirmation. Show one winner and the stale/refused loser. Ben withdraws before pickup; the same reward remains reserved while the errand returns OPEN. Separately, keep Alyssa’s **prints** detail page visible with **Live** beside Ben’s window. Ben accepts **prints**; Jonus points out Alyssa changing **Open → Accepted** without touching her page. Ben records pickup, records delivery. Alyssa confirms receipt. Isaac shows both wallet ledgers. | If race timing is missed, use its recorded 409/domain-code response and the CI contention test. If the live label falls back, disclose polling and show the dated N1.4 report/browser-test evidence. If a transition fails, refresh to get the current version; never force a backward status change. |
-| 13:00–16:00 | Isaac, Zhang Yuan | Alyssa cancels the preseeded **cancel** errand before pickup; show release pending then CANCELLED and +1 available/−1 reserved. Cancel the reopened **race** errand too, releasing its 1. “Withdraw removed the courier; cancellation returned the reward. Credit applied each once.” | If asynchronous release is delayed, show the errand trace/outbox and wait for the actual reply. Restart only the named demo dependency; no SQL credit edits. |
-| 16:00–20:00 | Jonus, Anselm, Zhang Yuan | Admin A opens Users, audit/activity and read-only Wallets. If demonstrating two-person role approval, Dina proposes ADMIN for **Chloe**, and Evan approves in his own session; neither approves a request about themselves. For the live dispute example from minute 5, Ben accepts/picks up/delivers; Alyssa reports non-receipt instead of confirming. Open Admin → Errands in both admin profiles, identify who it was actually referred to, and only that admin decides REQUESTER. Show the ordinary release completing. | If the extra composer errand is absent, disclose that the dispute segment is unavailable and use the linked real dispute test/recorded trace. Do not fake a referral, admin approval or second person's action. |
-| 20:00–23:00 | Isaac, Jonus | On the disposable demo only, `docker compose stop rabbitmq`; show readiness/outbox evidence. Post another **1-credit** request if the wallet can cover it. It stays pending while its outbox cannot publish. `docker compose start rabbitmq`; wait for readiness and the same errand to open once. Show Order's reconciliation/trace and the wallet's single reservation. | If too slow, bring RabbitMQ back immediately and show the existing `scripts-demo-failures.sh` CI evidence for duplicate, crash and replay. Distinguish normal outbox retry from the pending-saga reconciler; do not claim every fast recovery was the scheduled job. |
-| 23:00–25:00 | Isaac | Open the committed conservation report and current CI property/race test results. “N3.1 checks generated histories and real contention; N3.2 compares pending saga state with Credit's recorded operations and reissues the same idempotent command.” Run `npm run audit:credits` and show PASS/0 in Admin → Operations. | If the fresh audit fails, retain its run ID and investigate with the runbook. A failed audit is not zero mismatches; do not demonstrate corruption against this application DB. |
-| 25:00–27:00 | Patrick, Zhang Yuan, Anselm | **GATED: N1.2 chat.** Once its owner PRs are merged, show the accepted errand's two-participant channel, live message/history, outsider refusal and terminal closure. Rehearse against the actual channel/API first. The proposed owner contract (#344/#347) starts with polling; WebSocket #346 is a later enhancement. #347 proposes keeping history **90 days after the errand ends**; treat it as settled only once #347 merges. Demonstrate terminal read-only access once implemented; do not claim a live 90-day expiry test. | As of this preparation snapshot there is no implemented chat service. Show its explicitly proposed design and mark the live segment blocked; this cannot count as a completed N2H demo or final #167 acceptance. |
-| 27:00–29:00 | Jonus, Isaac | Show a green main CI run with all five images actually published. For recovery, show the genuine dated report/CI drill: four custom dumps, exact table fingerprints after fresh-volume restore, healthy prior-published-image rollback and measured RTO. | Do not destroy the live demo's volumes during this slot. Use `scripts-recovery-drill.sh` on its separate project in a prior rehearsal. If rollback is not proven, label that gap rather than showing a local retag as publication. |
-| 29:00–30:00 | Jonus, Isaac | Return to readiness, wallets, errand history and Operations. Name any intentionally outstanding reservation from the broker segment. “No administrator edited a balance; all changes have a normal transaction and ledger history.” | Preserve any pending state/trace; give the instructor the actual remaining issue instead of claiming the books or workflow are clean. |
+| 00:00–01:30 | Anselm | Register one clearly fictional extra address, open its message in Mailpit at `http://localhost:${MAILPIT_PORT}` and click the activation link: **Your account is active**. “Only the inbox owner can activate, and activation creates the wallet through an event; the browser never sets a balance.” Alyssa opens `/admin`: **This area is for administrators**. | If the email is delayed, use **Send a new link** once on `/activate`, then search Mailpit. Do not register repeatedly or display passwords. If the wallet is delayed, show Credit's dead letters and audit evidence. |
+| 01:30–03:30 | Patrick, Jonus | “Alyssa's prints errand is already up. She has a second errand to post.” Alyssa: Suppliers → search **Printer** to show the catalogue. Then **Active requests** → **New request** → pick **Printer @ Com 2** → item “D4 dispute example”, zone PGP House 7, reward **1**. Review the available balance and its projection, then post. **N1.4:** Ben's feed is visible with **Live**; the new card appears without a reload. Leave it unaccepted. | If the composer fails, keep the refusal and use the preseeded prints errand for the core flow. The composer is covered by the release suite (`release-journeys.e2e.ts`); do not mark a live failure passed from a seed API call. |
+| 03:30–04:30 | Zhang Yuan | Ben and Chloe open **Accept** on the card “Project poster — two couriers, one acceptance” in their own feeds. Ben confirms, then Chloe: **Another courier accepted this errand first, or it closed.** “One conditional update in the database decides the winner, so the app can't have two.” Ben withdraws: the errand is **Open** again and the reward stays reserved. | If the timing is missed, show the CI contention test (1 of 100 simultaneous accepts wins) and its 409. If a step fails, refresh to get the current version; never force a status back. |
+| 04:30–05:00 | Jonus | Alyssa's and Ben's prints pages side by side, both **Live**. Ben accepts. Alyssa's page goes **Open** → **Accepted** with no one touching it. Use the words under “N1.4 browser arrangement”. | If the label shows polling, disclose it and show the 29 Oct report and `live-journey.e2e.ts`. |
+| 05:00–06:30 | Patrick, Zhang Yuan, Anselm | **N1.2 chat.** Alyssa: “Please leave them at the PGP House 7 lobby counter.” Ben sees it within about 2 s, because the panel polls, and replies. Chloe opens the same errand: its public details, no chat panel and no delivery instructions. “Chat asks Order who the participants are on every request, so there is no copy to fall behind, and a courier who withdraws loses access at once.” Say, without demonstrating: 20 messages a minute, kept 90 days after the errand ends. | “Could not verify your identity” means an old `.env`: see “Start from zero”. Otherwise show `chat-journey.e2e.ts` in CI. Do not claim the WebSocket is in use: its server side is in review (#362) and the panel isn't connected to it. |
+| 06:30–08:00 | Isaac | Ben records pickup and delivery. Alyssa's page shows **Delivered, confirm receipt**; she confirms, and it reaches **Complete**. Open the receipt and follow **See it in your wallet**. Show both ledgers: Alyssa's total −2, Ben's +2. Back on the errand, chat's history stays readable and sending is off. “Credits only moved when Credit confirmed it, once.” | If the transfer is slow, wait for the actual reply and show the errand's history. No SQL credit edits. |
+| 08:00–09:00 | Isaac | Alyssa cancels the **cancel** errand, then the reopened **race** errand. Both reach **Cancelled**, and the wallet shows the credits released. “Withdrawing removed a courier; cancelling returned the reward.” | If a release is delayed, show the errand's history and wait. Restart only the named demo dependency. |
+| 09:00–11:30 | Zhang Yuan, Jonus | Ben accepts the “D4 dispute example”, records pickup and delivery. Alyssa, in chat: “It wasn't at the counter when I came down.”, then **I didn't receive it** → **Report**: **With an administrator**. Within about 10 s the sweep refers it to one admin: open Admin → Errands → the errand in both profiles, and the one who sees **Decide for the requester** is the one referred. They read the conversation (read-only, and the read is recorded), give a reason and decide. Alyssa's errand reaches **Cancelled**, with the decision in its history. “A dispute is decided through the same state machine, so an admin can't edit a balance.” | If the composer errand is absent, say the dispute is unavailable and show `dispute-outcome.e2e.ts` in CI. Do not fake a referral or a second person's action. |
+| 11:30–13:00 | Anselm, Jonus | Dina: Users → Chloe → **Make administrator**, with a reason and her password: **Requested. Nothing changes until another administrator approves it.** Evan: Role requests → **Approve**, with a reason and his own password. Show the audit trail naming both, and read-only Wallets. “Two people for a role change, and no API edits a balance.” | If an approval fails, leave the request pending and say so. Never share one admin's session. |
+| 13:00–15:30 | Isaac, Jonus | On this disposable demo only: `docker compose stop rabbitmq`. Alyssa posts another **1-credit** request, “D4 broker example”: it stays **Waiting for credits**, because its event waits in the outbox. `docker compose start rabbitmq`. Within about 15 s the same errand reaches **Open**, and the wallet shows one reservation. “Nothing was lost and nothing happened twice.” | If it is too slow, bring RabbitMQ back at once and show the `scripts-demo-failures.sh` CI evidence. This is the outbox retrying, not the reconciler: do not claim every fast recovery was the scheduled job. |
+| 15:30–16:30 | Isaac | Run `npm run audit:credits`, then Admin → Operations: **PASS**, 0 mismatches. Open the conservation report: no credit created or lost across 804 generated errands, with messages dropped and duplicated. “N3.2 compares pending errands with Credit's records and resends the same command.” | A failed audit is not zero mismatches: keep its run ID and investigate with the runbook. Do not demonstrate corruption on this database. |
+| 16:30–17:00 | Jonus | Show the latest green `main` run in CI. Name what is still reserved: the broker example. “No administrator edited a balance; every change has a normal transaction and ledger history.” Back to the slides. | Give the actual remaining issue instead of claiming everything is clean. |
 
-The completed prints payment changes Alyssa's total by −2 and Ben's by +2. Cancellation/release
-does not change a wallet's total. All three students together retain `3 × A`; held/reserved credits
-from any deliberately unfinished errand still count. The daily financial audit checks the complete
-database, beyond these three displayed wallets. A live broker-outage example left OPEN legitimately
-retains its reward in reserved; cancel it afterwards if a zero-reserved ending is desired.
+**If you are running late,** drop these, in this order: the second cancellation (the race errand then
+stays open and reserved, so say so at the close); the two-admin approval (slide “Other decisions”
+covers it); the live audit run (show the last run in Operations). Keep the race, chat, the dispute
+and the broker stop, because each is someone's main part. The recovery drill is not in the 17 minutes:
+the Deployment strategy slide gives its figure, and its report tab is ready for questions.
+
+The completed prints payment changes Alyssa's total by −2 and Ben's by +2. Cancellation and release
+do not change a wallet's total. All three students together retain `3 × A`, and held or reserved
+credits still count. With `A` = 10, the script ends at Alyssa 7 available and 1 reserved (the broker
+example), Ben 12 and Chloe 10. The daily financial audit checks the complete database, beyond these
+three wallets. Cancel the broker example afterwards if a zero-reserved ending is wanted.
 
 ## Reproduce the evidence and recover a failed rehearsal
 
@@ -199,5 +217,5 @@ the seed does not reset a persisted deadline or undo a terminal transition.
 Record who actually performed the steps, the commit and clean-start command, which segments ran
 live, the timed result, failures/fallbacks and evidence links. An agent run, CI personas or an
 owner's solo rehearsal are not two non-owner rehearsals. #160 is closed (#325); #167 stays open until
-the missing live feature segment (chat) and both real rehearsals are satisfied. #288 coordinates the release-candidate
+both real rehearsals are recorded, including their timing. #288 coordinates the release-candidate
 schedule; do not replace its dates or invent sign-offs here.

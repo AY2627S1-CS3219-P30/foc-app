@@ -267,7 +267,7 @@ fixture, so the stack shown in the D4 demo runs in development too.
 For the named D4 demonstration on a separate local stack, run `./scripts-seed-demo.sh --fresh`.
 It prepares five personas, three errands and a clean financial audit on ports 14000–14010.
 Use `./scripts-seed-demo.sh --check` for the demo smoke check, and follow the
-[D4 runbook](docs/demo/d4-runbook.md) for all browser profiles/tabs, the 30-minute script and
+[D4 runbook](docs/demo/d4-runbook.md) for all browser profiles/tabs, the 17-minute script and
 the outstanding real-rehearsal gates.
 
 For a consistent five-database backup, fresh-stack restore, timed disposable drill and prior-image
