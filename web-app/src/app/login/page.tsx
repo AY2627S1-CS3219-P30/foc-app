@@ -142,7 +142,11 @@ function describe(err: unknown): React.ReactNode {
       return (
         <>
           That email and password don&apos;t match an account.{" "}
-          <Link href="/forgot-password">Forgot your password?</Link>
+          <Link href="/forgot-password">Forgot your password?</Link>{" "}
+          {/* An account waiting for activation has no password yet (#309), so it answers this too.
+              Said to everyone, so it reveals nothing about the address. */}
+          Just signed up? Open the activation email to{" "}
+          <Link href="/activate">choose your password</Link>.
         </>
       );
     case "ACCOUNT_NOT_ACTIVATED":

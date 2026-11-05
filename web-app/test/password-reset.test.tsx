@@ -230,6 +230,27 @@ describe("the way to a reset", () => {
     expect(links()).toContainEqual({ text: "Forgot your password?", href: "/forgot-password" });
   });
 
+  it("a refused sign-in also points a new student to activation, saying nothing about the address", async () => {
+    const { ApiError } = await import("../src/lib/user-api");
+    const login = auth.login;
+    // What a pending account gets (#309), and exactly what any wrong password gets.
+    auth.login = async () => {
+      throw new ApiError(401, "INVALID_CREDENTIALS", "Email or password is incorrect.");
+    };
+    try {
+      await render(<LoginPage />, "/login");
+      await type("NUS email", "e0123456@u.nus.edu");
+      await type("Password", "a long enough passphrase");
+      await submit();
+
+      expect(alerts()).toContain("That email and password don't match an account.");
+      expect(alerts()).toContain("Just signed up? Open the activation email to choose your password.");
+      expect(links()).toContainEqual({ text: "choose your password", href: "/activate" });
+    } finally {
+      auth.login = login;
+    }
+  });
+
   it("is offered when sign-up finds the address taken, with the address", async () => {
     serve(() => error(409, "EMAIL_ALREADY_REGISTERED", "An account with this email already exists."));
     await render(<RegisterPage />, "/register");
