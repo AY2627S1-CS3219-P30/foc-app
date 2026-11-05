@@ -8,7 +8,8 @@ API is [`contracts/chat-service.openapi.yaml`](../contracts/chat-service.openapi
 The fifth service's wiring came with #345, its channels and messages with
 [#162](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/162), and read-only access for
 administrators, the 280-character and 20-a-minute limits and the 90-day retention with
-[#163](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/163).
+[#163](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/163), and the socket that says when
+to read again with [#346](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/346).
 
 Built on the shared runtime: `@foc/platform` (config, logging, correlation, health, the error
 envelope) and `@foc/auth-client` (verifies a caller's token and resolves their live identity from
@@ -19,12 +20,13 @@ the User Service).
 - **Its own database and login**, `foc_chat` and `chat_service`, which no other service can open
   (`postgres-init.sh`). Migrated by the one-shot `chat-service-migrate` container.
 - **Its own broker account**, `chat-service`, which may publish nothing (`rabbitmq-init.sh`). It
-  reads only identity-change events, to drop a suspended user's cached identity at once.
+  reads only identity-change events, on two queues of its own per instance: one drops a suspended
+  user's cached identity at once, the other closes their sockets.
 - **Its own internal key**, `CHAT_INTERNAL_KEY`, accepted by the User Service (who is calling, and
   the participants' names) and the Order Service (`GET /internal/orders/{id}/chat`).
   Chat serves no `/internal/**` route, and with `INTERNAL_PORT` set the public port hides any.
-- **Behind the edge** at `/api/chat/`. The edge reports the stack ready only while chat answers
-  `/health`.
+- **Behind the edge** at `/api/chat/`, and the socket at `/api/chat/socket`. The edge reports the
+  stack ready only while chat answers `/health`.
 
 Chat publishes no event, so the errand and credit workflows run unchanged when it is down.
 
@@ -122,6 +124,97 @@ accepted: the message keeps its server time, and chat cannot change the errand e
 A send takes the channel's row lock, so concurrent sends get consecutive numbers and a retry
 racing its original is stored once (`test/chat.postgres.test.ts`).
 
+## The socket
+
+A WebSocket that tells a participant's open chat panel that a channel has new messages, so the panel
+reads them at once instead of on its next poll (ADR 0012 §3). It says that something new arrived,
+never what: a frame carries an errand's ID and its latest `seq`, never a message. The panel still
+reads through `GET /channels/:orderId/messages`, where the live Order lookup decides access, and
+still sends with `POST`, so every rule above applies unchanged. A socket that outlives its owner's
+right to a channel can leak a number, but no text. OpenAPI cannot describe a socket, so this section
+is its contract.
+
+**Polling stays the fallback.** A panel without a socket, whether refused, closed or blocked by a
+network, polls as before and misses nothing. With `CHAT_SOCKET_ENABLED=false` the service answers
+no upgrade at all, so every socket fails to open and every panel polls.
+
+### Connecting
+
+`ws://<host>/api/chat/socket` through the edge (`wss://` behind TLS), which is `/socket` on the
+service's public port. The internal port takes no socket. Nothing in the URL is read: a token in
+the query string is ignored, and a token must never be put there, since URLs reach logs.
+
+1. Within 5 seconds of connecting, the client sends one frame, `{"type":"auth","token":"…"}`,
+   with the access token it sends as `Authorization: Bearer` on the HTTP routes.
+2. The service checks it with the same `authenticate()` as every route: the signature and expiry,
+   then the User Service for the session and account.
+3. It answers `{"type":"ready"}`. After that the client sends nothing more: any further frame
+   closes the socket.
+
+### Frames from the service
+
+| Frame                                             | When                                                                                                                                |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `{"type":"ready"}`                                | Once, after the auth frame is accepted. Read the channel once, in case something arrived while the socket connected.                |
+| `{"type":"messages","orderId":"…","latestSeq":N}` | A new message was stored in that errand's channel, and it now goes up to `N`. Read the messages after the last `seq` the panel has. |
+
+A new message goes to every open socket of the errand's requester and current courier, the
+sender's other tabs included. Administrators get none, since they are not participants. A retried
+send that answers the stored message (`200`) sends nothing. A nudge may be lost, repeated or arrive
+out of order, so the panel reads up to the highest `latestSeq` it has seen. A lost nudge costs at
+most a poll interval.
+
+The service pings every 25 seconds, and a socket that has not answered the previous ping is dropped
+without a close frame. Browsers answer pings by themselves.
+
+### Close codes
+
+A client branches on the code. The name is the `reason` label in the metrics; the close frame's
+reason text is for people.
+
+| Code   | Name                   | When                                                                                   |
+| ------ | ---------------------- | -------------------------------------------------------------------------------------- |
+| `4408` | `auth-timeout`         | No auth frame within 5 seconds.                                                        |
+| `4401` | `unauthenticated`      | The token was refused, expired, its session was revoked, or the account was suspended. |
+| `4401` | `identity-changed`     | The account was suspended, reactivated, or a role changed.                             |
+| `4503` | `identity-unavailable` | The User Service could not answer, at sign-in or at a check. The token may be fine.    |
+| `4429` | `too-many`             | The user already has 5 sockets open on this instance, or the instance holds 1,000.     |
+| `4400` | `bad-frame`            | Anything but one auth frame: invalid JSON, binary, over 8 KiB, or a second auth frame. |
+| `1001` | `shutdown`             | The service is stopping, or was stopping when the socket connected.                    |
+
+After `4401`, the client refreshes its access token and connects again, so a reactivated user or a
+new role takes effect at once. After `4503`, `4429` or `1001` it polls, and connects again later
+with backoff and the same token. It does not refresh the token after `4503`: an outage of the User
+Service says nothing about the token. A frame over 16 KiB never reaches the service: the WebSocket
+library closes it with `1009`.
+
+### When a socket closes by itself
+
+- **Its session is checked again every 55 seconds** (`CHAT_SOCKET_RECHECK_MS`), with the stored
+  token, through the same `authenticate()`. A revoked session or a suspended account closes it with
+  `4401`. A User Service that cannot answer closes it with `4503`, and the panel polls until the
+  service is back. A check can reuse an identity cached up to 5 seconds earlier, so a revoked
+  session's socket closes within 60 seconds.
+- **At its token's expiry** (`exp`), with `4401`.
+- **On an identity change.** On `user.suspended`, `user.reactivated` or `user.role-changed`, every
+  open socket of that user closes with `4401` within a second. A socket still signing in when the
+  event arrives is not yet listed, so it misses the close: it opens, and its first check, 55 seconds
+  later, closes it. Chat's own queue `foc.chat.socket-status.<random>` (exclusive, deleted with the
+  instance) receives them. The event
+  only makes chat forget: the reconnect is checked against the User Service afresh.
+
+### Limits and scope
+
+- 5 open sockets per user and 1,000 per instance, then `4429`. At the edge, 10 per client address,
+  then an HTTP `429` before the upgrade.
+- The edge holds a quiet socket for 75 seconds, so the 25-second pings keep it open.
+- One instance only. A message sent through one instance nudges only the sockets it holds; sockets
+  across several instances would need a broker fan-out, which is out of scope.
+
+Metrics: `foc_chat_sockets` (open now), `foc_chat_socket_nudges_total` (one per socket nudged),
+and `foc_chat_socket_closes_total` by `reason` (the table above, plus `client-closed` and
+`no-pong`).
+
 ## Running this service
 
 Install dependencies once from the repository root (`npm install`). Run these from the root:
@@ -135,10 +228,10 @@ Install dependencies once from the repository root (`npm install`). Run these fr
 
 ### Ports
 
-| Port | What                                                                |
-| ---- | ------------------------------------------------------------------- |
-| 3006 | Public: `/health`, `/metrics`, and the chat routes. 127.0.0.1 only. |
-| 4005 | Internal: not published (`compose.dev.yaml` publishes it locally).  |
+| Port | What                                                                          |
+| ---- | ----------------------------------------------------------------------------- |
+| 3006 | Public: `/health`, `/metrics`, the chat routes and `/socket`. 127.0.0.1 only. |
+| 4005 | Internal: not published (`compose.dev.yaml` publishes it locally).            |
 
 ### Required environment
 
@@ -154,11 +247,14 @@ optional `INTERNAL_PORT` and `RABBITMQ_URL`):
 
 Optional, with the defaults of ADR 0012:
 
-| Variable                   | Default    | Notes                                                              |
-| -------------------------- | ---------- | ------------------------------------------------------------------ |
-| `CHAT_RETENTION_DAYS`      | `90`       | Days after the errand ends that the conversation is kept.          |
-| `CHAT_CLEANUP_INTERVAL_MS` | `86400000` | How often the cleanup runs; at least a minute, at most ~24.8 days. |
-| `CHAT_CLEANUP_RETRY_MS`    | `300000`   | How soon a run that skipped a channel is tried once more.          |
+| Variable                      | Default    | Notes                                                              |
+| ----------------------------- | ---------- | ------------------------------------------------------------------ |
+| `CHAT_RETENTION_DAYS`         | `90`       | Days after the errand ends that the conversation is kept.          |
+| `CHAT_CLEANUP_INTERVAL_MS`    | `86400000` | How often the cleanup runs; at least a minute, at most ~24.8 days. |
+| `CHAT_CLEANUP_RETRY_MS`       | `300000`   | How soon a run that skipped a channel is tried once more.          |
+| `CHAT_SOCKET_ENABLED`         | `true`     | `false` refuses every socket upgrade, and panels poll.             |
+| `CHAT_SOCKET_RECHECK_MS`      | `55000`    | How often an open socket's session is checked again; 5 s to 55 s.  |
+| `CHAT_SOCKET_AUTH_TIMEOUT_MS` | `5000`     | How long a new socket has to send its auth frame; 1 s to 30 s.     |
 
 A missing required variable stops the service at boot and names the variable.
 
@@ -187,8 +283,14 @@ no `foc_chat` database and `chat-service-migrate` fails. Either start over with
   `/health` up and with the database down.
 - `test/chat.postgres.test.ts` races sends on real PostgreSQL (with `TEST_POSTGRES_URL` set),
   including a burst of 30 from one sender, of which exactly 20 are stored.
-- `test/auth-status-wiring.test.ts` proves the identity-change subscription is wired when a broker
-  is configured.
+- `test/auth-status-wiring.test.ts` proves both identity-change subscriptions are wired when a
+  broker is configured, and that an event on the socket queue closes that user's sockets.
+- `test/socket-hub.test.ts` covers the socket's rules without Nest, on fake timers: signing in,
+  nudges, limits, the recheck, expiry, identity changes, keep-alive, shutdown, closing once.
+- `test/socket.test.ts` connects real WebSocket clients to the app: a message nudges both
+  participants within a second without its text, a stranger hears nothing, a retried send nudges
+  no one, and a token in the query string is not accepted. `test/socket-disabled.test.ts` checks
+  that `CHAT_SOCKET_ENABLED=false` refuses the upgrade.
 
 ### Docker
 
