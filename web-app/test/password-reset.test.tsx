@@ -349,6 +349,31 @@ describe("activation (#309)", () => {
     ]);
   });
 
+  it("after the link's token is refused, takes the code from a newer email", async () => {
+    const NEWER = "b".repeat(43);
+    const replies = [
+      () => error(404, "ACTIVATION_TOKEN_INVALID", "This activation link is not valid."),
+      () => json(200, { userId: "u-1", status: "ACTIVE", alreadyActivated: false }),
+    ];
+    serve(() => replies.shift()!());
+    await render(<ActivatePage />, `/activate?token=${TOKEN}`);
+    await type("Password", "a long enough passphrase");
+    await type("Confirm password", "a long enough passphrase");
+    await submit();
+
+    expect(alerts()).toContain("This activation link isn't valid.");
+    expect(field("Activation code")).toBeDefined();
+    expect(field("Password").value).toBe("a long enough passphrase");
+
+    await type("Activation code", NEWER);
+    await submit();
+    expect(sent.map((s) => s.body)).toEqual([
+      { token: TOKEN, password: "a long enough passphrase" },
+      { token: NEWER, password: "a long enough passphrase" },
+    ]);
+    expect(statuses()).toContain("Your account is active.");
+  });
+
   it("explains an expired link and keeps the typed password", async () => {
     serve(() => error(410, "ACTIVATION_TOKEN_EXPIRED", "This activation link has expired."));
     await render(<ActivatePage />, `/activate?token=${TOKEN}`);

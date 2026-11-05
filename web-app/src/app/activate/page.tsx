@@ -27,6 +27,10 @@ export default function ActivatePage() {
   const [alert, setAlert] = useState<React.ReactNode>(null);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState<null | "activated" | "alreadyActive">(null);
+  // The link's own token was refused (expired, or replaced by a newer email): from then on the page
+  // asks for a code, so the student can paste the newest one without the old link getting in the way.
+  const [linkRefused, setLinkRefused] = useState(false);
+  const linkInUse = linkToken && !linkRefused ? linkToken : null;
   const resendEmail = useRef<HTMLInputElement>(null);
 
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -35,7 +39,7 @@ export default function ActivatePage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setAlert(null);
-    const token = linkToken ?? form.token;
+    const token = linkInUse ?? form.token;
     const found = validateActivation({ ...form, token });
     setErrors(found);
     if (Object.keys(found).length > 0) return;
@@ -46,6 +50,13 @@ export default function ActivatePage() {
       setDone(res.alreadyActivated ? "alreadyActive" : "activated");
     } catch (err) {
       setAlert(describe(err));
+      if (
+        linkInUse &&
+        err instanceof ApiError &&
+        (err.code === "ACTIVATION_TOKEN_EXPIRED" || err.code === "ACTIVATION_TOKEN_INVALID")
+      ) {
+        setLinkRefused(true);
+      }
       if (err instanceof ApiError && err.code === "ACTIVATION_TOKEN_EXPIRED") {
         resendEmail.current?.focus();
       } else if (err instanceof ApiError && err.details.length > 0) {
@@ -67,7 +78,7 @@ export default function ActivatePage() {
       intro={
         done
           ? undefined
-          : linkToken
+          : linkInUse
             ? "Choose a password to finish activating your account."
             : "Paste the code from the email we sent, and choose a password."
       }
@@ -96,7 +107,7 @@ export default function ActivatePage() {
           <div style={{ display: "flex", flexDirection: "column", gap: vars.space[4] }}>
             <FormAlert>{alert}</FormAlert>
             {/* From the link, the token is already in hand: only a pasted code needs a field. */}
-            {linkToken === null && (
+            {linkInUse === null && linkToken !== undefined && (
               <FormField
                 label="Activation code"
                 name="token"
@@ -145,7 +156,7 @@ function describe(err: unknown): React.ReactNode {
   if (!(err instanceof ApiError)) return "Something went wrong. Please try again.";
   switch (err.code) {
     case "ACTIVATION_TOKEN_EXPIRED":
-      return "This activation link has expired. Ask for a new one below.";
+      return "This activation link has expired. Ask for a new one below, then open it or paste its code here.";
     case "ACTIVATION_TOKEN_INVALID":
       // Also what an older link says once a newer one has been sent.
       return (
