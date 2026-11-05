@@ -4,5 +4,17 @@
     "pullRequest": 229,
     "reason": "An administrator can complete an errand that was never delivered, so a receipt can have no delivery time. Nothing reads the receipt yet.",
     "reviewedBy": ["Jonus", "Isaac", "Patrick"]
+  },
+  {
+    "change": "user-service POST /auth/register request.password: accepted field removed",
+    "pullRequest": null,
+    "reason": "#309: a password chosen at sign-up is chosen before anyone has proven the inbox, so someone else can set it. The password moves to activation. The web app is the only client and changes in the same pull request.",
+    "reviewedBy": []
+  },
+  {
+    "change": "user-service POST /auth/activate request.password: field became required",
+    "pullRequest": null,
+    "reason": "#309: the emailed token proves the inbox, so activation is where the student chooses the password. The web app is the only client and changes in the same pull request.",
+    "reviewedBy": []
   }
 ]
