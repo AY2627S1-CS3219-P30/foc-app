@@ -7,6 +7,7 @@ import {
   TEST_POSTGRES_URL,
   type EphemeralPostgres,
 } from '@foc/test-harness';
+import { verifyPassword } from '../src/auth/passwords.js';
 import type { Database } from '../src/db/db.js';
 import * as schema from '../src/db/schema.js';
 import { MemoryMailbox } from '../src/mail/memory-mailbox.js';
@@ -61,12 +62,12 @@ const issue = (tx: Database, userId: string) =>
     id: randomUUID(),
     userId,
     tokenHash: randomUUID(),
-    ttlHours: 24,
+    ttlMinutes: 30,
   });
 
 suite('lets only one of two concurrent re-registers revive an expired address', async () => {
   const id = randomUUID();
-  await repo.insertUser(db, { id, email: EMAIL, passwordHash: 'original', displayName: 'First' });
+  await repo.insertUser(db, { id, email: EMAIL, displayName: 'First' });
   await database.db.pool.query(
     `INSERT INTO activation_tokens (id, user_id, token_hash, expires_at)
      VALUES ($1, $2, 'lapsed', now() - interval '1 minute')`,
@@ -76,13 +77,9 @@ suite('lets only one of two concurrent re-registers revive an expired address', 
   let holding!: () => void, release!: () => void;
   const aHolds = new Promise<void>((resolve) => (holding = resolve));
   const aMayCommit = new Promise<void>((resolve) => (release = resolve));
-  const reRegister = (passwordHash: string, beforeCommit?: () => Promise<void>) =>
+  const reRegister = (displayName: string, beforeCommit?: () => Promise<void>) =>
     db.transaction(async (tx) => {
-      const revived = await repo.reviveExpiredRegistration(tx, {
-        email: EMAIL,
-        passwordHash,
-        displayName: passwordHash,
-      });
+      const revived = await repo.reviveExpiredRegistration(tx, { email: EMAIL, displayName });
       if (revived) await issue(tx, revived);
       await beforeCommit?.();
       return revived;
@@ -100,10 +97,11 @@ suite('lets only one of two concurrent re-registers revive an expired address', 
 
   expect(await a).toBe(id);
   expect(await b).toBeNull();
-  const { rows } = await database.db.pool.query('SELECT password_hash FROM users WHERE id = $1', [
-    id,
-  ]);
-  expect(rows[0]).toEqual({ password_hash: 'by-a' });
+  const { rows } = await database.db.pool.query(
+    'SELECT display_name FROM profiles WHERE user_id = $1',
+    [id],
+  );
+  expect(rows[0]).toEqual({ display_name: 'by-a' });
 });
 
 suite(
@@ -112,14 +110,10 @@ suite(
     const mailbox = new MemoryMailbox();
     const service = new UsersService(db, mailbox, {
       allowedEmailDomains: ['u.nus.edu'],
-      activationTokenTtlHours: 24,
+      activationTokenTtlMinutes: 30,
       passwordResetTokenTtlMinutes: 30,
     });
-    const { userId } = await service.register({
-      email: EMAIL,
-      password: 'a-long-enough-password',
-      displayName: 'First',
-    });
+    const { userId } = await service.register({ email: EMAIL, displayName: 'First' });
     const first = mailbox.latestFor(EMAIL)!.token;
 
     // Resend queues on the account first, then activation. Were activation to claim its link before
@@ -127,7 +121,7 @@ suite(
     const blocker = await holdAccount(userId);
     const resent = service.resendActivation(EMAIL);
     await waitersOnALock(1);
-    const activated = service.activate(first, randomUUID()).then(
+    const activated = service.activate(first, 'a-long-enough-password', randomUUID()).then(
       () => 'activated',
       (err: { status?: number; code?: string }) => err.code ?? String(err),
     );
@@ -138,5 +132,42 @@ suite(
     // Resend went first and replaced the link, so the old one is refused, not deadlocked.
     expect(await activated).toBe('ACTIVATION_TOKEN_INVALID');
     expect(mailbox.latestFor(EMAIL)!.token).not.toBe(first);
+  },
+);
+
+suite(
+  'lets one of two simultaneous activations choose the password; the other changes nothing',
+  async () => {
+    const mailbox = new MemoryMailbox();
+    const service = new UsersService(db, mailbox, {
+      allowedEmailDomains: ['u.nus.edu'],
+      activationTokenTtlMinutes: 30,
+      passwordResetTokenTtlMinutes: 30,
+    });
+    const { userId } = await service.register({ email: EMAIL, displayName: 'First' });
+    const token = mailbox.latestFor(EMAIL)!.token;
+
+    // Both pass the token check and hash their password, then queue on the account.
+    const passwords = ['first-long-passphrase', 'second-long-passphrase'];
+    const blocker = await holdAccount(userId);
+    const activations = passwords.map((password) =>
+      service.activate(token, password, randomUUID()),
+    );
+    await waitersOnALock(2);
+    await blocker.release();
+
+    const results = await Promise.all(activations);
+    expect(results.map((r) => r.alreadyActivated).sort()).toEqual([false, true]);
+    const winner = results.findIndex((r) => !r.alreadyActivated);
+    const { rows } = await database.db.pool.query('SELECT password_hash FROM users WHERE id = $1', [
+      userId,
+    ]);
+    const hash = (rows[0] as { password_hash: string }).password_hash;
+    expect(await verifyPassword(hash, passwords[winner]!)).toBe(true);
+    expect(await verifyPassword(hash, passwords[1 - winner]!)).toBe(false);
+    const { rows: events } = await database.db.pool.query(
+      "SELECT 1 FROM outbox_events WHERE event_type = 'user.activated'",
+    );
+    expect(events).toHaveLength(1);
   },
 );

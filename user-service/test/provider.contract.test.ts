@@ -3,7 +3,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ContractValidator } from '@foc/test-harness';
 import { RateLimiter } from '../src/auth/rate-limiter.js';
 import {
+  PASSWORD,
   SERVICE_KEY,
+  activation,
   createTestApp,
   openLimiters,
   validRegistration,
@@ -62,20 +64,22 @@ describe('user-service honours its published contract', () => {
     contract.assert('post', '/auth/activation/resend', await resend({}));
 
     const token = app.mailbox.latestFor(email)!.token;
-    contract.assert(
-      'post',
-      '/auth/activate',
-      await http(app).post('/auth/activate').send({ token }),
-    );
-    contract.assert(
-      'post',
-      '/auth/activate',
-      await http(app).post('/auth/activate').send({ token: randomUUID() }),
-    );
+    const activate = (body: object) => http(app).post('/auth/activate').send(body);
+    assertStatus('post', '/auth/activate', 422, await activate(activation(token, 'short')));
+    assertStatus('post', '/auth/activate', 422, await activate({ token }));
+    assertStatus('post', '/auth/activate', 200, await activate(activation(token)));
+    assertStatus('post', '/auth/activate', 200, await activate(activation(token))); // replay
+    assertStatus('post', '/auth/activate', 404, await activate(activation(randomUUID())));
+
+    const lapsed = 'e0145009@u.nus.edu';
+    await http(app).post('/auth/register').send(validRegistration(lapsed)).expect(201);
+    await app.db.exec("UPDATE activation_tokens SET expires_at = now() - interval '1 minute'");
+    const expired = activation(app.mailbox.latestFor(lapsed)!.token);
+    assertStatus('post', '/auth/activate', 410, await activate(expired));
 
     const login = (password: string) =>
       http(app).post('/auth/login').set('Origin', ORIGIN).send({ email, password });
-    contract.assert('post', '/auth/login', await login(validRegistration().password));
+    contract.assert('post', '/auth/login', await login(PASSWORD));
     contract.assert('post', '/auth/login', await login('wrong-password-123'));
   });
 
@@ -175,7 +179,7 @@ describe('user-service honours its published contract', () => {
     contract.assert(
       'post',
       '/auth/step-up',
-      await as(root).post('/auth/step-up', { password: validRegistration().password }),
+      await as(root).post('/auth/step-up', { password: PASSWORD }),
     );
 
     const role = `/admin/users/${target.id}/role`;
@@ -261,7 +265,7 @@ describe('user-service honours its published contract', () => {
         'post',
         '/auth/step-up',
         429,
-        await post('/auth/step-up', { password: validRegistration().password }),
+        await post('/auth/step-up', { password: PASSWORD }),
       );
 
       const unactivated = await http(limited)

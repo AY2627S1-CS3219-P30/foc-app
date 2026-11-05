@@ -43,7 +43,11 @@ export const env = loadEnv({
     .pipe(z.array(z.string().min(3)))
     .optional(),
   ADMIN_SEED_PASSWORD: z.string().min(12).max(128).optional(),
-  ACTIVATION_TOKEN_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(24),
+  /**
+   * How long an activation link works. Short, as a reset link is: whoever holds it chooses the
+   * account's password (#309).
+   */
+  ACTIVATION_TOKEN_TTL_MINUTES: z.coerce.number().int().min(5).max(1440).default(30),
   /** How long a password reset link works (#309). Short: whoever holds it can take the account. */
   PASSWORD_RESET_TOKEN_TTL_MINUTES: z.coerce.number().int().min(5).max(1440).default(30),
   /**

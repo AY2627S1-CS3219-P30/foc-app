@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { ApiException, EVENTS } from '@foc/platform';
+import { ApiException } from '@foc/platform';
+import { setPasswordFromEmailedLink } from '../auth/emailed-link.js';
 import { hashPassword } from '../auth/passwords.js';
 import { sessionsRepository as sessions } from '../auth/sessions.repository.js';
 import { newOpaqueToken, sha256Hex } from '../auth/tokens.js';
@@ -19,8 +20,14 @@ export const USER_SETTINGS = Symbol('USER_SETTINGS');
 
 export interface UserSettings {
   allowedEmailDomains: readonly string[];
-  activationTokenTtlHours: number;
+  activationTokenTtlMinutes: number;
   passwordResetTokenTtlMinutes: number;
+}
+
+export interface ActivationResult {
+  userId: string;
+  status: 'ACTIVE';
+  alreadyActivated: boolean;
 }
 
 export interface IdentityLookup {
@@ -62,11 +69,13 @@ export class UsersService {
   /**
    * US-FR1.1.1 — reject off-domain and duplicate emails without creating an account. An address
    * that never activated and whose links have all expired is not a duplicate: registering again
-   * replaces its password and sends a new link, so a lapsed sign-up does not lock the address.
+   * replaces its display name and sends a new link, so a lapsed sign-up does not lock the address.
+   *
+   * No password is taken (#309): whoever registers has not proven the inbox, so a password chosen
+   * here could be anyone's. The inbox's owner chooses it at activation.
    */
   async register(input: {
     email: string;
-    password: string;
     displayName: string;
   }): Promise<{ userId: string; status: 'PENDING_ACTIVATION' }> {
     const email = normalizeEmail(input.email);
@@ -80,13 +89,11 @@ export class UsersService {
       ]);
     }
 
-    // Hashed before the transaction: Argon2id is deliberately slow and must not hold a DB connection.
-    const passwordHash = await hashPassword(input.password);
     const token = newOpaqueToken();
 
     const userId = await this.db.transaction(async (tx) => {
       const id = randomUUID();
-      const user = { email, passwordHash, displayName: input.displayName };
+      const user = { email, displayName: input.displayName };
       if (await repo.insertUser(tx, { id, ...user })) {
         await this.issueActivationToken(tx, id, token);
         return id;
@@ -180,7 +187,7 @@ export class UsersService {
       id: randomUUID(),
       userId,
       tokenHash: sha256Hex(token),
-      ttlHours: this.settings.activationTokenTtlHours,
+      ttlMinutes: this.settings.activationTokenTtlMinutes,
     });
   }
 
@@ -194,45 +201,54 @@ export class UsersService {
   }
 
   /**
-   * US-FR4.1.1 — single-use, expiring, replay-idempotent. The first success
-   * activates the account and writes exactly one `UserActivated` to the outbox
-   * in the same transaction; a replay changes nothing and emits nothing.
+   * US-FR4.1.1 — single-use, expiring, replay-idempotent. The first success sets the password the
+   * inbox's owner chose (#309), activates the account and writes exactly one `UserActivated` to the
+   * outbox in the same transaction; a replay changes nothing, the password included, and emits
+   * nothing. Shares its writes with a password reset ({@link setPasswordFromEmailedLink}).
+   *
+   * The token is checked before Argon2 runs, so a made-up token or a replay costs one indexed read,
+   * not a hash.
    */
   async activate(
     token: string,
+    password: string,
     correlationId: string,
-  ): Promise<{ userId: string; status: 'ACTIVE'; alreadyActivated: boolean }> {
+  ): Promise<ActivationResult> {
     const tokenHash = sha256Hex(token);
+    const found = await repo.findActivationToken(this.db, tokenHash);
+    if (!found || found.consumed || found.expired) return this.unusableToken(this.db, found);
 
+    // Hashed before the transaction: Argon2id is deliberately slow and must not hold a connection.
+    const passwordHash = await hashPassword(password);
     return this.db.transaction(async (tx) => {
-      await repo.lockUserOfToken(tx, tokenHash);
+      const status = await repo.lockUserOfToken(tx, tokenHash);
       const userId = await repo.consumeActivationToken(tx, tokenHash);
-
-      if (userId) {
-        const activated = await repo.markActivated(tx, userId);
-        // Not pending any more (e.g. suspended before it activated). Throwing rolls the
-        // transaction back, so the token is not left consumed by a failed activation.
-        if (!activated) throw invalidToken();
-        await repo.insertOutboxEvent(tx, {
-          id: randomUUID(),
-          eventType: EVENTS.USER_ACTIVATED,
-          aggregateId: userId,
-          payload: { userId, activatedAt: new Date().toISOString() },
-          correlationId,
-        });
-        return { userId, status: 'ACTIVE' as const, alreadyActivated: false };
+      // Used (a second submit) or expired while Argon2 ran: answered as a replay. Nothing was written.
+      if (!userId || !status) {
+        return this.unusableToken(tx, await repo.findActivationToken(tx, tokenHash));
       }
+      // Not pending any more (e.g. suspended before it activated). Throwing rolls the
+      // transaction back, so the token is not left consumed by a failed activation.
+      if (status !== 'PENDING_ACTIVATION') throw invalidToken();
 
-      const known = await repo.findActivationToken(tx, tokenHash);
-      if (!known) throw invalidToken();
-      if (known.consumed) {
-        if (await repo.isActivated(tx, known.userId)) {
-          return { userId: known.userId, status: 'ACTIVE' as const, alreadyActivated: true };
-        }
-        throw invalidToken();
-      }
-      throw new ApiException(410, 'ACTIVATION_TOKEN_EXPIRED', 'This activation link has expired.');
+      await setPasswordFromEmailedLink(tx, { userId, status, passwordHash, correlationId });
+      return { userId, status: 'ACTIVE' as const, alreadyActivated: false };
     });
+  }
+
+  /** A token that cannot activate: a replay on an active account succeeds; the rest are refused. */
+  private async unusableToken(
+    db: Database,
+    found: { userId: string; consumed: boolean; expired: boolean } | null,
+  ): Promise<ActivationResult> {
+    if (!found) throw invalidToken();
+    if (found.consumed) {
+      if (await repo.isActivated(db, found.userId)) {
+        return { userId: found.userId, status: 'ACTIVE', alreadyActivated: true };
+      }
+      throw invalidToken();
+    }
+    throw new ApiException(410, 'ACTIVATION_TOKEN_EXPIRED', 'This activation link has expired.');
   }
 
   /** US-FR4.1.2 — existence, status, roles and display name only. */

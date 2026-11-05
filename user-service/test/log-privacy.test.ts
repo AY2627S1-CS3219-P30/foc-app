@@ -6,7 +6,14 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { seedAdmins } from '../src/admin/seed.js';
 import { env } from '../src/config.js';
 import { UsersModule } from '../src/users/users.module.js';
-import { createTestApp, SERVICE_KEY, validRegistration, type TestApp } from './helpers/app.js';
+import {
+  activation as activationBody,
+  createTestApp,
+  PASSWORD,
+  SERVICE_KEY,
+  validRegistration,
+  type TestApp,
+} from './helpers/app.js';
 
 const lines: string[] = [];
 const sink = new Writable({
@@ -56,6 +63,9 @@ describe('log privacy (US-NFR2.1.1)', () => {
   it('writes no password, hash or token to any log line at any level', async () => {
     const http = () => request(t.app.getHttpServer());
     const reg = validRegistration();
+    // Chosen at activation (#309): the request that proves the inbox carries it.
+    const activationPassword = 'the-activation-passphrase';
+    const refusedActivationPassword = 'short-pw-1';
 
     const created = await http().post('/auth/register').send(reg).expect(201);
     const token = t.mailbox.latestFor(reg.email)!.token;
@@ -64,11 +74,15 @@ describe('log privacy (US-NFR2.1.1)', () => {
       .post('/auth/register')
       .send({ ...reg, email: 'a@gmail.com' })
       .expect(422);
-    await http().post('/auth/activate').send({ token }).expect(200);
-    await http().post('/auth/activate').send({ token }).expect(200); // replay path
     await http()
       .post('/auth/activate')
-      .send({ token: 'y'.repeat(43) })
+      .send(activationBody(token, refusedActivationPassword))
+      .expect(422); // refused-password path
+    await http().post('/auth/activate').send(activationBody(token, activationPassword)).expect(200);
+    await http().post('/auth/activate').send(activationBody(token, activationPassword)).expect(200); // replay path
+    await http()
+      .post('/auth/activate')
+      .send(activationBody('y'.repeat(43), activationPassword))
       .expect(404);
     await http()
       .get(`/internal/users/${created.body.userId}`)
@@ -94,7 +108,8 @@ describe('log privacy (US-NFR2.1.1)', () => {
     const output = lines.join('');
     expect(lines.length).toBeGreaterThan(0); // the capture actually works
 
-    expect(output).not.toContain(reg.password);
+    expect(output).not.toContain(activationPassword);
+    expect(output).not.toContain(refusedActivationPassword);
     expect(output).not.toContain(token);
     expect(output).not.toContain(resetToken);
     expect(output).not.toContain(resetPassword);
@@ -117,7 +132,7 @@ describe('log privacy across auth and admin paths (US-NFR4.1.1)', () => {
     const origin = 'http://localhost:3000';
     const adminEmail = 'root@u.nus.edu';
     const studentEmail = 'e0999999@u.nus.edu';
-    const password = validRegistration().password;
+    const password = PASSWORD;
     const adminPassword = 'the-admins-own-passphrase';
 
     await seedAdmins(t.orm, {
@@ -127,7 +142,7 @@ describe('log privacy across auth and admin paths (US-NFR4.1.1)', () => {
     });
     await http().post('/auth/register').send(validRegistration(studentEmail)).expect(201);
     const activation = t.mailbox.latestFor(studentEmail)!.token;
-    await http().post('/auth/activate').send({ token: activation }).expect(200);
+    await http().post('/auth/activate').send(activationBody(activation)).expect(200);
 
     const login = (email: string, pw = password) =>
       http().post('/auth/login').set('Origin', origin).send({ email, password: pw });

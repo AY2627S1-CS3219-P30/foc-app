@@ -3,7 +3,14 @@ import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RateLimiter } from '../src/auth/rate-limiter.js';
 import { SmtpMailer } from '../src/mail/smtp-mailer.js';
-import { createTestApp, openLimiters, validRegistration, type TestApp } from './helpers/app.js';
+import {
+  activation,
+  createTestApp,
+  openLimiters,
+  PASSWORD,
+  validRegistration,
+  type TestApp,
+} from './helpers/app.js';
 
 let t: TestApp;
 const http = () => request(t.app.getHttpServer());
@@ -32,6 +39,8 @@ const tokenFor = (email = EMAIL) => t.mailbox.latestFor(email)?.token;
 const expireAll = () =>
   t.db.exec("UPDATE activation_tokens SET expires_at = now() - interval '1 minute'");
 const resend = (email: string) => http().post('/auth/activation/resend').send({ email });
+const activate = (token: string | undefined, password = PASSWORD) =>
+  http().post('/auth/activate').send(activation(token, password));
 /** Resend answers before it mails, so wait for the token in the mailbox to change. */
 const nextToken = async (email: string, previous: string | undefined) => {
   await vi.waitFor(() => expect(tokenFor(email)).not.toBe(previous));
@@ -55,6 +64,9 @@ describe('SmtpMailer', () => {
     expect(message.to).toEqual([{ address: EMAIL, name: '' }]);
     expect(message.from).toEqual({ address: 'no-reply@foc.local', name: 'Friend on Campus' });
     expect(message.text).toContain('http://localhost:3000/activate?token=abc_DEF-123');
+    // The link is where the password is chosen (#309), and it is short-lived.
+    expect(message.text).toContain('choose your password');
+    expect(message.text).toContain('expires soon');
   });
 });
 
@@ -85,8 +97,8 @@ describe('POST /auth/activation/resend', () => {
     expect((await resend(EMAIL).expect(202)).body).toEqual(RESENT);
     const second = await nextToken(EMAIL, first);
 
-    await http().post('/auth/activate').send({ token: first }).expect(404);
-    await http().post('/auth/activate').send({ token: second }).expect(200);
+    await activate(first).expect(404);
+    await activate(second).expect(200);
   });
 
   it('replaces an expired link', async () => {
@@ -96,12 +108,12 @@ describe('POST /auth/activation/resend', () => {
 
     await resend(EMAIL).expect(202);
     const second = await nextToken(EMAIL, first);
-    await http().post('/auth/activate').send({ token: second }).expect(200);
+    await activate(second).expect(200);
   });
 
   it('answers an unknown, off-domain or already active address the same way, and mails nothing', async () => {
     await register().expect(201);
-    await http().post('/auth/activate').send({ token: tokenFor() }).expect(200);
+    await activate(tokenFor()).expect(200);
     const send = vi.spyOn(t.mailbox, 'sendActivation');
 
     for (const email of [EMAIL, 'nobody@u.nus.edu', 'alex@gmail.com']) {
@@ -139,21 +151,22 @@ describe('POST /auth/activation/resend', () => {
 });
 
 describe('registering again', () => {
-  it('reopens an address whose links all expired, with the new password and name', async () => {
+  it('reopens an address whose links all expired, with the new name and still no password', async () => {
     const first = (await register().expect(201)).body.userId;
     await expireAll();
 
-    const again = await register(EMAIL, {
-      password: 'a-different-long-passphrase',
-      displayName: 'Sam Lee',
-    }).expect(201);
+    const again = await register(EMAIL, { displayName: 'Sam Lee' }).expect(201);
     expect(again.body).toEqual({ userId: first, status: 'PENDING_ACTIVATION' });
     expect((await t.db.query('SELECT count(*)::int AS n FROM users')).rows[0]).toEqual({ n: 1 });
     expect((await t.db.query('SELECT display_name FROM profiles')).rows).toEqual([
       { display_name: 'Sam Lee' },
     ]);
 
-    await http().post('/auth/activate').send({ token: tokenFor() }).expect(200);
+    expect((await t.db.query('SELECT password_hash FROM users')).rows[0]).toEqual({
+      password_hash: null,
+    });
+
+    await activate(tokenFor(), 'a-different-long-passphrase').expect(200);
     await http()
       .post('/auth/login')
       .send({ email: EMAIL, password: 'a-different-long-passphrase' })
@@ -164,7 +177,7 @@ describe('registering again', () => {
     await register().expect(201);
     expect((await register().expect(409)).body.error.code).toBe('EMAIL_ALREADY_REGISTERED');
 
-    await http().post('/auth/activate').send({ token: tokenFor() }).expect(200);
+    await activate(tokenFor()).expect(200);
     await expireAll();
     expect((await register().expect(409)).body.error.code).toBe('EMAIL_ALREADY_REGISTERED');
   });

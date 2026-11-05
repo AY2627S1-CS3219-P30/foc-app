@@ -53,8 +53,8 @@ export class AuthController {
   @Post('activate')
   @HttpCode(200)
   activate(@Body() body: unknown, @Req() req: Request) {
-    const { token } = parseOrThrow(activateSchema, body);
-    return this.users.activate(token, correlationOf(req));
+    const { token, password } = parseOrThrow(activateSchema, body);
+    return this.users.activate(token, password, correlationOf(req));
   }
 
   /**

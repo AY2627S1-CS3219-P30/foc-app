@@ -125,11 +125,7 @@ describe('suspend / reactivate (US-FR3.1.2, US-FR4.1.4)', () => {
   it('cannot suspend an account that never activated, so reactivation can never skip activation', async () => {
     await http(t)
       .post('/auth/register')
-      .send({
-        email: 'pending@u.nus.edu',
-        password: 'correct-horse-battery-staple',
-        displayName: 'P',
-      })
+      .send({ email: 'pending@u.nus.edu', displayName: 'P' })
       .expect(201);
     const id = (await t.db.query('SELECT id FROM users WHERE email = $1', ['pending@u.nus.edu']))
       .rows[0]!.id as string;
