@@ -190,13 +190,17 @@ export class ChatRepository {
   }
 
   /**
-   * Channels opened before `cutoff`. A channel opens only before its errand ends, so one opened
-   * since cannot be past retention, and the cleanup need not ask about it.
+   * A page of the channels opened before `cutoff`, after the errand ID `after`. A channel opens
+   * only before its errand ends, so one opened since cannot be past retention, and the cleanup need
+   * not ask about it. Paged by ID, not by offset, so a channel deleted between pages moves nothing.
    */
-  async channelsOpenedBefore(cutoff: Date): Promise<string[]> {
+  async channelsOpenedBefore(cutoff: Date, limit: number, after?: string): Promise<string[]> {
     const { rows } = await this.db.query<{ order_id: string } & Row>(
-      'SELECT order_id FROM channels WHERE created_at < $1 ORDER BY created_at',
-      [cutoff.toISOString()],
+      `SELECT order_id FROM channels
+        WHERE created_at < $1 AND ($3::uuid IS NULL OR order_id > $3::uuid)
+        ORDER BY order_id
+        LIMIT $2`,
+      [cutoff.toISOString(), limit, after ?? null],
     );
     return rows.map((row) => row.order_id);
   }

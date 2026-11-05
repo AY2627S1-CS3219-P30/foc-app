@@ -20,6 +20,13 @@ info:
     `404` for an unknown errand, an errand with no channel opened while it had a courier, or an
     errand whose 90-day retention period has ended. Acceptance alone does not create a channel: a
     courier can withdraw before anyone opens it.
+
+    **The socket (#346).** `GET /socket` upgrades to a WebSocket, which OpenAPI cannot describe;
+    its protocol is in `chat-service/README.md` ("The socket"). The first frame signs in with
+    `{"type":"auth","token":…}`, never a token in the URL. The service then sends only
+    `{"type":"messages","orderId":…,"latestSeq":N}` when a channel has new messages, never a
+    message: the client reads them through `GET /channels/{orderId}/messages`, under the rules
+    above, and sends with `POST`. Without the socket, polling these routes misses nothing.
 servers:
   - url: http://localhost:3006
 security:
