@@ -10,10 +10,31 @@ export const SEND_LIMIT = { messages: 20, windowSeconds: 60 } as const;
 /** The advisory-lock namespace that serializes one sender's sends, for the rate limit. */
 const SENDER_LOCK = 0x63686174; // 'chat'
 
+/**
+ * How long a send waits for either of its locks, in milliseconds. Well under the pool's 5 s
+ * connection timeout, so sends queued behind a stuck one give their connections back before anyone
+ * else's request gives up waiting for one.
+ */
+const LOCK_WAIT_MS = 2_000;
+
+/** What PostgreSQL raises when `lock_timeout` runs out. */
+const LOCK_NOT_AVAILABLE = '55P03';
+
+/** Waits for `senderId`'s lock, until the transaction ends, so their sends go one at a time. */
+export const lockSender = (tx: Queryable, senderId: string) =>
+  tx.query('SELECT pg_advisory_xact_lock($1, hashtext($2))', [SENDER_LOCK, senderId]);
+
 export type SendResult =
   | { message: Message; created: boolean }
   /** Over the limit: whole seconds until the oldest message in the window leaves it. */
   | { retryAfter: number };
+
+export type SendAttempt =
+  | SendResult
+  /** The channel was deleted while the send waited for its locks. */
+  | { closed: true }
+  /** A lock took longer than `LOCK_WAIT_MS`. Nothing was stored, so the send can be retried. */
+  | { busy: true };
 
 export interface Message {
   seq: number;
@@ -103,38 +124,55 @@ export class ChatRepository {
 
   /**
    * Stores a message as the channel's next `seq`, or finds the one this `clientId` already stored.
-   * The channel's row lock orders sends on it, so a retry racing its original finds it here. A new
-   * message then takes the sender's advisory lock, always second, so one sender's sends on
-   * different channels count and insert one at a time and a burst cannot pass the limit.
+   * The sender's advisory lock comes first, so one sender's sends on different channels count and
+   * insert one at a time and a burst cannot pass the limit. The channel's row lock comes second and
+   * orders sends on it. Always in that order: a sender waiting for their own lock then holds no
+   * channel, and a transaction holding a channel waits for nothing more. Each wait is capped, because
+   * a waiting send still holds a pool connection.
    */
   async send(
     orderId: string,
     senderId: string,
     clientId: string,
     body: string,
-  ): Promise<SendResult> {
-    return this.db.transaction(async (tx) => {
-      const { rows } = await tx.query<{ latest_seq: number } & Row>(
-        'SELECT latest_seq FROM channels WHERE order_id = $1 FOR UPDATE',
-        [orderId],
-      );
-      const stored = await this.findSent(orderId, senderId, clientId, tx);
-      if (stored) return { message: stored, created: false };
-      await tx.query('SELECT pg_advisory_xact_lock($1, hashtext($2))', [SENDER_LOCK, senderId]);
-      const retryAfter = await this.retryAfter(tx, senderId);
-      if (retryAfter !== undefined) return { retryAfter };
-      const seq = Number(rows[0]!.latest_seq) + 1;
-      const inserted = await tx.query<StoredMessage>(
-        // Stamped when written, not when the transaction began: a send that waited for the locks
-        // would otherwise leave the rate window early.
-        `INSERT INTO messages (order_id, seq, sender_id, client_id, body, sent_at)
-         VALUES ($1, $2, $3, $4, $5, statement_timestamp())
-         RETURNING ${MESSAGE_COLUMNS}`,
-        [orderId, seq, senderId, clientId, body],
-      );
-      await tx.query('UPDATE channels SET latest_seq = $2 WHERE order_id = $1', [orderId, seq]);
-      return { message: toMessage(inserted.rows[0]!), created: true };
-    });
+  ): Promise<SendAttempt> {
+    return this.db
+      .transaction<SendAttempt>((tx) => this.sendUnderLocks(tx, orderId, senderId, clientId, body))
+      .catch((err: unknown) => {
+        if ((err as { code?: unknown }).code === LOCK_NOT_AVAILABLE) return { busy: true };
+        throw err;
+      });
+  }
+
+  private async sendUnderLocks(
+    tx: Queryable,
+    orderId: string,
+    senderId: string,
+    clientId: string,
+    body: string,
+  ): Promise<SendAttempt> {
+    await tx.query(`SET LOCAL lock_timeout = ${LOCK_WAIT_MS}`);
+    await lockSender(tx, senderId);
+    const { rows } = await tx.query<{ latest_seq: number } & Row>(
+      'SELECT latest_seq FROM channels WHERE order_id = $1 FOR UPDATE',
+      [orderId],
+    );
+    if (!rows[0]) return { closed: true };
+    const stored = await this.findSent(orderId, senderId, clientId, tx);
+    if (stored) return { message: stored, created: false };
+    const retryAfter = await this.retryAfter(tx, senderId);
+    if (retryAfter !== undefined) return { retryAfter };
+    const seq = Number(rows[0].latest_seq) + 1;
+    const inserted = await tx.query<StoredMessage>(
+      // Stamped when written, not when the transaction began: a send that waited for the locks
+      // would otherwise leave the rate window early.
+      `INSERT INTO messages (order_id, seq, sender_id, client_id, body, sent_at)
+       VALUES ($1, $2, $3, $4, $5, statement_timestamp())
+       RETURNING ${MESSAGE_COLUMNS}`,
+      [orderId, seq, senderId, clientId, body],
+    );
+    await tx.query('UPDATE channels SET latest_seq = $2 WHERE order_id = $1', [orderId, seq]);
+    return { message: toMessage(inserted.rows[0]!), created: true };
   }
 
   /**

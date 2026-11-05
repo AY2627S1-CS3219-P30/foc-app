@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   PEOPLE,
   as,
@@ -154,6 +154,47 @@ describe('sending', () => {
     }
     await http(t).get('/channels/not-a-uuid').set('Authorization', as('requester')).expect(400);
     expect(t.upstreams.calls.length).toBe(before);
+  });
+});
+
+describe('a send that cannot go ahead (#373)', () => {
+  it('does not take the locks again for a retry of a stored message', async () => {
+    const orderId = t.upstreams.errand();
+    const body = message('only once');
+    await send(orderId, body).expect(201);
+    const stored = vi.spyOn(t.app.get(ChatRepository), 'send');
+
+    await send(orderId, body).expect(200);
+
+    expect(stored).not.toHaveBeenCalled();
+    stored.mockRestore();
+  });
+
+  it('finds no channel to send to if it was deleted during the send', async () => {
+    const answer = await t.app
+      .get(ChatRepository)
+      .send(randomUUID(), PEOPLE.requester.userId, randomUUID(), 'too late');
+    expect(answer).toEqual({ closed: true });
+  });
+
+  it('answers 409 when the channel has gone by the time the send has its locks', async () => {
+    const orderId = t.upstreams.errand();
+    const repository = vi
+      .spyOn(t.app.get(ChatRepository), 'send')
+      .mockResolvedValue({ closed: true });
+    const res = await send(orderId, message('too late')).expect(409);
+    expect(res.body.error.code).toBe('CHANNEL_CLOSED');
+    repository.mockRestore();
+  });
+
+  it('answers 503 when the send waited too long for its turn', async () => {
+    const orderId = t.upstreams.errand();
+    const repository = vi
+      .spyOn(t.app.get(ChatRepository), 'send')
+      .mockResolvedValue({ busy: true });
+    const res = await send(orderId, message('waits too long')).expect(503);
+    expect(res.body.error.code).toBe('UNAVAILABLE');
+    repository.mockRestore();
   });
 });
 

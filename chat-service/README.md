@@ -79,8 +79,11 @@ whether it has ended, and decides from that alone. Chat keeps no copy of the err
 - **Rate:** 20 new messages per sender in any 60 seconds, across all their channels, counted from
   `messages` on the database clock. The 21st is `429 RATE_LIMITED` with `Retry-After`, the whole
   seconds (at least 1) until the oldest of those 20 is 60 seconds old. A retried `clientId` answers
-  `200` and is neither refused nor counted. A send takes the sender's advisory lock after the
-  channel's row lock, so a burst of parallel sends from one sender stores exactly 20.
+  `200` and is neither refused nor counted. A send takes the sender's advisory lock before the
+  channel's row lock, so a burst of parallel sends from one sender stores exactly 20, and a sender
+  waiting for their own lock holds no channel. It waits at most 2 s for either lock, because a
+  waiting send still holds a database connection, then answers `503 UNAVAILABLE`. Nothing is stored,
+  so the same `clientId` can be sent again.
 - **Paging:** `after` and `before` above 2147483647, the largest `seq`, are `422`.
 
 ### Retention, for dispute review
