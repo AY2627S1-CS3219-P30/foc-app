@@ -27,9 +27,10 @@ enum `FOOD | CAFE | PRINTING | SHOPPING | LANDMARK`. Required-vs-optional, the
 enum, coordinate ranges, and the duplicate rule are all enforced by database
 constraints, not only the validator — see the schema doc.
 
-**Opening hours** are `[{ day, opens, closes }]` with 24-hour `HH:MM` times;
-`00:00`–`23:59` is open all day and a `closes ≤ opens` window runs past midnight
-(schema doc §3).
+**Opening hours** are `[{ day, opens, closes }]` with 24-hour `HH:MM` times, stored by day
+and then opening time: up to four periods a day that may not overlap, so a midday break is
+two periods and a closed day is none. `00:00`–`23:59` is open all day. A `closes < opens`
+period runs past midnight and counts against the next day (schema doc §3).
 
 ## API
 

@@ -5,13 +5,13 @@ to Friend on Campus, its design and how it joins the rest of the application, an
 responsible ([DOC-03 #237](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/237); D3
 instructions, Part 5). The same allocation is presented again at the final presentation.
 
-Six features, chosen to deepen the errand and credit workflows rather than to add breadth. Five
-are merged, and chat is to be merged by Sat 7 Nov.
+Six features, chosen to deepen the errand and credit workflows rather than to add breadth. All
+six are merged. Chat's WebSocket (#346) is a later addition, and chat works without it.
 
-| Feature                                          | Owners                      | State on 3 Nov                                                     |
+| Feature                                          | Owners                      | State on 5 Nov                                                     |
 | ------------------------------------------------ | --------------------------- | ------------------------------------------------------------------ |
 | N1.1 Admin operations and dispute console        | Jonus, Anselm, Zhang Yuan   | Merged: #226, #228, #229, #252, #273, #292, #293                   |
-| N1.2 Participant chat                            | Patrick, Zhang Yuan, Anselm | Design agreed (#344). Sprint 4: merged by Sat 7 Nov                |
+| N1.2 Participant chat                            | Patrick, Zhang Yuan, Anselm | Merged: #351, #352, #353, #358, #365. WebSocket to come: #346      |
 | N1.4 Live errand updates                         | Jonus                       | Merged: #334, #335, #338. Under load: #343                         |
 | N3.1 Concurrency, load and conservation evidence | Isaac                       | Merged (#165)                                                      |
 | N3.2 Automated credit reconciliation             | Isaac                       | Merged (#152)                                                      |
@@ -127,10 +127,11 @@ Service instead. An administrator reads a channel from the console, and cannot s
 | Anselm                      | The access check against the live Order lookup, admin read-only, the limits, display names, the 90-day cleanup | #163   | M    |
 | Patrick                     | `chat-api.ts`, `use-chat.ts` polling, `ChatPanel`, unread state, the browser journey                           | #161   | L    |
 
-**State.** Sprint 4. Design, decision record and contract agreed (#344). Text messages per errand,
-history on reconnect, participants only and closed at a final status are to be merged by Sat 7 Nov;
-chat is the one feature allowed past the 31 Oct scope freeze, because it is Patrick's only
-nice-to-have. The WebSocket (#346) follows.
+**State.** Merged in Sprint 4 (#351, #352, #353, #358, #365), from the design, decision record and
+contract agreed in #344: text messages per errand, history on reconnect, participants only and
+closed at a final status. Chat was the one feature allowed past the 31 Oct scope freeze, because it
+is Patrick's only nice-to-have. The panel reads every 2 s. The WebSocket (#346), which would tell it
+to read sooner, is not connected to it yet.
 
 ## N1.4 Live errand updates
 
@@ -351,10 +352,10 @@ reads the page and replaces their `Pending` with `Agreed` and the date (in a pul
 commenting on [#237](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/237)), or raises what
 should change. Due Sun 25 Oct; for N1.4, added on 28 Oct, by Sat 31 Oct.
 
-| Member                             | Status  | Date |
-| ---------------------------------- | ------- | ---- |
-| Anselm Long (`@anselmlong`)        | Pending | —    |
-| Isaac Chua (`@isaacchua0309`)      | Pending | —    |
-| Jonus (`@jonushzw`)                | Pending | —    |
-| Patrick Thomas (`@pastchum`)       | Pending | —    |
-| Zhang Yuan (`@volleyballkickedme`) | Pending | —    |
+| Member                             | Status  | Date       |
+| ---------------------------------- | ------- | ---------- |
+| Anselm Long (`@anselmlong`)        | Pending | —          |
+| Isaac Chua (`@isaacchua0309`)      | Pending | —          |
+| Jonus (`@jonushzw`)                | Agreed  | 2026-11-03 |
+| Patrick Thomas (`@pastchum`)       | Pending | —          |
+| Zhang Yuan (`@volleyballkickedme`) | Pending | —          |
