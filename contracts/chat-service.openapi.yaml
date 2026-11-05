@@ -330,7 +330,7 @@ components:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     Unavailable:
       description: >-
-        `UNAVAILABLE`: the Order Service or the User Service did not answer. Nothing was read or
+        `UNAVAILABLE`: the Order Service or the User Service did not answer, or a send waited too long for its turn. Nothing was read or
         stored.
       content:
         application/json:

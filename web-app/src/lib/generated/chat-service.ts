@@ -210,7 +210,7 @@ export interface components {
                 "application/json": components["schemas"]["ErrorEnvelope"];
             };
         };
-        /** @description `UNAVAILABLE`: the Order Service or the User Service did not answer. Nothing was read or stored. */
+        /** @description `UNAVAILABLE`: the Order Service or the User Service did not answer, or a send waited too long for its turn. Nothing was read or stored. */
         Unavailable: {
             headers: {
                 [name: string]: unknown;
