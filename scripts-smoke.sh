@@ -201,7 +201,7 @@ post_json() { # path json body-file [extra curl arguments...]
 wallet_step=""
 response=$(mktemp)
 
-registered=$(post_json /auth/register "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"$SMOKE_PASSWORD\",\"displayName\":\"Smoke test\"}" "$response")
+registered=$(post_json /auth/register "{\"email\":\"$SMOKE_EMAIL\",\"displayName\":\"Smoke test\"}" "$response")
 [[ "$registered" == 2* ]] || wallet_step="registering returned ${registered:-no answer}"
 
 # The token in the newest activation email to an address. The stack mails every link to Mailpit,
@@ -219,7 +219,8 @@ if [[ -z "$wallet_step" ]]; then
   [[ -n "$activation_token" ]] || wallet_step="no activation email reached Mailpit"
 fi
 if [[ -z "$wallet_step" ]]; then
-  activated=$(post_json /auth/activate "{\"token\":\"$activation_token\"}" "$response" -H 'x-correlation-id: smoke-wallet')
+  # The password is chosen at activation (#309).
+  activated=$(post_json /auth/activate "{\"token\":\"$activation_token\",\"password\":\"$SMOKE_PASSWORD\"}" "$response" -H 'x-correlation-id: smoke-wallet')
   [[ "$activated" == 2* ]] || wallet_step="activating returned ${activated:-no answer}"
 fi
 access_token=""
@@ -369,9 +370,9 @@ streams_ready() { # count seconds → whether that many streams have said `ready
 second_student() {
   local email="smoke-live-$(date +%s)-$RANDOM@u.nus.edu" out token
   out=$(mktemp)
-  post_json /auth/register "{\"email\":\"$email\",\"password\":\"$SMOKE_PASSWORD\",\"displayName\":\"Smoke test\"}" "$out" >/dev/null
+  post_json /auth/register "{\"email\":\"$email\",\"displayName\":\"Smoke test\"}" "$out" >/dev/null
   token=$(activation_token_for "$email") || true
-  post_json /auth/activate "{\"token\":\"$token\"}" "$out" >/dev/null
+  post_json /auth/activate "{\"token\":\"$token\",\"password\":\"$SMOKE_PASSWORD\"}" "$out" >/dev/null
   post_json /auth/login "{\"email\":\"$email\",\"password\":\"$SMOKE_PASSWORD\"}" "$out" \
     -H "Origin: http://localhost:${WEB_PORT}" >/dev/null
   json_field accessToken <"$out"

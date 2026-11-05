@@ -59,7 +59,7 @@ signup() { # label [no-wallet]
   [[ -n "$password" ]] || password=$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')
   local registered
   registered=$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://localhost:${USER_PORT}/auth/register" -H 'content-type: application/json' \
-    -d "{\"email\":\"$email\",\"password\":\"$password\",\"displayName\":\"Demo $1\"}" 2>/dev/null) || true
+    -d "{\"email\":\"$email\",\"displayName\":\"Demo $1\"}" 2>/dev/null) || true
   if [[ "$registered" == "429" ]]; then
     # The User Service allows 20 registrations an hour from one address, and every script on
     # this machine is one address. The count is in memory, so a restart clears it.
@@ -72,8 +72,9 @@ signup() { # label [no-wallet]
     echo "No activation email for $email in Mailpit (http://localhost:${MAILPIT_PORT:-8025})." >&2
     exit 1
   fi
+  # The password is chosen at activation (#309), once the emailed token proves the inbox.
   curl -fsS -X POST "http://localhost:${USER_PORT}/auth/activate" -H 'content-type: application/json' \
-    -H "x-correlation-id: demo-$1-$RUN" -d "{\"token\":\"$token\"}" -o /dev/null 2>/dev/null || true
+    -H "x-correlation-id: demo-$1-$RUN" -d "{\"token\":\"$token\",\"password\":\"$password\"}" -o /dev/null 2>/dev/null || true
   local login
   login=$(curl -fsS -X POST "http://localhost:${USER_PORT}/auth/login" -H 'content-type: application/json' \
     -H "Origin: http://localhost:${WEB_PORT}" -d "{\"email\":\"$email\",\"password\":\"$password\"}" 2>/dev/null) || true

@@ -6,7 +6,9 @@
 # The stack's User Service mails activation links to Mailpit (compose.yaml), whose
 # inbox is on 127.0.0.1 only. Mail can trail the request that sent it by a moment,
 # so this polls for a few seconds; it prints nothing and exits 1 if no email came.
-# Reads the newest message for that address, so register or resend first.
+# Reads the newest message for that address, so register or resend first. The token
+# then goes to POST /auth/activate with the password the student chooses (#309).
+# Links expire after ACTIVATION_TOKEN_TTL_MINUTES (30 by default).
 set -euo pipefail
 
 email="${1:?usage: $0 <email>}"

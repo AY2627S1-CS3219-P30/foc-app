@@ -38,7 +38,7 @@
 POST {{userBase}}/auth/register
 Content-Type: application/json
 
-{ "email": "{{requesterEmail}}", "password": "{{password}}", "displayName": "ORD-14 Requester" }
+{ "email": "{{requesterEmail}}", "displayName": "ORD-14 Requester" }
 
 ### 1b · Read the requester's activation token from the email
 # The email is in Mailpit (http://localhost:8025). From the repo root, run
@@ -50,7 +50,7 @@ Content-Type: application/json
 POST {{userBase}}/auth/activate
 Content-Type: application/json
 
-{ "token": "{{requesterToken}}" }
+{ "token": "{{requesterToken}}", "password": "{{password}}" }
 
 ### 1d · Requester login — expect 200
 # @name requesterLogin
@@ -66,7 +66,7 @@ Content-Type: application/json
 POST {{userBase}}/auth/register
 Content-Type: application/json
 
-{ "email": "{{courierEmail}}", "password": "{{password}}", "displayName": "ORD-14 Courier" }
+{ "email": "{{courierEmail}}", "displayName": "ORD-14 Courier" }
 
 ### 1f · Read the courier's activation token
 # ./scripts-activation-token.sh <courierEmail>, pasted here:
@@ -76,7 +76,7 @@ Content-Type: application/json
 POST {{userBase}}/auth/activate
 Content-Type: application/json
 
-{ "token": "{{courierToken}}" }
+{ "token": "{{courierToken}}", "password": "{{password}}" }
 
 ### 1h · Courier login — expect 200
 # @name courierLogin
@@ -92,7 +92,7 @@ Content-Type: application/json
 POST {{userBase}}/auth/register
 Content-Type: application/json
 
-{ "email": "{{bystanderEmail}}", "password": "{{password}}", "displayName": "ORD-14 Bystander" }
+{ "email": "{{bystanderEmail}}", "displayName": "ORD-14 Bystander" }
 
 ### 1j · Read the bystander's activation token
 # ./scripts-activation-token.sh <bystanderEmail>, pasted here:
@@ -102,7 +102,7 @@ Content-Type: application/json
 POST {{userBase}}/auth/activate
 Content-Type: application/json
 
-{ "token": "{{bystanderToken}}" }
+{ "token": "{{bystanderToken}}", "password": "{{password}}" }
 
 ### 1l · Bystander login — expect 200
 # @name bystanderLogin
