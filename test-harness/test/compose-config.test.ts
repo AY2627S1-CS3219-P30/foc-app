@@ -673,6 +673,97 @@ describe('scripts-init-env.sh', () => {
     expect(readFileSync(join(dir, '.env'), 'utf8')).toBe(old);
   });
 
+  /** An .env from before Chat joined: complete by name, but its key isn't in User's list. */
+  function fromBeforeChat() {
+    const box = sandbox();
+    box.run();
+    const before = box.env();
+    const stale = readFileSync(join(box.dir, '.env'), 'utf8').replace(
+      `,${before.CHAT_INTERNAL_KEY}`,
+      '',
+    );
+    writeFileSync(join(box.dir, '.env'), stale);
+    return { ...box, before, stale };
+  }
+
+  it('--check fails when a list of keys lacks a service’s key, naming both and changing nothing', () => {
+    const { dir, run, before, stale } = fromBeforeChat();
+
+    const result = run('--check');
+
+    const said = result.stdout + result.stderr;
+    expect(result.status).toBe(1);
+    expect(said).toContain('INTERNAL_SERVICE_KEYS does not include CHAT_INTERNAL_KEY');
+    expect(said).toContain('./scripts-init-env.sh');
+    expect(said).not.toContain(before.CHAT_INTERNAL_KEY!);
+    expect(readFileSync(join(dir, '.env'), 'utf8')).toBe(stale);
+  });
+
+  it('adds a service’s key a list lacks, says to restart, and then --check passes', () => {
+    const { run, env, before } = fromBeforeChat();
+
+    const result = run();
+
+    const said = result.stdout + result.stderr;
+    expect(result.status).toBe(0);
+    expect(env().INTERNAL_SERVICE_KEYS).toBe(before.INTERNAL_SERVICE_KEYS);
+    expect(said).toContain('INTERNAL_SERVICE_KEYS now includes CHAT_INTERNAL_KEY');
+    expect(said).toContain('docker compose up -d');
+    expect(said).not.toContain(before.CHAT_INTERNAL_KEY!);
+    expect(run('--check').status).toBe(0);
+  });
+
+  it('keeps what a list holds beyond its services’ keys, in any order', () => {
+    const { dir, run, env } = sandbox();
+    run();
+    const v = env();
+    const mine = [v.CHAT_INTERNAL_KEY, 'a-key-being-rotated-out-0123456789', v.ORDER_INTERNAL_KEY];
+    const list = [...mine, v.CREDIT_INTERNAL_KEY, v.SUPPLIER_INTERNAL_KEY].join(',');
+    const changed = readFileSync(join(dir, '.env'), 'utf8').replace(
+      /^INTERNAL_SERVICE_KEYS=.*$/m,
+      `INTERNAL_SERVICE_KEYS=${list}`,
+    );
+    writeFileSync(join(dir, '.env'), changed);
+
+    expect(run('--check').status).toBe(0);
+    expect(run().status).toBe(0);
+
+    expect(readFileSync(join(dir, '.env'), 'utf8')).toBe(changed);
+  });
+
+  it('fills a list left empty, with no stray comma', () => {
+    const { dir, run, env } = sandbox();
+    run();
+    const v = env();
+    writeFileSync(
+      join(dir, '.env'),
+      readFileSync(join(dir, '.env'), 'utf8').replace(
+        /^CREDIT_INBOUND_SERVICE_KEYS=.*$/m,
+        'CREDIT_INBOUND_SERVICE_KEYS=',
+      ),
+    );
+
+    expect(run('--check').status).toBe(1);
+    expect(run().status).toBe(0);
+
+    expect(env().CREDIT_INBOUND_SERVICE_KEYS).toBe(v.ORDER_INTERNAL_KEY);
+  });
+
+  it('leaves a value built from others alone when it is not a list, such as a URL', () => {
+    const { dir, run } = sandbox();
+    run();
+    const changed = readFileSync(join(dir, '.env'), 'utf8').replace(
+      /^HOST_POSTGRES_URL=.*$/m,
+      'HOST_POSTGRES_URL=postgres://someone:else@db.example:5432/postgres',
+    );
+    writeFileSync(join(dir, '.env'), changed);
+
+    expect(run('--check').status).toBe(0);
+    expect(run().status).toBe(0);
+
+    expect(readFileSync(join(dir, '.env'), 'utf8')).toBe(changed);
+  });
+
   it('says to start the volumes afresh when it adds a database password to an existing .env', () => {
     const { dir, run } = sandbox();
     writeFileSync(join(dir, '.env'), 'MY_OWN_SETTING=1\n');
