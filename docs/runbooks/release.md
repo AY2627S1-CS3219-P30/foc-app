@@ -45,8 +45,12 @@ any, and creates a Release last.
 
 ## Rehearse it
 
-Start the Release page's commands from a checkout of the tag. If `pull` says `denied`, the packages
-are private: see the README's [Published images](../../README.md#published-images).
+Start the Release page's commands from a checkout of the tag. If `pull` says `unauthorized` or
+`denied`, the packages are private: see the README's
+[Published images](../../README.md#published-images).
+
+To rehearse the demo on it, run `FOC_IMAGE_TAG=<the tag> ./scripts-seed-demo.sh --fresh` from that
+checkout, as the [D4 runbook](../demo/d4-runbook.md#start-from-zero) says.
 
 To rehearse rolling back to the previous release, read its Release for its commit, review the
 migrations between the two as the [rollback runbook](backup-restore-rollback.md) says, and run the
