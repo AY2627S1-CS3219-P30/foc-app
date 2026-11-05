@@ -45,6 +45,12 @@ it('removes the password from every pending account, and only from those', async
       ('00000000-0000-4000-8000-000000000001', 'a-pending@u.nus.edu', 'planted-hash', 'PENDING_ACTIVATION'),
       ('00000000-0000-4000-8000-000000000002', 'b-active@u.nus.edu', 'active-hash', 'ACTIVE'),
       ('00000000-0000-4000-8000-000000000003', 'c-suspended@u.nus.edu', 'suspended-hash', 'SUSPENDED');
+    -- Issued under the old 24-hour lifetime: one unused, one used (its expiry is history).
+    INSERT INTO activation_tokens (id, user_id, token_hash, expires_at, consumed_at) VALUES
+      ('00000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-000000000001',
+       'unused', now() + interval '24 hours', NULL),
+      ('00000000-0000-4000-8000-0000000000a2', '00000000-0000-4000-8000-000000000002',
+       'used', '2030-01-01T00:00:00Z', now());
   `);
 
   await migrate(orm, { migrationsFolder: MIGRATIONS_DIR });
@@ -54,6 +60,17 @@ it('removes the password from every pending account, and only from those', async
     { email: 'b-active@u.nus.edu', status: 'ACTIVE', password_hash: 'active-hash' },
     { email: 'c-suspended@u.nus.edu', status: 'SUSPENDED', password_hash: 'suspended-hash' },
   ]);
+
+  const tokens = await db.query<{ token_hash: string; ttl: number; expires_at: Date }>(
+    `SELECT token_hash, extract(epoch FROM expires_at - now())::int AS ttl, expires_at
+       FROM activation_tokens ORDER BY token_hash`,
+  );
+  const unused = tokens.rows.find((t) => t.token_hash === 'unused');
+  const used = tokens.rows.find((t) => t.token_hash === 'used');
+  // A live link now lasts at most the new 30 minutes.
+  expect(Number(unused!.ttl)).toBeGreaterThan(29 * 60);
+  expect(Number(unused!.ttl)).toBeLessThanOrEqual(30 * 60);
+  expect(new Date(used!.expires_at).toISOString()).toBe('2030-01-01T00:00:00.000Z');
 });
 
 it('refuses an account that is not pending but has no password', async () => {
