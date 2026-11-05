@@ -284,7 +284,7 @@ export function OrderDetail({ orderId }: { orderId: string }) {
     <>
       <main className={styles.page}>
         <div className={styles.panel}>
-          <ScreenHeader title={title} className={styles.header} />
+          <ScreenHeader title={title} />
           <div className={styles.body}>
             {body}
             {order && role && <ChatPanel orderId={orderId} version={order.version} final={isFinal(order.status)} />}

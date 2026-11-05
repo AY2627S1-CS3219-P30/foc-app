@@ -3,10 +3,8 @@
 import Link from "next/link";
 import { use, useCallback, useState } from "react";
 import { buttonClass } from "@/components/Button";
-import { DesktopPanel } from "@/components/DesktopPanel";
+import { ResponsivePanel } from "@/components/ResponsivePanel";
 import { NavRow } from "@/components/NavRow";
-import { Screen, ScreenContent } from "@/components/Screen";
-import { ScreenHeader } from "@/components/ScreenHeader";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
 import { formatWhen } from "@/lib/admin-labels";
 import { ApiError } from "@/lib/api-client";
@@ -94,17 +92,5 @@ export default function ReceiptPage({ params }: { params: Promise<{ id: string }
     <LoadingState label="Loading the receipt…" rows={2} />
   );
 
-  return (
-    <>
-      <div className="mobileOnly">
-        <Screen>
-          <ScreenHeader title="Receipt" />
-          <ScreenContent>{body}</ScreenContent>
-        </Screen>
-      </div>
-      <div className="desktopOnly">
-        <DesktopPanel title="Receipt">{body}</DesktopPanel>
-      </div>
-    </>
-  );
+  return <ResponsivePanel title="Receipt">{body}</ResponsivePanel>;
 }

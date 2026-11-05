@@ -73,25 +73,3 @@ textarea {
   clip-path: inset(50%);
   white-space: nowrap;
 }
-
-/* ---- Responsive layout switch ----
-   Screens with a real desktop treatment render both trees; CSS picks
-   one so there's no client-only layout flash or hydration mismatch. */
-
-.mobileOnly {
-  display: block;
-}
-
-.desktopOnly {
-  display: none;
-}
-
-@media (min-width: 768px) {
-  .mobileOnly {
-    display: none;
-  }
-
-  .desktopOnly {
-    display: block;
-  }
-}

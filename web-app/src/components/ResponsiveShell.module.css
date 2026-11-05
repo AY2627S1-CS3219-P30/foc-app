@@ -1,4 +1,4 @@
-/* Phone first: the same frame as Screen + AppBar + ScreenContent. */
+/* Phone first: a phone-wide column under the app bar. */
 .shell {
   max-width: var(--size-phone);
   margin: 0 auto;
@@ -39,7 +39,8 @@
   display: contents;
 }
 
-.back {
+.back,
+.actions {
   display: none;
 }
 
@@ -102,6 +103,11 @@
 
   .back:hover {
     background: var(--color-surface);
+  }
+
+  .actions {
+    display: block;
+    margin-left: auto;
   }
 
   .heading {

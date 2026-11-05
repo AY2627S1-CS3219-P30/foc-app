@@ -6,15 +6,13 @@ import { LiveLabel } from "./LiveLabel";
 
 export function AppBar({
   title,
-  heading = false,
   onBack,
-  onPlusClick,
+  action,
 }: {
   title: string;
-  /** The title is the page's heading, on a screen with no other (ResponsiveShell has its own). */
-  heading?: boolean;
   onBack?: () => void;
-  onPlusClick?: () => void;
+  /** The screen's main action, as a `+`. */
+  action?: { label: string; onClick: () => void };
 }) {
   const { setMenuOpen } = useStore();
   return (
@@ -29,11 +27,11 @@ export function AppBar({
         </button>
       )}
       <span className={styles.titleBlock}>
-        {heading ? <h1 className={styles.title}>{title}</h1> : <span className={styles.title}>{title}</span>}
+        <span className={styles.title}>{title}</span>
         <LiveLabel onBar />
       </span>
-      {onPlusClick ? (
-        <button className={styles.iconBtn} aria-label="New request" onClick={onPlusClick}>
+      {action ? (
+        <button className={styles.iconBtn} aria-label={action.label} onClick={action.onClick}>
           +
         </button>
       ) : (

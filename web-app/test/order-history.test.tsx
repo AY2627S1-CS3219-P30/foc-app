@@ -17,8 +17,8 @@ mock.module("next/navigation", () => ({
   useRouter: () => ({ push: () => {}, back: () => {} }),
   useSearchParams: () => new URLSearchParams(),
 }));
-mock.module("../src/components/DesktopShell", () => ({
-  DesktopShell: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+mock.module("../src/components/ResponsiveShell", () => ({
+  ResponsiveShell: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 const { default: OrderHistoryPage } = await import("../src/app/(app)/order-history/page");
 const { StoreProvider } = await import("../src/lib/store");
@@ -121,7 +121,6 @@ async function render() {
   await settle();
 }
 
-/** The page renders a phone and a desktop tree; the first is enough. */
 const section = (title: string) =>
   [...container.querySelectorAll("section")].find((s) => s.querySelector("h2")?.textContent === title);
 
@@ -174,6 +173,12 @@ describe("order history (WEB-03)", () => {
     expect(container.textContent).not.toContain("Supplier past-request");
     expect(requested.some((url) => url.includes("/orders/mine?role=COURIER"))).toBe(true);
     expect(requested.some((url) => url.includes("/orders/mine?role=REQUESTER&active=true"))).toBe(true);
+  });
+
+  it("renders each errand once, at every width (#367)", async () => {
+    serve([errand("done", "COMPLETED")]);
+    await render();
+    expect(container.textContent!.match(/Supplier done/g)).toHaveLength(1);
   });
 
   it("links to the receipt from completed errands only", async () => {

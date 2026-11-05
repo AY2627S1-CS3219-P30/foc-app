@@ -17,8 +17,18 @@ mock.module('next/navigation', () => ({
   useRouter: () => router,
   useSearchParams: () => new URLSearchParams(),
 }));
-mock.module('../src/components/DesktopShell', () => ({
-  DesktopShell: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+/** What the page asked the shell for; `responsive-shell.test.tsx` tests what the shell does with it. */
+let shell: { title?: string; barTitle?: string; primaryAction?: { label: string; onClick: () => void } } = {};
+mock.module('../src/components/ResponsiveShell', () => ({
+  ResponsiveShell: ({ children, ...props }: { children: React.ReactNode; title: string }) => {
+    shell = props;
+    return (
+      <>
+        <h1>{props.title}</h1>
+        {children}
+      </>
+    );
+  },
 }));
 const { default: FeedPage } = await import('../src/app/(app)/feed/page');
 const { default: OrderHistoryPage } = await import('../src/app/(app)/order-history/page');
@@ -331,19 +341,19 @@ describe('feed', () => {
     expect(button(container, 'Load more')).toBeTruthy();
     await act(async () => button(container, 'Load more').click());
     await flush();
-    const mobile = () => container.querySelector('.mobileOnly')!.textContent!;
-    expect(mobile()).toContain('Older cafe');
-    expect(mobile().match(/First cafe/g)).toHaveLength(1);
+    const feed = () => container.textContent!;
+    expect(feed()).toContain('Older cafe');
+    expect(feed().match(/First cafe/g)).toHaveLength(1);
 
     await act(async () => window.dispatchEvent(new window.Event('online')));
     await flush();
-    expect(mobile()).toContain('Older cafe');
+    expect(feed()).toContain('Older cafe');
 
     const workingFeed = service.feed;
     service.feed = () => failure(503, 'INTERNAL');
     await act(async () => window.dispatchEvent(new window.Event('online')));
     await flush();
-    expect(mobile()).toContain('Older cafe');
+    expect(feed()).toContain('Older cafe');
     service.feed = workingFeed;
 
     const building = container.querySelector('input[placeholder="e.g. COM2"]') as HTMLInputElement;
@@ -353,8 +363,8 @@ describe('feed', () => {
     });
     await flush();
     expect(service.queries.filter((query) => query.startsWith('/orders')).at(-1)).toContain('pickupBuilding=COM2');
-    expect(mobile()).toContain('Filtered cafe');
-    expect(mobile()).not.toContain('Older cafe');
+    expect(feed()).toContain('Filtered cafe');
+    expect(feed()).not.toContain('Older cafe');
     expect(buttons(container, 'Load more')).toEqual([]);
 
     const reward = container.querySelector('input[type="number"]') as HTMLInputElement;
@@ -364,6 +374,13 @@ describe('feed', () => {
     });
     await flush();
     expect(service.queries.filter((query) => query.startsWith('/orders')).at(-1)).toContain('minReward=4');
+  });
+
+  it('names the page the same at every width, with nothing to post, in courier mode', async () => {
+    await render(<FeedPage />, fakeOrderService());
+    expect(shell.title).toBe('Open errands');
+    expect(shell.barTitle).toBeUndefined();
+    expect(shell.primaryAction).toBeUndefined();
   });
 
   it('counts down from the time the server gave and removes the card at zero', async () => {
@@ -499,7 +516,10 @@ describe('requester open requests', () => {
     expect(service.queries).not.toContain('/orders');
     expect(container.querySelector('a[href="/request/past"]')).toBeNull();
     expect(buttons(container, 'Accept')).toEqual([]);
-    expect(container.querySelector('button[aria-label="New request"]')).not.toBeNull();
+    expect(shell.title).toBe('Active requests');
+    expect(shell.primaryAction?.label).toBe('New request');
+    shell.primaryAction!.onClick();
+    expect(router.push).toHaveBeenCalledWith('/request/new');
   });
 
   it('shows a withdrawal notice immediately in requester mode', async () => {
