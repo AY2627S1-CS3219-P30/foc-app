@@ -158,9 +158,6 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/ActivateRequest' }
-            example:
-              token: Zm9jLWFjdGl2YXRpb24tdG9rZW4tZXhhbXBsZQ
-              password: correct-horse-battery-staple
       responses:
         '200':
           description: Account is active (first activation or idempotent replay).

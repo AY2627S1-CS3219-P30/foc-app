@@ -1535,12 +1535,6 @@ export interface operations {
         };
         requestBody: {
             content: {
-                /**
-                 * @example {
-                 *       "token": "Zm9jLWFjdGl2YXRpb24tdG9rZW4tZXhhbXBsZQ",
-                 *       "password": "correct-horse-battery-staple"
-                 *     }
-                 */
                 "application/json": components["schemas"]["ActivateRequest"];
             };
         };
