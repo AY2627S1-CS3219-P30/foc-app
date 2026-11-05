@@ -195,7 +195,62 @@ describe('the retention cleanup works through channels in batches', () => {
     const finished: string[] = [];
     await expect(cleanup(chat, async () => ended).sweep()).rejects.toThrow('database unavailable');
     expect(pages).toHaveLength(1);
-    // The other worker finishes the page: `sweep` settles only when nothing is left running.
+    // The page finishes: `sweep` settles only when every channel on it has been tried.
     expect(finished).toEqual(['order-2', 'order-3']);
+  });
+
+  it('finishes the page after a failed delete when working one at a time too', async () => {
+    const { chat, pages } = repository(ids(7));
+    const finished: string[] = [];
+    chat.deleteChannel = async (orderId: string) => {
+      if (orderId === 'order-1') throw new Error('database unavailable');
+      finished.push(orderId);
+    };
+    const sweep = cleanup(chat, async () => ended, { batchSize: 3, concurrency: 1 }).sweep();
+    await expect(sweep).rejects.toThrow('database unavailable');
+    expect(pages).toHaveLength(1);
+    expect(finished).toEqual(['order-2', 'order-3']);
+  });
+
+  it('logs what a failed run had already done', async () => {
+    const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const { chat } = repository(ids(3));
+    chat.deleteChannel = async (orderId: string) => {
+      if (orderId === 'order-2') throw new Error('database unavailable');
+    };
+    const run = cleanup(chat, async () => ended);
+    run.start();
+    await vi.waitFor(() => expect(error).toHaveBeenCalled());
+    await run.onApplicationShutdown();
+    expect(error.mock.calls[0]![0]).toMatchObject({ deleted: 2, skipped: 0 });
+    error.mockRestore();
+  });
+
+  it.each([{ batchSize: 0 }, { batchSize: -1 }, { batchSize: 1.5 }, { concurrency: 0 }])(
+    'refuses to start with %o, which could never finish a run',
+    (sizes) => {
+      const { chat } = repository([]);
+      expect(() =>
+        cleanup(chat, async () => ended, { batchSize: 3, concurrency: 2, ...sizes }),
+      ).toThrow(/at least 1/);
+    },
+  );
+
+  it('handles a page shorter than the concurrency', async () => {
+    const { chat, pages, deleted } = repository(ids(2));
+    const result = await cleanup(chat, async () => ended, { batchSize: 5, concurrency: 5 }).sweep();
+    expect(result.deleted).toBe(2);
+    expect(deleted).toHaveLength(2);
+    expect(pages).toHaveLength(1);
+  });
+
+  it('skips every channel, and deletes nothing, while Order stays down across pages', async () => {
+    const { chat, pages, deleted } = repository(ids(7));
+    const result = await cleanup(chat, async () => {
+      throw new Error('Order Service unavailable');
+    }).sweep();
+    expect(result).toEqual({ deleted: 0, kept: 0, skipped: 7, unknown: 0 });
+    expect(deleted).toEqual([]);
+    expect(pages).toHaveLength(3);
   });
 });

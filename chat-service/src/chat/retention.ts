@@ -25,6 +25,7 @@ export interface RetentionOptions {
   intervalMs: number;
   /** How soon a run that skipped a channel is tried once more, rather than a whole interval on. */
   retryMs: number;
+  /** Whole numbers of at least 1; the constructor refuses others. */
   batchSize?: number;
   concurrency?: number;
 }
@@ -39,10 +40,12 @@ export interface CleanupResult {
   unknown: number;
 }
 
+const noResult = (): CleanupResult => ({ deleted: 0, kept: 0, skipped: 0, unknown: 0 });
+
 /**
- * Runs `work` on every item, on at most `limit` at once. It settles only when nothing is left
- * running, so a shutdown that waits for a run waits for all of it, and then throws the first
- * failure.
+ * Runs `work` on every item, on at most `limit` at once. One that fails stops nothing else. It
+ * settles only when every item has been tried, so a shutdown that waits for a run waits for all of
+ * it, and then throws the first failure.
  */
 async function eachAtMost<T>(
   items: T[],
@@ -50,13 +53,14 @@ async function eachAtMost<T>(
   work: (item: T) => Promise<void>,
 ): Promise<void> {
   const queue = items.values();
+  const failures: unknown[] = [];
   const worker = async () => {
-    for (const item of queue) await work(item);
+    for (const item of queue) {
+      await work(item).catch((err: unknown) => failures.push(err));
+    }
   };
-  const workers = Array.from({ length: Math.min(limit, items.length) }, worker);
-  for (const outcome of await Promise.allSettled(workers)) {
-    if (outcome.status === 'rejected') throw outcome.reason;
-  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  if (failures.length > 0) throw failures[0];
 }
 
 /**
@@ -72,7 +76,7 @@ async function eachAtMost<T>(
  *
  * A run reads channels a page at a time and asks about a few at once, so its memory stays flat and
  * its length doesn't grow one lookup at a time with the channel count. A failed delete ends the run:
- * the page under way finishes, and the next interval starts again.
+ * the page under way finishes, the run logs what it had done, and the next interval starts again.
  *
  * `main.ts` starts it once the service listens, so an app built only to test runs no sweep. It
  * runs at once, so a restart never postpones it by a whole interval, and then every interval (a
@@ -89,7 +93,14 @@ export class RetentionCleanup implements OnApplicationShutdown {
     @Inject(ChatRepository) private readonly chat: ChatRepository,
     @Inject(Upstreams) private readonly upstreams: Upstreams,
     @Inject(RETENTION_OPTIONS) private readonly options: RetentionOptions,
-  ) {}
+  ) {
+    for (const size of ['batchSize', 'concurrency'] as const) {
+      const value = options[size];
+      if (value !== undefined && !(Number.isInteger(value) && value >= 1)) {
+        throw new Error(`Retention ${size} must be a whole number of at least 1.`);
+      }
+    }
+  }
 
   start(): void {
     void this.tick();
@@ -107,9 +118,10 @@ export class RetentionCleanup implements OnApplicationShutdown {
   /** `retrying`: this run is the retry, so skipping again waits for the next interval. */
   private async tick(retrying = false): Promise<void> {
     if (this.running) return;
-    this.running = this.sweep();
+    const result = noResult();
+    this.running = this.sweep(Date.now(), result);
     try {
-      const result = await this.running;
+      await this.running;
       this.logger.log({ ...result, msg: 'chat retention cleanup ran' });
       if (result.skipped > 0 && !retrying && !this.retry && this.timer) {
         this.retry = setTimeout(() => {
@@ -119,14 +131,18 @@ export class RetentionCleanup implements OnApplicationShutdown {
         this.retry.unref();
       }
     } catch (err) {
-      this.logger.error({ err, msg: 'chat retention cleanup failed; will retry next interval' });
+      this.logger.error({
+        ...result,
+        err,
+        msg: 'chat retention cleanup failed; will retry next interval',
+      });
     } finally {
       this.running = undefined;
     }
   }
 
-  async sweep(now = Date.now()): Promise<CleanupResult> {
-    const result: CleanupResult = { deleted: 0, kept: 0, skipped: 0, unknown: 0 };
+  /** `result` is filled as the run goes, so a caller still has the count if the run fails. */
+  async sweep(now = Date.now(), result = noResult()): Promise<CleanupResult> {
     const cutoff = new Date(now - this.options.retentionDays * DAY_MS);
     const { batchSize = SWEEP_BATCH_SIZE, concurrency = SWEEP_CONCURRENCY } = this.options;
     let after: string | undefined;
