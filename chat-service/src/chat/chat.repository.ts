@@ -8,7 +8,7 @@ import { MAX_SEQ, type Page } from './validation.js';
 export const SEND_LIMIT = { messages: 20, windowSeconds: 60 } as const;
 
 /** The advisory-lock namespace that serializes one sender's sends, for the rate limit. */
-const SENDER_LOCK = 0x63686174; // 'chat'
+export const SENDER_LOCK = 0x63686174; // 'chat'
 
 export type SendResult =
   | { message: Message; created: boolean }
@@ -103,9 +103,10 @@ export class ChatRepository {
 
   /**
    * Stores a message as the channel's next `seq`, or finds the one this `clientId` already stored.
-   * The channel's row lock orders sends on it, so a retry racing its original finds it here. A new
-   * message then takes the sender's advisory lock, always second, so one sender's sends on
-   * different channels count and insert one at a time and a burst cannot pass the limit.
+   * The sender's advisory lock comes first, so one sender's sends on different channels count and
+   * insert one at a time and a burst cannot pass the limit. The channel's row lock comes second and
+   * orders sends on it. Always in that order: a sender waiting for their own lock then holds no
+   * channel, so it stalls no one else, and a transaction holding a channel waits for nothing more.
    */
   async send(
     orderId: string,
@@ -114,13 +115,13 @@ export class ChatRepository {
     body: string,
   ): Promise<SendResult> {
     return this.db.transaction(async (tx) => {
+      await tx.query('SELECT pg_advisory_xact_lock($1, hashtext($2))', [SENDER_LOCK, senderId]);
       const { rows } = await tx.query<{ latest_seq: number } & Row>(
         'SELECT latest_seq FROM channels WHERE order_id = $1 FOR UPDATE',
         [orderId],
       );
       const stored = await this.findSent(orderId, senderId, clientId, tx);
       if (stored) return { message: stored, created: false };
-      await tx.query('SELECT pg_advisory_xact_lock($1, hashtext($2))', [SENDER_LOCK, senderId]);
       const retryAfter = await this.retryAfter(tx, senderId);
       if (retryAfter !== undefined) return { retryAfter };
       const seq = Number(rows[0]!.latest_seq) + 1;
