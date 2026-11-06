@@ -3,14 +3,16 @@
     python3 load/report.py OUT_DIR REPORT_PATH
 
 OUT_DIR holds k6's user.json, supplier.json, credit.json and order.json (see load/lib.js), and
-live.json from load/live.mjs, the live-update streams held while those ran (N1.4, #332). The rest
-comes from the environment: STUDENTS, SUPPLIERS, WALLETS, ERRANDS (what the harness counted after
+live.json from load/live.mjs, the live-update streams held while those ran (N1.4, #332), and
+credit-requested.psv and credit-recorded.psv, each credit step as `order|kind|epoch seconds`, from
+the Order and Credit databases (CS-NFR3.1.1). The rest comes from the environment: STUDENTS, SUPPLIERS, WALLETS, ERRANDS (what the harness counted after
 seeding), USER_READY, SESSION, CREDIT_READY, WALLET, STABLE and OTHER_CONTAINERS (how many
 containers outside the load stack were running). Writes the report, then exits 3 if it says any
 target was missed.
 """
 
 import json
+import math
 import os
 import platform
 import subprocess
@@ -98,14 +100,37 @@ live_checks = [
 missed += sum(not ok for *_, ok in live_checks)
 live_rows = "\n".join(f"| {check} | {target} | {measured} | {verdict(ok)} |" for check, target, measured, ok in live_checks)
 
+# CS-NFR3.1.1: each credit step the run asked for, from when the Order Service asked for it to when
+# the Credit Service recorded its decision. One never recorded counts as late, and each kind must
+# have been measured at least once.
+def steps(name):
+    path = os.path.join(out, name)
+    lines = open(path).read().splitlines() if os.path.exists(path) else []
+    return {(order, kind): float(at) for order, kind, at in (line.split("|") for line in lines if line)}
+
+
+requested, recorded = steps("credit-requested.psv"), steps("credit-recorded.psv")
+KINDS = {"RESERVE": "reservations", "TRANSFER": "transfers", "RELEASE": "returns"}
+in_time = {kind: 0 for kind in KINDS}
+asked = {kind: 0 for kind in KINDS}
+for (order, kind), at in requested.items():
+    asked[kind] += 1
+    done = recorded.get((order, kind))
+    in_time[kind] += done is not None and done - at <= 5
+total_in_time, total_asked = sum(in_time.values()), sum(asked.values())
+steps_ok = all(asked.values()) and total_in_time >= 0.99 * total_asked
+# Rounded down, so a share just under 99% never reads as 99.0%.
+share = f"{math.floor(1000 * total_in_time / total_asked) / 10}%" if total_asked else "none measured"
+by_kind = ", ".join(f"{in_time[k]:,} of {asked[k]:,} {name}" for k, name in KINDS.items())
+
 user_ok = restarted(env["USER_READY"], env["SESSION"])
 credit_ok = restarted(env["CREDIT_READY"], env["WALLET"])
 ordering_ok = env["STABLE"] == "yes"
-# OS-NFR2.1.2: a cancel starts a credit return, so an answer that already says the return is
-# pending did not wait for the Credit Service.
+# OS-NFR2.1.2: a cancel starts a credit return and a confirmation a transfer, so an answer that
+# already says its step is pending did not wait for the Credit Service.
 waits = runs["order"]["creditPending"]
 unblocked_ok = waits["answers"] > 0 and waits["pending"] == waits["answers"]
-missed += (not user_ok) + (not credit_ok) + (not ordering_ok) + (not unblocked_ok)
+missed += (not user_ok) + (not credit_ok) + (not ordering_ok) + (not unblocked_ok) + (not steps_ok)
 
 cpus, memory = (run("docker", "info", "--format", "{{.NCPU}} {{.MemTotal}}").split() + ["?", "0"])[:2]
 machine = f"{platform.system()} {platform.machine()}; Docker with {cpus} CPUs and {int(memory) / 2**30:.1f} GiB"
@@ -133,14 +158,15 @@ on a stack of its own, from commit `{commit()}`.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 {chr(10).join(rows)}
 
-## Restarts, ordering and commands
+## Restarts, ordering, commands and credit steps
 
 | Requirement | Check | Measured | Result |
 | --- | --- | --- | --- |
 | US-NFR3.1.2 | User Service ready after a restart (≤ 60 s), a session from before still valid | {env["USER_READY"]} s; the session answers {env["SESSION"]} | {verdict(user_ok)} |
 | CS-NFR3.1.2 | Credit Service ready after a restart (≤ 60 s) | {env["CREDIT_READY"]} s; a wallet read answers {env["WALLET"]} | {verdict(credit_ok)} |
 | SS-NFR2.1.2 | The same supplier query, twice, returns the same order | {env["STABLE"]} | {verdict(ordering_ok)} |
-| OS-NFR2.1.2 | A cancel answers before its credit return, saying the return is pending | {waits["pending"]} of {waits["answers"]} answers | {verdict(unblocked_ok)} |
+| OS-NFR2.1.2 | A cancel or a confirmation answers before its credit step, saying the step is pending | {waits["pending"]} of {waits["answers"]} answers | {verdict(unblocked_ok)} |
+| CS-NFR3.1.1 | Reservations, transfers and returns recorded within 5 s of being requested (≥ 99%) | {share} ({by_kind}) | {verdict(steps_ok)} |
 
 ## Live updates (N1.4)
 
@@ -155,8 +181,7 @@ the requester's stream ([#332](https://github.com/AY2627S1-CS3219-P30/foc-app/is
 {live_rows}
 
 That transfers and returns requested before a restart complete without repair (CS-NFR3.1.2) is
-checked by `./scripts-restart-check.sh`, which CI runs. The share of credit steps recorded within
-five seconds (CS-NFR3.1.1) is not measured here.
+checked by `./scripts-restart-check.sh`, which CI runs.
 """
 with open(report, "w") as file:
     file.write(text)

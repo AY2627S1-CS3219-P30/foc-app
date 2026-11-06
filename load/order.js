@@ -2,11 +2,14 @@
 // request and 500 ms for the open list or an errand's details. OS-NFR2.1.2: a state-changing
 // command returns its result within 700 ms, without waiting for a credit result.
 //
-// Two scenarios, one after the other. In `post` each virtual user posts an errand for its student,
-// waits until the credit is reserved and the errand is open, then cancels it. The cancel is the
-// command timed: it starts a credit step (the return), and its answer must already say that step
-// is pending, so it did not wait for the Credit Service. In `browse` each reads the open list as
-// the feed does, then opens one of the seeded errands.
+// Two scenarios, one after the other. In `post` each virtual user posts an errand for its student
+// and waits until the credit is reserved and the errand is open. It cancels every other errand,
+// which starts a credit return. The rest it carries as the next student, the courier: accept,
+// pickup, delivery, then its own student confirms receipt, which starts a transfer. Every command
+// is timed, and the answers that start a credit step must already say that step is pending, so
+// they did not wait for the Credit Service. In `browse` each reads the open list as the feed does,
+// then opens one of the seeded errands. How long each credit step took to be recorded
+// (CS-NFR3.1.1) is read from the databases afterwards, by ./scripts-load.sh.
 import { check, sleep } from 'k6';
 import http from 'k6/http';
 import { Rate } from 'k6/metrics';
@@ -16,6 +19,7 @@ import {
   SECONDS,
   student,
   summarise,
+  STUDENTS,
   SUMMARY_STATS,
   THINK_S,
   thresholds,
@@ -25,7 +29,10 @@ import {
 
 const TARGETS = { create: 700, open: 500, details: 500, command: 700 };
 
-/** Of the cancels answered, the share whose answer said the credit return was still pending. */
+/** How long a virtual user waits for its errand to open, checking once per pause. */
+const OPEN_WAIT_S = 10;
+
+/** Of the cancels and confirms answered, the share whose answer said the credit step was pending. */
 const pending = new Rate('credit_pending');
 
 export const options = {
@@ -58,8 +65,46 @@ const send = (token, endpoint, extra = {}) => ({
   tags: { endpoint },
 });
 
+/** One command on an errand, timed as `command`. Returns the answer when it was accepted. */
+function act(token, orderId, action, expectedVersion) {
+  const answer = http.post(
+    `${URL.order}/orders/${orderId}/${action}`,
+    JSON.stringify({ expectedVersion }),
+    send(token, 'command'),
+  );
+  // An accept answers 201, as the contract says; every other command 200.
+  const done = answer.status === (action === 'accept' ? 201 : 200);
+  check(answer, { [action]: () => done });
+  return done ? answer : null;
+}
+
+/**
+ * Every other errand is cancelled, which starts a credit return. The rest are carried by the
+ * courier and confirmed by the requester, which starts a transfer. Either answer must already say
+ * its credit step is pending.
+ */
+function settle(token, courier, orderId, version) {
+  if (__ITER % 2 === 0) {
+    const cancelled = act(token, orderId, 'cancel', version);
+    if (cancelled) pending.add(cancelled.json('status') === 'RELEASE_PENDING_CREDIT');
+    return;
+  }
+  let answer = act(courier, orderId, 'accept', version);
+  for (const action of ['pickup', 'deliver']) {
+    if (!answer) return;
+    sleep(THINK_S);
+    answer = act(courier, orderId, action, answer.json('version'));
+  }
+  if (!answer) return;
+  sleep(THINK_S);
+  const confirmed = act(token, orderId, 'confirm-receipt', answer.json('version'));
+  if (confirmed) pending.add(confirmed.json('status') === 'COMPLETION_PENDING_CREDIT');
+}
+
 export function post(data) {
   const token = data.tokens[student() - 1];
+  // Student n's courier is student n + 1, and the last student's is the first.
+  const courier = data.tokens[student() % STUDENTS];
   const created = http.post(
     `${URL.order}/orders`,
     JSON.stringify({
@@ -74,24 +119,15 @@ export function post(data) {
   check(created, { posted: (r) => r.status === 201 });
   if (created.status === 201) {
     const orderId = created.json('orderId');
-    // Untimed: how long the Credit Service takes to reserve is not the Order Service's answer.
+    // Untimed, and checked once per pause as a person would: how long the Credit Service takes
+    // to reserve is not the Order Service's answer.
     let version = null;
-    for (let i = 0; i < 50 && version === null; i++) {
-      sleep(0.1);
+    for (let waited = 0; waited < OPEN_WAIT_S && version === null; waited += THINK_S) {
+      sleep(THINK_S);
       const read = http.get(`${URL.order}/orders/${orderId}`, authed(token, 'wait'));
       if (read.json('status') === 'OPEN') version = read.json('version');
     }
-    if (version !== null) {
-      const cancelled = http.post(
-        `${URL.order}/orders/${orderId}/cancel`,
-        JSON.stringify({ expectedVersion: version }),
-        send(token, 'command'),
-      );
-      check(cancelled, { cancelled: (r) => r.status === 200 });
-      if (cancelled.status === 200) {
-        pending.add(cancelled.json('status') === 'RELEASE_PENDING_CREDIT');
-      }
-    }
+    if (version !== null) settle(token, courier, orderId, version);
   }
   sleep(THINK_S);
 }

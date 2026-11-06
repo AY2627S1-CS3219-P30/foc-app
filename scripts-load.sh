@@ -6,6 +6,7 @@
 #   SS-NFR2.1.1  list or search p95 <= 400 ms, lookup p95 <= 200 ms   1,000 suppliers, 100 users
 #   SS-NFR2.1.2  the same query on unchanged data returns the same order
 #   CS-NFR3.1.1  wallet lookup p95 <= 300 ms                          10,000 wallets, 100 users
+#                99% of reservations, transfers and returns recorded within 5 s of being requested
 #   CS-NFR3.1.2  ready within 60 s of a restart
 #   OS-NFR2.1.1  create p95 <= 700 ms, open list or details p95 <= 500 ms  10,000 errands, 100 users
 #   OS-NFR2.1.2  a state-changing command p95 <= 700 ms, its answer not waiting on a credit result
@@ -262,6 +263,35 @@ if [[ "$live_status" == 0 && -s "$OUT/live.json" ]]; then
   pass "the live-update client finished: live.json written"
 else
   fail "the live-update client stopped (exit $live_status), so live updates are not measured"
+fi
+
+# CS-NFR3.1.1: every credit step the run asked for, from when the Order Service asked for it to
+# when the Credit Service recorded its decision (a rejected reservation is recorded too). Read once
+# the live-update client has finished, so each step has had far longer than five seconds; one still
+# unrecorded counts as late. Seeded errands asked for none, so they are left out: the copies made
+# above, and the one the Order Service's first migration adds (system-tests leaves it out too).
+step "Credit steps" "When each reservation, transfer and return was requested, and when it was recorded."
+read_steps=ok
+psql_run foc_order >"$OUT/credit-requested.psv" <<'SQL' || read_steps=failed
+WITH posted AS (
+  SELECT * FROM orders
+   WHERE requester_id NOT LIKE 'load-%' AND order_id <> '00000000-0000-4000-8000-000000000129'
+)
+SELECT order_id, 'RESERVE', extract(epoch FROM created_at) FROM posted
+UNION ALL
+SELECT order_id, 'TRANSFER', extract(epoch FROM completion_requested_at) FROM posted
+ WHERE completion_requested_at IS NOT NULL
+UNION ALL
+SELECT order_id, 'RELEASE', extract(epoch FROM release_requested_at) FROM posted
+ WHERE release_requested_at IS NOT NULL;
+SQL
+psql_run foc_credit >"$OUT/credit-recorded.psv" <<'SQL' || read_steps=failed
+SELECT order_id, operation_type, extract(epoch FROM created_at) FROM credit_operations;
+SQL
+if [[ $read_steps == ok ]]; then
+  pass "$(wc -l <"$OUT/credit-requested.psv" | tr -d ' ') credit steps requested, $(wc -l <"$OUT/credit-recorded.psv" | tr -d ' ') recorded"
+else
+  fail "could not read the credit steps, so CS-NFR3.1.1 is not measured"
 fi
 
 # Student 1 signs in again: a token from seeding is too old by now (they live 15 minutes), and

@@ -90,6 +90,30 @@ describe('the load test (TST-03)', () => {
   it('runs k6 as this machine’s user, so it can write its summary into the directory it is given', () => {
     expect(read('scripts-load.sh')).toMatch(/docker run --rm --user "\$\(id -u\):\$\(id -g\)"/);
   });
+
+  it('waits for an errand to open once per pause, as a person would, not in a tight loop', () => {
+    const order = read('load/order.js');
+    expect(order).toContain('waited += THINK_S');
+    expect(order).not.toMatch(/sleep\(0\.\d+\)/);
+  });
+
+  it('leaves the seeded errands out of the credit steps (CS-NFR3.1.1), as they asked for none', () => {
+    const script = read('scripts-load.sh');
+    // The copies belong to the copied wallets' users, `load-000001` and on; the Order Service's
+    // first migration adds one more, which the Credit Service was never asked about.
+    expect(script).toContain("'load-' || lpad(g::text, 6, '0') AS requester_id");
+    expect(read('order-service/drizzle/0000_little_serpent_society.sql')).toContain(
+      "'00000000-0000-4000-8000-000000000129'",
+    );
+    const steps = script.slice(script.indexOf('credit-requested.psv'));
+    const reads = steps.slice(0, steps.indexOf('SQL\n', steps.indexOf('UNION ALL')));
+    expect(reads).toContain(
+      "WHERE requester_id NOT LIKE 'load-%' AND order_id <> '00000000-0000-4000-8000-000000000129'",
+    );
+    // Every kind of step is read from those errands only.
+    expect(reads.match(/FROM orders/g)).toHaveLength(1);
+    expect(reads.match(/FROM posted/g)).toHaveLength(3);
+  });
 });
 
 /**
@@ -181,6 +205,33 @@ describe('the load report', () => {
     latencyMs: { p50: 120, p95: 400, max: 700 },
   };
 
+  /**
+   * Credit steps as scripts-load.sh reads them from the two databases: for each, the kind, and how
+   * many seconds after it was requested it was recorded (`null`: never).
+   */
+  function writeSteps(out: string, steps: Array<[string, number | null]>) {
+    const asked: string[] = [];
+    const recorded: string[] = [];
+    steps.forEach(([kind, after], i) => {
+      const order = `order-${i}`;
+      asked.push(`${order}|${kind}|${1000 + i}`);
+      if (after !== null) recorded.push(`${order}|${kind}|${1000 + i + after}`);
+    });
+    writeFileSync(join(out, 'credit-requested.psv'), asked.join('\n'));
+    writeFileSync(join(out, 'credit-recorded.psv'), recorded.join('\n'));
+  }
+  const each = (
+    kind: string,
+    count: number,
+    after: number | null,
+  ): Array<[string, number | null]> => Array.from({ length: count }, () => [kind, after]);
+  /** 100 reservations, 50 transfers and 50 returns, each recorded 0.3 s after it was asked for. */
+  const ON_TIME = [
+    ...each('RESERVE', 100, 0.3),
+    ...each('TRANSFER', 50, 0.3),
+    ...each('RELEASE', 50, 0.3),
+  ];
+
   /** A repository with one commit, and the k6 summaries, each endpoint at `p95` of its target. */
   function measured(missed: string[] = [], live: Record<string, unknown> = {}) {
     const repo = temp();
@@ -212,6 +263,7 @@ describe('the load report', () => {
       writeFileSync(join(out, `${name}.json`), JSON.stringify(summary));
     }
     writeFileSync(join(out, 'live.json'), JSON.stringify({ ...LIVE, ...live }));
+    writeSteps(out, ON_TIME);
     const head = git('rev-parse', '--short', 'HEAD').toString().trim();
     return { repo, out, head };
   }
@@ -274,6 +326,45 @@ describe('the load report', () => {
       const { status, text } = write(run);
       expect(status, JSON.stringify(creditPending)).toBe(3);
       expect(text).toMatch(/\| OS-NFR2\.1\.2 \| .*credit.* \| \*\*Missed\*\* \|/);
+    }
+  });
+
+  it('reports the share of credit steps recorded within 5 s, by kind (CS-NFR3.1.1)', () => {
+    const { status, text } = write(measured());
+    expect(status).toBe(0);
+    expect(text).toContain(
+      '| 100.0% (100 of 100 reservations, 50 of 50 transfers, 50 of 50 returns) | Met |',
+    );
+  });
+
+  it('counts a step recorded 5 s after it was asked for as in time, and 99% as enough', () => {
+    const run = measured();
+    // 198 of 200 in time, one of them at exactly 5 s.
+    writeSteps(run.out, [
+      ...ON_TIME.slice(0, 197),
+      ['RELEASE', 5],
+      ['RESERVE', 5.1],
+      ['RESERVE', 9],
+    ]);
+    const { status, text } = write(run);
+    expect(status).toBe(0);
+    expect(text).toContain(
+      '| 99.0% (100 of 102 reservations, 50 of 50 transfers, 48 of 48 returns) | Met |',
+    );
+  });
+
+  it('exits 3 below 99%, for a step never recorded, a kind not measured, or none measured', () => {
+    for (const [why, steps] of [
+      ['98.5% in time', [...ON_TIME.slice(3), ...each('RESERVE', 3, 6)]],
+      ['three never recorded', [...ON_TIME.slice(3), ...each('RESERVE', 3, null)]],
+      ['no transfer measured', ON_TIME.filter(([kind]) => kind !== 'TRANSFER')],
+      ['none measured', []],
+    ] as const) {
+      const run = measured();
+      writeSteps(run.out, [...steps]);
+      const { status, text } = write(run);
+      expect(status, why).toBe(3);
+      expect(text, why).toMatch(/\| CS-NFR3\.1\.1 \| .* \| \*\*Missed\*\* \|/);
     }
   });
 
