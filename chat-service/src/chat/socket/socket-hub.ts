@@ -15,6 +15,11 @@ export interface SocketOptions {
   perUser: number;
   /** Sockets this instance holds, open or not yet signed in, before it refuses more. */
   perInstance: number;
+  /**
+   * Of those, sockets not yet signed in (#370). Smaller, so clients that never sign in cannot fill
+   * the instance and lock out signed-in users: they hold this many places at most.
+   */
+  pendingPerInstance: number;
 }
 
 /** What the hub needs of a WebSocket: the gateway's `ws` client, or a test's fake. */
@@ -119,6 +124,8 @@ export function tokenExpiry(token: string): number | undefined {
 export class SocketHub implements OnModuleDestroy {
   private readonly logger = new Logger(SocketHub.name);
   private readonly sockets = new Set<ChatSocket>();
+  /** The sockets in `sockets` that have not signed in yet. */
+  private readonly pending = new Set<ChatSocket>();
   private readonly byUser = new Map<string, Set<ChatSocket>>();
   private readonly nudges;
   private readonly closes;
@@ -157,10 +164,12 @@ export class SocketHub implements OnModuleDestroy {
     const socket: ChatSocket = { peer, state: { phase: 'awaiting-auth', authTimer }, alive: true };
     const refused = this.stopping
       ? 'shutdown'
-      : this.sockets.size >= this.options.perInstance
+      : this.sockets.size >= this.options.perInstance ||
+          this.pending.size >= this.options.pendingPerInstance
         ? 'too-many'
         : undefined;
     this.sockets.add(socket);
+    this.pending.add(socket);
     if (refused) {
       this.end(socket, refused);
       return socket;
@@ -238,6 +247,7 @@ export class SocketHub implements OnModuleDestroy {
 
   private open(socket: ChatSocket, authTimer: Timer, userId: string, token: string): void {
     clearTimeout(authTimer);
+    this.pending.delete(socket);
     const own = this.byUser.get(userId) ?? new Set<ChatSocket>();
     if (own.size >= this.options.perUser) return this.end(socket, 'too-many');
     const expiresAt = tokenExpiry(token);
@@ -303,6 +313,7 @@ export class SocketHub implements OnModuleDestroy {
       clearTimeout(state.authTimer);
     }
     this.sockets.delete(socket);
+    this.pending.delete(socket);
     if (this.sockets.size === 0) {
       clearInterval(this.heartbeat);
       this.heartbeat = undefined;

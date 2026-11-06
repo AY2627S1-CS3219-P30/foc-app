@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { as, createTestApp, http, message, type Person, type TestApp } from './helpers/app.js';
 import { SocketClient } from './helpers/socket-client.js';
 
@@ -14,6 +15,7 @@ beforeEach(async () => {
 afterEach(async () => {
   for (const client of clients.splice(0)) client.close();
   await t.close();
+  vi.restoreAllMocks();
 });
 
 const connect = (path?: string) => {
@@ -88,5 +90,24 @@ describe('the chat socket (#346)', () => {
     const extra = await signIn('requester');
     await extra.send({ type: 'auth', token: 'requester' });
     expect(await extra.closed).toMatchObject({ code: 4400 });
+  });
+
+  it('closes a socket that breaks the protocol with its code, logged once at WARN with no stack (#369)', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn');
+    const error = vi.spyOn(Logger.prototype, 'error');
+    // A masked frame with the reserved opcode 3, and a text frame past the 16 KiB ws accepts.
+    const cases = [
+      { send: (c: SocketClient) => c.raw(Buffer.from([0x83, 0x80, 0, 0, 0, 0])), code: 1002 },
+      { send: (c: SocketClient) => c.send('x'.repeat(20 * 1024)), code: 1009 },
+    ];
+    for (const { send, code } of cases) {
+      const client = connect();
+      await send(client);
+      expect(await client.closed).toMatchObject({ code });
+    }
+    const logged = warn.mock.calls.filter((call) => JSON.stringify(call).includes('chat socket'));
+    expect(logged).toHaveLength(2);
+    expect(JSON.stringify(logged)).not.toMatch(/\s+at /);
+    expect(error).not.toHaveBeenCalled();
   });
 });

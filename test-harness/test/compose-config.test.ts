@@ -483,6 +483,15 @@ describe('the edge (PLT-10)', () => {
     expect(nginx).toMatch(/limit_conn_zone \$binary_remote_addr zone=sockets:/);
     expect(block).toMatch(/^\s+limit_conn sockets 10;$/m);
     expect(block).toMatch(/^\s+limit_conn_status 429;$/m);
+    // #371: a refused socket is asked to wait as long as a refused stream, not a write's 1 s.
+    expect(block).toContain('error_page 429 = @too_many_sockets;');
+    const refusal = nginx.match(/location @too_many_sockets \{([^}]*)\}/)?.[1];
+    const streams = nginx.match(/location @too_many_streams \{([^}]*)\}/)?.[1];
+    const wait = (text?: string) => /add_header Retry-After (\d+) always;/.exec(text ?? '')?.[1];
+    expect(wait(refusal)).toBe('60');
+    expect(wait(refusal)).toBe(wait(streams));
+    expect(refusal).toContain('include /etc/nginx/foc/headers.conf;');
+    expect(refusal).toContain('return 429');
     expect(block).toContain('error_page 502 504 =503 @unavailable;');
     // The rest of /api/chat/ stays plain HTTP.
     const prefix = nginx.match(/location \/api\/chat\/ \{([^}]*)\}/)?.[1];

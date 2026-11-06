@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
-import { WsAdapter } from '@nestjs/platform-ws';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AUTHENTICATOR, AuthModule, authFailure, type AuthContext } from '@foc/auth-client';
 import { ErrorEnvelopeFilter, PlatformModule } from '@foc/platform';
 import { ChatModule } from '../../src/chat/chat.module.js';
 import { SOCKET_OPTIONS, type SocketOptions } from '../../src/chat/socket/socket-hub.js';
+import { ChatWsAdapter } from '../../src/chat/socket/ws-adapter.js';
 import { UPSTREAM_FETCH, type OrderForChat } from '../../src/chat/upstreams.js';
 import { CHAT_DB } from '../../src/db/db.js';
 import { applyMigrations } from './migrate.js';
@@ -100,6 +100,7 @@ export const TEST_SOCKET_OPTIONS: SocketOptions = {
   pingMs: 25_000,
   perUser: 5,
   perInstance: 1_000,
+  pendingPerInstance: 100,
 };
 
 /** The real chat modules over a fresh in-memory PostgreSQL with the migrations applied. */
@@ -127,7 +128,7 @@ export async function createTestApp(): Promise<TestApp> {
     .useValue(TEST_SOCKET_OPTIONS)
     .compile();
   const app = moduleRef.createNestApplication();
-  app.useWebSocketAdapter(new WsAdapter(app));
+  app.useWebSocketAdapter(new ChatWsAdapter(app));
   app.useGlobalFilters(new ErrorEnvelopeFilter());
   await app.listen(0, '127.0.0.1');
   return {

@@ -13,6 +13,7 @@ const OPTIONS: SocketOptions = {
   pingMs: 25_000,
   perUser: 5,
   perInstance: 1_000,
+  pendingPerInstance: 100,
 };
 const ORDER = '00000000-0000-4000-8000-000000000346';
 
@@ -224,6 +225,51 @@ describe('chat sockets (#346)', () => {
       connect();
       connect();
       expect(connect().peer.closed?.code).toBe(4429);
+    });
+
+    it('closes a connection past the cap on sockets not yet signed in with 4429 (#370)', async () => {
+      hub.onModuleDestroy();
+      hub = new SocketHub(
+        { ...OPTIONS, pendingPerInstance: 2 },
+        authenticator,
+        new Metrics('chat-service'),
+      );
+      const first = connect();
+      connect();
+      expect(connect().peer.closed?.code).toBe(4429);
+      // Signing in gives its place back, and so does running out of time to sign in.
+      await hub.received(first.socket, { type: 'auth', token: token('requester') });
+      expect(first.peer.closed).toBeUndefined();
+      expect(connect().peer.closed).toBeUndefined();
+      expect(connect().peer.closed?.code).toBe(4429);
+      vi.advanceTimersByTime(OPTIONS.authTimeoutMs);
+      expect(connect().peer.closed).toBeUndefined();
+    });
+
+    it('leaves the rest of the instance to signed-in sockets, however many try to wait (#370)', async () => {
+      hub.onModuleDestroy();
+      metrics = new Metrics('chat-service');
+      hub = new SocketHub(
+        { ...OPTIONS, perInstance: 6, pendingPerInstance: 2 },
+        authenticator,
+        metrics,
+      );
+      // One at a time, each signs in through the same two places.
+      const people = ['a', 'b', 'c', 'd'];
+      for (const person of people) {
+        expect((await signIn(person)).peer.closed).toBeUndefined();
+      }
+      // Clients that never sign in hold two places at most, not the instance's remaining room.
+      const waiting = Array.from({ length: 5 }, () => connect());
+      expect(waiting.map(({ peer }) => peer.closed?.code)).toEqual([
+        undefined,
+        undefined,
+        4429,
+        4429,
+        4429,
+      ]);
+      const gauge = await metrics.registry.getSingleMetricAsString('foc_chat_sockets');
+      expect(gauge).toMatch(/^foc_chat_sockets(\{[^}]*\})? 6$/m);
     });
   });
 

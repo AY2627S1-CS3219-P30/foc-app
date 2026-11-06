@@ -17,6 +17,8 @@ const socketOptions: SocketOptions = {
   pingMs: 25_000,
   perUser: 5,
   perInstance: 1_000,
+  // A tenth of the instance (#370): sockets that never sign in can't crowd out signed-in ones.
+  pendingPerInstance: 100,
 };
 
 @Module({})

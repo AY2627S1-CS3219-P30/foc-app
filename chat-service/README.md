@@ -181,9 +181,20 @@ reason text is for people.
 | `4401` | `unauthenticated`      | The token was refused, expired, its session was revoked, or the account was suspended. |
 | `4401` | `identity-changed`     | The account was suspended, reactivated, or a role changed.                             |
 | `4503` | `identity-unavailable` | The User Service could not answer, at sign-in or at a check. The token may be fine.    |
-| `4429` | `too-many`             | The user already has 5 sockets open on this instance, or the instance holds 1,000.     |
+| `4429` | `too-many`             | The user has 5 sockets open here, the instance holds 1,000, or 100 wait to sign in.    |
 | `4400` | `bad-frame`            | Anything but one auth frame: invalid JSON, binary, over 8 KiB, or a second auth frame. |
 | `1001` | `shutdown`             | The service is stopping, or was stopping when the socket connected.                    |
+
+At most 100 sockets per instance may be waiting to sign in, a tenth of the 1,000, so clients that
+never sign in cannot fill the instance and lock out signed-in users (#370).
+
+A frame that breaks the WebSocket protocol itself (a reserved opcode, an unmasked frame, or more
+than 16 KiB) is closed by the WebSocket library with the standard code, `1002`, `1007` or `1009`,
+and logged once at WARN without a stack, since any client can send one (#369). The metrics count it
+as `client-closed`.
+
+The edge holds at most ten sockets per address. It refuses an eleventh before the upgrade with
+`429 RATE_LIMITED` and `Retry-After: 60`, as it refuses an eleventh live-update stream (#371).
 
 After `4401`, the client refreshes its access token and connects again, so a reactivated user or a
 new role takes effect at once. After `4503`, `4429` or `1001` it polls, and connects again later
