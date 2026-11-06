@@ -1,6 +1,7 @@
 # ADR 0012 — Participant chat: a fifth service that asks the Order Service
 
-- **Status:** Proposed; implementation basis
+- **Status:** Accepted. The Order lookup it specifies, `GET /internal/orders/{orderId}/chat`, was
+  built in [#352](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/352).
 - **Date:** 2026-10-29
 - **Deciders:** Patrick, Zhang Yuan and Anselm, the N1.2 owners; approvals tracked in
   [the ADR index](README.md)
