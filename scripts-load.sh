@@ -158,8 +158,9 @@ SQL
 
 # OS-NFR2: open errands, as copies of one the last student posts, owned by the copied wallets'
 # users so every student sees them all in the open list. All open is the open list's worst case.
-# They keep its acceptance deadline, an hour off, so none expires while the run lasts, and the
-# Credit Service is never asked about them: no reservation is copied, as nothing here cancels them.
+# Their acceptance deadline is a week off, so none expires while the run lasts or while a --keep
+# stack is looked at afterwards. Nothing ever asks the Credit Service about them: no reservation is
+# copied, and an expiry would ask it to return one it never had.
 TEMPLATE_ERRAND=$(post_errand "$STUDENT_TOKEN" "$(first_supplier "$STUDENT_TOKEN")" 1 load-template)
 status_of() { errand "$1" "$2" | cut -d' ' -f1; }
 if [[ -z "$TEMPLATE_ERRAND" ]] || ! wait_for 30 OPEN status_of "$STUDENT_TOKEN" "$TEMPLATE_ERRAND"; then
@@ -175,7 +176,7 @@ INSERT INTO orders (order_id, requester_id, supplier_snapshot, items, delivery_z
                     delivery_instructions, reward, status, version, acceptance_deadline_at,
                     created_at, updated_at)
   SELECT l.order_id, l.requester_id, o.supplier_snapshot, o.items, o.delivery_zone,
-         o.delivery_instructions, o.reward, o.status, o.version, o.acceptance_deadline_at,
+         o.delivery_instructions, o.reward, o.status, o.version, now() + interval '7 days',
          o.created_at - l.g * interval '1 millisecond', o.updated_at
     FROM load_errands l, orders o WHERE o.order_id = '$TEMPLATE_ERRAND';
 INSERT INTO order_status_history (history_id, order_id, previous_status, new_status, action,

@@ -333,29 +333,29 @@ describe('the load report', () => {
     const { status, text } = write(measured());
     expect(status).toBe(0);
     expect(text).toContain(
-      '| 100.0% (100 of 100 reservations, 50 of 50 transfers, 50 of 50 returns) | Met |',
+      '| 100 of 100 reservations (100.0%), 50 of 50 transfers (100.0%), 50 of 50 returns (100.0%) | Met |',
     );
   });
 
-  it('counts a step recorded 5 s after it was asked for as in time, and 99% as enough', () => {
+  it('counts a step recorded 5 s after it was asked for as in time, and 99% of each kind as enough', () => {
     const run = measured();
-    // 198 of 200 in time, one of them at exactly 5 s.
+    // 99 of 100 reservations in time, one of them at exactly 5 s; every transfer and return.
     writeSteps(run.out, [
-      ...ON_TIME.slice(0, 197),
-      ['RELEASE', 5],
+      ...each('RESERVE', 98, 0.3),
+      ['RESERVE', 5],
       ['RESERVE', 5.1],
-      ['RESERVE', 9],
+      ...ON_TIME.filter(([kind]) => kind !== 'RESERVE'),
     ]);
     const { status, text } = write(run);
     expect(status).toBe(0);
-    expect(text).toContain(
-      '| 99.0% (100 of 102 reservations, 50 of 50 transfers, 48 of 48 returns) | Met |',
-    );
+    expect(text).toContain('| 99 of 100 reservations (99.0%), 50 of 50 transfers (100.0%), ');
   });
 
-  it('exits 3 below 99%, for a step never recorded, a kind not measured, or none measured', () => {
+  it('exits 3 when any kind is below 99%, even with the total above it', () => {
     for (const [why, steps] of [
-      ['98.5% in time', [...ON_TIME.slice(3), ...each('RESERVE', 3, 6)]],
+      ['97% of reservations in time', [...ON_TIME.slice(3), ...each('RESERVE', 3, 6)]],
+      // 199 of 200 steps in time, but only 49 of 50 returns.
+      ['98% of returns in time', [...ON_TIME.slice(0, 199), ...each('RELEASE', 1, 6)]],
       ['three never recorded', [...ON_TIME.slice(3), ...each('RESERVE', 3, null)]],
       ['no transfer measured', ON_TIME.filter(([kind]) => kind !== 'TRANSFER')],
       ['none measured', []],

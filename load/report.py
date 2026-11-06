@@ -101,8 +101,8 @@ missed += sum(not ok for *_, ok in live_checks)
 live_rows = "\n".join(f"| {check} | {target} | {measured} | {verdict(ok)} |" for check, target, measured, ok in live_checks)
 
 # CS-NFR3.1.1: each credit step the run asked for, from when the Order Service asked for it to when
-# the Credit Service recorded its decision. One never recorded counts as late, and each kind must
-# have been measured at least once.
+# the Credit Service recorded its decision. One never recorded counts as late. Each kind must reach
+# 99% on its own, so the reservations, about half the steps, cannot hide a slow kind.
 def steps(name):
     path = os.path.join(out, name)
     lines = open(path).read().splitlines() if os.path.exists(path) else []
@@ -117,11 +117,18 @@ for (order, kind), at in requested.items():
     asked[kind] += 1
     done = recorded.get((order, kind))
     in_time[kind] += done is not None and done - at <= 5
-total_in_time, total_asked = sum(in_time.values()), sum(asked.values())
-steps_ok = all(asked.values()) and total_in_time >= 0.99 * total_asked
-# Rounded down, so a share just under 99% never reads as 99.0%.
-share = f"{math.floor(1000 * total_in_time / total_asked) / 10}%" if total_asked else "none measured"
-by_kind = ", ".join(f"{in_time[k]:,} of {asked[k]:,} {name}" for k, name in KINDS.items())
+steps_ok = all(asked[k] and in_time[k] >= 0.99 * asked[k] for k in KINDS)
+
+
+def share(kind):
+    if not asked[kind]:
+        return f"no {KINDS[kind]}"
+    # Rounded down, so a share just under 99% never reads as 99.0%.
+    percent = math.floor(1000 * in_time[kind] / asked[kind]) / 10
+    return f"{in_time[kind]:,} of {asked[kind]:,} {KINDS[kind]} ({percent}%)"
+
+
+by_kind = ", ".join(share(kind) for kind in KINDS)
 
 user_ok = restarted(env["USER_READY"], env["SESSION"])
 credit_ok = restarted(env["CREDIT_READY"], env["WALLET"])
@@ -166,7 +173,7 @@ on a stack of its own, from commit `{commit()}`.
 | CS-NFR3.1.2 | Credit Service ready after a restart (≤ 60 s) | {env["CREDIT_READY"]} s; a wallet read answers {env["WALLET"]} | {verdict(credit_ok)} |
 | SS-NFR2.1.2 | The same supplier query, twice, returns the same order | {env["STABLE"]} | {verdict(ordering_ok)} |
 | OS-NFR2.1.2 | A cancel or a confirmation answers before its credit step, saying the step is pending | {waits["pending"]} of {waits["answers"]} answers | {verdict(unblocked_ok)} |
-| CS-NFR3.1.1 | Reservations, transfers and returns recorded within 5 s of being requested (≥ 99%) | {share} ({by_kind}) | {verdict(steps_ok)} |
+| CS-NFR3.1.1 | Reservations, transfers and returns recorded within 5 s of being requested (≥ 99% of each) | {by_kind} | {verdict(steps_ok)} |
 
 ## Live updates (N1.4)
 
