@@ -261,7 +261,7 @@ body=$(curl -s --max-time 5 "http://localhost:${USER_PORT}/health" 2>/dev/null |
 headers=$(mktemp)
 written=$(curl -s -D "$headers" -o /dev/null -w '%{http_code}' --max-time 15 -X POST "http://localhost:${USER_PORT}/auth/register" \
   -H 'content-type: application/json' \
-  -d "{\"email\":\"restart-refused-$RUN@$EMAIL_DOMAIN\",\"password\":\"$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')\",\"displayName\":\"Refused\"}" 2>/dev/null || true)
+  -d "{\"email\":\"restart-refused-$RUN@$EMAIL_DOMAIN\",\"displayName\":\"Refused\"}" 2>/dev/null || true)
 retry=$(grep -i '^retry-after:' "$headers" | tr -d '\r' | awk '{print $2}' || true)
 rm -f "$headers"
 [[ "$written" == "503" && -n "$retry" ]] &&

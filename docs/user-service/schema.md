@@ -47,7 +47,7 @@ erDiagram
 | ------------------- | ------------- | --------------------------------------------------------------------------- |
 | `id`                | uuid PK       | Never editable. Generated server-side.                                       |
 | `email`             | text NOT NULL, UNIQUE index on `lower(email)` | Normalized. Duplicate → rejected, no row created. |
-| `password_hash`     | text NOT NULL | Argon2id, encoded string including the per-hash random salt and parameters. |
+| `password_hash`     | text NULL     | Argon2id, encoded string including the per-hash random salt and parameters. NULL while `PENDING_ACTIVATION` (#309): set at activation. Only a pending account may have none; the service enforces it, and the CHECK waits for a release after #309's rollback window (migration 0007). |
 | `status`            | text NOT NULL | `CHECK IN ('PENDING_ACTIVATION','ACTIVE','SUSPENDED')`                       |
 | `is_seeded_admin`   | boolean NOT NULL DEFAULT false | Set only by the boot seed. Never writable through any API. |
 | `must_change_password` | boolean NOT NULL DEFAULT false | Set by the boot seed; cleared by `POST /auth/password` or `POST /auth/password-reset/confirm`. While set, login starts no session (`PASSWORD_CHANGE_REQUIRED`). Migration 004 set it on every existing bootstrap admin. |
@@ -81,12 +81,13 @@ transaction that first checks the remaining admin count under `SELECT … FOR UP
 | `id`          | uuid PK     |                                                             |
 | `user_id`     | uuid FK     |                                                             |
 | `token_hash`  | text UNIQUE | Hex SHA-256 of a 256-bit random token; the raw token exists only in the email |
-| `expires_at`  | timestamptz | e.g. 24 h                                                   |
-| `consumed_at` | timestamptz NULL | Set in the same transaction that activates the user   |
+| `expires_at`  | timestamptz | 30 minutes by default (`ACTIVATION_TOKEN_TTL_MINUTES`)      |
+| `consumed_at` | timestamptz NULL | Set in the same transaction that sets the password and activates the user |
 
 ### `password_reset_tokens`
-Built like `activation_tokens` (#309). Issuing one deletes the account's unused ones; using one deletes
-the account's unused activation tokens and revokes every refresh session.
+Built like `activation_tokens` (#309). Issuing one deletes the account's unused ones. Using one, or an
+activation token, deletes the account's other unused activation and reset tokens and revokes every
+refresh session.
 
 | Column        | Type        | Notes                                                       |
 | ------------- | ----------- | ----------------------------------------------------------- |

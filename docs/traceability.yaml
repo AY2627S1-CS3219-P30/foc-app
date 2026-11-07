@@ -21,6 +21,8 @@ requirements:
     text: "Only an account with valid credentials shall be signed in, for a session of at most seven days; logging out shall end the current session."
     tests:
       - "user-service/test/sessions.test.ts::gives an unknown email and a wrong password the same response"
+      - "user-service/test/sessions.test.ts::refuses a pending account as an unknown address: it has no password yet (#309)"
+      - "user-service/test/registration.test.ts::leaves the student with only the password they chose; the attacker's never works"
       - "user-service/test/sessions.test.ts::ends a session seven days after login, however often it refreshes (US-FR1.1.2)"
       - "user-service/test/sessions.test.ts::kills the refresh session and the access token immediately"
   - id: US-FR2.1.1
@@ -82,7 +84,7 @@ requirements:
     areas: [repeats]
     tests:
       - "user-service/test/registration.test.ts::activates the account and publishes exactly one user.activated"
-      - "user-service/test/registration.test.ts::is idempotent on replay: 200, alreadyActivated, and no second event"
+      - "user-service/test/registration.test.ts::is idempotent on replay: 200, alreadyActivated, no second event, the password unchanged"
       - "scripts-demo-journey.sh::the wallet arrived by itself: 10 available, 0 reserved"
   - id: US-FR4.1.2
     text: "A lookup by another verified platform service shall return only whether the account exists, its status, its roles, and its display name, and shall never return passwords, stored password values, or security tokens."
@@ -121,6 +123,7 @@ requirements:
     text: "Passwords shall be stored only in a form that cannot be reversed and that makes guessing slow, with each password protected separately; no password, stored password value, or security token shall appear in application logs."
     tests:
       - "user-service/test/units.test.ts::hashes with Argon2id, verifies, and salts uniquely"
+      - "user-service/test/registration.test.ts::sets the chosen password, stored only as an Argon2id hash, and does not sign in"
       - "user-service/test/log-privacy.test.ts::writes no password, hash or token to any log line at any level"
       - "user-service/test/log-privacy.test.ts::logs no email address, credential or token on any tested path"
   - id: US-NFR2.1.2

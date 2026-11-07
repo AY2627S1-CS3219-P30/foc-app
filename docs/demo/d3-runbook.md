@@ -100,8 +100,9 @@ journey does not depend on it.
 
 ### 2. Registration to allocation (Part 2.2) — 2:00
 
-Press Enter for part A. Anselm: a student registers and activates; the User Service saves the
-account and an outbox row in one transaction, and does not call Credit.
+Press Enter for part A. Anselm: a student registers, then activates with the emailed token and
+chooses their password there (#309), so only the inbox's owner sets it. The User Service saves the
+password, the activation and an outbox row in one transaction, and does not call Credit.
 
 Isaac: Credit hears `user.activated` and issues 10 credits. Point at `10 available, 0 reserved`
 and at the ledger's single `ISSUE` entry. The allocation is one constant

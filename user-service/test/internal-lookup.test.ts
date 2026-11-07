@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createTestApp, SERVICE_KEY, validRegistration, type TestApp } from './helpers/app.js';
+import {
+  activation,
+  createTestApp,
+  PASSWORD,
+  SERVICE_KEY,
+  validRegistration,
+  type TestApp,
+} from './helpers/app.js';
 
 let t: TestApp;
 let userId: string;
@@ -34,7 +41,7 @@ describe('GET /internal/users/:userId (US-FR4.1.2)', () => {
 
   it('never returns a hash, token or email, whatever the account state', async () => {
     const token = t.mailbox.latestFor('e0123456@u.nus.edu')!.token;
-    await http().post('/auth/activate').send({ token }).expect(200);
+    await http().post('/auth/activate').send(activation(token)).expect(200);
     const res = await asService(`/internal/users/${userId}`).expect(200);
     const body = JSON.stringify(res.body);
     expect(body).not.toMatch(/argon2|password|hash|token|@u\.nus\.edu/i);
@@ -115,7 +122,7 @@ describe('GET /internal/introspect (session liveness + identity)', () => {
     const login = await http()
       .post('/auth/login')
       .set('Origin', 'http://localhost:3000')
-      .send({ email: 'e0123456@u.nus.edu', password: validRegistration().password })
+      .send({ email: 'e0123456@u.nus.edu', password: PASSWORD })
       .expect(200);
     const sid = (await t.db.query('SELECT id FROM refresh_sessions WHERE user_id = $1', [userId]))
       .rows[0]!.id as string;
@@ -178,10 +185,15 @@ describe('GET /internal/admins', () => {
     for (const id of [active, suspended, pending, unclaimed]) {
       await t.db.query("INSERT INTO user_roles (user_id, role) VALUES ($1, 'ADMIN')", [id]);
     }
-    await t.db.query("UPDATE users SET status = 'ACTIVE' WHERE id = ANY($1)", [
-      [active, unclaimed],
-    ]);
-    await t.db.query("UPDATE users SET status = 'SUSPENDED' WHERE id = $1", [suspended]);
+    // Set directly, so given a password too: only a pending account may lack one.
+    await t.db.query(
+      "UPDATE users SET status = 'ACTIVE', password_hash = 'unused' WHERE id = ANY($1)",
+      [[active, unclaimed]],
+    );
+    await t.db.query(
+      "UPDATE users SET status = 'SUSPENDED', password_hash = 'unused' WHERE id = $1",
+      [suspended],
+    );
     // A seeded admin still on the bootstrap password cannot sign in, so cannot take referrals.
     await t.db.query('UPDATE users SET must_change_password = true WHERE id = $1', [unclaimed]);
 

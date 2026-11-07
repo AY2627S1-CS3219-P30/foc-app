@@ -171,7 +171,7 @@ describe('production mode (PLT-10, #285)', () => {
 
   it('forwards the link lifetimes to the User Service with their defaults', () => {
     const env = services['user-service']!.environment!;
-    expect(env.ACTIVATION_TOKEN_TTL_HOURS).toBe('${ACTIVATION_TOKEN_TTL_HOURS:-24}');
+    expect(env.ACTIVATION_TOKEN_TTL_MINUTES).toBe('${ACTIVATION_TOKEN_TTL_MINUTES:-30}');
     expect(env.PASSWORD_RESET_TOKEN_TTL_MINUTES).toBe('${PASSWORD_RESET_TOKEN_TTL_MINUTES:-30}');
   });
 

@@ -14,10 +14,10 @@ import {
 export type AccountStatus = 'PENDING_ACTIVATION' | 'ACTIVE' | 'SUSPENDED';
 export type Role = 'STUDENT' | 'ADMIN';
 
+/** A registration: no password, which is chosen at activation once the inbox is proven (#309). */
 export interface NewUser {
   id: string;
   email: string;
-  passwordHash: string;
   displayName: string;
 }
 
@@ -55,7 +55,7 @@ export const usersRepository = {
     const inserted = await execute(
       db,
       sql`INSERT INTO ${users} (id, email, password_hash, status)
-          VALUES (${user.id}, ${user.email}, ${user.passwordHash}, 'PENDING_ACTIVATION')
+          VALUES (${user.id}, ${user.email}, NULL, 'PENDING_ACTIVATION')
           ON CONFLICT ((lower(email))) DO NOTHING
           RETURNING id`,
     );
@@ -67,20 +67,20 @@ export const usersRepository = {
 
   async insertActivationToken(
     db: Database,
-    t: { id: string; userId: string; tokenHash: string; ttlHours: number },
+    t: { id: string; userId: string; tokenHash: string; ttlMinutes: number },
   ): Promise<void> {
     await db.insert(activationTokens).values({
       id: t.id,
       userId: t.userId,
       tokenHash: t.tokenHash,
-      expiresAt: sql`now() + make_interval(hours => ${t.ttlHours})`,
+      expiresAt: sql`now() + make_interval(mins => ${t.ttlMinutes})`,
     });
   },
 
   /**
    * Re-registration of an address that never activated and whose every link has expired: the new
-   * registrant sets the password and display name, and must still prove the inbox. A pending
-   * account with a live link, or any activated one, is left alone. Returns the account's id.
+   * registrant sets the display name, and the password stays unset until the inbox is proven. A
+   * pending account with a live link, or any activated one, is left alone. Returns the account's id.
    *
    * Locks the account first, then looks for a live link in a statement of its own: under READ
    * COMMITTED that statement sees a link a concurrent re-register committed while this one waited
@@ -103,7 +103,7 @@ export const usersRepository = {
     if (live.length > 0) return null;
     await db
       .update(users)
-      .set({ passwordHash: user.passwordHash, updatedAt: sql`now()` })
+      .set({ passwordHash: null, updatedAt: sql`now()` })
       .where(eq(users.id, id));
     await db.update(profiles).set({ displayName: user.displayName }).where(eq(profiles.userId, id));
     return id;
@@ -126,15 +126,17 @@ export const usersRepository = {
 
   /**
    * Locks the account a token belongs to before the token itself. Resend locks the account and
-   * then its tokens, so activation must take the same order or the two can deadlock.
+   * then its tokens, so activation must take the same order or the two can deadlock. Returns the
+   * account's status.
    */
-  async lockUserOfToken(db: Database, tokenHash: string): Promise<void> {
-    await db
-      .select({ id: users.id })
+  async lockUserOfToken(db: Database, tokenHash: string): Promise<AccountStatus | null> {
+    const rows = await db
+      .select({ status: users.status })
       .from(users)
       .innerJoin(activationTokens, eq(activationTokens.userId, users.id))
       .where(eq(activationTokens.tokenHash, tokenHash))
       .for('update', { of: users });
+    return rows[0]?.status ?? null;
   },
 
   /** Invalidates every link not yet used, so only the one about to be sent works. */
@@ -166,13 +168,16 @@ export const usersRepository = {
   async findActivationToken(
     db: Database,
     tokenHash: string,
-  ): Promise<{ userId: string; consumed: boolean } | null> {
+  ): Promise<{ userId: string; consumed: boolean; expired: boolean } | null> {
     const rows = await db
-      .select({ userId: activationTokens.userId, consumedAt: activationTokens.consumedAt })
+      .select({
+        userId: activationTokens.userId,
+        consumed: sql<boolean>`${activationTokens.consumedAt} IS NOT NULL`,
+        expired: sql<boolean>`${activationTokens.expiresAt} <= now()`,
+      })
       .from(activationTokens)
       .where(eq(activationTokens.tokenHash, tokenHash));
-    const row = rows[0];
-    return row ? { userId: row.userId, consumed: row.consumedAt !== null } : null;
+    return rows[0] ?? null;
   },
 
   /** Flips PENDING_ACTIVATION → ACTIVE once. Returns false if the account was not pending. */
@@ -288,8 +293,8 @@ export const usersRepository = {
   },
 
   /**
-   * Sets a password the inbox owner chose through a reset link, whatever the old one was. Clears the
-   * forced-change flag: the bootstrap password is no longer the account's.
+   * Sets a password the inbox owner chose through an emailed link, whatever the old one was. Clears
+   * the forced-change flag: the bootstrap password is no longer the account's.
    */
   async setPassword(db: Database, userId: string, passwordHash: string): Promise<void> {
     await db
@@ -320,13 +325,16 @@ export const usersRepository = {
     return rows[0]?.passwordHash ?? null;
   },
 
-  /** Login lookup. One of two places a password hash is read, and it never leaves the auth service. */
+  /**
+   * Login lookup. One of two places a password hash is read, and it never leaves the auth service.
+   * The hash is null while the account is pending (#309): it has no password to match.
+   */
   async findCredentials(
     db: Database,
     normalizedEmail: string,
   ): Promise<{
     id: string;
-    passwordHash: string;
+    passwordHash: string | null;
     status: AccountStatus;
     mustChangePassword: boolean;
     isSeededAdmin: boolean;

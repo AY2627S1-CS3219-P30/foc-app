@@ -2,13 +2,20 @@ import { createPublicKey } from 'node:crypto';
 import { decodeJwt, importJWK, jwtVerify } from 'jose';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { hashPassword } from '../src/auth/passwords.js';
 import { RateLimiter } from '../src/auth/rate-limiter.js';
-import { createTestApp, openLimiters, validRegistration, type TestApp } from './helpers/app.js';
+import {
+  activation,
+  createTestApp,
+  openLimiters,
+  PASSWORD,
+  validRegistration,
+  type TestApp,
+} from './helpers/app.js';
 
 let t: TestApp;
 const http = () => request(t.app.getHttpServer());
 const EMAIL = 'e0123456@u.nus.edu';
-const PASSWORD = validRegistration().password;
 const ORIGIN = 'http://localhost:3000'; // the default CORS_ORIGINS
 
 beforeAll(async () => {
@@ -27,7 +34,7 @@ async function activeUser(email = EMAIL) {
   await http().post('/auth/register').send(validRegistration(email)).expect(201);
   await http()
     .post('/auth/activate')
-    .send({ token: t.mailbox.latestFor(email)!.token })
+    .send(activation(t.mailbox.latestFor(email)!.token))
     .expect(200);
 }
 
@@ -163,10 +170,26 @@ describe('POST /auth/login', () => {
     expect((await t.db.query('SELECT 1 FROM refresh_sessions')).rows).toHaveLength(0);
   });
 
-  it('refuses a pending account, but only after the password is proven', async () => {
+  it('refuses a pending account as an unknown address: it has no password yet (#309)', async () => {
     await http().post('/auth/register').send(validRegistration()).expect(201);
-    const ok = await login().expect(403);
-    expect(ok.body.error.code).toBe('ACCOUNT_NOT_ACTIVATED');
+    expect((await t.db.query('SELECT password_hash FROM users')).rows[0]!.password_hash).toBeNull();
+    const unknown = await login('nobody@u.nus.edu', PASSWORD).expect(401);
+    // Not even the password the dummy hash is made from: no hash means nothing can match.
+    for (const password of [PASSWORD, 'not-a-real-password']) {
+      const res = await login(EMAIL, password).expect(401);
+      expect(res.body).toEqual({
+        error: { ...unknown.body.error, correlationId: res.body.error.correlationId },
+      });
+    }
+    expect((await t.db.query('SELECT 1 FROM refresh_sessions')).rows).toHaveLength(0);
+  });
+
+  it('refuses a pending account that has a password only after the password is proven', async () => {
+    // Allowed by the schema, though nothing writes it any more: activation sets the password and
+    // activates in one transaction.
+    await http().post('/auth/register').send(validRegistration()).expect(201);
+    await t.db.query('UPDATE users SET password_hash = $1', [await hashPassword(PASSWORD)]);
+    expect((await login().expect(403)).body.error.code).toBe('ACCOUNT_NOT_ACTIVATED');
     const bad = await login(EMAIL, 'wrong-wrong-wrong').expect(401); // does not reveal the account exists
     expect(bad.body.error.code).toBe('INVALID_CREDENTIALS');
   });

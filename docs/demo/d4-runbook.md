@@ -84,8 +84,8 @@ or reopen the printed URL in the same persona's profile.
 
 The seed uses the first configured allowed email domain (normally `u.nus.edu`) and the demo
 project's Mailpit inbox. It waits for each activation email and follows its token through the
-normal activation endpoint; it never reads a token from the User database. Each account has its
-own private generated password. The two admin accounts are created by the existing bootstrap
+normal activation endpoint, which is where each account's password is set (#309); it never reads
+a token from the User database. Each account has its own private generated password. The two admin accounts are created by the existing bootstrap
 configuration and must replace that shared bootstrap password before obtaining sessions. Their
 names are set through their own profile endpoint.
 
@@ -167,7 +167,7 @@ claim that a failed live action succeeded.
 
 | Time | Presenter | Action and words to say | Evidence / fallback |
 | --- | --- | --- | --- |
-| 00:00–01:30 | Anselm | Register one clearly fictional extra address, open its message in Mailpit at `http://localhost:${MAILPIT_PORT}` and click the activation link: **Your account is active**. “Only the inbox owner can activate, and activation creates the wallet through an event; the browser never sets a balance.” Alyssa opens `/admin`: **This area is for administrators**. | If the email is delayed, use **Send a new link** once on `/activate`, then search Mailpit. Do not register repeatedly or display passwords. If the wallet is delayed, show Credit's dead letters and audit evidence. |
+| 00:00–01:30 | Anselm | Register one clearly fictional extra address, open its message in Mailpit at `http://localhost:${MAILPIT_PORT}` and click the activation link, choose a password and press **Activate account**: **Your account is active**. “Only the inbox owner can activate, and chooses the password there, so whoever signed the address up never does. Activation creates the wallet through an event; the browser never sets a balance.” Alyssa opens `/admin`: **This area is for administrators**. | If the email is delayed, or the link is over 30 minutes old, use **Send a new link** once on `/activate`, then search Mailpit. Do not register repeatedly or display passwords. If the wallet is delayed, show Credit's dead letters and audit evidence. |
 | 01:30–03:30 | Patrick, Jonus | “Alyssa's prints errand is already up. She has a second errand to post.” Alyssa: Suppliers → search **Printer** to show the catalogue. Then **Active requests** → **New request** → pick **Printer @ Com 2** → item “D4 dispute example”, zone PGP House 7, reward **1**. Review the available balance and its projection, then post. **N1.4:** Ben's feed is visible with **Live**; the new card appears without a reload. Leave it unaccepted. | If the composer fails, keep the refusal and use the preseeded prints errand for the core flow. The composer is covered by the release suite (`release-journeys.e2e.ts`); do not mark a live failure passed from a seed API call. |
 | 03:30–04:30 | Zhang Yuan | Ben and Chloe open **Accept** on the card “Project poster — two couriers, one acceptance” in their own feeds. Ben confirms, then Chloe: **Another courier accepted this errand first, or it closed.** “One conditional update in the database decides the winner, so the app can't have two.” Ben withdraws: the errand is **Open** again and the reward stays reserved. | If the timing is missed, show the CI contention test (1 of 100 simultaneous accepts wins) and its 409. If a step fails, refresh to get the current version; never force a status back. |
 | 04:30–05:00 | Jonus | Alyssa's and Ben's prints pages side by side, both **Live**. Ben accepts. Alyssa's page goes **Open** → **Accepted** with no one touching it. Use the words under “N1.4 browser arrangement”. | If the label shows polling, disclose it and show the 29 Oct report and `live-journey.e2e.ts`. |

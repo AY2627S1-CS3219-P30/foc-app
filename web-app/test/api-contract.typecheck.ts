@@ -29,6 +29,16 @@ export function checkErrandQuery(api: import("../src/lib/admin-api").AdminApi) {
   api.errands("t", { status: ["NOPE"] });
 }
 
+// #309: the password is chosen at activation, not at sign-up.
+export function checkPasswordAtActivation(api: import("../src/lib/user-api").UserApi) {
+  api.register({ email: "e0123456@u.nus.edu", displayName: "Alex" });
+  // @ts-expect-error Sign-up takes no password.
+  api.register({ email: "e0123456@u.nus.edu", displayName: "Alex", password: "correct-horse-battery" });
+  api.activate("token", "correct-horse-battery");
+  // @ts-expect-error Activation needs the password the student chooses.
+  api.activate("token");
+}
+
 // N1.2: all chat calls are checked against the agreed contract.
 export function checkChat(api: import("openapi-fetch").Client<import("../src/lib/generated/chat-service").paths>) {
   api.GET("/channels/{orderId}/messages", { params: { path: { orderId: "id" }, query: { after: 2, limit: 100 } } });

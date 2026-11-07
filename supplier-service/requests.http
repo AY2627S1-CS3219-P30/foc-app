@@ -50,7 +50,7 @@ Content-Type: application/json
 POST {{userBase}}/auth/register
 Content-Type: application/json
 
-{ "email": "{{studentEmail}}", "password": "{{studentPassword}}", "displayName": "SUP-02 Student" }
+{ "email": "{{studentEmail}}", "displayName": "SUP-02 Student" }
 
 ### 1d · Read the activation token from the email
 # The email is in Mailpit (http://localhost:8025). From the repo root, run
@@ -62,7 +62,7 @@ Content-Type: application/json
 POST {{userBase}}/auth/activate
 Content-Type: application/json
 
-{ "token": "{{activationToken}}" }
+{ "token": "{{activationToken}}", "password": "{{studentPassword}}" }
 
 ### 1f · Student login → access token
 # @name studentLogin

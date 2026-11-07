@@ -201,7 +201,15 @@ post_json() { # path json body-file [extra curl arguments...]
 wallet_step=""
 response=$(mktemp)
 
-registered=$(post_json /auth/register "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"$SMOKE_PASSWORD\",\"displayName\":\"Smoke test\"}" "$response")
+# The password is chosen at activation (#309). Images from before #309, which the recovery drill
+# rolls back to, still take it at registration and refuse it at activation, so a 422 here retries
+# the older way, and activation below then sends the token alone.
+password_at_registration=""
+registered=$(post_json /auth/register "{\"email\":\"$SMOKE_EMAIL\",\"displayName\":\"Smoke test\"}" "$response")
+if [[ "$registered" == 422 ]]; then
+  password_at_registration=1
+  registered=$(post_json /auth/register "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"$SMOKE_PASSWORD\",\"displayName\":\"Smoke test\"}" "$response")
+fi
 [[ "$registered" == 2* ]] || wallet_step="registering returned ${registered:-no answer}"
 
 # The token in the newest activation email to an address. The stack mails every link to Mailpit,
@@ -219,7 +227,9 @@ if [[ -z "$wallet_step" ]]; then
   [[ -n "$activation_token" ]] || wallet_step="no activation email reached Mailpit"
 fi
 if [[ -z "$wallet_step" ]]; then
-  activated=$(post_json /auth/activate "{\"token\":\"$activation_token\"}" "$response" -H 'x-correlation-id: smoke-wallet')
+  activation="{\"token\":\"$activation_token\",\"password\":\"$SMOKE_PASSWORD\"}"
+  [[ -z "$password_at_registration" ]] || activation="{\"token\":\"$activation_token\"}"
+  activated=$(post_json /auth/activate "$activation" "$response" -H 'x-correlation-id: smoke-wallet')
   [[ "$activated" == 2* ]] || wallet_step="activating returned ${activated:-no answer}"
 fi
 access_token=""
@@ -366,12 +376,19 @@ streams_ready() { # count seconds → whether that many streams have said `ready
   return 1
 }
 # Another throwaway student, active and signed in. Prints its access token, or nothing.
+# It signs up the way the first student had to: on images from before #309 the password goes with
+# registration and activation sends the token alone.
 second_student() {
-  local email="smoke-live-$(date +%s)-$RANDOM@u.nus.edu" out token
+  local email="smoke-live-$(date +%s)-$RANDOM@u.nus.edu" out token register activate
+  register="{\"email\":\"$email\",\"displayName\":\"Smoke test\"}"
+  [[ -z "$password_at_registration" ]] ||
+    register="{\"email\":\"$email\",\"password\":\"$SMOKE_PASSWORD\",\"displayName\":\"Smoke test\"}"
   out=$(mktemp)
-  post_json /auth/register "{\"email\":\"$email\",\"password\":\"$SMOKE_PASSWORD\",\"displayName\":\"Smoke test\"}" "$out" >/dev/null
+  post_json /auth/register "$register" "$out" >/dev/null
   token=$(activation_token_for "$email") || true
-  post_json /auth/activate "{\"token\":\"$token\"}" "$out" >/dev/null
+  activate="{\"token\":\"$token\",\"password\":\"$SMOKE_PASSWORD\"}"
+  [[ -z "$password_at_registration" ]] || activate="{\"token\":\"$token\"}"
+  post_json /auth/activate "$activate" "$out" >/dev/null
   post_json /auth/login "{\"email\":\"$email\",\"password\":\"$SMOKE_PASSWORD\"}" "$out" \
     -H "Origin: http://localhost:${WEB_PORT}" >/dev/null
   json_field accessToken <"$out"

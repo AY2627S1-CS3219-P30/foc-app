@@ -33,31 +33,47 @@ test("account journey: register, activate, sign in, profile, mode switch, log ou
     await hydrated(page.getByRole("button", { name: "Create account" }));
     await checkScreen(page, testInfo, "register");
 
+    // No password at sign-up: it is chosen at activation (#309).
+    await expect(page.locator('input[type="password"]')).toHaveCount(0);
     await typeInto(page, field(page, "NUS email"), email);
-    await typeInto(page, field(page, "Display name"), name);
-    await typeInto(page, field(page, "Password"), PASSWORD);
-    const confirm = field(page, "Confirm password");
-    await typeInto(page, confirm, "not the same passphrase");
+    const displayName = field(page, "Display name");
+    await typeInto(page, displayName, "   ");
     await page.keyboard.press("Enter");
 
-    await expect(confirm).toHaveAttribute("aria-invalid", "true");
-    await expect(page.getByText("The passwords don't match.")).toBeVisible();
+    await expect(displayName).toHaveAttribute("aria-invalid", "true");
+    await expect(page.getByText("Enter the name other students will see.")).toBeVisible();
     await expect(field(page, "NUS email")).toHaveValue(email);
-    await expect(field(page, "Display name")).toHaveValue(name);
-    await expect(field(page, "Password")).toHaveValue(PASSWORD);
     await checkScreen(page, testInfo, "register (field error)");
 
-    // Focus is still in the confirm field.
-    await replaceFocused(page, PASSWORD);
+    // Focus is still in the display name field.
+    await replaceFocused(page, name);
     await page.keyboard.press("Enter");
     await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
     await checkScreen(page, testInfo, "register (sent)");
   });
 
-  await test.step("activate from the link in the email", async () => {
+  await test.step("activate from the link in the email by choosing a password", async () => {
     await page.goto(await activationLink(page.request, email));
-    await expect(page.getByRole("heading", { name: "Account activated" })).toBeVisible();
+    // Opening the link activates nothing: the student has to choose a password first.
+    const activate = page.getByRole("button", { name: "Activate account" });
+    await hydrated(activate);
+    await expect(page.getByRole("heading", { name: "Activate your account" })).toBeVisible();
     await checkScreen(page, testInfo, "activate");
+
+    await typeInto(page, field(page, "Password"), PASSWORD);
+    const confirm = field(page, "Confirm password");
+    await typeInto(page, confirm, "not the same passphrase");
+    await page.keyboard.press("Enter");
+    await expect(confirm).toHaveAttribute("aria-invalid", "true");
+    await expect(page.getByText("The passwords don't match.")).toBeVisible();
+    await expect(field(page, "Password")).toHaveValue(PASSWORD);
+    await checkScreen(page, testInfo, "activate (field error)");
+
+    // Focus is still in the confirm field.
+    await replaceFocused(page, PASSWORD);
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("heading", { name: "Account activated" })).toBeVisible();
+    await checkScreen(page, testInfo, "activate (done)");
     await tabTo(page, page.getByRole("link", { name: "Sign in", exact: true }));
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL(/\/login$/);
@@ -130,7 +146,7 @@ test("an activation link that was replaced is refused, and the new one from the 
 }, testInfo) => {
   const email = `e2e-resend-${testInfo.project.name}-${Date.now()}@u.nus.edu`;
   const registered = await page.request.post(`${USER}/auth/register`, {
-    data: { email, password: PASSWORD, displayName: "E2E Resend" },
+    data: { email, displayName: "E2E Resend" },
   });
   expect(registered.ok(), await registered.text()).toBe(true);
   const first = await activationLink(page.request, email);
@@ -147,13 +163,23 @@ test("an activation link that was replaced is refused, and the new one from the 
 
   const second = await activationLink(page.request, email, first);
 
+  /** Chooses the password on the page a link opened, as the student would. */
+  const choosePassword = async () => {
+    await hydrated(page.getByRole("button", { name: "Activate account" }));
+    await typeInto(page, field(page, "Password"), PASSWORD);
+    await typeInto(page, field(page, "Confirm password"), PASSWORD);
+    await page.keyboard.press("Enter");
+  };
+
   await test.step("the old link is refused and points to a new one", async () => {
     await page.goto(first);
+    await choosePassword();
     await expect(page.getByText(/This activation link isn't valid/)).toBeVisible();
   });
 
   await test.step("the new link activates", async () => {
     await page.goto(second);
+    await choosePassword();
     await expect(page.getByRole("heading", { name: "Account activated" })).toBeVisible();
   });
 });
