@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { METRICS, type Metrics } from '@foc/platform';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { as, createTestApp, http, message, type Person, type TestApp } from './helpers/app.js';
 import { SocketClient } from './helpers/socket-client.js';
@@ -92,7 +93,7 @@ describe('the chat socket (#346)', () => {
     expect(await extra.closed).toMatchObject({ code: 4400 });
   });
 
-  it('closes a socket that breaks the protocol with its code, logged once at WARN with no stack (#369)', async () => {
+  it('closes a socket that breaks the protocol with its code, counted, and logged at WARN with no stack (#369)', async () => {
     const warn = vi.spyOn(Logger.prototype, 'warn');
     const error = vi.spyOn(Logger.prototype, 'error');
     // A masked frame with the reserved opcode 3, and a text frame past the 16 KiB ws accepts.
@@ -106,8 +107,17 @@ describe('the chat socket (#346)', () => {
       expect(await client.closed).toMatchObject({ code });
     }
     const logged = warn.mock.calls.filter((call) => JSON.stringify(call).includes('chat socket'));
-    expect(logged).toHaveLength(2);
+    // Every one is counted, but a burst is logged once a minute, so a client looping on bad frames
+    // can't flood the log.
+    expect(logged).toHaveLength(1);
     expect(JSON.stringify(logged)).not.toMatch(/\s+at /);
     expect(error).not.toHaveBeenCalled();
+    const counted = await t.app
+      .get<Metrics>(METRICS)
+      .registry.getSingleMetricAsString('foc_chat_socket_protocol_errors_total');
+    const total = [...counted.matchAll(/^foc_chat_socket_protocol_errors_total\{[^}]*\} (\d+)$/gm)]
+      .map((m) => Number(m[1]))
+      .reduce((a, b) => a + b, 0);
+    expect(total).toBe(2);
   });
 });

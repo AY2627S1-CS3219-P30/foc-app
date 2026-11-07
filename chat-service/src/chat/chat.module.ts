@@ -10,15 +10,19 @@ import { SocketGateway } from './socket/socket.gateway.js';
 import { RETENTION_OPTIONS, RetentionCleanup } from './retention.js';
 import { UPSTREAM_FETCH, Upstreams } from './upstreams.js';
 
+/** Sockets one instance holds, signed in or not. */
+const SOCKETS_PER_INSTANCE = 1_000;
+
 const socketOptions: SocketOptions = {
   authTimeoutMs: env.CHAT_SOCKET_AUTH_TIMEOUT_MS,
   recheckMs: env.CHAT_SOCKET_RECHECK_MS,
   // Well inside the edge's 75 s read timeout, so a quiet socket is never cut.
   pingMs: 25_000,
   perUser: 5,
-  perInstance: 1_000,
-  // A tenth of the instance (#370): sockets that never sign in can't crowd out signed-in ones.
-  pendingPerInstance: 100,
+  perInstance: SOCKETS_PER_INSTANCE,
+  // #370: a tenth of the instance may wait to sign in, each for CHAT_SOCKET_AUTH_TIMEOUT_MS at most.
+  // When all are waiting, a new socket pushes out the oldest still without an auth frame.
+  pendingPerInstance: SOCKETS_PER_INSTANCE / 10,
 };
 
 @Module({})

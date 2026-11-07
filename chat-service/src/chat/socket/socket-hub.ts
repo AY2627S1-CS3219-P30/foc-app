@@ -16,8 +16,9 @@ export interface SocketOptions {
   /** Sockets this instance holds, open or not yet signed in, before it refuses more. */
   perInstance: number;
   /**
-   * Of those, sockets not yet signed in (#370). Smaller, so clients that never sign in cannot fill
-   * the instance and lock out signed-in users: they hold this many places at most.
+   * Of those, sockets not yet signed in (#370). When all are taken, a new socket pushes out the
+   * oldest still waiting for its auth frame, so clients that never sign in push each other out
+   * rather than a real user, who signs in within a round trip.
    */
   pendingPerInstance: number;
 }
@@ -49,6 +50,7 @@ export const CLOSE_REASONS = {
   },
   'identity-changed': { code: 4401, message: 'The account changed. Sign in again.' },
   'too-many': { code: 4429, message: 'Too many chat sockets are open.' },
+  'too-many-pending': { code: 4429, message: 'Too many chat sockets are waiting to sign in.' },
   'bad-frame': { code: 4400, message: 'Only one auth frame is accepted.' },
   shutdown: { code: 1001, message: 'The service is stopping.' },
 } as const satisfies Record<string, { code: number; message: string }>;
@@ -143,6 +145,11 @@ export class SocketHub implements OnModuleDestroy {
       help: 'Chat sockets on this instance, signed in or not yet.',
       collect: (set) => set({}, this.sockets.size),
     });
+    metrics.addGauge({
+      name: 'foc_chat_sockets_waiting',
+      help: 'Chat sockets on this instance not yet signed in.',
+      collect: (set) => set({}, this.pending.size),
+    });
     this.nudges = metrics.addCounter({
       name: 'foc_chat_socket_nudges_total',
       help: 'New-message nudges sent to chat sockets, one per socket.',
@@ -164,10 +171,9 @@ export class SocketHub implements OnModuleDestroy {
     const socket: ChatSocket = { peer, state: { phase: 'awaiting-auth', authTimer }, alive: true };
     const refused = this.stopping
       ? 'shutdown'
-      : this.sockets.size >= this.options.perInstance ||
-          this.pending.size >= this.options.pendingPerInstance
+      : this.sockets.size >= this.options.perInstance
         ? 'too-many'
-        : undefined;
+        : this.makeRoomToWait();
     this.sockets.add(socket);
     this.pending.add(socket);
     if (refused) {
@@ -177,6 +183,23 @@ export class SocketHub implements OnModuleDestroy {
     this.heartbeat ??= setInterval(() => this.beat(), this.options.pingMs);
     this.heartbeat.unref();
     return socket;
+  }
+
+  /**
+   * #370: whether a new socket may wait to sign in. When every waiting place is taken, the oldest
+   * socket that has not sent its auth frame is closed to make room. One whose token is being
+   * checked may be a real user, so it is never closed; while all of them are, the new one is
+   * refused.
+   */
+  private makeRoomToWait(): CloseReason | undefined {
+    if (this.pending.size < this.options.pendingPerInstance) return undefined;
+    for (const socket of this.pending) {
+      if (socket.state.phase === 'awaiting-auth') {
+        this.end(socket, 'too-many-pending');
+        return undefined;
+      }
+    }
+    return 'too-many-pending';
   }
 
   /** A frame from the client: the first must sign in, and no other is ever accepted. */
