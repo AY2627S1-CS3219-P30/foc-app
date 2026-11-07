@@ -42,8 +42,10 @@ The edge's own answers use the shared error envelope, with the request's correla
 
 A `502` or `504` never reaches the browser: the edge turns both into the `503` above.
 
-An 11th chat socket from one address (`/api/chat/socket`) is also refused with `429 RATE_LIMITED`,
-before the upgrade: raise `limit_conn sockets` in `nginx.conf` for many people behind one address.
+An 11th chat socket from one address (`/api/chat/socket`) is refused before the upgrade with
+`429 TOO_MANY_SOCKETS` and `Retry-After: 60`, as an 11th stream is (#371). A browser sees only a
+close with `1006`, and its chat panel keeps polling. Raise `limit_conn sockets` in `nginx.conf` for
+many people behind one address.
 The panels refused poll meanwhile.
 
 ## Following one request

@@ -445,12 +445,24 @@ describe('the edge (PLT-10)', () => {
     expect(block).toMatch(/^\s+limit_conn streams 10;$/m);
     expect(block).toMatch(/^\s+limit_conn_status 429;$/m);
     expect(block).toContain('error_page 429 = @too_many_streams;');
-    const refusal = nginx.match(/location @too_many_streams \{([^}]*)\}/)?.[1];
+    const refusal = namedLocation('too_many_streams');
     expect(refusal).toContain('add_header Retry-After 60 always;');
     expect(refusal).toContain('"code":"TOO_MANY_STREAMS"');
     // Each stream holds two of the edge's connections, browser and service.
     expect(nginx).toMatch(/^\s+worker_connections 4096;$/m);
   });
+
+  /** A named location's whole block: the JSON in its `return` has braces of its own. */
+  const namedLocation = (name: string) =>
+    nginx.match(new RegExp(`location @${name} \\{([\\s\\S]*?)\\n    \\}`))?.[1];
+  /** The status and error code a named location answers, parsing its JSON body. */
+  const refusedWith = (block?: string) => {
+    const [, status, body] = /return (\d+) '(.*)';/.exec(block ?? '') ?? [];
+    const parsed = JSON.parse((body ?? '{}').replace('$correlation_id', 'id')) as {
+      error?: { code?: string };
+    };
+    return { status, code: parsed.error?.code };
+  };
 
   it('upgrades the chat socket at one exact path, and nothing else under /api/chat/ (#346)', () => {
     const block = nginx.match(/location = \/api\/chat\/socket \{([^}]*)\}/)?.[1];
@@ -483,6 +495,17 @@ describe('the edge (PLT-10)', () => {
     expect(nginx).toMatch(/limit_conn_zone \$binary_remote_addr zone=sockets:/);
     expect(block).toMatch(/^\s+limit_conn sockets 10;$/m);
     expect(block).toMatch(/^\s+limit_conn_status 429;$/m);
+    // #371: a refused socket is asked to wait as long as a refused stream, not a write's 1 s, under
+    // a code of its own, as the stream has.
+    expect(block).toContain('error_page 429 = @too_many_sockets;');
+    const refusal = namedLocation('too_many_sockets');
+    const streams = namedLocation('too_many_streams');
+    const wait = (text?: string) => /add_header Retry-After (\d+) always;/.exec(text ?? '')?.[1];
+    expect(wait(refusal)).toBe('60');
+    expect(wait(refusal)).toBe(wait(streams));
+    expect(refusal).toContain('include /etc/nginx/foc/headers.conf;');
+    expect(refusedWith(refusal)).toMatchObject({ status: '429', code: 'TOO_MANY_SOCKETS' });
+    expect(refusedWith(streams)).toMatchObject({ status: '429', code: 'TOO_MANY_STREAMS' });
     expect(block).toContain('error_page 502 504 =503 @unavailable;');
     // The rest of /api/chat/ stays plain HTTP.
     const prefix = nginx.match(/location \/api\/chat\/ \{([^}]*)\}/)?.[1];
