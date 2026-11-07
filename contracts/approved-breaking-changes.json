@@ -7,14 +7,14 @@
   },
   {
     "change": "user-service POST /auth/register request.password: accepted field removed",
-    "pullRequest": null,
+    "pullRequest": 389,
     "reason": "#309: a password chosen at sign-up is chosen before anyone has proven the inbox, so someone else can set it. The password moves to activation. The web app is the only client and changes in the same pull request.",
-    "reviewedBy": []
+    "reviewedBy": ["Jonus"]
   },
   {
     "change": "user-service POST /auth/activate request.password: field became required",
-    "pullRequest": null,
+    "pullRequest": 389,
     "reason": "#309: the emailed token proves the inbox, so activation is where the student chooses the password. The web app is the only client and changes in the same pull request.",
-    "reviewedBy": []
+    "reviewedBy": ["Jonus"]
   }
 ]

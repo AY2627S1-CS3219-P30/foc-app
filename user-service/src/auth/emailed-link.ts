@@ -13,8 +13,8 @@ import { sessionsRepository as sessions } from './sessions.repository.js';
  * - nothing set up before the proof survives: unused activation and reset links are deleted and
  *   every session is revoked.
  *
- * The password is set before the account is activated: an active account must have one (migration
- * 0007's check).
+ * The password is set before the account is activated: an active account must have one. The service
+ * enforces this until a later release adds the CHECK (see migration 0007).
  */
 export async function setPasswordFromEmailedLink(
   tx: Database,
