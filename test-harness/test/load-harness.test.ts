@@ -26,6 +26,8 @@ describe('the load test (TST-03)', () => {
     expect(targets('user')).toEqual({ login: 500, profile: 300 }); // US-NFR3.1.1
     expect(targets('supplier')).toEqual({ list: 400, search: 400, lookup: 200 }); // SS-NFR2.1.1
     expect(targets('credit')).toEqual({ wallet: 300 }); // CS-NFR3.1.1
+    // OS-NFR2.1.1 creating, the open list, an errand's details; OS-NFR2.1.2 a state change.
+    expect(targets('order')).toEqual({ create: 700, open: 500, details: 500, command: 700 });
   });
 
   it('runs D1’s 100 concurrent users, at D1’s data volumes', () => {
@@ -33,7 +35,7 @@ describe('the load test (TST-03)', () => {
     expect(lib).toContain('Number(__ENV.VUS || 100)');
     const script = read('scripts-load.sh');
     expect(script).toMatch(
-      /^ {2}STUDENTS=100 VUS=100 DURATION_S=60 SUPPLIERS=1000 WALLETS=10000$/m,
+      /^ {2}STUDENTS=100 VUS=100 DURATION_S=60 SUPPLIERS=1000 WALLETS=10000 ERRANDS=10000$/m,
     );
   });
 
@@ -87,6 +89,30 @@ describe('the load test (TST-03)', () => {
 
   it('runs k6 as this machine’s user, so it can write its summary into the directory it is given', () => {
     expect(read('scripts-load.sh')).toMatch(/docker run --rm --user "\$\(id -u\):\$\(id -g\)"/);
+  });
+
+  it('waits for an errand to open once per pause, as a person would, not in a tight loop', () => {
+    const order = read('load/order.js');
+    expect(order).toContain('waited += THINK_S');
+    expect(order).not.toMatch(/sleep\(0\.\d+\)/);
+  });
+
+  it('leaves the seeded errands out of the credit steps (CS-NFR3.1.1), as they asked for none', () => {
+    const script = read('scripts-load.sh');
+    // The copies belong to the copied wallets' users, `load-000001` and on; the Order Service's
+    // first migration adds one more, which the Credit Service was never asked about.
+    expect(script).toContain("'load-' || lpad(g::text, 6, '0') AS requester_id");
+    expect(read('order-service/drizzle/0000_little_serpent_society.sql')).toContain(
+      "'00000000-0000-4000-8000-000000000129'",
+    );
+    const steps = script.slice(script.indexOf('credit-requested.psv'));
+    const reads = steps.slice(0, steps.indexOf('SQL\n', steps.indexOf('UNION ALL')));
+    expect(reads).toContain(
+      "WHERE requester_id NOT LIKE 'load-%' AND order_id <> '00000000-0000-4000-8000-000000000129'",
+    );
+    // Every kind of step is read from those errands only.
+    expect(reads.match(/FROM orders/g)).toHaveLength(1);
+    expect(reads.match(/FROM posted/g)).toHaveLength(3);
   });
 });
 
@@ -150,11 +176,13 @@ describe('the load report', () => {
     user: { login: 500, profile: 300 },
     supplier: { list: 400, search: 400, lookup: 200 },
     credit: { wallet: 300 },
+    order: { create: 700, open: 500, details: 500, command: 700 },
   };
   const MET = {
     STUDENTS: '100',
     SUPPLIERS: '1000',
     WALLETS: '10000',
+    ERRANDS: '10000',
     USER_READY: '1.8',
     SESSION: '200',
     CREDIT_READY: '1.6',
@@ -177,6 +205,33 @@ describe('the load report', () => {
     latencyMs: { p50: 120, p95: 400, max: 700 },
   };
 
+  /**
+   * Credit steps as scripts-load.sh reads them from the two databases: for each, the kind, and how
+   * many seconds after it was requested it was recorded (`null`: never).
+   */
+  function writeSteps(out: string, steps: Array<[string, number | null]>) {
+    const asked: string[] = [];
+    const recorded: string[] = [];
+    steps.forEach(([kind, after], i) => {
+      const order = `order-${i}`;
+      asked.push(`${order}|${kind}|${1000 + i}`);
+      if (after !== null) recorded.push(`${order}|${kind}|${1000 + i + after}`);
+    });
+    writeFileSync(join(out, 'credit-requested.psv'), asked.join('\n'));
+    writeFileSync(join(out, 'credit-recorded.psv'), recorded.join('\n'));
+  }
+  const each = (
+    kind: string,
+    count: number,
+    after: number | null,
+  ): Array<[string, number | null]> => Array.from({ length: count }, () => [kind, after]);
+  /** 100 reservations, 50 transfers and 50 returns, each recorded 0.3 s after it was asked for. */
+  const ON_TIME = [
+    ...each('RESERVE', 100, 0.3),
+    ...each('TRANSFER', 50, 0.3),
+    ...each('RELEASE', 50, 0.3),
+  ];
+
   /** A repository with one commit, and the k6 summaries, each endpoint at `p95` of its target. */
   function measured(missed: string[] = [], live: Record<string, unknown> = {}) {
     const repo = temp();
@@ -197,10 +252,18 @@ describe('the load report', () => {
         failedRate: 0,
         ok: !missed.includes(endpoint),
       }));
-      const summary = { name, vus: 100, seconds: 60, thinkS: 1, endpoints };
+      const summary = {
+        name,
+        vus: 100,
+        seconds: 60,
+        thinkS: 1,
+        endpoints,
+        ...(name === 'order' && { creditPending: { answers: 100, pending: 100 } }),
+      };
       writeFileSync(join(out, `${name}.json`), JSON.stringify(summary));
     }
     writeFileSync(join(out, 'live.json'), JSON.stringify({ ...LIVE, ...live }));
+    writeSteps(out, ON_TIME);
     const head = git('rev-parse', '--short', 'HEAD').toString().trim();
     return { repo, out, head };
   }
@@ -231,6 +294,84 @@ describe('the load report', () => {
     const { status, text } = write(measured(['login']));
     expect(status).toBe(3);
     expect(text).toMatch(/`login` .* \*\*Missed\*\* \|/);
+  });
+
+  it('reports the Order Service’s targets, measured on 10,000 open errands (OS-NFR2)', () => {
+    const { status, text } = write(measured());
+    expect(status).toBe(0);
+    expect(text).toContain('10,000 open errands');
+    expect(text).toMatch(/\| OS-NFR2\.1\.1 \| `create` \| ≤ 700 ms \| .* \| Met \|/);
+    expect(text).toMatch(/\| OS-NFR2\.1\.1 \| `open` \| ≤ 500 ms \| .* \| Met \|/);
+    expect(text).toMatch(/\| OS-NFR2\.1\.1 \| `details` \| ≤ 500 ms \| .* \| Met \|/);
+    expect(text).toMatch(/\| OS-NFR2\.1\.2 \| `command` \| ≤ 700 ms \| .* \| Met \|/);
+  });
+
+  it('says every command answered before its credit result, which OS-NFR2.1.2 asks', () => {
+    const { status, text } = write(measured());
+    expect(status).toBe(0);
+    expect(text).toMatch(/\| OS-NFR2\.1\.2 \| .*credit.* \| 100 of 100 .* \| Met \|/);
+  });
+
+  it('exits 3 when a command waited for its credit result, or none was timed', () => {
+    for (const creditPending of [
+      { answers: 100, pending: 99 },
+      { answers: 0, pending: 0 },
+    ]) {
+      const run = measured();
+      const order = join(run.out, 'order.json');
+      writeFileSync(
+        order,
+        JSON.stringify({ ...JSON.parse(readFileSync(order, 'utf8')), creditPending }),
+      );
+      const { status, text } = write(run);
+      expect(status, JSON.stringify(creditPending)).toBe(3);
+      expect(text).toMatch(/\| OS-NFR2\.1\.2 \| .*credit.* \| \*\*Missed\*\* \|/);
+    }
+  });
+
+  it('reports the share of credit steps recorded within 5 s, by kind (CS-NFR3.1.1)', () => {
+    const { status, text } = write(measured());
+    expect(status).toBe(0);
+    expect(text).toContain(
+      '| 100 of 100 reservations (100.0%), 50 of 50 transfers (100.0%), 50 of 50 returns (100.0%) | Met |',
+    );
+  });
+
+  it('counts a step recorded 5 s after it was asked for as in time, and 99% of each kind as enough', () => {
+    const run = measured();
+    // 99 of 100 reservations in time, one of them at exactly 5 s; every transfer and return.
+    writeSteps(run.out, [
+      ...each('RESERVE', 98, 0.3),
+      ['RESERVE', 5],
+      ['RESERVE', 5.1],
+      ...ON_TIME.filter(([kind]) => kind !== 'RESERVE'),
+    ]);
+    const { status, text } = write(run);
+    expect(status).toBe(0);
+    expect(text).toContain('| 99 of 100 reservations (99.0%), 50 of 50 transfers (100.0%), ');
+  });
+
+  it('exits 3 when any kind is below 99%, even with the total above it', () => {
+    for (const [why, steps] of [
+      ['97% of reservations in time', [...ON_TIME.slice(3), ...each('RESERVE', 3, 6)]],
+      // 199 of 200 steps in time, but only 49 of 50 returns.
+      ['98% of returns in time', [...ON_TIME.slice(0, 199), ...each('RELEASE', 1, 6)]],
+      ['three never recorded', [...ON_TIME.slice(3), ...each('RESERVE', 3, null)]],
+      ['no transfer measured', ON_TIME.filter(([kind]) => kind !== 'TRANSFER')],
+      ['none measured', []],
+    ] as const) {
+      const run = measured();
+      writeSteps(run.out, [...steps]);
+      const { status, text } = write(run);
+      expect(status, why).toBe(3);
+      expect(text, why).toMatch(/\| CS-NFR3\.1\.1 \| .* \| \*\*Missed\*\* \|/);
+    }
+  });
+
+  it('exits 3 when an Order Service target is missed', () => {
+    const { status, text } = write(measured(['details']));
+    expect(status).toBe(3);
+    expect(text).toMatch(/`details` .* \*\*Missed\*\* \|/);
   });
 
   it('exits 3 when a restart takes longer than 60 s', () => {
