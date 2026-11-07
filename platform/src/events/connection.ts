@@ -69,7 +69,11 @@ export class BrokerConnection implements HealthIndicator {
     private readonly retryDelaysMs?: readonly number[],
     options: BrokerConnectionOptions = {},
   ) {
-    this.open = options.connect ?? ((u) => amqp.connect(u));
+    // noDelay turns Nagle's algorithm off, which amqplib leaves on. A service consumes on the
+    // connection it publishes on, so with Nagle on, each small publish that follows an ack waits
+    // for the broker's delayed ACK, about 40 ms. The outbox relay awaits each confirm in turn, so
+    // that wait held the Order Service's outbox up to 20 s behind at 100 users (#392).
+    this.open = options.connect ?? ((u) => amqp.connect(u, { noDelay: true }));
     this.account = accountIn(url);
   }
 
