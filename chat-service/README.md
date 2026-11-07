@@ -182,8 +182,30 @@ reason text is for people.
 | `4401` | `identity-changed`     | The account was suspended, reactivated, or a role changed.                             |
 | `4503` | `identity-unavailable` | The User Service could not answer, at sign-in or at a check. The token may be fine.    |
 | `4429` | `too-many`             | The user already has 5 sockets open on this instance, or the instance holds 1,000.     |
+| `4429` | `too-many-pending`     | 100 sockets are waiting to sign in on this instance. See below.                        |
 | `4400` | `bad-frame`            | Anything but one auth frame: invalid JSON, binary, over 8 KiB, or a second auth frame. |
 | `1001` | `shutdown`             | The service is stopping, or was stopping when the socket connected.                    |
+
+**Waiting to sign in (#370).** At most 100 sockets per instance, a tenth of the 1,000, may be
+waiting to sign in: from connecting until their token is checked. When all 100 places are taken, a
+new socket pushes out the oldest that has not sent its auth frame, closed with `4429`
+`too-many-pending`. So clients that never sign in push each other out, and a real client, which signs
+in within a round trip, still gets in. A socket whose token is being checked is never pushed out;
+while all 100 are, a new socket is refused with the same code. That can happen after a restart, when
+every open panel reconnects at once and more than 100 wait on the User Service: those panels poll and
+connect again later. `foc_chat_sockets_waiting` shows how many are waiting.
+
+**Protocol errors (#369).** A frame that breaks the WebSocket protocol itself (a reserved opcode, an
+unmasked frame, or more than 16 KiB) is closed by the WebSocket library with the standard code,
+`1002`, `1007` or `1009`. Any client can send one, so it is not an error of the service: each is
+counted in `foc_chat_socket_protocol_errors_total` by the library's error code, and logged at WARN
+without a stack, at most once a minute, with how many went unlogged since and the edge's correlation
+ID. The close counts as `client-closed` in `foc_chat_socket_closes_total`.
+
+**At the edge (#371).** The edge holds at most ten sockets per address. It refuses an eleventh
+before the upgrade with `429 TOO_MANY_SOCKETS` and `Retry-After: 60`, as it refuses an eleventh
+live-update stream. A browser sees neither, only a close with `1006`, so the chat panel paces its own
+reconnects; the header is for other clients.
 
 After `4401`, the client refreshes its access token and connects again, so a reactivated user or a
 new role takes effect at once. After `4503`, `4429` or `1001` it polls, and connects again later
@@ -208,8 +230,8 @@ library closes it with `1009`.
 
 ### Limits and scope
 
-- 5 open sockets per user and 1,000 per instance, then `4429`. At the edge, 10 per client address,
-  then an HTTP `429` before the upgrade.
+- 5 open sockets per user and 1,000 per instance, of which 100 may be waiting to sign in, then
+  `4429`. At the edge, 10 per client address, then `429 TOO_MANY_SOCKETS` before the upgrade.
 - The edge holds a quiet socket for 75 seconds, so the 25-second pings keep it open.
 - One instance only. A message sent through one instance nudges only the sockets it holds; sockets
   across several instances would need a broker fan-out, which is out of scope.

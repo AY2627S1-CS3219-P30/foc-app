@@ -1,6 +1,6 @@
 # Participant chat service design
 
-This diagram converts the **FoC Chat Service Design** Enso canvas into a portable view of the proposed chat architecture in [ADR 0012](adr/0012-participant-chat.md).
+This diagram converts the **FoC Chat Service Design** Enso canvas into a portable view of the chat architecture in [ADR 0012](adr/0012-participant-chat.md).
 
 ```mermaid
 flowchart LR

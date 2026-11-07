@@ -1,6 +1,5 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { WsAdapter } from '@nestjs/platform-ws';
 import { createLogger, errorMessage, PinoLoggerService, startService } from '@foc/platform';
 
 async function main(): Promise<void> {
@@ -9,11 +8,12 @@ async function main(): Promise<void> {
   const { env, SERVICE_NAME } = await import('./config.js');
   const { AppModule } = await import('./app.module.js');
   const { RetentionCleanup } = await import('./chat/retention.js');
+  const { ChatWsAdapter } = await import('./chat/socket/ws-adapter.js');
 
   const logger = new PinoLoggerService(createLogger(SERVICE_NAME, env.LOG_LEVEL));
   const app = await NestFactory.create(AppModule, { logger });
   // The chat socket (#346) shares the public port's HTTP server; the internal one takes no upgrade.
-  app.useWebSocketAdapter(new WsAdapter(app));
+  app.useWebSocketAdapter(new ChatWsAdapter(app));
 
   // The schema is migrated as a separate step before the service starts (a
   // one-shot `db/migrate.ts` container in compose, `npm run db:migrate` on a

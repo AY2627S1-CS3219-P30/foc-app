@@ -1,6 +1,7 @@
 # ADR 0010 — The API edge: one origin, routed and protected by nginx
 
-- **Status:** Proposed; implementation basis
+- **Status:** Accepted. Since it was written, the edge also routes `/api/chat/` to the Chat Service
+  ([ADR 0012](0012-participant-chat.md)), which keeps a port on `127.0.0.1` like the other four.
 - **Date:** 2026-10-26
 - **Deciders:** Group 30; approvals tracked in [the ADR index](README.md)
 - **Ticket:** [PLT-10 #285](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/285)
