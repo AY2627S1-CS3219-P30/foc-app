@@ -376,12 +376,19 @@ streams_ready() { # count seconds → whether that many streams have said `ready
   return 1
 }
 # Another throwaway student, active and signed in. Prints its access token, or nothing.
+# It signs up the way the first student had to: on images from before #309 the password goes with
+# registration and activation sends the token alone.
 second_student() {
-  local email="smoke-live-$(date +%s)-$RANDOM@u.nus.edu" out token
+  local email="smoke-live-$(date +%s)-$RANDOM@u.nus.edu" out token register activate
+  register="{\"email\":\"$email\",\"displayName\":\"Smoke test\"}"
+  [[ -z "$password_at_registration" ]] ||
+    register="{\"email\":\"$email\",\"password\":\"$SMOKE_PASSWORD\",\"displayName\":\"Smoke test\"}"
   out=$(mktemp)
-  post_json /auth/register "{\"email\":\"$email\",\"displayName\":\"Smoke test\"}" "$out" >/dev/null
+  post_json /auth/register "$register" "$out" >/dev/null
   token=$(activation_token_for "$email") || true
-  post_json /auth/activate "{\"token\":\"$token\",\"password\":\"$SMOKE_PASSWORD\"}" "$out" >/dev/null
+  activate="{\"token\":\"$token\",\"password\":\"$SMOKE_PASSWORD\"}"
+  [[ -z "$password_at_registration" ]] || activate="{\"token\":\"$token\"}"
+  post_json /auth/activate "$activate" "$out" >/dev/null
   post_json /auth/login "{\"email\":\"$email\",\"password\":\"$SMOKE_PASSWORD\"}" "$out" \
     -H "Origin: http://localhost:${WEB_PORT}" >/dev/null
   json_field accessToken <"$out"
