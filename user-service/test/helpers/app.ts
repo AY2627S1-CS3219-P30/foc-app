@@ -91,11 +91,17 @@ export async function createTestApp(
   };
 }
 
+/** A sign-up takes no password (#309): it is chosen at activation, as {@link activation} sends it. */
 export const validRegistration = (email = 'e0123456@u.nus.edu') => ({
   email,
-  password: 'correct-horse-battery-staple',
   displayName: 'Alex Tan',
 });
+
+/** The password test accounts choose when they activate. */
+export const PASSWORD = 'correct-horse-battery-staple';
+
+/** A `POST /auth/activate` body: the emailed token and the password its inbox's owner chooses. */
+export const activation = (token: string | undefined, password = PASSWORD) => ({ token, password });
 
 /** ADR 0008's defaults, as `config.ts` would supply them. */
 export const DEFAULT_ADMIN_SETTINGS: AdminSettings = {

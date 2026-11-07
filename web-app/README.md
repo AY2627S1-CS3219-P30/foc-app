@@ -92,7 +92,7 @@ cancellation or completion is not labelled as an administrative decision.
 
 `e2e/account-journey.e2e.ts` runs the account journey (USR-05) in Chromium at 360, 768 and 1440 px against
 the real User Service: sign-up with a failed submit, activation from the link in the email (read from
-Mailpit), sign-in with a rejected password, the mode switch and log-out. A second test asks for a new
+Mailpit) by choosing a password, with a mismatched confirmation first, sign-in with a rejected password, the mode switch and log-out. A second test asks for a new
 link on `/activate`, then checks the old link is refused and the new one activates. Only the keyboard drives the forms, and every focus stop
 must show a ring. Every screen must not scroll sideways and must have no critical axe issue; serious axe
 issues are listed in the test annotations without failing. CI runs it in the `e2e` job.
@@ -385,7 +385,13 @@ holds the React state around them.
 ### Activation email
 
 The activation email is real: the User Service sends it over SMTP, and in the Compose stack it lands in
-Mailpit's inbox at <http://localhost:8025>. Its link opens `/activate?token=…`, which activates at once.
+Mailpit's inbox at <http://localhost:8025>. Its link opens `/activate?token=…`, where the student
+**chooses their password** (#309): sign-up asks for none, because whoever signs up has not yet proven
+the inbox. Opening the link activates nothing; the form sends `POST /auth/activate` with the token and
+the password (typed twice, checked by the reset page's rules), and leads to sign-in. Without a link the
+page also asks for the pasted code. A used link opened again says the account is already active and its
+password unchanged, with a link to reset it. The activation and reset pages set
+`Referrer-Policy: no-referrer`, since their address carries the token. Links last 30 minutes.
 `/activate` also offers **Send a new link** (`POST /auth/activation/resend`) for an email that never
 came or a link that expired or was replaced. Its confirmation reads the same whether or not the address
 has an account, as the service's answer does.
@@ -394,11 +400,11 @@ has an account, as the service's answer does.
 
 **Forgot your password?** on `/login` opens `/forgot-password`, which asks `POST /auth/password-reset`
 for a link and then says the same thing whatever the address. The emailed link opens
-`/reset-password?token=…`: a new password and its confirmation, checked by the sign-up rules, then
+`/reset-password?token=…`: a new password and its confirmation, checked by the activation rules, then
 `POST /auth/password-reset/confirm` and a link to sign in (it does not sign in by itself, as activation
 does not). The reset also activates an account still waiting for activation, so when sign-up answers
-that an address is taken, the page links to `/forgot-password?email=…`: that is how a student takes back
-an address someone else registered (#309).
+that an address is taken, the page links to `/forgot-password?email=…`: a student whose address someone
+else registered gets a link either way (#309).
 
 ### Tests
 

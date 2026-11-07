@@ -38,7 +38,7 @@ Run these from the repository root.
 | `DATABASE_URL`                     | `postgres://user_service:…@postgres:5432/foc_user` | Supplied by Compose                                                                                     |
 | `ALLOWED_EMAIL_DOMAINS`            | `u.nus.edu,nus.edu.sg`                             | Registration is limited to these domains                                                                |
 | `INTERNAL_SERVICE_KEYS`            | (16+ chars each)                                   | Keys other services send as `X-Service-Key` on `/internal/**`                                           |
-| `ACTIVATION_TOKEN_TTL_HOURS`       | `24`                                               | Optional; 1–168                                                                                         |
+| `ACTIVATION_TOKEN_TTL_MINUTES`     | `30`                                               | Optional; 5–1440. How long an activation link works (where the password is chosen)                      |
 | `PASSWORD_RESET_TOKEN_TTL_MINUTES` | `30`                                               | Optional; 5–1440. How long a password reset link works                                                  |
 | `SMTP_HOST`                        | `mailpit`                                          | Where activation and reset email goes. Required in production                                           |
 | `SMTP_PORT`                        | `1025`                                             | Defaults to `587`; `465` means implicit TLS                                                             |
@@ -87,8 +87,8 @@ user and declares a `HEALTHCHECK`. `compose.yaml` wiring arrives with PLT-02.
 
 | Endpoint                              | Purpose                                                                                                                                                          |
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /auth/register`                 | Normalise the email, enforce the domain allowlist, reject duplicates, hash the password with Argon2id, email a one-time activation link                          |
-| `POST /auth/activate`                 | Single-use, expiring, replay-idempotent; publishes exactly one `UserActivated` to the outbox                                                                     |
+| `POST /auth/register`                 | Normalise the email, enforce the domain allowlist, reject duplicates, email a one-time activation link. Takes no password (#309)                                 |
+| `POST /auth/activate`                 | Token and password: sets the password (Argon2id), activates, publishes exactly one `UserActivated`. Single-use, 30 minutes, replay-idempotent; no sign-in        |
 | `POST /auth/activation/resend`        | Mails a new link to a pending account and invalidates the old ones. Same `202` for any address; 3 per address and 20 per IP an hour                              |
 | `POST /auth/password-reset`           | Mails a reset link to an active or pending account and invalidates the old ones. Same `202` for any address; its own 3 per address and 20 per IP an hour         |
 | `POST /auth/password-reset/confirm`   | Sets the password from the link (registration policy), activates a pending account, revokes every session, deletes the unused activation link. `204`; no sign-in |
@@ -101,25 +101,32 @@ The contract is `contracts/user-service.openapi.yaml`; role and schema design ar
 **Tests run on PGlite** (PostgreSQL compiled to WASM), so `npm test -w @foc/user-service` needs no
 database server or Docker. Runtime uses `pg` against the Compose Postgres.
 
+**The password is chosen at activation (#309).** Registration takes none: whoever signs up has not
+proven the inbox, so a password chosen then could be someone else's. A pending account has no
+password (`password_hash` is NULL, which migration 0007 allows only while it is pending), and signing
+in to it fails as for an unknown address. The emailed link opens the web app's activation page, where
+the student chooses one; `POST /auth/activate` sets it and activates in one transaction. So someone who
+registers a student's address and keeps resending its link never chooses its password: see
+[decisions.md O2](../docs/user-service/decisions.md).
+
 A registration that never activated, and whose every link has expired, is not a duplicate:
-registering it again replaces its password and display name and emails a new link. Until the
-address is proven, whoever registers last sets the password, as for any new sign-up.
+registering it again replaces its display name and emails a new link.
 
-**Password reset (#309).** Whoever owns the inbox can always replace the password, even on an account
-someone else registered: `POST /auth/password-reset` mails a single-use link (30 minutes by default,
-stored hashed, the newest only), and confirming it sets the new password, activates the account if it
-was pending (one `user.activated`), revokes every session and deletes the old activation link. So a
-stranger who registers a student's address with their own password and keeps resending its activation
-link cannot keep the account: see [decisions.md O2](../docs/user-service/decisions.md).
+**Password reset (#309).** Whoever owns the inbox can always replace the password:
+`POST /auth/password-reset` mails a single-use link (30 minutes by default, stored hashed, the newest
+only). Confirming it makes the same writes as activation: it sets the new password, activates the
+account if it was pending (one `user.activated`), revokes every session and deletes every other unused
+link.
 
-**Try it** (needs the Compose stack): register, read the token from the email in Mailpit, activate.
-Or open <http://localhost:8025> and click the link.
+**Try it** (needs the Compose stack): register, read the token from the email in Mailpit, then
+activate with a password. Or open <http://localhost:8025> and click the link.
 
 ```bash
 curl -s localhost:3001/auth/register -H 'content-type: application/json' \
-  -d '{"email":"e0123456@u.nus.edu","password":"correct-horse-battery","displayName":"Alex"}'
+  -d '{"email":"e0123456@u.nus.edu","displayName":"Alex"}'
 token=$(./scripts-activation-token.sh e0123456@u.nus.edu)
-curl -s localhost:3001/auth/activate -H 'content-type: application/json' -d "{\"token\":\"$token\"}"
+curl -s localhost:3001/auth/activate -H 'content-type: application/json' \
+  -d "{\"token\":\"$token\",\"password\":\"correct-horse-battery\"}"
 ```
 
 ### Sessions and tokens (USR-02)

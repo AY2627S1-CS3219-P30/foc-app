@@ -68,4 +68,10 @@ export class SocketClient {
   close(): void {
     this.ws.close();
   }
+
+  /** Writes bytes straight onto the connection, past ws's framing: how a broken client looks. */
+  async raw(bytes: Buffer): Promise<void> {
+    await this.opened();
+    (this.ws as unknown as { _socket: { write(bytes: Buffer): void } })._socket.write(bytes);
+  }
 }

@@ -82,7 +82,7 @@ async function student(who: string): Promise<{ email: string; token: string }> {
   await ok(
     await call("/api/user/auth/register", {
       method: "POST",
-      body: JSON.stringify({ email, password: PASSWORD, displayName: `Lighthouse ${who}` }),
+      body: JSON.stringify({ email, displayName: `Lighthouse ${who}` }),
     }),
     `register ${email}`,
   );
@@ -93,7 +93,11 @@ async function student(who: string): Promise<{ email: string; token: string }> {
     const text: string = (await (await fetch(`${MAILPIT}/api/v1/message/${id}`)).json()).Text;
     return text.match(/\/activate\?token=([\w-]+)/)?.[1];
   });
-  await ok(await call("/api/user/auth/activate", { method: "POST", body: JSON.stringify({ token }) }), "activate");
+  // The password is chosen at activation (#309).
+  await ok(
+    await call("/api/user/auth/activate", { method: "POST", body: JSON.stringify({ token, password: PASSWORD }) }),
+    "activate",
+  );
   const { token: access } = await login(email);
   await until("the wallet", async () => ((await call("/api/credit/wallets/me", { token: access })).ok ? true : undefined));
   return { email, token: access };

@@ -142,6 +142,12 @@ test.describe("mobile layout @release", () => {
     await expect(createAccount).toBeVisible();
     await check(page, "registration", findings, createAccount);
 
+    // The page an activation link opens: a password form, which activates nothing until sent (#309).
+    await page.goto(`/activate?token=${"a".repeat(43)}`);
+    const activate = shown(page, "button", "Activate account");
+    await expect(activate).toBeVisible();
+    await check(page, "activation", findings, activate);
+
     const token = await signIn(page.request, releaseEmail("requester"));
     const auth = { authorization: `Bearer ${token}` };
 

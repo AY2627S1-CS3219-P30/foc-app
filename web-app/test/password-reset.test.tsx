@@ -230,14 +230,33 @@ describe("the way to a reset", () => {
     expect(links()).toContainEqual({ text: "Forgot your password?", href: "/forgot-password" });
   });
 
+  it("a refused sign-in also points a new student to activation, saying nothing about the address", async () => {
+    const { ApiError } = await import("../src/lib/user-api");
+    const login = auth.login;
+    // What a pending account gets (#309), and exactly what any wrong password gets.
+    auth.login = async () => {
+      throw new ApiError(401, "INVALID_CREDENTIALS", "Email or password is incorrect.");
+    };
+    try {
+      await render(<LoginPage />, "/login");
+      await type("NUS email", "e0123456@u.nus.edu");
+      await type("Password", "a long enough passphrase");
+      await submit();
+
+      expect(alerts()).toContain("That email and password don't match an account.");
+      expect(alerts()).toContain("Just signed up? Open the activation email to choose your password.");
+      expect(links()).toContainEqual({ text: "choose your password", href: "/activate" });
+    } finally {
+      auth.login = login;
+    }
+  });
+
   it("is offered when sign-up finds the address taken, with the address", async () => {
     serve(() => error(409, "EMAIL_ALREADY_REGISTERED", "An account with this email already exists."));
     await render(<RegisterPage />, "/register");
 
     await type("NUS email", "e0123456@u.nus.edu");
     await type("Display name", "Alex Tan");
-    await type("Password", "a long enough passphrase");
-    await type("Confirm password", "a long enough passphrase");
     await submit();
 
     expect(field("NUS email").getAttribute("aria-invalid")).toBe("true");
@@ -248,17 +267,121 @@ describe("the way to a reset", () => {
     });
   });
 
-  it("is offered on the activation success screen, for a password the student did not choose", async () => {
-    serve(() => json(200, { alreadyActivated: false }));
+  it("is offered when a used activation link is opened again", async () => {
+    serve(() => json(200, { userId: "u-1", status: "ACTIVE", alreadyActivated: true }));
     await render(<ActivatePage />, `/activate?token=${TOKEN}`);
+    await type("Password", "a long enough passphrase");
+    await type("Confirm password", "a long enough passphrase");
+    await submit();
 
-    expect(statuses()).toContain("Your account is active.");
-    expect(container.textContent).toContain("Didn't choose a password yourself?");
+    expect(statuses()).toContain("its password hasn't changed");
     expect(links()).toContainEqual({ text: "Reset it", href: "/forgot-password" });
   });
 
   it("is not offered while the activation link is still unused", async () => {
     await render(<ActivatePage />, "/activate");
     expect(links().map((l) => l.href)).not.toContain("/forgot-password");
+  });
+});
+
+describe("sign-up (#309)", () => {
+  it("asks for no password: it is chosen at activation", async () => {
+    serve(() => json(201, { userId: "u-1", status: "PENDING_ACTIVATION" }));
+    await render(<RegisterPage />, "/register");
+    expect(container.querySelector('input[type="password"]')).toBeNull();
+
+    await type("NUS email", " e0123456@u.nus.edu ");
+    await type("Display name", "Alex Tan");
+    await submit();
+
+    expect(sent).toEqual([
+      { path: "/auth/register", body: { email: "e0123456@u.nus.edu", displayName: "Alex Tan" } },
+    ]);
+    expect(statuses()).toContain("choose your password");
+  });
+});
+
+describe("activation (#309)", () => {
+  it("opening the link activates nothing until the student chooses a password", async () => {
+    serve(() => json(200, { userId: "u-1", status: "ACTIVE", alreadyActivated: false }));
+    await render(<ActivatePage />, `/activate?token=${TOKEN}`);
+
+    expect(sent).toEqual([]);
+    expect(container.querySelector('input[name="token"]')).toBeNull();
+    await type("Password", "a long enough passphrase");
+    await type("Confirm password", "a long enough passphrase");
+    await submit();
+
+    expect(sent).toEqual([
+      { path: "/auth/activate", body: { token: TOKEN, password: "a long enough passphrase" } },
+    ]);
+    expect(container.querySelector("h1")?.textContent).toBe("Account activated");
+    expect(statuses()).toContain("Your account is active.");
+    expect(links()).toContainEqual({ text: "Sign in", href: "/login" });
+  });
+
+  it("applies the password rules before sending anything", async () => {
+    serve(() => json(200, {}));
+    await render(<ActivatePage />, `/activate?token=${TOKEN}`);
+    await type("Password", "too short");
+    await type("Confirm password", "something else");
+    await submit();
+
+    expect(sent).toEqual([]);
+    expect(container.textContent).toContain("Use at least 12 characters.");
+    expect(container.textContent).toContain("The passwords don't match.");
+  });
+
+  it("takes a pasted code with the password when opened without a link", async () => {
+    serve(() => json(200, { userId: "u-1", status: "ACTIVE", alreadyActivated: false }));
+    await render(<ActivatePage />, "/activate");
+
+    await type("Password", "a long enough passphrase");
+    await type("Confirm password", "a long enough passphrase");
+    await submit();
+    expect(sent).toEqual([]);
+    expect(field("Activation code").getAttribute("aria-invalid")).toBe("true");
+
+    await type("Activation code", ` ${TOKEN} `);
+    await submit();
+    expect(sent).toEqual([
+      { path: "/auth/activate", body: { token: TOKEN, password: "a long enough passphrase" } },
+    ]);
+  });
+
+  it("after the link's token is refused, takes the code from a newer email", async () => {
+    const NEWER = "b".repeat(43);
+    const replies = [
+      () => error(404, "ACTIVATION_TOKEN_INVALID", "This activation link is not valid."),
+      () => json(200, { userId: "u-1", status: "ACTIVE", alreadyActivated: false }),
+    ];
+    serve(() => replies.shift()!());
+    await render(<ActivatePage />, `/activate?token=${TOKEN}`);
+    await type("Password", "a long enough passphrase");
+    await type("Confirm password", "a long enough passphrase");
+    await submit();
+
+    expect(alerts()).toContain("This activation link isn't valid.");
+    expect(field("Activation code")).toBeDefined();
+    expect(field("Password").value).toBe("a long enough passphrase");
+
+    await type("Activation code", NEWER);
+    await submit();
+    expect(sent.map((s) => s.body)).toEqual([
+      { token: TOKEN, password: "a long enough passphrase" },
+      { token: NEWER, password: "a long enough passphrase" },
+    ]);
+    expect(statuses()).toContain("Your account is active.");
+  });
+
+  it("explains an expired link and keeps the typed password", async () => {
+    serve(() => error(410, "ACTIVATION_TOKEN_EXPIRED", "This activation link has expired."));
+    await render(<ActivatePage />, `/activate?token=${TOKEN}`);
+    await type("Password", "a long enough passphrase");
+    await type("Confirm password", "a long enough passphrase");
+    await submit();
+
+    expect(alerts()).toContain("This activation link has expired.");
+    expect(field("Password").value).toBe("a long enough passphrase");
   });
 });

@@ -4,7 +4,13 @@ import { seedAdmins } from '../src/admin/seed.js';
 import { RateLimiter } from '../src/auth/rate-limiter.js';
 import { sha256Hex } from '../src/auth/tokens.js';
 import { SmtpMailer } from '../src/mail/smtp-mailer.js';
-import { createTestApp, openLimiters, validRegistration, type TestApp } from './helpers/app.js';
+import {
+  activation,
+  createTestApp,
+  openLimiters,
+  validRegistration,
+  type TestApp,
+} from './helpers/app.js';
 import {
   BOOTSTRAP_PASSWORD,
   ORIGIN,
@@ -16,8 +22,9 @@ import {
 } from './helpers/actors.js';
 
 /**
- * #309 — password reset by email, and the pre-registration hijack it closes: someone registers a
- * student's address with a password of their own and keeps its activation link alive by resending.
+ * #309 — password reset by email. The pre-registration hijack itself is closed by choosing the
+ * password at activation (registration.test.ts); a reset is how the inbox's owner takes back an
+ * account whatever its password.
  */
 let t: TestApp;
 const http = () => httpOf(t);
@@ -38,12 +45,10 @@ beforeEach(async () => {
   await t.db.exec(TRUNCATE_ALL);
 });
 
-const register = (email = EMAIL, password = PASSWORD) =>
-  http()
-    .post('/auth/register')
-    .send({ ...validRegistration(email), password })
-    .expect(201);
-const activate = (token: string) => http().post('/auth/activate').send({ token });
+const register = (email = EMAIL) =>
+  http().post('/auth/register').send(validRegistration(email)).expect(201);
+const activate = (token: string, password = PASSWORD) =>
+  http().post('/auth/activate').send(activation(token, password));
 const activeAccount = async (email = EMAIL) => {
   await register(email);
   await activate(t.mailbox.latestFor(email)!.token).expect(200);
@@ -296,28 +301,17 @@ describe('POST /auth/password-reset/confirm', () => {
   });
 });
 
-describe('the pre-registration hijack (#309)', () => {
-  const ATTACKER_PASSWORD = 'the-attackers-chosen-passphrase';
+describe('emailed links on a pending account (#309)', () => {
+  it('activates a pending account from a reset link too, and voids its activation link', async () => {
+    await register();
+    const activationLink = t.mailbox.latestFor(EMAIL)!.token;
 
-  it('lets the student take back an address someone else registered and keeps resending', async () => {
-    // The attacker registers the student's address with their own password and keeps the link alive.
-    await register(EMAIL, ATTACKER_PASSWORD);
-    await http().post('/auth/activation/resend').send({ email: EMAIL }).expect(202);
-    await vi.waitFor(() => expect(t.mailbox.latestFor(EMAIL)).toBeDefined());
-    const attackersLink = t.mailbox.latestFor(EMAIL)!.token;
-    const signUp = await http().post('/auth/register').send(validRegistration(EMAIL)).expect(409);
-    expect(signUp.body.error.code).toBe('EMAIL_ALREADY_REGISTERED');
-
-    // The student resets the password from their own inbox, never using the attacker's.
     await confirm(await resetLink()).expect(204);
 
     expect(await status()).toBe('ACTIVE');
     await signIn(NEW_PASSWORD).expect(200);
-    expect((await signIn(ATTACKER_PASSWORD).expect(401)).body.error.code).toBe(
-      'INVALID_CREDENTIALS',
-    );
-    // The activation link sent while the attacker's password was set no longer works.
-    expect((await activate(attackersLink).expect(404)).body.error.code).toBe(
+    // The activation link mailed earlier can no longer choose a password.
+    expect((await activate(activationLink).expect(404)).body.error.code).toBe(
       'ACTIVATION_TOKEN_INVALID',
     );
     expect(
@@ -332,26 +326,16 @@ describe('the pre-registration hijack (#309)', () => {
     });
   });
 
-  it('signs the attacker out if the link was already used and they hold a session', async () => {
-    await register(EMAIL, ATTACKER_PASSWORD);
-    await activate(t.mailbox.latestFor(EMAIL)!.token).expect(200);
-    const attacker = await login(t, EMAIL, ATTACKER_PASSWORD);
+  it('voids a reset link once the account is activated with its own link', async () => {
+    await register();
+    const activationLink = t.mailbox.latestFor(EMAIL)!.token;
+    const reset = await resetLink();
 
-    await confirm(await resetLink()).expect(204);
+    await activate(activationLink).expect(200);
 
-    await http().get('/users/me').set('Authorization', bearer(attacker)).expect(401);
-    await http()
-      .post('/auth/refresh')
-      .set('Cookie', attacker.cookie)
-      .set('Origin', ORIGIN)
-      .set('Content-Type', 'application/json')
-      .expect(401);
-    await signIn(ATTACKER_PASSWORD).expect(401);
-    await signIn(NEW_PASSWORD).expect(200);
-    const live = await t.db.query(
-      'SELECT count(*)::int AS n FROM refresh_sessions WHERE revoked_at IS NULL',
-    );
-    expect(live.rows[0]).toEqual({ n: 1 }); // only the student's new sign-in
+    expect((await confirm(reset).expect(404)).body.error.code).toBe('PASSWORD_RESET_TOKEN_INVALID');
+    await signIn(PASSWORD).expect(200);
+    expect(await activatedEvents()).toHaveLength(1);
   });
 });
 

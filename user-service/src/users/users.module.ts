@@ -98,7 +98,7 @@ export class UsersModule {
           provide: USER_SETTINGS,
           useValue: {
             allowedEmailDomains: env.ALLOWED_EMAIL_DOMAINS,
-            activationTokenTtlHours: env.ACTIVATION_TOKEN_TTL_HOURS,
+            activationTokenTtlMinutes: env.ACTIVATION_TOKEN_TTL_MINUTES,
             passwordResetTokenTtlMinutes: env.PASSWORD_RESET_TOKEN_TTL_MINUTES,
           } satisfies UserSettings,
         },

@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { ApiException, EVENTS } from '@foc/platform';
+import { ApiException } from '@foc/platform';
 import { DB, type Database } from '../db/db.js';
 import { normalizeEmail } from '../users/email.js';
 import { validationFailed } from '../users/validation.js';
@@ -9,6 +9,7 @@ import {
   type AccountStatus,
   type Role,
 } from '../users/users.repository.js';
+import { setPasswordFromEmailedLink } from './emailed-link.js';
 import { hashPassword, verifyPassword } from './passwords.js';
 import { ACCESS_TOKEN_TTL_SECONDS, JWT, type JwtService } from './jwt.service.js';
 import { REFRESH_TTL_DAYS } from './cookies.js';
@@ -194,11 +195,10 @@ export class SessionsService {
   }
 
   /**
-   * #309 — sets the password chosen through an emailed reset link. The link proves the inbox, so:
-   * - a pending account is activated too, with its one `user.activated`, as activation would. This
-   *   is how a student takes back an address someone else registered with their own password;
-   * - every session of the account is revoked and its unused activation link deleted, so nobody who
-   *   knew the old password, or holds the link sent while it was set, keeps a way in.
+   * #309 — sets the password chosen through an emailed reset link. The link proves the inbox, so it
+   * does what activation does ({@link setPasswordFromEmailedLink}): a pending account is activated
+   * too, and every session is revoked and every unused link deleted, so nobody who knew the old
+   * password, or holds a link sent before, keeps a way in.
    *
    * Does not sign in, as activation does not: the student signs in with the new password. A
    * suspended account is refused and its token left unused. The token is checked before Argon2
@@ -232,20 +232,7 @@ export class SessionsService {
       // Suspended after the link was sent. Throwing rolls back, so the token is not left consumed.
       if (status === 'SUSPENDED') throw resetTokenRefusal(null);
 
-      await users.setPassword(tx, userId, passwordHash);
-      if (status === 'PENDING_ACTIVATION' && (await users.markActivated(tx, userId))) {
-        await users.insertOutboxEvent(tx, {
-          id: randomUUID(),
-          eventType: EVENTS.USER_ACTIVATED,
-          aggregateId: userId,
-          payload: { userId, activatedAt: new Date().toISOString() },
-          correlationId,
-        });
-      }
-      // An activated account's old link would be refused anyway; deleted so none is left lying about.
-      // No other reset link needs deleting: issuing one deletes the rest, and this one is now used.
-      await users.deleteUnconsumedActivationTokens(tx, userId);
-      await sessions.revokeAllForUser(tx, userId);
+      await setPasswordFromEmailedLink(tx, { userId, status, passwordHash, correlationId });
     });
   }
 
@@ -279,12 +266,15 @@ export class SessionsService {
   private async verifyCredentials(rawEmail: string, password: string) {
     const user = await users.findCredentials(this.db, normalizeEmail(rawEmail));
 
+    const passwordHash = user?.passwordHash ?? null;
+
     this.dummyHash ??= hashPassword('not-a-real-password');
-    // Verify against a dummy hash when the email is unknown so response time does not reveal it.
-    const valid = await verifyPassword(user?.passwordHash ?? (await this.dummyHash), password);
-    if (!user || !valid) throw invalidCredentials();
+    // Verify against a dummy hash when the email is unknown, or its account has no password yet
+    // (pending, #309), so response time does not reveal it. Matching the dummy proves nothing.
+    const valid = await verifyPassword(passwordHash ?? (await this.dummyHash), password);
+    if (!user || !passwordHash || !valid) throw invalidCredentials();
     if (user.status !== 'ACTIVE') throw codeForStatus(user.status);
-    return user;
+    return { ...user, passwordHash };
   }
 
   private async respond(

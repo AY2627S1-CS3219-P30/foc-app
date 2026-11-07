@@ -62,8 +62,12 @@ export function createUserApi({
   return {
     register: (body: Schemas["RegisterRequest"], id?: string) =>
       unwrap(api.POST("/auth/register", { body, ...as(id) })),
-    activate: (token: string, id?: string) =>
-      unwrap(api.POST("/auth/activate", { body: { token }, ...as(id) })),
+    /**
+     * Sets the password the student chose and activates the account (#309). A replay of a used link
+     * answers `alreadyActivated` and leaves the password as it was. Does not sign in.
+     */
+    activate: (token: string, password: string, id?: string) =>
+      unwrap(api.POST("/auth/activate", { body: { token, password }, ...as(id) })),
     /** Answers the same whether or not the address has an account waiting for activation. */
     resendActivation: (email: string, id?: string) =>
       unwrap(api.POST("/auth/activation/resend", { body: { email }, ...as(id) })),

@@ -13,6 +13,7 @@ const OPTIONS: SocketOptions = {
   pingMs: 25_000,
   perUser: 5,
   perInstance: 1_000,
+  pendingPerInstance: 100,
 };
 const ORDER = '00000000-0000-4000-8000-000000000346';
 
@@ -56,9 +57,12 @@ describe('chat sockets (#346)', () => {
   const revoked = new Set<string>();
   /** Set while the User Service cannot answer. */
   let outage = false;
+  /** While set, every sign-in waits on it, as on a slow User Service. */
+  let held: Promise<void> | undefined;
 
   const authenticator: Authenticator = {
     async authenticate(header) {
+      if (held) await held;
       if (outage) throw authFailure('IDENTITY_UNAVAILABLE');
       const raw = /^Bearer (.+)$/.exec(header ?? '')?.[1] ?? '';
       const sub = (JSON.parse(Buffer.from(raw.split('.')[1] ?? '', 'base64url').toString() || '{}')
@@ -90,6 +94,17 @@ describe('chat sockets (#346)', () => {
   };
   const nudges = (peer: FakePeer) =>
     peer.frames.filter((f) => (f as { type: string }).type === 'messages');
+  /** A gauge's current value. */
+  const gauge = (name: string) =>
+    metrics.registry
+      .getSingleMetricAsString(name)
+      .then((text) => Number(new RegExp(`^${name}(?:\\{[^}]*\\})? (\\d+)$`, 'm').exec(text)?.[1]));
+  /** A hub with these options in place of the default, measured by `metrics`. */
+  const useHub = (options: Partial<SocketOptions>) => {
+    hub.onModuleDestroy();
+    metrics = new Metrics('chat-service');
+    hub = new SocketHub({ ...OPTIONS, ...options }, authenticator, metrics);
+  };
   const closedCount = (reason: string) =>
     metrics.registry
       .getSingleMetricAsString('foc_chat_socket_closes_total')
@@ -101,6 +116,7 @@ describe('chat sockets (#346)', () => {
     hub = new SocketHub(OPTIONS, authenticator, metrics);
     revoked.clear();
     outage = false;
+    held = undefined;
   });
   afterEach(() => {
     hub.onModuleDestroy();
@@ -224,6 +240,62 @@ describe('chat sockets (#346)', () => {
       connect();
       connect();
       expect(connect().peer.closed?.code).toBe(4429);
+    });
+
+    it('makes room by closing the oldest socket still waiting for its auth frame, with 4429 (#370)', async () => {
+      useHub({ pendingPerInstance: 2 });
+      const [oldest, second, newest] = [connect(), connect(), connect()];
+      expect(oldest.peer.closed?.code).toBe(4429);
+      expect(second.peer.closed).toBeUndefined();
+      expect(newest.peer.closed).toBeUndefined();
+      // Counted apart from a user's sixth tab, so a flood of idle sockets shows as one.
+      expect(await closedCount('too-many-pending')).toBe(1);
+      expect(await closedCount('too-many')).toBe(0);
+      await hub.received(newest.socket, { type: 'auth', token: token('requester') });
+      expect(newest.peer.frames).toEqual([{ type: 'ready' }]);
+    });
+
+    it('lets a real user sign in however many clients never do (#370)', async () => {
+      useHub({ perInstance: 10, pendingPerInstance: 2 });
+      for (const person of ['a', 'b', 'c', 'd']) {
+        expect((await signIn(person)).peer.closed).toBeUndefined();
+      }
+      // Clients that never sign in only push each other out, and never hold more than two places
+      // of the six the instance has left.
+      const idle = Array.from({ length: 5 }, () => connect());
+      expect(idle.map(({ peer }) => peer.closed?.code)).toEqual([
+        4429,
+        4429,
+        4429,
+        undefined,
+        undefined,
+      ]);
+      expect(await gauge('foc_chat_sockets')).toBe(6);
+      expect(await gauge('foc_chat_sockets_waiting')).toBe(2);
+      const requester = await signIn('requester');
+      expect(requester.peer.frames).toEqual([{ type: 'ready' }]);
+      expect(await gauge('foc_chat_sockets_waiting')).toBe(1);
+    });
+
+    it('refuses a new socket, and closes none, while every waiting socket is signing in (#370)', async () => {
+      useHub({ pendingPerInstance: 2 });
+      let release!: () => void;
+      held = new Promise<void>((resolve) => (release = resolve));
+      const signingIn = [connect(), connect()];
+      const answers = signingIn.map(({ socket }, i) =>
+        hub.received(socket, { type: 'auth', token: token(`user-${i}`) }),
+      );
+      const late = connect();
+      expect(late.peer.closed?.code).toBe(4429);
+      expect(signingIn.map(({ peer }) => peer.closed)).toEqual([undefined, undefined]);
+      release();
+      await Promise.all(answers);
+      expect(signingIn.map(({ peer }) => peer.frames)).toEqual([
+        [{ type: 'ready' }],
+        [{ type: 'ready' }],
+      ]);
+      // Signed in, they wait no more, so the next socket gets a place.
+      expect(connect().peer.closed).toBeUndefined();
     });
   });
 

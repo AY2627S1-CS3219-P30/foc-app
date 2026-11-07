@@ -31,12 +31,16 @@ export interface paths {
          * Register a student account (US-FR1.1.1)
          * @description Normalizes the email, rejects addresses outside the configured NUS domain allowlist, rejects a
          *     duplicate without creating anything, and sends a one-time activation link. The account is
-         *     `PENDING_ACTIVATION` until activated.
+         *     `PENDING_ACTIVATION`, with no password, until activated.
+         *
+         *     **No password is taken** (#309; a field named `password` is refused as `UNKNOWN_FIELD`).
+         *     Whoever registers has not yet proven they own the inbox, so a password chosen here could be
+         *     someone else's. The student chooses it with `POST /auth/activate`, using the emailed token.
          *
          *     An address that was registered but never activated, and whose every link has expired, is not
-         *     a duplicate: registering it again keeps the account, replaces its password and display name,
-         *     and sends a new link. A failure to send the email does not fail the request; the student can
-         *     ask for the link again with `POST /auth/activation/resend`.
+         *     a duplicate: registering it again keeps the account, replaces its display name, and sends a
+         *     new link. A failure to send the email does not fail the request; the student can ask for the
+         *     link again with `POST /auth/activation/resend`.
          */
         post: operations["register"];
         delete?: never;
@@ -55,10 +59,20 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Activate an account with the emailed one-time token
-         * @description Single-use and expiring. **Replay-idempotent**: presenting an already-consumed token for an account
-         *     that is already active returns `200` with `alreadyActivated: true` and publishes **no** second
-         *     `UserActivated` event. The first successful call publishes exactly one.
+         * Choose the password and activate an account with the emailed one-time token
+         * @description Single-use and expiring (30 minutes by default). The token proves the inbox, so this is where
+         *     the student chooses their password (#309), under the same policy as a reset: 12–128
+         *     characters. In one transaction it:
+         *     - sets the password;
+         *     - activates the account, publishing exactly one `UserActivated`;
+         *     - deletes the account's other unused activation and reset links and revokes any session.
+         *
+         *     It does not sign in: sign in with the new password. A token whose account is no longer pending
+         *     (suspended, say) is refused as invalid and left unused. A `422` leaves the token usable.
+         *
+         *     **Replay-idempotent**: presenting an already-consumed token for an account that is already
+         *     active returns `200` with `alreadyActivated: true`, publishes **no** second `UserActivated`
+         *     event, and **does not change the password**: the `password` sent with a replay is ignored.
          */
         post: operations["activate"];
         delete?: never;
@@ -108,8 +122,8 @@ export interface paths {
          *     suspended or unknown address gets no email. The answer is the same `202` either way, and is sent
          *     before the email, so neither the body nor the timing says whether the address has an account.
          *
-         *     A pending account is included on purpose: whoever registered the address chose its password,
-         *     and the reset link is how the inbox's owner replaces that choice.
+         *     A pending account is included on purpose: the reset link proves the inbox as an activation
+         *     link does, so it sets the password and activates the account too.
          *
          *     Rate limited per IP and per normalized address, with limits of its own (not resend's). Both
          *     count every request, whatever the address, so a `429` reveals nothing either.
@@ -139,6 +153,8 @@ export interface paths {
          *       proves the inbox as activation does;
          *     - revokes every session of the account and deletes its unused activation link.
          *
+         *     These are the same writes `POST /auth/activate` makes.
+         *
          *     It does not sign in, as activation does not: sign in with the new password. A token whose
          *     account is suspended is refused as invalid and left unused.
          */
@@ -162,6 +178,9 @@ export interface paths {
          * Log in (US-FR1.1.2)
          * @description Only an `ACTIVE` account with valid credentials receives tokens. Sets the `foc_refresh` cookie and
          *     returns the access token in the body. Rate limited per IP and per email.
+         *
+         *     An account still waiting for activation has no password (#309), so any password for it gets
+         *     `401 INVALID_CREDENTIALS`, as for an unknown address.
          *
          *     A bootstrap administrator signing in with the configured bootstrap password gets
          *     `403 PASSWORD_CHANGE_REQUIRED` and no session; call `POST /auth/password` first (US-FR3.1.3.2).
@@ -753,10 +772,10 @@ export interface components {
         PreferredMode: "REQUESTER" | "COURIER";
         /** @enum {string} */
         ContactPreference: "IN_APP" | "EMAIL";
+        /** @description No password; it is chosen at activation (#309). */
         RegisterRequest: {
             /** Format: email */
             email: string;
-            password: string;
             displayName: string;
         };
         RegisterResponse: {
@@ -764,6 +783,11 @@ export interface components {
             userId: string;
             /** @enum {string} */
             status: "PENDING_ACTIVATION";
+        };
+        ActivateRequest: {
+            token: string;
+            /** @description The password the inbox's owner chooses. Ignored on a replay. */
+            password: string;
         };
         ActivateResponse: {
             /** Format: uuid */
@@ -1475,7 +1499,6 @@ export interface operations {
                 /**
                  * @example {
                  *       "email": "e0123456@u.nus.edu",
-                 *       "password": "correct-horse-battery-staple",
                  *       "displayName": "Alex Tan"
                  *     }
                  */
@@ -1512,9 +1535,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": {
-                    token: string;
-                };
+                "application/json": components["schemas"]["ActivateRequest"];
             };
         };
         responses: {

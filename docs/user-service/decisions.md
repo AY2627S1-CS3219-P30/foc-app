@@ -246,7 +246,7 @@ Compared in constant time against digests; a user access token is never accepted
 - **Trade-off:** static shared secrets, no rotation story. `compose.yaml` carries a **dev-only default key**
   so `up` works on a clean clone — a committed credential PLT-06 (secrets hardening) should remove.
 
-### O2. Activation email goes over SMTP; no route returns a token — ✅ (USR-09, #274; reset #309)
+### O2. Activation email goes over SMTP; no route returns a token — ✅ (USR-09, #274; reset and password at activation #309)
 *Was:* a dev mailbox, `GET /dev/mailbox?to=…`, returned any address's token unauthenticated on the
 published port, and production refused to boot because no other adapter existed.
 - **Now:** an SMTP adapter (`SmtpMailer`, nodemailer). Compose runs Mailpit as the SMTP server, its inbox
@@ -258,17 +258,44 @@ published port, and production refused to boot because no other adapter existed.
   per address (3 an hour, which stops inbox flooding) and per IP, counting every request.
 - **Re-register:** an address that never activated, and whose every link has expired, can be
   registered again, keeping its id. A re-register locks the pending account before it looks for a
-  live link, so of two at once only the first revives it. **Trade-off:** until an address is proven,
-  the last registrant sets the password. Once a real student's link lapses, someone else can
-  re-register the address with their own password; the student then gets an ordinary-looking
-  activation email. That is the pre-registration hijack below by a second route, and password reset
-  closes both (#309).
-- **Pre-registration hijack, mitigated by password reset (#309):** the password is chosen at sign-up,
-  before the inbox is proven. Someone can register a student's address with their own password and
-  keep it pending by resending before each link expires, so the student's own sign-up gets `409`.
-  Until #309 the only way on was to click a link that activates the other person's password.
-  - **Chosen:** password reset by email (the owner's pick in review over setting the password at
-    activation, which would have changed registration's contract and the activate screen).
+  live link, so of two at once only the first revives it. Re-registering sets only the display name:
+  no registrant chooses a password (below).
+- **Password at activation (#309, closes the pre-registration hijack).** *Was:* the password was chosen
+  at sign-up, before the inbox was proven. Someone could register a student's address with their own
+  password and keep it pending by resending before each link expired, so the student's own sign-up got
+  `409`; clicking the emailed link then activated the other person's password. Password reset (below)
+  let the student take it back, but only a student who tried.
+  - **Now:** `POST /auth/register` takes no password, and `POST /auth/activate` takes `{token, password}`.
+    Only the inbox's owner ever sees the token, so only their choice becomes the account's. Activation
+    makes the same writes as a reset confirm, through one helper (`setPasswordFromEmailedLink`): set the
+    password, activate with one `user.activated`, delete every other unused activation and reset link,
+    revoke every session. The token is looked up before Argon2 runs; a replay of a used link on an active
+    account still answers `200 alreadyActivated` and ignores the password it carries.
+  - **Schema:** `users.password_hash` is nullable, and only a pending account may have none. The
+    service enforces that. Migration 0007 is rollback-safe, as the rollback runbook requires: it adds no
+    CHECK and rewrites no account. An image from before #309 activates without setting a password, and
+    `CHECK (password_hash IS NOT NULL OR status = 'PENDING_ACTIVATION')` would refuse it, so that CHECK
+    waits for a release after the rollback window. On such a rollback, an account registered under #309
+    activates with no password, cannot sign in (a NULL hash never matches, there either), and its owner
+    sets one through password reset. A pending account keeps a password set before #309: activation
+    always replaces it, and a pending account cannot sign in. A NULL hash never authenticates: login verifies the
+    password against the dummy hash, as for an unknown address, and answers `401 INVALID_CREDENTIALS`
+    whatever the password, so the timing and answer match an unknown address. Step-up, password change and
+    the login session check all require a stored hash.
+  - **Activation links last 30 minutes** (`ACTIVATION_TOKEN_TTL_MINUTES`, 5–1440, replacing
+    `ACTIVATION_TOKEN_TTL_HOURS`): whoever holds one now chooses the password, so it is as sensitive as a
+    reset link. The email says the link expires soon; resend gives a new one.
+  - **The web app** asks for no password at sign-up. Opening the link activates nothing: the activation
+    page shows a password form (the reset page's rules), and only its submit calls `POST /auth/activate`.
+    The activation and reset pages set `Referrer-Policy: no-referrer`; the token stays in the address bar,
+    as it does on the reset page.
+  - **Contract:** an approved-pending breaking change, listed in `contracts/approved-breaking-changes.json`.
+    The web app is the only client and changes with it.
+  - **Activation tokens** were already stored only as a SHA-256 hash, as reset tokens are; nothing changed.
+  - **What stays open:** whoever registers an address still chooses its display name until the student
+    edits it, and sign-up's `409` still says an address is taken (out of scope here).
+- **Password reset (#309):** kept as the way back into an account whatever its password.
+  - **Chosen first** (before the password moved to activation): password reset by email.
     `POST /auth/password-reset` mails a link to an `ACTIVE` **or `PENDING_ACTIVATION`** account,
     answering the same `202` for every address after the work is queued, like resend.
     `POST /auth/password-reset/confirm` sets the password the inbox owner chose and, in one
@@ -279,7 +306,7 @@ published port, and production refused to boot because no other adapter existed.
   - **Tokens** follow activation's: 256 random bits, only the SHA-256 stored
     (`password_reset_tokens`), single use by a conditional `UPDATE`, issuing one deletes the account's
     unused others. 30 minutes by default (`PASSWORD_RESET_TOKEN_TTL_MINUTES`, 5–1440): whoever holds a
-    reset link can take the account, so it lives far shorter than an activation link. An unknown or
+    reset link can take the account, so it is short-lived, and activation links now match it. An unknown or
     used token is `404 PASSWORD_RESET_TOKEN_INVALID`, an expired one `410 PASSWORD_RESET_TOKEN_EXPIRED`.
     No idempotent replay, unlike activation: a replay could carry a different password. The token is
     looked up before Argon2 runs, so a made-up one costs a read, not a hash.
@@ -298,12 +325,9 @@ published port, and production refused to boot because no other adapter existed.
   - **Residual risks:** someone can spend an address's three resets an hour; each still lands in the
     student's inbox, and only the newest works, so it delays the student rather than locking them out.
     The display name chosen by whoever registered the address survives the reset until the student
-    edits their profile. **Not closed by reset:** a student who clicks the other person's activation
-    link and never tries to use the app activates the other person's password, and nothing prompts
-    them to reset. The activation success screen now links to the reset ("Didn't choose a password
-    yourself? Reset it"), which narrows the gap but does not close it: it only helps a student who
-    reads it. Reset recovers the account whenever they do; setting the password at activation
-    would close this too, and stays the follow-up if it matters. A reset link does not outlive a later
+    edits their profile. *Was not closed by reset:* a student who clicked the other person's activation
+    link activated the other person's password. Choosing the password at activation (above) closes it,
+    so the activation success screen no longer asks "Didn't choose a password yourself?". A reset link does not outlive a later
     ordinary password change: `POST /auth/password` deletes the account's unused reset links in its
     transaction, so that gap is closed. The token stays in the reset page's
     address bar and history for that time.

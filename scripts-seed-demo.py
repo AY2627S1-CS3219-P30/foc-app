@@ -134,17 +134,20 @@ def ensure_person(api, key, person, create):
         if not create or error.status not in (401, 403):
             raise
         if student:
-            if error.status == 401:
-                api.call("POST", "/api/user/auth/register", {
-                    "email": person["email"], "password": person["password"], "displayName": person["name"]})
-            elif error.code != "ACCOUNT_NOT_ACTIVATED":
+            # A pending account has no password yet (#309), so its sign-in fails as an unknown one's.
+            if error.status != 401:
                 raise
-            else:
+            try:
+                api.call("POST", "/api/user/auth/register", {"email": person["email"], "displayName": person["name"]})
+            except ApiError as taken:
+                if taken.code != "EMAIL_ALREADY_REGISTERED":
+                    raise
                 api.call("POST", "/api/user/auth/activation/resend", {"email": person["email"]})
             token = activation_token(person["email"])
             if not token:
                 raise ValueError("No activation email reached the demo project's Mailpit; recreate only that project")
-            api.call("POST", "/api/user/auth/activate", {"token": token})
+            # The password is chosen at activation.
+            api.call("POST", "/api/user/auth/activate", {"token": token, "password": person["password"]})
         else:
             try:
                 api.call("POST", "/api/user/auth/login", {

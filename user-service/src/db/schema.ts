@@ -36,7 +36,8 @@ export const users = pgTable(
   {
     id: uuid('id').primaryKey(),
     email: text('email').notNull(),
-    passwordHash: text('password_hash').notNull(),
+    /** Null until the inbox is proven: the password is chosen at activation (#309). */
+    passwordHash: text('password_hash'),
     status: text('status').notNull().$type<AccountStatus>(),
     isSeededAdmin: boolean('is_seeded_admin').notNull().default(false),
     mustChangePassword: boolean('must_change_password').notNull().default(false),
@@ -46,6 +47,8 @@ export const users = pgTable(
   },
   (t) => [
     check('users_status_enum', sql`${t.status} IN ('PENDING_ACTIVATION', 'ACTIVE', 'SUSPENDED')`),
+    // Only an account still waiting for activation may have no password. The service enforces it;
+    // the CHECK waits for a release after #309's rollback window (migration 0007 says why).
     // Uniqueness is enforced by the database, not just the service: a duplicate
     // cannot slip in through a race or a future code path.
     uniqueIndex('users_email_lower_key').on(sql`lower(${t.email})`),

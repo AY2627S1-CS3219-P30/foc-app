@@ -2,23 +2,28 @@ import { z } from 'zod';
 import { ApiException } from '@foc/platform';
 import { AUDIT_ACTIONS } from '../admin/admin.repository.js';
 
+/**
+ * No password (#309): one chosen before the inbox is proven could be anyone's. It is chosen at
+ * activation, where the emailed token proves the address.
+ */
 export const registerSchema = z.strictObject({
   // Trimmed first: a pasted address with a stray space is still that address.
   email: z.string().trim().pipe(z.email().max(254)),
-  password: z.string().min(12).max(128),
   displayName: z.string().trim().min(1).max(50),
 });
+
+/** The password policy for every password a user chooses: 12–128 characters, no composition rules. */
+const newPassword = z.string().min(12).max(128);
 
 export const loginSchema = z.strictObject({
   email: z.string().trim().min(1).max(254),
   password: z.string().min(1).max(128),
 });
 
-/** The new password follows the registration policy: 12–128 characters, no composition rules. */
 export const changePasswordSchema = z.strictObject({
   email: z.string().trim().min(1).max(254),
   currentPassword: z.string().min(1).max(128),
-  newPassword: z.string().min(12).max(128),
+  newPassword,
 });
 
 /** The only fields a student may edit. Everything else — id, email, roles, status — is not editable by anyone through this endpoint. */
@@ -111,18 +116,17 @@ export const resendActivationSchema = z.strictObject({
   email: z.string().trim().pipe(z.email().max(254)),
 });
 
+/** `POST /auth/activate`: the emailed token, and the password the inbox's owner chooses (#309). */
 export const activateSchema = z.strictObject({
   token: z.string().min(20).max(200),
+  password: newPassword,
 });
 
 /** `POST /auth/password-reset`: an address, exactly as resend takes it. */
 export const passwordResetRequestSchema = resendActivationSchema;
 
-/** `POST /auth/password-reset/confirm`: the emailed token and a password under the registration policy. */
-export const passwordResetConfirmSchema = z.strictObject({
-  token: z.string().min(20).max(200),
-  password: z.string().min(12).max(128),
-});
+/** `POST /auth/password-reset/confirm`: the emailed token and the new password, as activation takes them. */
+export const passwordResetConfirmSchema = activateSchema;
 
 export const userIdSchema = z.uuid();
 

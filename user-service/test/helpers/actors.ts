@@ -1,9 +1,9 @@
 import request from 'supertest';
 import { seedAdmins } from '../../src/admin/seed.js';
 import type { TestApp } from './app.js';
-import { validRegistration } from './app.js';
+import { activation, PASSWORD, validRegistration } from './app.js';
 
-export const PASSWORD = validRegistration().password;
+export { PASSWORD };
 export const ORIGIN = 'http://localhost:3000';
 
 export interface Actor {
@@ -28,12 +28,12 @@ export async function login(t: TestApp, email: string, password = PASSWORD): Pro
   return { id: res.body.user.id, email, accessToken: res.body.accessToken, cookie };
 }
 
-/** Registers, activates and logs in an ordinary student. */
+/** Registers, activates with {@link PASSWORD} and logs in an ordinary student. */
 export async function activeStudent(t: TestApp, email: string): Promise<Actor> {
   await http(t).post('/auth/register').send(validRegistration(email)).expect(201);
   await http(t)
     .post('/auth/activate')
-    .send({ token: t.mailbox.latestFor(email)!.token })
+    .send(activation(t.mailbox.latestFor(email)!.token))
     .expect(200);
   return login(t, email);
 }
