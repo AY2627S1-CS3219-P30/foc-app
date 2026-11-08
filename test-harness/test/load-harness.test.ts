@@ -159,6 +159,40 @@ describe('live updates under load (N1.4, #332)', () => {
       { event: 'errand', data: '{"orderId":"a","version":3}' },
     ]);
   });
+
+  // The Order Service ends each stream after LIVE_STREAM_MAX_MS (5 minutes, ADR 0011) and the web
+  // app reconnects. The client listens for longer than that, so without reconnecting, every accept
+  // after the fifth minute had no stream to reach and counted as lost (17 of 60 on 9 Nov).
+  it('opens another stream when the server ends one, as the web app does, until the run stops', async () => {
+    const { hold } = await import(join(ROOT, 'load/live.mjs'));
+    const bodies: string[] = [];
+    let opened = 0;
+    let checks = 0;
+    const reconnects = await hold(
+      'first',
+      async () => ({ status: 200, body: `again-${++opened}` }),
+      async (body: string) => void bodies.push(body),
+      () => ++checks > 2,
+    );
+    expect(bodies).toEqual(['first', 'again-1', 'again-2']);
+    expect(reconnects).toBe(2);
+  });
+
+  it('stops holding a stream when the run is over, or the service refuses or misses another', async () => {
+    const { hold } = await import(join(ROOT, 'load/live.mjs'));
+    const read = async () => {};
+    const stillRunning = () => false;
+    let connects = 0;
+    const connect = async () => (connects++, { status: 200, body: 'x' });
+    expect(await hold('first', connect, read, () => true)).toBe(0);
+    expect(connects).toBe(0);
+    expect(await hold('first', async () => ({ status: 429, body: null }), read, stillRunning)).toBe(
+      0,
+    );
+    expect(await hold('first', () => Promise.reject(new Error('down')), read, stillRunning)).toBe(
+      0,
+    );
+  });
 });
 
 describe('the load report', () => {
