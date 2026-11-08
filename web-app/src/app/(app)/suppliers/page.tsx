@@ -324,7 +324,7 @@ export default function SuppliersPage() {
     <ResponsiveShell
       title="Campus suppliers"
       navItems={admin ? ADMIN_NAV : STUDENT_NAV}
-      logoText={admin ? 'NUQueSt Admin' : undefined}
+      logoText={admin ? 'Friend on Campus Admin' : undefined}
       activeHref="/suppliers"
       showCreditPill={false}
     >

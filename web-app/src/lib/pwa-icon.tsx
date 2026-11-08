@@ -15,6 +15,6 @@ export function iconMarkup(size: number): { style: CSSProperties; children: stri
       fontWeight: Number(values.weight.bold),
       fontFamily: "system-ui, sans-serif",
     },
-    children: "N",
+    children: "F",
   };
 }

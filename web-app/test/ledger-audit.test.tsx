@@ -60,7 +60,7 @@ describe('admin ledger audit', () => {
     });
     await settle();
     expect(container.textContent).toContain('MISMATCH');
-    expect(container.textContent).toContain('2 mismatch(es)');
+    expect(container.textContent).toContain('2 mismatches.');
     expect(container.textContent).toContain(result.runId);
     expect(container.textContent).toContain('No balance has been changed');
     const post = requests.find((r) => r.method === 'POST')!;
@@ -82,6 +82,23 @@ describe('admin ledger audit', () => {
     await settle();
     expect(container.textContent).toContain('ERROR');
     expect(container.textContent).toContain('Scan did not complete.');
-    expect(container.textContent).not.toContain('0 mismatch(es)');
+    expect(container.textContent).not.toContain('0 mismatches');
+  });
+  it('says one mismatch in the singular', async () => {
+    globalThis.fetch = (async () => json(200, { run: { ...result, mismatchCount: 1 } })) as typeof fetch;
+    await act(async () => root.render(<LedgerAudit />));
+    await settle();
+    expect(container.textContent).toContain('1 mismatch.');
+  });
+  it('says 0 mismatches on a passing run, with each check listed', async () => {
+    const passed = { ...result, status: 'PASS', mismatchCount: 0, checks: [
+      { name: 'no wallet is negative or fractional', mismatchCount: 0 },
+      { name: 'wallet balances agree with their ledger', mismatchCount: 0 },
+    ] };
+    globalThis.fetch = (async () => json(200, { run: passed })) as typeof fetch;
+    await act(async () => root.render(<LedgerAudit />));
+    await settle();
+    expect(container.textContent).toContain('0 mismatches.');
+    expect(container.querySelectorAll('li')).toHaveLength(2);
   });
 });

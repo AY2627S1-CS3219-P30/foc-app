@@ -7,12 +7,12 @@ import { ServiceWorkerRegister } from "@/components/ServiceWorkerRegister";
 import { values } from "@/styles/tokens";
 
 export const metadata: Metadata = {
-  title: "NUQueSt",
+  title: "Friend on Campus",
   description: "Campus errands, run by students.",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "NUQueSt",
+    title: "FoC",
   },
 };
 
