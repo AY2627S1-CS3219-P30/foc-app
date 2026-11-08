@@ -25,7 +25,7 @@ export function AuthCard({
     <main className={styles.page}>
       <div className={styles.card}>
         <p className={styles.logo} aria-hidden="true">
-          NUQueSt
+          Friend on Campus
         </p>
         <h1 className={styles.title}>{title}</h1>
         {USER_SERVICE_URL === null && <FormAlert>{NOT_CONFIGURED_MESSAGE}</FormAlert>}

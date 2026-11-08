@@ -3,8 +3,8 @@ import { values } from "@/styles/tokens";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "NUQueSt — Campus Errands",
-    short_name: "NUQueSt",
+    name: "Friend on Campus",
+    short_name: "FoC",
     description: "Campus errands, run by students.",
     start_url: "/",
     display: "standalone",
