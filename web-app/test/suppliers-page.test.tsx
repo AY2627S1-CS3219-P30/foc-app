@@ -845,7 +845,7 @@ describe('supplier page: admin writes', () => {
       { href: '/suppliers', label: 'Suppliers' },
     ]);
     expect(shellNav.some((item) => item.href === '/admin')).toBe(true);
-    expect(shellLogo).toBe('NUQueSt Admin');
+    expect(shellLogo).toBe('Friend on Campus Admin');
   });
 
   it('gives a student the student navigation and the default logo', async () => {

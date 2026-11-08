@@ -8,7 +8,7 @@ import { ModeSwitch } from "./ModeSwitch";
 import styles from "./TopBar.module.css";
 
 export function TopBar({
-  logoText = "NUQueSt",
+  logoText = "Friend on Campus",
   showCreditPill = true,
 }: {
   logoText?: string;

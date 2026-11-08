@@ -62,7 +62,7 @@ export function ErrandHistory({
             {history.entries.length === 0 ? (
               <p>No status changes recorded yet.</p>
             ) : (
-              <ol>
+              <ol style={{ listStyle: "none" }}>
                 {history.entries.map((entry) => (
                   <li key={entry.version} style={{ marginBlock: vars.space[3] }}>
                     <p>{label(entry)}</p>

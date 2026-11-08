@@ -1,4 +1,4 @@
-const CACHE_NAME = "nuquest-shell-v1";
+const CACHE_NAME = "foc-shell-v1";
 
 self.addEventListener("install", () => {
   self.skipWaiting();

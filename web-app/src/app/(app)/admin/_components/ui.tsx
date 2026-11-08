@@ -27,7 +27,7 @@ export function AdminShell({
     <DesktopShell
       navItems={ADMIN_NAV}
       activeHref={active}
-      logoText="NUQueSt Admin"
+      logoText="Friend on Campus Admin"
       showCreditPill={false}
       heading={heading}
       actions={actions}
