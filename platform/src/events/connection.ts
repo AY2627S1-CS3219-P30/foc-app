@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-11-07
+// Scope: Implementation for "secrets, container hardening and restart recovery" (PLT-06, #392);
+//   also bug fixes.
+// Author review: Jonus Ho and Zhang Yuan validated the behaviour and the implementation, checked
+//   for fatal errors, and confirmed it does not conflict with the architecture before committing.
+
 import { Logger } from '@nestjs/common';
 import amqp, { type ChannelModel, type ConfirmChannel } from 'amqplib';
 import type { HealthIndicator } from '../health.controller.js';

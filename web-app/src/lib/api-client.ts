@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-11-04
+// Scope: Generated the initial implementation (WEB-00); later bug fixes.
+// Author review: Patrick Thomas reviewed the implementation for correctness, ran it against the
+//   test suite, and checked that it fits our service boundaries without fatal errors before
+//   committing.
+
 import createClient, { type ClientOptions } from "openapi-fetch";
 
 /**

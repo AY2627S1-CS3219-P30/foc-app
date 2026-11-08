@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-13 to 2026-11-04
+// Scope: Implementation for "store more than one opening period a day" (SUP-06, #376); also bug
+//   fixes.
+// Author review: Jonus Ho and Patrick Thomas verified correctness, tested the change, and checked
+//   for fatal errors and conflicts with our architecture before committing.
+
 'use client';
 
 import { useEffect, useId, useState, type FormEvent, type Ref } from 'react';

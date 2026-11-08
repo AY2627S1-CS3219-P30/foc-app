@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-01 to 2026-11-04
+// Scope: Implementation for "add referral boundary and open-deadline index migration" (#171, #170,
+//   #268); also bug fixes.
+// Author review: Zhang Yuan and Isaac Chua validated correctness and the implementation, and
+//   checked for fatal errors and architectural conflicts, before committing.
+
 import { sql } from 'drizzle-orm';
 import {
   bigint,

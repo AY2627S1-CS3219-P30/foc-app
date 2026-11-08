@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-10-21
+// Scope: Implementation for "supplier picker and deletion hold" (WEB-00, SUP-04, WEB-01); also bug
+//   fixes.
+// Author review: Patrick Thomas verified correctness, tested the change, and checked for fatal
+//   errors and conflicts with our architecture before committing.
+
 "use client";
 
 import { Suspense, useId, useRef, useState, type FormEvent } from "react";

@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5, Claude Sonnet 5, Claude Opus 5.5), dates: 2026-09-20 to
+//   2026-10-13
+// Scope: Generated the initial implementation for "scaffold the four services on a shared runtime"
+//   (USR-01, PLT-06); later new features.
+// Author review: Jonus Ho and Anselm Long validated the behaviour and the implementation, checked
+//   for fatal errors, and confirmed it does not conflict with the architecture before committing.
+
 import {
   ArgumentsHost,
   Catch,

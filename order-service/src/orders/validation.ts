@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-01 to 2026-11-04
+// Scope: Implementation for "add discovery and one-winner atomic acceptance" (#171, ORD-17, #277);
+//   also bug fixes.
+// Author review: Zhang Yuan, Isaac Chua and Jonus Ho reviewed the implementation for correctness,
+//   ran it against the test suite, and checked that it fits our service boundaries without fatal
+//   errors before committing.
+
 import { ApiException } from '@foc/platform';
 import { z } from 'zod';
 import { decodeCursor } from './cursor.js';

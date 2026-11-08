@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Sonnet 5), dates: 2026-09-20 to 2026-11-03
+// Scope: Generated the initial implementation for "login, refresh-token rotation and logout"
+//   (USR-02, USR-09, #309); later new features.
+// Author review: Anselm Long validated the behaviour and the implementation, checked for fatal
+//   errors, and confirmed it does not conflict with the architecture before committing.
+
 /**
  * A fixed-window counter per key. In memory, so it is per instance: correct for
  * one User Service replica, and the reason a horizontally scaled deployment

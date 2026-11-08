@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Fable 5.1), dates: 2026-10-20 to 2026-10-22
+// Scope: Generated the initial implementation for "request composer on the Order API" (WEB-01,
+//   WEB-04, WEB-02); later new features and bug fixes.
+// Author review: Patrick Thomas validated the behaviour and the implementation, checked for fatal
+//   errors, and confirmed it does not conflict with the architecture before committing.
+
 import { REWARD_MAX, REWARD_MIN } from "./composer";
 import type { Order, OrderStatus } from "./order-api";
 import type { Role } from "./order-actions";

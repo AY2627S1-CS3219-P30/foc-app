@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-10-01
+// Scope: Generated the initial implementation for "reconcile workflows stuck waiting on Credit"
+//   (CRD-07).
+// Author review: Isaac Chua validated correctness and the implementation, and checked for fatal
+//   errors and architectural conflicts, before committing.
+
 import { Inject, Injectable } from '@nestjs/common';
 import { CORRELATION_HEADER } from '@foc/platform';
 import { z } from 'zod';

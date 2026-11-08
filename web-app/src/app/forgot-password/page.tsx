@@ -1,3 +1,9 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-11-03
+// Scope: Generated the initial implementation for "let the inbox owner reset the password" (#309).
+// Author review: Anselm Long verified correctness, tested the change, and checked for fatal errors
+//   and conflicts with our architecture before committing.
+
 "use client";
 
 import Link from "next/link";

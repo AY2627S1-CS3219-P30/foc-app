@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-10-30
+// Scope: Generated the initial implementation for "wire the fifth service into the stack" (NTH-11,
+//   #345).
+// Author review: Zhang Yuan validated the behaviour and the implementation, checked for fatal
+//   errors, and confirmed it does not conflict with the architecture before committing.
+
 import { fileURLToPath } from 'node:url';
 import { errorMessage, runDrizzleMigrations } from '@foc/platform';
 

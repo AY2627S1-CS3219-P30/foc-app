@@ -1,3 +1,9 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-11-08
+// Scope: Implementation for "rename the app from NUQueSt to Friend on Campus".
+// Author review: Jonus Ho validated correctness and the implementation, and checked for fatal
+//   errors and architectural conflicts, before committing.
+
 const CACHE_NAME = "foc-shell-v1";
 
 self.addEventListener("install", () => {

@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-13 to 2026-11-05
+# Scope: Generated the first version of this script for "secrets, container hardening and restart
+#   recovery" (PLT-06, PLT-10, NTH-11); later bug fixes, new features and tooling and boilerplate.
+# Author review: Jonus Ho, Anselm Long, Isaac Chua and Zhang Yuan validated correctness and the
+#   implementation, and checked for fatal errors and architectural conflicts, before committing.
+
 # Restart, recreate and dependency-loss check for the containerized stack
 # (PLT-06; PL-NFR3.1.1, PL-NFR3.1.2; D3 Part 4.2 and 4.3).
 #

@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-10-28
+// Scope: Generated the initial implementation for "live errand updates over Server-Sent Events
+//   (N1.4, #329)" (#329).
+// Author review: Jonus Ho verified correctness, tested the change, and checked for fatal errors and
+//   conflicts with our architecture before committing.
+
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, type OnApplicationBootstrap, type Provider } from '@nestjs/common';
 import {

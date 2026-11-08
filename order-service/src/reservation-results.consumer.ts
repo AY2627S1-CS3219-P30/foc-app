@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-01 to 2026-10-20
+// Scope: Implementation for "act on a participant's suspension" (ORD-06); also bug fixes and
+//   refactoring.
+// Author review: Zhang Yuan, Isaac Chua and Jonus Ho verified correctness, tested the change, and
+//   checked for fatal errors and conflicts with our architecture before committing.
+
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import {
   EVENTS,

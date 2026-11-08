@@ -1,3 +1,12 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 4.8, Claude Opus 5.5, Claude Sonnet 5), dates: 2026-09-20 to
+//   2026-10-01
+// Scope: Generated the initial implementation for "registration, one-time activation and identity
+//   lookup" (USR-01); later refactoring, new features and bug fixes.
+// Author review: Patrick Thomas and Anselm Long validated the behaviour and the implementation,
+//   checked for fatal errors, and confirmed it does not conflict with the architecture before
+//   committing.
+
 import type { SQL } from 'drizzle-orm';
 import type { DrizzleDatabase } from '@foc/platform';
 import type * as schema from './schema.js';

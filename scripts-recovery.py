@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-30 to 2026-11-03
+# Scope: Implementation for "wire the fifth service into the stack" (NTH-11, #345); also bug fixes.
+# Author review: Anselm Long and Zhang Yuan validated the behaviour and the implementation, checked
+#   for fatal errors, and confirmed it does not conflict with the architecture before committing.
+
 """Private backup manifests and exact table fingerprints. No credentials in argv or output."""
 import datetime
 import hashlib

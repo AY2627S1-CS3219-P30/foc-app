@@ -1,3 +1,9 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-10-13
+// Scope: Implementation for "transactional outbox relay and inbox" (EVT-02, EVT-03, PLT-06).
+// Author review: Jonus Ho validated the behaviour and the implementation, checked for fatal errors,
+//   and confirmed it does not conflict with the architecture before committing.
+
 import { Logger } from '@nestjs/common';
 import type { z } from 'zod';
 import type { ConfirmChannel } from 'amqplib';

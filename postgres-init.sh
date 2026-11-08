@@ -1,4 +1,12 @@
 #!/bin/bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-13 to 2026-10-30
+# Scope: Generated the first version of this script for "secrets, container hardening and restart
+#   recovery" (PLT-06, NTH-11, #345); later new features.
+# Author review: Jonus Ho and Zhang Yuan reviewed the implementation for correctness, ran it against
+#   the test suite, and checked that it fits our service boundaries without fatal errors before
+#   committing.
+
 # One PostgreSQL server, one database and one role per service.
 #
 # Each service can reach only its own database: no cross-service SQL, no shared

@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 4.8, Claude Opus 5.5), dates: 2026-09-30 to 2026-10-13
+// Scope: Generated the initial implementation for "extract shared DB port, PgDb, and runMigrations
+//   into @foc/platform" (#188, PLT-06); later refactoring and new features.
+// Author review: Patrick Thomas and Jonus Ho verified correctness, tested the change, and checked
+//   for fatal errors and conflicts with our architecture before committing.
+
 import type { OnApplicationShutdown } from '@nestjs/common';
 import type { ExtractTablesWithRelations } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';

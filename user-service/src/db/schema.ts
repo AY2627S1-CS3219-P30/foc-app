@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Opus 4.8), dates: 2026-09-30 to 2026-11-06
+// Scope: Generated the initial implementation for "adopt drizzle-orm as the ORM and fold raw SQL
+//   into it" (#309, USR-12); later refactoring, new features and bug fixes.
+// Author review: Anselm Long and Patrick Thomas reviewed the implementation for correctness, ran it
+//   against the test suite, and checked that it fits our service boundaries without fatal errors
+//   before committing.
+
 import { sql } from 'drizzle-orm';
 import {
   bigint,

@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-01 to 2026-10-30
+// Scope: Implementation for "surface stale credit waits and expose private history" (CRD-07, #171,
+//   #329).
+// Author review: Isaac Chua, Zhang Yuan and Jonus Ho checked the code for correctness against the
+//   ticket, confirmed the tests pass, and made sure it caused no fatal errors or architectural
+//   conflicts before committing.
+
 import { Module, type DynamicModule } from '@nestjs/common';
 import { LOGGER, PgDb, provideDeadLetters, type PgDbOptions } from '@foc/platform';
 import { SERVICE_KEYS, ServiceKeyGuard } from '../auth/service-key.guard.js';

@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Opus 5), dates: 2026-09-20 to 2026-10-27
+// Scope: Generated the initial implementation for "scaffold the four services on a shared runtime"
+//   (PLT-06, PLT-10); later code comments, new features and bug fixes.
+// Author review: Jonus Ho validated correctness and the implementation, and checked for fatal
+//   errors and architectural conflicts, before committing.
+
 import { config as loadDotenv } from 'dotenv';
 import { z } from 'zod';
 

@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-01 to 2026-11-03
+// Scope: Implementation for "add discovery and one-winner atomic acceptance" (#171, #170, #276);
+//   also bug fixes.
+// Author review: Zhang Yuan, Isaac Chua and Patrick Thomas verified correctness, tested the change,
+//   and checked for fatal errors and conflicts with our architecture before committing.
+
 export const ORDER_STATUSES = [
   'PENDING_CREDIT',
   'OPEN',

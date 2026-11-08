@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 4.8, Claude Opus 5.5), dates: 2026-09-28 to 2026-10-30
+// Scope: Generated the initial implementation for "SUP-01: supplier schema, admin CRUD, and
+//   idempotent seed" (SUP-01, #187, SUP-02); later new features and bug fixes.
+// Author review: Patrick Thomas and Jonus Ho validated correctness and the implementation, and
+//   checked for fatal errors and architectural conflicts, before committing.
+
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';

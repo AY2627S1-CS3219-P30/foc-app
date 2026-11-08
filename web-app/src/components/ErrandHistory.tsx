@@ -1,3 +1,9 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-11-08
+// Scope: Bug fixes, including "keep list markers inside their cards".
+// Author review: Jonus Ho checked the code for correctness against the ticket, confirmed the tests
+//   pass, and made sure it caused no fatal errors or architectural conflicts before committing.
+
 "use client";
 
 import { formatWhen } from "@/lib/admin-labels";

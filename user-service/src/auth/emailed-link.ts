@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-11-05 to 2026-11-07
+// Scope: Generated the initial implementation for "set the password at activation" (USR-12, #309);
+//   later tooling and boilerplate.
+// Author review: Anselm Long and Jonus Ho reviewed the implementation for correctness, ran it
+//   against the test suite, and checked that it fits our service boundaries without fatal errors
+//   before committing.
+
 import { randomUUID } from 'node:crypto';
 import { EVENTS } from '@foc/platform';
 import type { Database } from '../db/db.js';

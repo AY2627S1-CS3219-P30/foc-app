@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-11-05
+// Scope: Generated the initial implementation for "account screens on the real User Service"
+//   (USR-05, #193, #309); later bug fixes and new features.
+// Author review: Anselm Long and Jonus Ho validated correctness and the implementation, and checked
+//   for fatal errors and architectural conflicts, before committing.
+
 /**
  * Client-side checks that mirror the User Service's rules, so an obvious mistake is caught before a
  * round trip. The server stays authoritative: its field errors are shown the same way.

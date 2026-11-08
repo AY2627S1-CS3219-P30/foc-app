@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-11-08
+// Scope: Implementation for "offer to clear a search that matches nothing" (WEB-00, SUP-05, #278);
+//   also bug fixes.
+// Author review: Jonus Ho and Patrick Thomas verified correctness, tested the change, and checked
+//   for fatal errors and conflicts with our architecture before committing.
+
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';

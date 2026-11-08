@@ -12,7 +12,7 @@ document). The summary is the last section of the [README](../README.md#ai-use-s
 
 ## What is in here
 
-- **Key prompts.** Our professor asked for a shorter log, so each member quotes about 20 key
+- **Key prompts.** Exported key decision prompts and learning so each member quotes about 20 key
   prompts, exported from their own Claude Code transcripts with
   [`export-claude-code-log.py`](export-claude-code-log.py).
   - Each section also counts all of that member's prompts by use, so the scale is still shown.

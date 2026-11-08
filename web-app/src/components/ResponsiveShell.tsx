@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-11-05
+// Scope: Generated the initial implementation for "harden account screens and sessions (PR #193
+//   review)" (#193, WEB-00, SUP-04); later new features and bug fixes.
+// Author review: Jonus Ho and Patrick Thomas validated the behaviour and the implementation,
+//   checked for fatal errors, and confirmed it does not conflict with the architecture before
+//   committing.
+
 import type { ReactNode } from 'react';
 import { AppBar } from './AppBar';
 import { Button } from './Button';

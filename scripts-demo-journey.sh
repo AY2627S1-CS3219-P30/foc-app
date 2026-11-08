@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-13 to 2026-10-28
+# Scope: Generated the first version of this script for "D3 runbook and the journey it runs"
+#   (PLT-07, USR-09, #330); later new features.
+# Author review: Jonus Ho and Anselm Long validated the behaviour and the implementation, checked
+#   for fatal errors, and confirmed it does not conflict with the architecture before committing.
+
 # The D3 demo's user journey, as working API calls (PLT-07; D3 Parts 1.3, 1.5, 2.2, 2.3, 3.4).
 #
 #   ./scripts-demo-journey.sh              against the stack that is already up

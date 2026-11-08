@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5, Claude Opus 5.5), dates: 2026-09-20 to 2026-10-13
+// Scope: Generated the initial implementation for "scaffold the four services on a shared runtime"
+//   (PLT-06); later new features.
+// Author review: Jonus Ho checked the code for correctness against the ticket, confirmed the tests
+//   pass, and made sure it caused no fatal errors or architectural conflicts before committing.
+
 import { Controller, Get, HttpStatus, Inject, Logger, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { errorMessage } from './logging.js';

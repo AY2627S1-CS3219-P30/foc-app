@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-12 to 2026-10-19
+// Scope: Generated the initial implementation (#171, ORD-06); later bug fixes, new features and
+//   refactoring.
+// Author review: Zhang Yuan validated correctness and the implementation, and checked for fatal
+//   errors and architectural conflicts, before committing.
+
 import { Inject, Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { env } from '../config.js';

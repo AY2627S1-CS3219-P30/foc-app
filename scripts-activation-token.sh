@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-27 to 2026-11-05
+# Scope: Generated the first version of this script for "real activation email, resend, and no token
+#   on an open route" (USR-09, #309); later tooling and boilerplate.
+# Author review: Anselm Long validated correctness and the implementation, and checked for fatal
+#   errors and architectural conflicts, before committing.
+
 # Prints the activation token from the newest email Mailpit holds for an address.
 #
 #   ./scripts-activation-token.sh e0123456@u.nus.edu

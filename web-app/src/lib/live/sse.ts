@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-10-29
+// Scope: Generated the initial implementation for "live errand updates, one stream per tab and the
+//   pages that use it (N1.4, #331)" (#331).
+// Author review: Jonus Ho validated correctness and the implementation, and checked for fatal
+//   errors and architectural conflicts, before committing.
+
 /** One Server-Sent Event: its name (`message` when the stream gave none) and its data. */
 export type SseEvent = { event: string; data: string };
 

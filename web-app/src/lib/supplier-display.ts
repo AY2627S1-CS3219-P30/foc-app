@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-11-04
+// Scope: Implementation for "store more than one opening period a day" (SUP-06, #376); also bug
+//   fixes.
+// Author review: Jonus Ho validated correctness and the implementation, and checked for fatal
+//   errors and architectural conflicts, before committing.
+
 import type { Supplier, SupplierType } from './supplier-api';
 
 export const SUPPLIER_TYPES: SupplierType[] = ['FOOD', 'CAFE', 'PRINTING', 'SHOPPING', 'LANDMARK'];

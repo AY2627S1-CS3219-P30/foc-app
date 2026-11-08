@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-10-29
+// Scope: Implementation for "account screens on the real User Service" (USR-05, #193, WEB-00); also
+//   bug fixes.
+// Author review: Jonus Ho, Patrick Thomas and Anselm Long validated the behaviour and the
+//   implementation, checked for fatal errors, and confirmed it does not conflict with the
+//   architecture before committing.
+
 "use client";
 
 import { useEffect } from "react";

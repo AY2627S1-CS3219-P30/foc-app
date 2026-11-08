@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-20 to 2026-11-03
+// Scope: Generated the initial implementation for "request composer on the Order API" (WEB-01,
+//   WEB-04, WEB-02); later new features.
+// Author review: Patrick Thomas and Zhang Yuan reviewed the implementation for correctness, ran it
+//   against the test suite, and checked that it fits our service boundaries without fatal errors
+//   before committing.
+
 import { bearer, createApiClient, serviceUrl, unwrap } from "./api-client";
 import type {
   components as CreditComponents,

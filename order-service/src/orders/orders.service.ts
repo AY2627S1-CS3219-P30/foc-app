@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-01 to 2026-11-04
+// Scope: Implementation for "add discovery and one-winner atomic acceptance" (CRD-07, #171, #170);
+//   also bug fixes and refactoring.
+// Author review: Zhang Yuan, Isaac Chua and Patrick Thomas validated the behaviour and the
+//   implementation, checked for fatal errors, and confirmed it does not conflict with the
+//   architecture before committing.
+
 import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type { AuthContext } from '@foc/auth-client';

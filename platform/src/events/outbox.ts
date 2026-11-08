@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Opus 4.8), dates: 2026-09-30 to 2026-10-13
+// Scope: Generated the initial implementation for "transactional outbox relay and inbox" (EVT-02,
+//   EVT-03); later new features and bug fixes.
+// Author review: Jonus Ho and Patrick Thomas validated the behaviour and the implementation,
+//   checked for fatal errors, and confirmed it does not conflict with the architecture before
+//   committing.
+
 import { randomUUID } from 'node:crypto';
 import {
   Logger,

@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-13 to 2026-10-20
+# Scope: Generated the first version of this script for "secrets, container hardening and restart
+#   recovery" (PLT-06, PLT-07, ORD-14); later code comments and bug fixes.
+# Author review: Jonus Ho validated correctness and the implementation, and checked for fatal errors
+#   and architectural conflicts, before committing.
+
 # Secret scan of the repository and of the images it builds (PLT-06; PL-NFR2.1.1).
 #
 #   ./scripts-scan-secrets.sh                  the repository, then the images

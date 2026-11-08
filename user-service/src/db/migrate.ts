@@ -1,3 +1,12 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 4.8, Claude Opus 5.5, Claude Sonnet 5), dates: 2026-09-20 to
+//   2026-10-01
+// Scope: Generated the initial implementation for "registration, one-time activation and identity
+//   lookup" (USR-01); later refactoring and bug fixes.
+// Author review: Patrick Thomas and Anselm Long checked the code for correctness against the
+//   ticket, confirmed the tests pass, and made sure it caused no fatal errors or architectural
+//   conflicts before committing.
+
 import { fileURLToPath } from 'node:url';
 import { errorMessage, runDrizzleMigrations } from '@foc/platform';
 

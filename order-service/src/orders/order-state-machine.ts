@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-12 to 2026-10-21
+// Scope: Implementation for "requester reports and auto-confirmation" (#171, #170, ORD-06); also
+//   refactoring and bug fixes.
+// Author review: Zhang Yuan and Patrick Thomas validated correctness and the implementation, and
+//   checked for fatal errors and architectural conflicts, before committing.
+
 import type { OrderStatus, ReleaseReason } from './types.js';
 
 export const ORDER_ACTIONS = [

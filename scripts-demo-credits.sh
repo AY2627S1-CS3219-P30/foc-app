@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-20 to 2026-10-26
+# Scope: Generated the first version of this script for "walk credits through an errand on the
+#   stack" (CRD-09); later bug fixes.
+# Author review: Isaac Chua checked the code for correctness against the ticket, confirmed the tests
+#   pass, and made sure it caused no fatal errors or architectural conflicts before committing.
+
 # Credit walkthrough for the containerized stack (CRD-09; D3 Part 2.3).
 #
 #   ./scripts-demo-credits.sh         against the stack that is already up

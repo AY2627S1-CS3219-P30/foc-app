@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Opus 4.8), dates: 2026-09-28 to 2026-11-04
+// Scope: Generated the initial implementation for "SUP-01: supplier schema, admin CRUD, and
+//   idempotent seed" (SUP-01, #187, SUP-02); later new features and bug fixes.
+// Author review: Patrick Thomas and Jonus Ho validated correctness and the implementation, and
+//   checked for fatal errors and architectural conflicts, before committing.
+
 import { z } from 'zod';
 import { ApiException } from '@foc/platform';
 import { normalizeBuilding } from '../admin/normalize.js';

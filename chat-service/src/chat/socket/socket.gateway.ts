@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-11-03
+// Scope: Generated the initial implementation for "/socket gateway, first-frame sign-in, nudge on
+//   send" (#346).
+// Author review: Anselm Long verified correctness, tested the change, and checked for fatal errors
+//   and conflicts with our architecture before committing.
+
 import { Inject } from '@nestjs/common';
 import { WebSocketGateway, type OnGatewayConnection } from '@nestjs/websockets';
 import type { RawData, WebSocket } from 'ws';

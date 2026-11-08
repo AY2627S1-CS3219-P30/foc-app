@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), date: 2026-10-23
+# Scope: Tooling and boilerplate (NTH-04), including "scan what is published, never drop a main run,
+#   and cache Trivy's database".
+# Author review: Jonus Ho validated correctness and the implementation, and checked for fatal errors
+#   and architectural conflicts, before committing.
+
 # Vulnerability scan of the dependencies and of the images this repository builds
 # (NTH-04, #164; PL-NFR4.1.2).
 #

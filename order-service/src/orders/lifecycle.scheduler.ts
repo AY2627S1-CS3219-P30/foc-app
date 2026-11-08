@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-01 to 2026-10-19
+// Scope: Generated the initial implementation for "add cancellation, withdrawal, timers and release
+//   saga" (#171, #170, ORD-06); later new features, refactoring and bug fixes.
+// Author review: Zhang Yuan and Isaac Chua reviewed the implementation for correctness, ran it
+//   against the test suite, and checked that it fits our service boundaries without fatal errors
+//   before committing.
+
 import {
   Inject,
   Injectable,

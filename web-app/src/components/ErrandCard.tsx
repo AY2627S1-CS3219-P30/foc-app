@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-20 to 2026-10-22
+// Scope: Implementation for "request composer on the Order API" (WEB-01, WEB-02, WEB-05); also bug
+//   fixes and refactoring.
+// Author review: Patrick Thomas validated the behaviour and the implementation, checked for fatal
+//   errors, and confirmed it does not conflict with the architecture before committing.
+
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { itemsLabel } from "@/lib/composer";

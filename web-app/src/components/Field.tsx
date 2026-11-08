@@ -1,3 +1,9 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-10-01
+// Scope: Generated the initial implementation (WEB-00); later bug fixes.
+// Author review: Patrick Thomas validated the behaviour and the implementation, checked for fatal
+//   errors, and confirmed it does not conflict with the architecture before committing.
+
 "use client";
 
 import { createContext, use, useId, type ComponentProps, type ReactNode } from "react";

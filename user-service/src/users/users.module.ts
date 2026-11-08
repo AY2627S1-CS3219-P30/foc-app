@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Sonnet 5, Claude Opus 4.8), dates: 2026-09-20 to
+//   2026-11-05
+// Scope: Generated the initial implementation for "registration, one-time activation and identity
+//   lookup" (USR-01, USR-02, USR-03); later new features, bug fixes and refactoring.
+// Author review: Anselm Long, Jonus Ho and Patrick Thomas verified correctness, tested the change,
+//   and checked for fatal errors and conflicts with our architecture before committing.
+
 import { Module, type DynamicModule } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { LOGGER, PgDb, type PgDbOptions } from '@foc/platform';

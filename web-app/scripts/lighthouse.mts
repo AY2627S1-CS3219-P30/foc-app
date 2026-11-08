@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-11-03 to 2026-11-05
+// Scope: Generated the initial implementation for "axe on every core screen, keyboard-only errand
+//   journey, Lighthouse" (#166, #309); later tests and new features.
+// Author review: Anselm Long verified correctness, tested the change, and checked for fatal errors
+//   and conflicts with our architecture before committing.
+
 /**
  * UI-NFR3.1.1 (#166): Lighthouse, mobile, three runs per core screen, against a running production
  * build of the web app. Run by ../scripts-lighthouse.sh, which starts that stack; with Node 24

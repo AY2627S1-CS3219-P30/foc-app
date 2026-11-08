@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Sonnet 5, Claude Opus 5.5), dates: 2026-09-21 to 2026-09-30
+// Scope: Generated the initial implementation for "shared auth middleware for the other services"
+//   (USR-06, USR-07); later bug fixes and new features.
+// Author review: Anselm Long and Jonus Ho checked the code for correctness against the ticket,
+//   confirmed the tests pass, and made sure it caused no fatal errors or architectural conflicts
+//   before committing.
+
 import { CORRELATION_HEADER } from '@foc/platform';
 import { authFailure } from './errors.js';
 import type { AuthConfig, Role } from './types.js';

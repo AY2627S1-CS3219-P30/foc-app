@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-11-08
+// Scope: Generated the initial implementation for "account screens on the real User Service"
+//   (USR-05, #193); later bug fixes and new features.
+// Author review: Jonus Ho and Anselm Long validated the behaviour and the implementation, checked
+//   for fatal errors, and confirmed it does not conflict with the architecture before committing.
+
 import type { ReactNode } from "react";
 import { NOT_CONFIGURED_MESSAGE, USER_SERVICE_URL } from "@/lib/user-api";
 import { FormAlert } from "./FormField";

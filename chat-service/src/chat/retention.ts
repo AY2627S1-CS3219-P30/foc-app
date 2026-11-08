@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-11-03 to 2026-11-05
+// Scope: Generated the initial implementation for "admin read-only access, message limits and
+//   90-day retention" (NTH-03, #163, #372); later refactoring and bug fixes.
+// Author review: Anselm Long and Jonus Ho validated the behaviour and the implementation, checked
+//   for fatal errors, and confirmed it does not conflict with the architecture before committing.
+
 import { Inject, Injectable, Logger, type OnApplicationShutdown } from '@nestjs/common';
 import { ChatRepository } from './chat.repository.js';
 import { Upstreams, type OrderForChat } from './upstreams.js';

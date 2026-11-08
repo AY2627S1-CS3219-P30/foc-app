@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-30 to 2026-11-04
+// Scope: Generated the initial implementation for "channels and messages for an errand" (NTH-02,
+//   #162); later bug fixes.
+// Author review: Anselm Long and Zhang Yuan checked the code for correctness against the ticket,
+//   confirmed the tests pass, and made sure it caused no fatal errors or architectural conflicts
+//   before committing.
+
 import { Inject, Injectable } from '@nestjs/common';
 import { ApiException } from '@foc/platform';
 import { z } from 'zod';
