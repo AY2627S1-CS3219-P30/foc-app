@@ -1,7 +1,9 @@
 # Web App
 
-The FoC front end — a responsive Next.js application covering the requester and
-courier journeys.
+The Friend on Campus (FoC) front end — a responsive Next.js application covering the requester and
+courier journeys. It installs as an app (`src/app/manifest.ts`: "Friend on Campus", short name "FoC",
+icon letter "F"), and `public/sw.js` (cache `foc-shell-v1`) serves pages network-first, cached for
+offline use; API calls are never cached.
 
 ## Toolchain
 
@@ -17,7 +19,8 @@ bun install
 bun dev
 ```
 
-Open <http://localhost:3000>.
+Open <http://localhost:3000>. The Compose stack's edge also publishes port 3000, so run one or the
+other.
 
 | Command | What it does |
 | --- | --- |
@@ -26,6 +29,7 @@ Open <http://localhost:3000>.
 | `bun start` | Serve the production build |
 | `bun run lint` | Lint |
 | `bun test` | Unit tests |
+| `bun run typecheck:contracts` | Type-check the generated API clients against the contracts |
 | `bun run e2e` | Account journey in a browser against the running stack (see below) |
 | `bun run generate` | Regenerate `tokens.css` and the API types after editing `tokens.ts` or a contract |
 
@@ -34,8 +38,9 @@ Open <http://localhost:3000>.
 **Tokens.** `src/styles/tokens.ts` is the single source for colour, spacing, type, radius, shadow and
 size. `bun run generate` writes them to `src/styles/tokens.css` as variables (`--color-primary`,
 `--space-4`, `--text-md`, …). Use `var(--…)` in CSS modules and `vars.*` from `@/styles/tokens` in inline
-styles. `bun test` fails on a literal colour, font size or weight, or a breakpoint other than the two
-below.
+styles. `bun test` fails on a literal colour, font size or weight, a breakpoint other than the two
+below, a token pair under 4.5:1 contrast (text) or 3:1 (non-text), or a `<ul>`/`<ol>` without a class
+or style.
 
 **Breakpoints.** Mobile first. Base styles hold from **360 px**; `@media (min-width: 768px)` switches to
 the top bar and sidebar; `@media (min-width: 1440px)` widens the gutters. Nothing scrolls sideways at
@@ -108,7 +113,9 @@ bun run e2e
 `$E2E_BASE_URL/api/<service>`, as the page does: a sign-in there sets the refresh cookie for
 `/api/user/auth`, where the page refreshes (`E2E_USER_SERVICE_URL` and the like override one). Each run
 registers two accounts per width, well inside the sign-up limit of 20 an hour per address. Specs are
-named `*.e2e.ts` so `bun test` leaves them alone.
+named `*.e2e.ts` so `bun test` leaves them alone. The admin specs (`dispute-outcome`, `ledger-audit`)
+claim the seeded administrator from `../.env` on a fresh stack, replacing its bootstrap password;
+against a stack whose admin you already claimed, set `E2E_ADMIN_PASSWORD` to its current password.
 
 `E2E_BROWSER_CHANNEL=chrome` drives an installed Google Chrome instead of Playwright's Chromium, so
 nothing needs installing. CI does that: GitHub's Ubuntu runners come with Chrome and its system
@@ -130,12 +137,13 @@ npm ci
 ./scripts-e2e-release.sh --stop
 ```
 
-This resets **only `foc-e2e-release` and its volumes**, on ports 14500–14510 (override with
+This resets **only `foc-e2e-release` and its volumes**, on ports 14500–14511 (override with
 `E2E_PORT_BASE`). It generates `.env` if absent, builds the stack, runs its API smoke, and creates
 activated test identities through public APIs for each clean run. It does not reset `foc` or
-`foc-d4-demo`. There are 57 browser cases across 360, 768 and 1440 px, with no retries in release mode.
-CI requires both `Browser journeys (smoke)` (24 baseline cases, release-only cases skipped) and
-`Browser journeys (release)` (all 57 cases twice from clean volumes). The latter reuses the job's
+`foc-d4-demo`. There are 63 browser cases (21 per width) across 360, 768 and 1440 px, with no
+retries in release mode. CI requires both `Browser journeys (smoke)` (24 baseline cases,
+release-only cases skipped) and `Browser journeys (release)` (all 63 cases from clean volumes: once
+on a pull request, twice on a push to `main`). The latter reuses the job's
 baked images with `E2E_IMAGE_TAG=ci`; leave that unset for local source builds.
 
 `release-journeys.e2e.ts` covers the composer, withdrawal/reacceptance and cancellation before
@@ -154,7 +162,7 @@ from a requester of their own. Lighthouse is not in CI: `./scripts-lighthouse.sh
 The existing suites supply registration, the acceptance race, receipt/ledger navigation, both
 dispute outcomes and outsider denial, reconnection idempotency and the admin financial audit.
 
-The explicit `compose.e2e.yaml` override mounts `test-harness/e2e-clock.mjs` into the four backend
+The explicit `compose.e2e.yaml` override mounts `test-harness/e2e-clock.mjs` into the five backend
 services. A guarded non-secret offset file advances implicit Node time and explicit SQL `now()` /
 `clock_timestamp()` reads together. Ordinary PostgreSQL defaults and the browser clock are not
 rewritten. Tests read each order's actual server deadline, advance beyond it, wait until each container observes the mounted offset, and sign in normally
@@ -172,8 +180,8 @@ CI uploads release evidence even on success, and failure traces/screenshots sepa
 artifacts as private test data: they can include disposable credentials and session contents.
 They are ignored by Git and excluded from Docker build contexts.
 
-Chat has no implementation yet; #161 owns its future chat browser journey. This suite certifies the
-implemented paths listed in #160, not chat or the two human non-owner rehearsals required by #167.
+This suite certifies the paths listed in #160 and the chat journey (#161); the two human non-owner
+rehearsals required by #167 are outside it.
 
 ## API clients
 
@@ -217,8 +225,8 @@ pill call the real Order and Credit Services (below). Nothing reads mock data.
 - **Pick** with `SupplierPicker` (SUP-04); the chosen `supplierId` travels in the URL.
 - **Details**: items (name, quantity, optional note), a delivery zone, delivery instructions and a
   reward of 1–5 credits, checked against the Order Service's rules before anything is sent.
-- **Review** shows the supplier, items, zone, the 60-minute open period (`OPEN_PERIOD_MINUTES`), the
-  reward, the **available** balance from `GET /wallets/me` and `available − reward`, which is what the
+- **Review** shows the supplier, items, zone, that it stays open for a set time once the credits are
+  reserved (the errand page shows the deadline), the reward, the **available** balance from `GET /wallets/me` and `available − reward`, which is what the
   Credit Service reserves. Zero available credits, or fewer than the reward, blocks posting and says
   why; with none, it says courier work is how credits are earned.
 - **Submit** sends `POST /orders` with an `Idempotency-Key` made once per draft. The draft and its key
@@ -262,7 +270,9 @@ reserved its reward once.
 - **Feed** (`/feed`): `GET /orders`, which already leaves out the student's own errands. Each card
   shows the supplier, items, zone, reward and time left, counted from `timeRemainingSeconds` so a
   wrong device clock cannot skew it, and goes at zero. The list is read again every 30 seconds, on
-  returning to the tab and on reconnecting.
+  returning to the tab and on reconnecting. In courier mode it is narrowed by pickup building and
+  minimum reward; in requester mode the feed is *Active requests*,
+  `GET /orders/mine?role=REQUESTER&active=true`.
 - **History** (`/order-history`): `GET /orders/mine`, split into active and past. Each card shows the
   status, what it means for the student's part, their role, when it was posted, and until when it is
   open, when it last changed or when it ended. A complete errand links to its receipt. The list is read every 5 seconds while
@@ -283,7 +293,8 @@ reserved its reward once.
   requester and courier receive; anyone else is a prospective courier. Delivery instructions show
   only when the Order Service sends them, which it does once the errand is the courier's. The page
   reads the errand until it is final: on the backing-off schedule while the Credit Service has it,
-  every 15 seconds otherwise, and at once on returning or reconnecting.
+  every 30 seconds otherwise, pausing after 10 minutes without a change, and at once on returning or
+  reconnecting.
 - **Actions** come from one table, `actionsFor(order, role, now)` in `src/lib/order-actions.ts`,
   which follows the Order Service's transition table:
 
@@ -368,7 +379,7 @@ holds the React state around them.
   to `http://localhost:3002`; production builds require it. Rebuild after changing either service
   URL.
 - **In Compose every service address is a path on the one origin** (`/api/user`, `/api/supplier`,
-  `/api/order`, `/api/credit`): the edge in front of the stack routes each to its service
+  `/api/order`, `/api/credit`, `/api/chat`): the edge in front of the stack routes each to its service
   ([ADR 0010](../docs/adr/0010-api-edge.md)), so the same image works on any host and port. To
   try the full stack, run `docker compose up --build` at the repository root, open
   `http://localhost:3000/suppliers`, and sign in. A web app run with `bun dev` calls each service
@@ -388,8 +399,9 @@ The activation email is real: the User Service sends it over SMTP, and in the Co
 Mailpit's inbox at <http://localhost:8025>. Its link opens `/activate?token=…`, where the student
 **chooses their password** (#309): sign-up asks for none, because whoever signs up has not yet proven
 the inbox. Opening the link activates nothing; the form sends `POST /auth/activate` with the token and
-the password (typed twice, checked by the reset page's rules), and leads to sign-in. Without a link the
-page also asks for the pasted code. A used link opened again says the account is already active and its
+the password (typed twice, checked by the reset page's rules), and leads to sign-in. Without a link,
+or once the link's own token is refused (expired, or replaced by a newer email), the page asks for the
+pasted code. A used link opened again says the account is already active and its
 password unchanged, with a link to reset it. The activation and reset pages set
 `Referrer-Policy: no-referrer`, since their address carries the token. Links last 30 minutes.
 `/activate` also offers **Send a new link** (`POST /auth/activation/resend`) for an email that never
@@ -424,11 +436,13 @@ email Mailpit caught) browses the seeded suppliers and is refused `POST /supplie
 `SUPPLIER_SERVICE_URL` is set, so a plain `bun test` passes without a stack.
 
 ```bash
-# From the repository root: just the two services and what they need (PostgreSQL, RabbitMQ).
-docker compose -p foc-it --env-file .env.example up -d --build user-service supplier-service
+# From the repository root: just the two services and what they need (PostgreSQL, RabbitMQ, Mailpit).
+./scripts-init-env.sh   # if there is no .env yet
+docker compose -p foc-it up -d --build user-service supplier-service
 
 cd web-app
-SUPPLIER_SERVICE_URL=http://localhost:3002 bun test test/suppliers.integration.test.tsx
+ADMIN_SEED_PASSWORD="$(grep '^ADMIN_SEED_PASSWORD=' ../.env | cut -d= -f2-)" \
+  SUPPLIER_SERVICE_URL=http://localhost:3002 bun test test/suppliers.integration.test.tsx
 
 docker compose -p foc-it down -v   # from the repository root
 ```
@@ -448,7 +462,8 @@ CI runs it in the `Supplier listing integration` job when `supplier-service/`, t
 client (`src/lib/supplier-*`, `SupplierCard`), the test itself, or anything shared or stack-wide changes
 (`scripts-ci-detect.sh`).
 
-The services run on ports 3001–3004 — see the root [README](../README.md). Every
+The services run on ports 3001–3004 and 3006 (chat), with Grafana on 3005 — see the root
+[README](../README.md). Every
 service returns the same error envelope and echoes an `x-correlation-id` header,
 so send one and log it alongside the response to trace a failure across services.
 
@@ -501,7 +516,12 @@ records, is.
 
 `NEXT_PUBLIC_ORDER_SERVICE_URL` and `NEXT_PUBLIC_CREDIT_SERVICE_URL` work like the User Service's
 address: inlined at build time, with `http://localhost:3003` and `:3004` as the development defaults,
-and `/api/order` and `/api/credit` behind the edge in Compose.
+and `/api/order` and `/api/credit` behind the edge in Compose. `NEXT_PUBLIC_GRAFANA_URL` is the
+Operations page's Grafana link, `http://localhost:3005` by default; Compose sets it from
+`GRAFANA_PORT`.
+
+**Changing a password.** `/change-password` asks for the current one (`POST /auth/password`), and every
+session then ends. Sign-in sends a bootstrap administrator there first (`PASSWORD_CHANGE_REQUIRED`).
 
 ## Deployment
 
@@ -534,7 +554,9 @@ Two-second polling pages `after` until caught up, including on reconnect; older 
 The fetch cursor advances only through GET pages, so a send cannot skip concurrent incoming messages.
 Initial reads also fetch every unread message, even beyond the latest history page. Metadata refreshes
 pick up reads made on another device. Timed polling stops when closed; order revisions and returning
-online recheck availability. The notify-only WebSocket is deferred to #346 (ADR 0012).
+online recheck availability. The Chat Service also serves a notify-only socket at
+`/api/chat/socket` (#362, #391); this panel does not open it yet and keeps its 2-second polling (the
+browser half of #346, ADR 0012).
 
 Unread counts exclude your own messages. Read positions advance only for a visible, expanded
 conversation at the bottom of its scroll area, using messages fetched through GET. New messages

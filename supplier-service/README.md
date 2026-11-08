@@ -1,4 +1,4 @@
-# Supplier Service (SUP-01, SUP-02, SUP-04, SUP-05)
+# Supplier Service (SUP-01, SUP-02, SUP-04, SUP-05, SUP-06)
 
 Owned by **Patrick** (Catalogue & Frontend). The campus supplier **catalogue**:
 the stores, cafés, printing points, shops and landmarks a student can request an
@@ -25,12 +25,18 @@ One `suppliers` row per supplier. Required (`NOT NULL`): `supplier_id`, `name`,
 `latitude`+`longitude` (a pair), `image_url`, `tags` (JSONB). `type` is the closed
 enum `FOOD | CAFE | PRINTING | SHOPPING | LANDMARK`. Required-vs-optional, the
 enum, coordinate ranges, and the duplicate rule are all enforced by database
-constraints, not only the validator — see the schema doc.
+constraints, not only the validator — see the schema doc. A second table,
+`supplier_idempotency_keys`, records each create's `Idempotency-Key`, the supplier it made and a
+hash of the body.
 
-**Opening hours** are `[{ day, opens, closes }]` with 24-hour `HH:MM` times, stored by day
+**Opening hours** (SUP-06) are `[{ day, opens, closes }]` with 24-hour `HH:MM` times, stored by day
 and then opening time: up to four periods a day that may not overlap, so a midday break is
 two periods and a closed day is none. `00:00`–`23:59` is open all day. A `closes < opens`
 period runs past midnight and counts against the next day (schema doc §3).
+
+**Images.** `imageUrl` is a stored `https` URL; there is no upload. Seed rows that keep the
+template's GitHub `blob` page URLs are rewritten by the web app to `raw.githubusercontent.com` for
+display.
 
 ## API
 
@@ -60,25 +66,31 @@ a header, a body, or the token.
 | Deactivate  |  ✗ (401)  |       ✗ (403)       |   ✓   |
 
 A non-admin mutation returns `403 FORBIDDEN` and changes nothing (proven by a
-direct API call in `test/suppliers.test.ts`).
+direct API call in `test/suppliers.test.ts`). A suspended or not-yet-activated account is
+`403 ACCOUNT_SUSPENDED` or `403 ACCOUNT_NOT_ACTIVATED`. If the User Service cannot be reached, every
+route but `/health` fails closed with `503 IDENTITY_UNAVAILABLE`.
 
 ### Validation — `422 VALIDATION_FAILED`
 
 Create/update bodies are validated with zod. **Every** invalid field is returned at
 once as `422` with `details: [{ field, code, message }, …]`. Rejected: an invalid
 `type`, a blank required field, a malformed or unpaired coordinate, an unknown
-field, a `building` not on the campus list (`UNKNOWN_BUILDING`), and a
+field, a `building` not on the campus list (`UNKNOWN_BUILDING`), a
 case-insensitive duplicate of `name`+`building` among active suppliers
-(`DUPLICATE_NAME_BUILDING`).
+(`DUPLICATE_NAME_BUILDING`), opening hours that overlap (`OVERLAPPING_HOURS`), more than four
+periods in a day (`TOO_MANY_PERIODS`), a period that opens and closes at the same time
+(`EMPTY_PERIOD`), an `imageUrl` that is not `https://`, an over-long field, and an empty update.
 
 ### Retry safety
 
-- **Idempotency-Key** (create): a repeated `POST` with the same header returns the
-  original supplier (`200`) instead of creating a second row or `409`. The key is
-  trimmed; a blank key means none, and one over 200 characters is `400 BAD_REQUEST`.
+- **Idempotency-Key** (create): a repeated `POST` with the same header returns that
+  supplier as it is now (`200`) instead of creating a second row or `409`. The same key with a
+  different body is `422 IDEMPOTENCY_KEY_REUSED`. The key is trimmed; a blank key means none,
+  and one over 200 characters is `400 BAD_REQUEST`.
 - **If-Match / version** (update, deactivate): send `If-Match: <version>` (the row's
   `version`, also returned as the `ETag`). A stale value returns `412 STALE_VERSION`
-  and changes nothing; a missing header is `428 PRECONDITION_REQUIRED`.
+  and changes nothing; a missing header is `428 PRECONDITION_REQUIRED`, and a malformed one is
+  `400 BAD_REQUEST`.
   Deactivation bumps the version, so a retry after a lost response is `412`: reload
   the supplier to confirm it is inactive. Repeating at the version it returned is a
   no-op `200`.
@@ -122,7 +134,7 @@ optional; an unmatched query is a `200` empty page (`total: 0`), never a `404`, 
 
 An empty or whitespace-only `type`, `building` or `q` is ignored, so a cleared
 search box lists everything. An unknown `type`, a repeated `type`/`building`/`q`,
-or a NUL character is a `422 VALIDATION_FAILED`. Unknown parameters are ignored.
+a `q` over 200 characters, or a NUL character is a `422 VALIDATION_FAILED`. Unknown parameters are ignored.
 
 Name and building sort case-insensitively, and every sort is **tie-broken by name,
 then `supplierId`**, so paging the full set returns each record exactly once and
@@ -139,10 +151,9 @@ A **list item is lean** — `supplierId`, `name`, `type`, `building`, `imageUrl`
 enough to render a card and open the detail view. Floor, location description,
 opening hours and coordinates are returned only by `GET /suppliers/:id`.
 
-> **Response shape.** The list/sort/search contract is owned by FND-03 (#117);
-> `contracts/supplier-service.openapi.yaml` does not exist yet. This endpoint
-> mirrors the User Service's `{ page, pageSize, total, items }` page shape as the
-> house convention; realign here if the published contract differs.
+> **Contract.** [`contracts/supplier-service.openapi.yaml`](../contracts/supplier-service.openapi.yaml)
+> is the published contract (FND-03, #117), and `test/provider.contract.test.ts` checks real
+> responses against it. The list uses the house page shape, `{ page, pageSize, total, items }`.
 
 ### Location-query decision
 
@@ -182,45 +193,67 @@ once from the repository root — this is an npm workspace, so a per-service
 
 ```bash
 npm install
+npm run build -w @foc/platform -w @foc/auth-client   # again after pulling a change to either
 ```
+
+The service imports the compiled shared packages, so it cannot start until they are built.
 
 ### Commands
 
 Run these from the repository root.
 
-| Command                                      | What it does                  |
-| -------------------------------------------- | ----------------------------- |
-| `npm run dev:supplier`                       | Start with reload on change   |
-| `npm run build -w @foc/supplier-service`     | Compile TypeScript to `dist/` |
-| `npm test -w @foc/supplier-service`          | Run this service's tests      |
-| `npm run typecheck -w @foc/supplier-service` | Type-check without emitting   |
-| `npm run lint`                               | Lint every service            |
+| Command                                        | What it does                            |
+| ---------------------------------------------- | --------------------------------------- |
+| `npm run dev:supplier`                         | Start with reload on change             |
+| `npm run build -w @foc/supplier-service`       | Compile TypeScript to `dist/`           |
+| `npm test -w @foc/supplier-service`            | Run this service's tests                |
+| `npm run typecheck -w @foc/supplier-service`   | Type-check without emitting             |
+| `npm run lint`                                 | Lint every service                      |
+| `npm run db:migrate -w @foc/supplier-service`  | Apply `drizzle/` to `DATABASE_URL`      |
+| `npm run db:generate -w @foc/supplier-service` | Write a migration after a schema change |
+| `npm run test:contract`                        | Contract checks for every service       |
 
 ### Required environment
 
 On top of the shared base (`SERVICE_NAME`, `PORT`, `NODE_ENV`, `LOG_LEVEL`,
-`CORS_ORIGINS`, optional `RABBITMQ_URL`):
+`CORS_ORIGINS`, optional `RABBITMQ_URL`, `INTERNAL_PORT`, `TRUSTED_PROXY` and `METRICS_TOKEN`).
+Compose sets `INTERNAL_PORT` to 4002, though this service has no `/internal` routes. Without
+`RABBITMQ_URL` it still runs, and a suspended or demoted admin keeps access for up to 5 seconds:
 
-| Variable               | Example                                   | Notes                                                            |
-| ---------------------- | ----------------------------------------- | ---------------------------------------------------------------- |
-| `DATABASE_URL`         | `postgres://…@postgres:5432/foc_supplier` | Migrated by the one-shot migrate step before the service starts. |
-| `USER_SERVICE_URL`     | `http://user-service:3001`                | Base URL for identity introspection.                             |
-| `INTERNAL_SERVICE_KEY` | one of the User Service's keys            | Presented as `X-Service-Key`.                                    |
+| Variable               | Example                                   | Notes                                                                                                                   |
+| ---------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`         | `postgres://…@postgres:5432/foc_supplier` | Migrated by the one-shot migrate step before the service starts.                                                        |
+| `USER_SERVICE_URL`     | `http://user-service:4001`                | The User Service's internal port, for identity introspection. By hand, `http://localhost:4001` with `compose.dev.yaml`. |
+| `INTERNAL_SERVICE_KEY` | `$SUPPLIER_INTERNAL_KEY` from `.env`      | Presented as `X-Service-Key`. At least 16 characters.                                                                   |
 
 A missing required variable stops the service at boot and names the variable.
 Nothing falls back to an insecure default.
 
+To run it by hand against the rest of the stack, from the repository root. `npm run dev:supplier`
+runs in `supplier-service/`, so it never reads the root `.env`: load it into the shell first. `.env`
+says `NODE_ENV=production`, which a service run by hand should not use.
+
 ```bash
+docker compose -f compose.yaml -f compose.dev.yaml up -d   # publishes the User Service's internal port 4001
+docker compose stop supplier-service                        # it holds port 3002
+set -a; . ./.env; NODE_ENV=development; set +a
+DATABASE_URL=$HOST_SUPPLIER_DATABASE_URL npm run db:migrate -w @foc/supplier-service
+DATABASE_URL=$HOST_SUPPLIER_DATABASE_URL USER_SERVICE_URL=http://localhost:4001 \
+  INTERNAL_SERVICE_KEY=$SUPPLIER_INTERNAL_KEY npm run dev:supplier
 curl -i http://localhost:3002/health
 ```
+
+The service never migrates at boot, and it seeds the catalogue on every boot, skipping suppliers
+already present.
 
 ### What you get from `@foc/platform`
 
 Importing `PlatformModule.forRoot(...)` gives this service a `GET /health`
 endpoint, structured JSON logging where every line carries a correlation ID,
 request logging, a shared error envelope, and graceful shutdown on `SIGTERM`.
-Do not re-implement these per service — extend the shared package instead, so a
-change lands once rather than four times.
+`/health` reports its dependencies and answers `503` while the database is down, and `GET /metrics`
+serves Prometheus metrics behind `METRICS_TOKEN`. Do not re-implement these per service — extend
+the shared package instead, so a change lands once rather than five times.
 
 ### Tests
 
@@ -231,6 +264,8 @@ replaced by a test double so the permission logic is exercised directly. The
 exception is `test/auth-integration.test.ts`, which runs the **real**
 `@foc/auth-client` authenticator against the wire-level fake User Service from
 `auth-client/test/helpers/`, so the admin routes are proven with real signed tokens.
+`test/provider.contract.test.ts` checks responses against the contract. No suite needs
+`TEST_POSTGRES_URL` or Docker, but the shared packages must be built first.
 
 ### Docker
 

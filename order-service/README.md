@@ -7,10 +7,10 @@
 | OPEN | The reward is reserved and the order is waiting for a courier to accept it. | No | Open |
 | ACCEPTED | A courier is assigned and the order is waiting for pickup. | No | Accepted |
 | PICKED\_UP | The courier has collected the items and the order is waiting for delivery. | No | In transit |
-| DELIVERED | The courier has recorded delivery and the order is waiting for the requester to confirm receipt or report non-receipt. | No | Delivered, confirm receipt |
+| DELIVERED | The courier has recorded delivery and the order is waiting for the requester to confirm receipt or report non-receipt. | No | Delivered (requester: Delivered, confirm receipt) |
 | DISPUTED | The order is referred to an administrator and is waiting for their decision. | No | With an administrator |
-| COMPLETION\_PENDING\_CREDIT | Delivery is accepted and the order is waiting for the Credit Service to transfer the reward to the courier. | No | Paying the courier |
-| RELEASE\_PENDING\_CREDIT | The order is ending without payment and is waiting for the Credit Service to return the reward to the requester; the order records a release reason of cancelled or expired. | No | Returning credits |
+| COMPLETION\_PENDING\_CREDIT | Delivery is accepted and the order is waiting for the Credit Service to transfer the reward to the courier. | No | Paying the courier (courier: Paying you) |
+| RELEASE\_PENDING\_CREDIT | The order is ending without payment and is waiting for the Credit Service to return the reward to the requester; the order records a release reason of cancelled or expired. | No | Returning credits (participants: Cancelling or Expiring) |
 | REJECTED | The reward could not be reserved and no credits are held. | Yes | Not placed |
 | COMPLETED | The reward has been transferred to the courier. | Yes | Complete |
 | CANCELLED | The reward has been returned to the requester after a cancellation or a dispute resolved for the requester. | Yes | Cancelled |
@@ -75,7 +75,7 @@ While an order is in any `*_PENDING_CREDIT` state, no participant action, admini
 
 - **Credit Service down.** Requests wait in the broker. The order moves on once the Credit Service replies; nobody has to resubmit.
 - **Transfers and releases do not fail as a business outcome.** The credits are already reserved, so a transfer or release has no reason to be refused. A missing reply leaves the order pending for retry or support handling (D1 OS-FR5.1.2); reconciliation (ORD-09) re-sends the same request, which the Credit Service applies at most once.
-- **Messages that cannot be processed** are retried five times and then dead-lettered for an operator. They are never dropped.
+- **Messages that cannot be processed** are tried five times (four retries, over about 81 seconds) and then dead-lettered for an operator. They are never dropped.
 - **The release reason** (cancelled or expired) is kept on the order. The Credit Service does not need it and does not send it back.
 
 # Races and corner cases
@@ -100,6 +100,7 @@ Each case has a test. The `*.postgres.test.ts` ones run against a real PostgreSQ
 | Service | How | What for |
 | ----- | ----- | ----- |
 | Credit Service | Messages, both directions | Reserve, transfer and return each order's reward. Every `*_PENDING_CREDIT` state is waiting for one of its replies. |
+| Credit Service | HTTP, `GET /internal/orders/:id/credit-status` | Reconciliation only, with `INTERNAL_SERVICE_KEY`; a read that is not answered is recorded as `CREDIT_UNAVAILABLE`. |
 | User Service | HTTP, through `@foc/auth-client` | Who is calling, whether they are an administrator, and that their account is active. Checked on every request; a suspension takes effect within 5 seconds. |
 | User Service | HTTP, `GET /internal/admins` | Which administrators may act now, so the scheduler can refer each dispute to one. Called once per run, only while a dispute exists, with `INTERNAL_SERVICE_KEY`; if the User Service does not answer, referrals wait for the next run. |
 | User Service | HTTP, `GET /internal/users/:id` | Whether a user is suspended now: on a suspension message, on a reservation reply while the order waits for it, and once for each picked-up errand whose requester was suspended within its delivery period, when that period ends. Asked with `INTERNAL_SERVICE_KEY`. If it does not answer, the message is retried or the scheduler tries again on its next run; the user is never assumed active. |
@@ -107,7 +108,7 @@ Each case has a test. The `*.postgres.test.ts` ones run against a real PostgreSQ
 | Chat Service | HTTP, it calls `GET /internal/orders/:id/chat` | Who an errand's requester and current courier are, its status, and when it ended, so chat can decide who may read and send (*The chat lookup*). Read-only, and only with a key in `INTERNAL_SERVICE_KEYS`. |
 | Supplier Service | HTTP, `GET /suppliers/:id` | At creation: refuse an inactive supplier and keep a copy of the supplier on the order, so it survives later changes. The call carries the requester's own token, so the Supplier Service needs no service-to-service route. |
 | Web app | HTTP | Every student and administrator command and query. |
-| Any listener | Messages, sent | Each status change, for live updates and chat. It carries no private details. |
+| This service's instances | Messages, sent and read back | Each status change, for the live-update streams. No other service consumes it; chat asks the lookup instead. It carries no private details. |
 
 ## Messages
 
@@ -131,19 +132,20 @@ and another of its own status changes, for the live-update streams it holds (N1.
 
 ## Sending and receiving safely
 
-- **Sending.** A transition that sends a message writes it to this service's outbox table in the same database transaction as the status change. Nothing calls the publisher directly. The shared relay from EVT-02 (#135) publishes each row after commit, so a crash between saving and sending delays the message but never loses it. The outbox table arrives with the first order migration (ORD-01, ORD-02).
+- **Sending.** A transition that sends a message writes it to this service's outbox table in the same database transaction as the status change. Nothing calls the publisher directly. The shared relay from EVT-02 (#135) publishes each row after commit, so a crash between saving and sending delays the message but never loses it. The outbox table arrives with the first order migration (ORD-01, ORD-02). The relay publishes rows one at a time, awaiting each broker confirm, and its connection has Nagle's algorithm off (#392, #393): with it on, each publish after an ack waited about 40 ms, and at 100 users the outbox fell up to 20 s behind.
 - **Receiving.** Each received message's id is recorded in the same transaction as the transition it causes, so a redelivered reply changes nothing (EVT-02).
 - **Suspensions.** The User Service writes each suspension to its outbox and the shared relay publishes it. This service handles it once per message through the inbox, as above. Without a broker (running locally outside Compose), suspensions do not reach errands; a suspended user is still refused on every request.
 - **A reply that arrives late (EVT-03).** Credit answers a re-sent request with its recorded result under a new event id, so a second `credit.reserved` can arrive after the errand has moved on. If the errand has changed since that confirmation was applied, the copy is acknowledged, logged and counted (`foc_events_stale_total`), and changes nothing; a copy that arrives while the errand is still where the confirmation left it (`OPEN`, or cancelled for a suspended requester) is a plain repeat. A second rejection for an errand that is already `REJECTED` is likewise a repeat. A reply that contradicts the record, such as a rejection for an errand that was reserved and accepted, is set aside as a dead letter for an operator.
-- **`orderVersion`.** Every `order.status-changed` carries the errand's version after the change. Nothing in this service reads it: it is for a future consumer of that event, which keeps the highest version it has applied and ignores anything at or below it ([ADR 0009](../docs/adr/0009-messaging-rabbitmq-events-and-ordering.md)).
+- **`orderVersion`.** Every `order.status-changed` carries the errand's version after the change. The live-update stream passes it on as the `errand` nudge's `version`; a consumer keeps the highest version it has applied and ignores anything at or below it ([ADR 0009](../docs/adr/0009-messaging-rabbitmq-events-and-ordering.md)).
 
 ## Persistence and projections
 
 Why PostgreSQL, and every table and column: [`docs/order-service/schema.md`](../docs/order-service/schema.md).
 
-The generated migration under `order-service/drizzle/` creates the Order-owned `orders`,
-`order_status_history`, `order_idempotency_keys`, `order_command_idempotency_keys`,
-`processed_events`, and `outbox_events` tables.
+The generated migrations under `order-service/drizzle/` create the Order-owned `orders`,
+`order_status_history`, `order_receipts`, `order_idempotency_keys`, `order_command_idempotency_keys`,
+`order_operator_alerts`, `order_reconciliation_attempts`, `processed_events`, `outbox_events` and
+`dead_letters` tables.
 Database constraints enforce the closed
 status set, reward range, non-empty item list, version counter, terminal rejection shape, and the
 courier required by assigned/delivery states. `order_status_history` records the previous and new
@@ -177,7 +179,7 @@ The transactional inbox and business-state check make 100 duplicate replies one 
 
 `CREDIT_WAIT_TIMEOUT_MS` defines when a `PENDING_CREDIT` row is surfaced to an operator (ORD-09,
 below); creation never rejects it merely because the timer passes. `created_at`, status, and the existing
-`orders_status_created_idx` provide the durable discovery boundary that recovery will consume.
+`orders_status_created_idx` are how the lifecycle sweep's alerts and reconciliation find it (below).
 
 `GET /orders` returns unexpired `OPEN` errands ordered by acceptance deadline, then posting time,
 leaving out the caller's own (they are in `GET /orders/mine`). Its structured item summary omits item
@@ -348,6 +350,12 @@ courier completes with a receipt whose `deliveredAt` is null.
 dispute referred to no one yet without them, each with `referredBy` (the action that disputed it) and
 `assignedToMe`. `GET /admin/orders/decisions` shows every administrator the 100 most recent
 decisions: errand, administrator, outcome, reason and time.
+
+The operator views (PLT-05): `GET /admin/orders/alerts` lists every operator alert, newest first;
+`GET /admin/orders/:orderId/timeline` shows one errand's state changes, events, reconciliation, alerts
+and dead letters; `GET /admin/dead-letters`, `GET /admin/dead-letters/:id` and
+`POST /admin/dead-letters/:id/redrive` (with a reason) list, open and redrive this service's dead
+letters.
 
 ### Requester outcomes and auto-confirmation (ORD-10)
 
@@ -536,7 +544,8 @@ duplicate delivery and overlapping runs.
 
 The first migration includes a deterministic demonstration errand at
 `00000000-0000-4000-8000-000000000129`; after Compose is healthy, an authenticated caller can retrieve
-its projection from `/orders/00000000-0000-4000-8000-000000000129`.
+its projection from `/orders/00000000-0000-4000-8000-000000000129`. It is `OPEN` only for the hour
+after the migration ran; then it expires.
 
 # UML Diagram
 ```mermaid
@@ -648,7 +657,11 @@ once from the repository root — this is an npm workspace, so a per-service
 
 ```bash
 npm install
+npm run build   # again after pulling a change to platform/ or auth-client/
 ```
+
+The service imports the compiled `@foc/platform` and `@foc/auth-client`, so dev, test and typecheck
+all fail on a fresh clone until they are built.
 
 ### Commands
 
@@ -682,25 +695,37 @@ errand from creation to payment, one cancelled, and the refused cases between.
 | `DELIVERY_PERIOD_MS` | `7200000` | From this long after pickup, the requester may report non-delivery |
 | `AUTO_CONFIRM_MS` | `86400000` | A delivered errand neither confirmed nor reported this long after delivery is confirmed |
 | `LIFECYCLE_SWEEP_INTERVAL_MS` | `10000` | Timer sweep interval; at most `60000` |
-| `CREDIT_SERVICE_URL` | `http://localhost:3004` | Credit status reads for reconciliation |
+| `CREDIT_SERVICE_URL` | `http://localhost:4004` | Credit status reads for reconciliation, on Credit's internal port |
 | `RECONCILE_INTERVAL_MS` | `60000` | How often reconciliation runs |
 | `RECONCILE_RETRY_MS` | `300000` | Least time between repair attempts for one order |
 | `LIVE_UPDATES_ENABLED` | `true` | Optional, `true` by default. `false` refuses every live-update stream; pages poll (N1.4) |
 | `LIVE_STREAM_MAX_MS` | `300000` | Optional, 5 minutes by default. A live-update stream's lifetime, 10 s to 15 min |
 | `INTERNAL_SERVICE_KEYS` | `<CHAT_INTERNAL_KEY>` | Comma-separated keys accepted on `/internal/**`, each at least 16 characters. Compose sets it from `ORDER_INBOUND_SERVICE_KEYS` |
+| `USER_SERVICE_URL` | `http://localhost:4001` | Required. The User Service's internal port |
+| `INTERNAL_SERVICE_KEY` | `<ORDER_INTERNAL_KEY>` | Required, at least 16 characters. Sent as `X-Service-Key` to the User Service and to Credit's `credit-status` |
+| `RABBITMQ_URL` | `amqp://order-service:…` | Optional. Without it there is no outbox relay and no consumer: errands stay `PENDING_CREDIT`, and live streams open but get no nudges |
+| `INTERNAL_PORT` | `4003` | Optional. Serves `/internal/**` and hides it on `PORT`; unset, the chat lookup is on `PORT` |
 
 A missing required variable stops the service at boot and names the variable.
 Nothing falls back to an insecure default.
 
+To run it by hand against the rest of the stack, from the repository root. `npm run dev:order`
+runs in `order-service/`, so it never reads the root `.env`: load it into the shell first. `.env`
+says `NODE_ENV=production`, which a service run by hand should not use.
+
 ```bash
-set -a; . ./.env; set +a   # the stack's addresses and logins, from your .env
+docker compose -f compose.yaml -f compose.dev.yaml up -d   # publishes each internal port on 127.0.0.1
+docker compose stop order-service                           # it holds port 3003
+set -a; . ./.env; NODE_ENV=development; set +a
 SERVICE_NAME=order-service PORT=3003 \
   DATABASE_URL=$HOST_ORDER_DATABASE_URL \
+  RABBITMQ_URL=amqp://order-service:$ORDER_BROKER_PASSWORD@localhost:$RABBITMQ_PORT \
+  USER_SERVICE_URL=http://localhost:4001 INTERNAL_SERVICE_KEY=$ORDER_INTERNAL_KEY \
   SUPPLIER_SERVICE_URL=http://localhost:3002 \
   CREDIT_WAIT_TIMEOUT_MS=300000 ACCEPTANCE_WINDOW_MS=3600000 \
   PICKUP_TIMEOUT_MS=1800000 DELIVERY_PERIOD_MS=7200000 AUTO_CONFIRM_MS=86400000 \
   LIFECYCLE_SWEEP_INTERVAL_MS=10000 \
-  CREDIT_SERVICE_URL=http://localhost:3004 RECONCILE_INTERVAL_MS=60000 RECONCILE_RETRY_MS=300000 \
+  CREDIT_SERVICE_URL=http://localhost:4004 RECONCILE_INTERVAL_MS=60000 RECONCILE_RETRY_MS=300000 \
   INTERNAL_SERVICE_KEYS=$ORDER_INBOUND_SERVICE_KEYS \
   npm run dev:order
 # INTERNAL_SERVICE_KEYS must be overridden: .env's value is the User Service's list of every
@@ -717,10 +742,10 @@ DATABASE_URL=$HOST_ORDER_DATABASE_URL npm run db:migrate -w @foc/order-service
 ### What you get from `@foc/platform`
 
 Importing `PlatformModule.forRoot(...)` gives this service a `GET /health`
-endpoint, structured JSON logging where every line carries a correlation ID,
-request logging, a shared error envelope, and graceful shutdown on `SIGTERM`.
+endpoint, Prometheus metrics at `GET /metrics`, structured JSON logging where every line carries a
+correlation ID, request logging, a shared error envelope, and graceful shutdown on `SIGTERM`.
 Do not re-implement these per service — extend the shared package instead, so a
-change lands once rather than four times.
+change lands once rather than five times.
 
 ### Docker
 
@@ -736,4 +761,3 @@ user and declares a `HEALTHCHECK`. `compose.yaml` runs it on port 3003.
 
 - ORD-12 (#181) latency targets under load.
 - ORD-08 (#131) supplier snapshot contract.
-- NTH-02 (#162) participant chat.
