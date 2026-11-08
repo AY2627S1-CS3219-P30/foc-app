@@ -17,7 +17,7 @@ test("an administrator runs the financial audit through Operations and sees the 
   expect(result).toMatchObject({ status: "PASS", mismatchCount: 0, origin: "MANUAL" });
   expect(result.checks).toHaveLength(6);
   await expect(section.getByText(`Run ID: ${result.runId}`)).toBeVisible();
-  await expect(section.getByText("0 mismatch(es).", { exact: false })).toBeVisible();
+  await expect(section.getByText("0 mismatches.", { exact: false })).toBeVisible();
   const latest = await page.request.get(`${edge}/api/credit/admin/ledger-audits/latest`, {
     headers: { authorization: `Bearer ${accessToken}` },
   });
