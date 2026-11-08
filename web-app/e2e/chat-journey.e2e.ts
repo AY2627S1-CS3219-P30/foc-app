@@ -4,6 +4,8 @@ import { ORDER, errandEmail, firstSupplier, signIn } from "./request-helpers";
 
 const CHAT = `${process.env.E2E_BASE_URL ?? "http://localhost:3000"}/api/chat`;
 async function openChat(page: Page) {
+  // The panel mounts once the order has loaded; only then does the toggle exist to be checked.
+  await expect(page.getByRole("region", { name: "Participant chat", exact: true })).toBeVisible();
   const toggle = page.getByRole("button", { name: "Open chat", exact: true });
   if (await toggle.isVisible()) await toggle.click();
   await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
