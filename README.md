@@ -1259,3 +1259,82 @@ twice from clean containers. It resets only the dedicated `foc-e2e-release` proj
 [web app release suite](web-app/README.md#full-release-suite-tst-02-160). CI requires both its ordinary
 browser smoke and the full release suite, which it runs once on a pull request and twice on a push
 to `main`.
+
+---
+
+## AI Use Summary
+
+This is our team's disclosure under the course's AI Usage Policy (Appendix 2 of the project
+document). The prompts, key responses and each member's AI-assisted commits are in
+[`ai/usage-log.md`](ai/usage-log.md).
+
+**Tools**
+
+- **Claude Code** (Anthropic), used by all five of us. Models: mostly Claude Opus 5.5, with Claude
+  Opus 5, Claude Sonnet 5, Claude Opus 4.8 and Claude Fable 5.1.
+- **GitHub Copilot coding agent**, for two merge commits.
+
+**Used for**
+
+- Writing implementation code once our requirements and architecture were set: service endpoints
+  and event handlers, the outbox and inbox, web-app screens, and unit, integration and browser
+  tests.
+- Boilerplate: Compose files, Dockerfiles, CI workflows, scripts and configuration.
+- Debugging: explaining CI failures, failing tests and container problems, and suggesting tests.
+- Refactoring and documentation: READMEs, runbooks, code comments, pull request descriptions and
+  reviews, and slide text written from our own documents.
+- Learning: explaining the course brief, frameworks we were unsure of, and parts of our own system.
+- Writing up requirements we had already decided: expanding the tickets we drafted, for example
+  which tickets link to which and who owns each, before we implemented and tagged them.
+
+**What we decided ourselves**
+
+- **Requirements.** We made our requirements first. The FRs, NFRs and nice-to-haves were all
+  decided by us, and we prioritised them and consolidated the backlog ourselves.
+- **Architecture and design.** The major architectural designs and the frontend design are ours,
+  and the team vetted the requirements and architecture before each major milestone. We thought up
+  the data schemas and sometimes asked AI whether one was realistic. Choices such as PostgreSQL and
+  Drizzle were proposed by our members. When we were unsure about a framework we asked AI about it,
+  then discussed as a group whether it made sense before adding it to the requirements or the
+  architecture.
+- **Decision rationales.** We discussed trade-offs as a team and came to our own conclusions. We
+  also asked our mentor for ideas, and discussed them internally afterwards.
+
+**Borderline uses**
+
+These come close to the policy's lines, so we list them. The exact prompts are in the log.
+
+- **D1 (8–16 Sep).**
+  - Claude was asked to suggest more nice-to-have candidates in our template's format, and to
+    reword an NFR and a nice-to-have paragraph.
+  - It was asked to explain how the nice-to-haves we chose met the rubric, and which two to
+    present.
+  - It drafted a role split, which we then changed ourselves.
+  - It turned our D1 document and execution plan into draft tickets split into sprints, created
+    them as GitHub issues, and checked our FR and NFR rows against the iterations. We made the
+    changes to the D1 document ourselves.
+- **Live errand updates (28 Oct).** Claude was asked to design the N1.4 nice-to-have and add
+  tickets for it. [ADR 0011](docs/adr/0011-live-updates.md) records the design.
+- **Decision records.** Several ADRs in [`docs/adr`](docs/adr/README.md) were written up with
+  Claude Code, and their commits carry `Co-Authored-By` trailers. The decisions in them are the
+  team's.
+
+**Verification**
+
+Each of us reviewed and tested the AI output we used. Our rule is that someone other than the
+author reviews each pull request, and [`CODEOWNERS`](.github/CODEOWNERS) requests the owner's
+review. Branch protection requires the `CI` check, which runs lint, type checks, unit, integration
+and contract tests, browser journeys, and vulnerability and secret scans.
+
+**Finding AI-assisted changes**
+
+Commits written with Claude carry a `Co-Authored-By: Claude …` trailer: 294 of the 486 non-merge
+commits on `main` as of 8 Nov. To list them, run `git log -i --grep='Co-Authored-By: Claude'`.
+Jonus's commits stopped carrying the trailer after 23 Oct, so the log's record of his later work is
+his prompts.
+
+**Agent instruction files**
+
+The `AGENTS.md` files at the root and in four services are empty placeholders from the template.
+`web-app/AGENTS.md` and `web-app/CLAUDE.md` hold the agent notes that Next.js writes. The skill
+packs Jonus loaded into Claude Code are listed in the log.
