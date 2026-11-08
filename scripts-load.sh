@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), dates: 2026-11-04 to 2026-11-09
+# Scope: Joint work by Zhang Yuan and Jonus Ho (#181): fixes and additions that read each credit
+#   step's request and record times, and give the seeded errands a week-long deadline.
+# Author review: Zhang Yuan validated the implementation as mostly correct. Jonus Ho reviewed it,
+#   the week-long deadline fix came from that review, and he ran the final load test before
+#   committing its report.
+
 # Load and latency test (TST-03, #166) for the D1 targets that need a running stack:
 #
 #   US-NFR3.1.1  login p95 <= 500 ms, profile p95 <= 300 ms           100 users

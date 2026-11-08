@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-11-04 to 2026-11-09
+// Scope: Joint work by Zhang Yuan and Jonus Ho (#181). Generated the implementation of the Order
+//   Service scenarios: posting errands, cancelling half and carrying the rest through delivery to
+//   the requester's confirmation, each command timed against OS-NFR2.1.1 and OS-NFR2.1.2.
+// Author review: Zhang Yuan validated that the implementation was correct. Jonus Ho then reviewed
+//   it and ran the final load test on it, where every target was met.
+
 // OS-NFR2.1.1: with 10,000 errands and 100 concurrent users, p95 at most 700 ms for creating a
 // request and 500 ms for the open list or an errand's details. OS-NFR2.1.2: a state-changing
 // command returns its result within 700 ms, without waiting for a credit result.

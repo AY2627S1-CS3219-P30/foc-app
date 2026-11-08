@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-11-04
+// Scope: Joint work by Zhang Yuan and Jonus Ho (#181): added the Order Service's address and a
+//   script's own measurements to the summary the report reads.
+// Author review: Zhang Yuan validated the change as correct. Jonus Ho reviewed it and ran the final
+//   load test before committing its report.
+
 // What the load scripts share (TST-03, #166). Run them with ./scripts-load.sh, which starts a
 // stack of its own, seeds it, and passes everything below in as environment variables.
 import http from 'k6/http';

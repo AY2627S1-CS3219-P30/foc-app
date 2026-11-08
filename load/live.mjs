@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-29 to 2026-11-09
+// Scope: Joint work by Jonus Ho and Zhang Yuan (#332, #181). Generated the implementation of the
+//   live-update client, and the fix that reopens each stream the Order Service ends after 5
+//   minutes.
+// Author review: Zhang Yuan's load run found the lost nudges. Jonus Ho validated the cause, fixed
+//   the reconnect, and ran the final load test, with no nudge lost, before committing.
+
 /**
  * N1.4 (#332): live updates under load. Run by ./scripts-load.sh beside the k6 scenarios, on the
  * stack's own network, straight to the Order Service: the edge's cap of ten streams per address

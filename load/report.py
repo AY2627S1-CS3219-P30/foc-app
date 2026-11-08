@@ -1,3 +1,12 @@
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), dates: 2026-11-04 to 2026-11-09
+# Scope: Joint work by Zhang Yuan and Jonus Ho (#181). Generated the implementation of the Order
+#   Service rows and the CS-NFR3.1.1 credit-step row, which holds reservations, transfers and
+#   returns to 99% each.
+# Author review: Zhang Yuan validated the implementation as mostly correct. Jonus Ho reviewed it,
+#   the per-kind 99% check came from that review, and he ran the final load test before committing
+#   its report.
+
 """Writes the load report (TST-03, #166) from what ./scripts-load.sh measured.
 
     python3 load/report.py OUT_DIR REPORT_PATH
