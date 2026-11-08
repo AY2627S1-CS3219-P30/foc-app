@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-11-04
+// Scope: Joint work by Zhang Yuan and Jonus Ho (#181): added the Order Service's address and a
+//   script's own measurements to the summary the report reads.
+// Author review: Zhang Yuan validated the change as correct. Jonus Ho reviewed it and ran the final
+//   load test before committing its report.
+
 // What the load scripts share (TST-03, #166). Run them with ./scripts-load.sh, which starts a
 // stack of its own, seeds it, and passes everything below in as environment variables.
 import http from 'k6/http';
@@ -6,6 +13,7 @@ export const URL = {
   user: __ENV.USER_URL,
   supplier: __ENV.SUPPLIER_URL,
   credit: __ENV.CREDIT_URL,
+  order: __ENV.ORDER_URL,
 };
 
 /** Concurrent virtual users, how long each scenario runs, and the pause between requests. */
@@ -73,8 +81,11 @@ export function thresholds(targets) {
   return out;
 }
 
-/** What the report reads: per endpoint, the target, the measured p95 and p99, requests and failures. */
-export function summarise(name, targets, data) {
+/**
+ * What the report reads: per endpoint, the target, the measured p95 and p99, requests and failures;
+ * and whatever else a script measured (`extra`).
+ */
+export function summarise(name, targets, data, extra = {}) {
   const value = (metric, key) => data.metrics[metric]?.values?.[key];
   const endpoints = Object.entries(targets).map(([endpoint, target]) => {
     const duration = `http_req_duration{endpoint:${endpoint}}`;
@@ -102,6 +113,7 @@ export function summarise(name, targets, data) {
       seconds: SECONDS,
       thinkS: THINK_S,
       endpoints,
+      ...extra,
     }),
     stdout: `${lines.join('\n')}\n`,
   };

@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), dates: 2026-11-04 to 2026-11-09
+# Scope: Joint work by Zhang Yuan and Jonus Ho (#181): fixes and additions that read each credit
+#   step's request and record times, and give the seeded errands a week-long deadline.
+# Author review: Zhang Yuan validated the implementation as mostly correct. Jonus Ho reviewed it,
+#   the week-long deadline fix came from that review, and he ran the final load test before
+#   committing its report.
+
 # Load and latency test (TST-03, #166) for the D1 targets that need a running stack:
 #
 #   US-NFR3.1.1  login p95 <= 500 ms, profile p95 <= 300 ms           100 users
@@ -6,7 +14,10 @@
 #   SS-NFR2.1.1  list or search p95 <= 400 ms, lookup p95 <= 200 ms   1,000 suppliers, 100 users
 #   SS-NFR2.1.2  the same query on unchanged data returns the same order
 #   CS-NFR3.1.1  wallet lookup p95 <= 300 ms                          10,000 wallets, 100 users
+#                99% of reservations, transfers and returns recorded within 5 s of being requested
 #   CS-NFR3.1.2  ready within 60 s of a restart
+#   OS-NFR2.1.1  create p95 <= 700 ms, open list or details p95 <= 500 ms  10,000 errands, 100 users
+#   OS-NFR2.1.2  a state-changing command p95 <= 700 ms, its answer not waiting on a credit result
 #   N1.4 (#332)  live updates under load: 200 streams held while the above run; an accept reaches
 #                its requester's stream within 1 s at p95
 #
@@ -19,8 +30,7 @@
 # It runs on a Compose project of its own ('foc-load') on ports of its own (13000-13005 and so
 # on), so it can start beside the demo stack; stop that one first for figures worth quoting, as
 # both share this machine. compose.load.yaml raises the User Service's sign-in limits on that
-# stack only: every virtual user signs in from this one machine. The Order Service's targets
-# (OS-NFR2) are ORD-12, #181, on the same harness.
+# stack only: every virtual user signs in from this one machine.
 #
 # The virtual users are k6, in a container. Each pauses THINK_S seconds (default 1) between
 # requests, as a person does; the report says so.
@@ -53,10 +63,10 @@ export POSTGRES_PORT=56432 RABBITMQ_PORT=56672 RABBITMQ_MANAGEMENT_PORT=16672
 export CORS_ORIGINS="http://localhost:${WEB_APP_PORT}"
 
 if [[ $QUICK -eq 1 ]]; then
-  STUDENTS=10 VUS=10 DURATION_S=10 SUPPLIERS=100 WALLETS=200
+  STUDENTS=10 VUS=10 DURATION_S=10 SUPPLIERS=100 WALLETS=200 ERRANDS=200
   LIVE_STUDENTS=10 STREAMS_EACH=5 LIVE_ERRANDS=6
 else
-  STUDENTS=100 VUS=100 DURATION_S=60 SUPPLIERS=1000 WALLETS=10000
+  STUDENTS=100 VUS=100 DURATION_S=60 SUPPLIERS=1000 WALLETS=10000 ERRANDS=10000
   LIVE_STUDENTS=40 STREAMS_EACH=5 LIVE_ERRANDS=60
 fi
 THINK_S="${THINK_S:-1}"
@@ -99,7 +109,7 @@ fi
 pass "the stack is healthy"
 
 # ---- seed -----------------------------------------------------------------------------------
-step "Seeding" "$STUDENTS students who can sign in, $SUPPLIERS suppliers, $WALLETS wallets."
+step "Seeding" "$STUDENTS students who can sign in, $SUPPLIERS suppliers, $WALLETS wallets, $ERRANDS open errands."
 SIGNUP_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(18))')
 export SIGNUP_PASSWORD
 for n in $(seq 1 "$STUDENTS"); do
@@ -154,6 +164,38 @@ INSERT INTO ledger_entries (entry_id, transaction_id, entry_no, wallet_user_id, 
 COMMIT;
 SQL
 
+# OS-NFR2: open errands, as copies of one the last student posts, owned by the copied wallets'
+# users so every student sees them all in the open list. All open is the open list's worst case.
+# Their acceptance deadline is a week off, so none expires while the run lasts or while a --keep
+# stack is looked at afterwards. Nothing ever asks the Credit Service about them: no reservation is
+# copied, and an expiry would ask it to return one it never had.
+TEMPLATE_ERRAND=$(post_errand "$STUDENT_TOKEN" "$(first_supplier "$STUDENT_TOKEN")" 1 load-template)
+status_of() { errand "$1" "$2" | cut -d' ' -f1; }
+if [[ -z "$TEMPLATE_ERRAND" ]] || ! wait_for 30 OPEN status_of "$STUDENT_TOKEN" "$TEMPLATE_ERRAND"; then
+  fail "the errand to copy did not open (${TEMPLATE_ERRAND:-not posted}; last seen '${LAST:-}')"
+  exit 1
+fi
+psql_run foc_order <<SQL
+BEGIN;
+CREATE TEMP TABLE load_errands AS
+  SELECT g, gen_random_uuid() AS order_id, 'load-' || lpad(g::text, 6, '0') AS requester_id
+    FROM generate_series(1, $ERRANDS) AS g;
+INSERT INTO orders (order_id, requester_id, supplier_snapshot, items, delivery_zone,
+                    delivery_instructions, reward, status, version, acceptance_deadline_at,
+                    created_at, updated_at)
+  SELECT l.order_id, l.requester_id, o.supplier_snapshot, o.items, o.delivery_zone,
+         o.delivery_instructions, o.reward, o.status, o.version, now() + interval '7 days',
+         o.created_at - l.g * interval '1 millisecond', o.updated_at
+    FROM load_errands l, orders o WHERE o.order_id = '$TEMPLATE_ERRAND';
+INSERT INTO order_status_history (history_id, order_id, previous_status, new_status, action,
+                                  actor_type, actor_id, reason, order_version, occurred_at)
+  SELECT gen_random_uuid(), l.order_id, h.previous_status, h.new_status, h.action, h.actor_type,
+         CASE WHEN h.actor_type = 'REQUESTER' THEN l.requester_id ELSE h.actor_id END,
+         h.reason, h.order_version, h.occurred_at
+    FROM load_errands l, order_status_history h WHERE h.order_id = '$TEMPLATE_ERRAND';
+COMMIT;
+SQL
+
 # What was made, counted, rather than what was asked for: these go in the report.
 seeded() { # what count target
   if [[ "$2" =~ ^[0-9]+$ ]] && ((10#$2 >= $3)); then
@@ -170,6 +212,9 @@ seeded "active suppliers" "$SEEDED_SUPPLIERS" "$SUPPLIERS"
 SEEDED_WALLETS=$(sql foc_credit "SELECT count(*) FROM wallets w WHERE EXISTS (
   SELECT 1 FROM credit_transactions t WHERE t.wallet_user_id = w.user_id AND t.transaction_type = 'ISSUE')")
 seeded "wallets, each with its issue transaction" "$SEEDED_WALLETS" "$WALLETS"
+SEEDED_ERRANDS=$(sql foc_order "SELECT count(*) FROM orders WHERE status = 'OPEN' AND requester_id LIKE 'load-%'
+  AND acceptance_deadline_at > now() + interval '30 minutes'")
+seeded "open errands, none due to expire during the run" "$SEEDED_ERRANDS" "$ERRANDS"
 
 # ---- measure --------------------------------------------------------------------------------
 OUT=$(mktemp -d)
@@ -186,6 +231,7 @@ k6() { # script
     -e USER_URL=http://user-service:3001 \
     -e SUPPLIER_URL=http://supplier-service:3002 \
     -e CREDIT_URL=http://credit-service:3004 \
+    -e ORDER_URL=http://order-service:3003 \
     -e ORIGIN="$CORS_ORIGINS" -e RUN="$RUN" -e EMAIL_DOMAIN="$EMAIL_DOMAIN" -e PASSWORD="$SIGNUP_PASSWORD" \
     -e STUDENTS="$STUDENTS" -e VUS="$VUS" -e DURATION_S="$DURATION_S" -e THINK_S="$THINK_S" \
     "$K6" run --quiet --no-usage-report "/load/$1.js"
@@ -195,6 +241,7 @@ k6() { # script
 # with the streams open. Meanwhile an errand is posted and accepted at a steady rate, and each
 # accept is timed to its nudge on the requester's stream. Straight to the Order Service, like k6:
 # the edge would cap one address at ten streams. It writes live.json beside k6's summaries.
+# LIVE_SECONDS outlasts the six scenarios (user and order run two each) and their setups.
 step "Holding live-update streams" "$LIVE_STUDENTS students x $STREAMS_EACH streams; $LIVE_ERRANDS accepts timed to their nudge, while the scenarios run."
 LIVE=$(docker run -d --user "$(id -u):$(id -g)" --network "${COMPOSE_PROJECT_NAME}_gateway" \
   -v "$PWD/load:/load:ro" -v "$OUT:/out" \
@@ -203,9 +250,9 @@ LIVE=$(docker run -d --user "$(id -u):$(id -g)" --network "${COMPOSE_PROJECT_NAM
   -e ORDER_URL=http://order-service:3003 \
   -e ORIGIN="$CORS_ORIGINS" -e RUN="$RUN" -e EMAIL_DOMAIN="$EMAIL_DOMAIN" -e PASSWORD="$SIGNUP_PASSWORD" \
   -e LIVE_STUDENTS="$LIVE_STUDENTS" -e STREAMS_EACH="$STREAMS_EACH" -e LIVE_ERRANDS="$LIVE_ERRANDS" \
-  -e LIVE_SECONDS="$((DURATION_S * 3))" \
+  -e LIVE_SECONDS="$((DURATION_S * 7))" \
   "$NODE" node /load/live.mjs)
-for script in user supplier credit; do
+for script in user supplier credit order; do
   step "Measuring: $script" "$VUS virtual users for $DURATION_S s per scenario, ${THINK_S} s between requests."
   # k6 exits 99 when a threshold is missed: a result for the report, which then fails the run,
   # not a reason to stop measuring.
@@ -225,6 +272,35 @@ if [[ "$live_status" == 0 && -s "$OUT/live.json" ]]; then
   pass "the live-update client finished: live.json written"
 else
   fail "the live-update client stopped (exit $live_status), so live updates are not measured"
+fi
+
+# CS-NFR3.1.1: every credit step the run asked for, from when the Order Service asked for it to
+# when the Credit Service recorded its decision (a rejected reservation is recorded too). Read once
+# the live-update client has finished, so each step has had far longer than five seconds; one still
+# unrecorded counts as late. Seeded errands asked for none, so they are left out: the copies made
+# above, and the one the Order Service's first migration adds (system-tests leaves it out too).
+step "Credit steps" "When each reservation, transfer and return was requested, and when it was recorded."
+read_steps=ok
+psql_run foc_order >"$OUT/credit-requested.psv" <<'SQL' || read_steps=failed
+WITH posted AS (
+  SELECT * FROM orders
+   WHERE requester_id NOT LIKE 'load-%' AND order_id <> '00000000-0000-4000-8000-000000000129'
+)
+SELECT order_id, 'RESERVE', extract(epoch FROM created_at) FROM posted
+UNION ALL
+SELECT order_id, 'TRANSFER', extract(epoch FROM completion_requested_at) FROM posted
+ WHERE completion_requested_at IS NOT NULL
+UNION ALL
+SELECT order_id, 'RELEASE', extract(epoch FROM release_requested_at) FROM posted
+ WHERE release_requested_at IS NOT NULL;
+SQL
+psql_run foc_credit >"$OUT/credit-recorded.psv" <<'SQL' || read_steps=failed
+SELECT order_id, operation_type, extract(epoch FROM created_at) FROM credit_operations;
+SQL
+if [[ $read_steps == ok ]]; then
+  pass "$(wc -l <"$OUT/credit-requested.psv" | tr -d ' ') credit steps requested, $(wc -l <"$OUT/credit-recorded.psv" | tr -d ' ') recorded"
+else
+  fail "could not read the credit steps, so CS-NFR3.1.1 is not measured"
 fi
 
 # Student 1 signs in again: a token from seeding is too old by now (they live 15 minutes), and
@@ -276,7 +352,8 @@ fi
 REPORT="docs/reports/load-$(date +%F).md"
 # report.py exits 3 when the report says a target was missed.
 missed=0
-STUDENTS="$SEEDED_STUDENTS" SUPPLIERS="$SEEDED_SUPPLIERS" WALLETS="$SEEDED_WALLETS" USER_READY="$USER_READY" \
+STUDENTS="$SEEDED_STUDENTS" SUPPLIERS="$SEEDED_SUPPLIERS" WALLETS="$SEEDED_WALLETS" ERRANDS="$SEEDED_ERRANDS" \
+  USER_READY="$USER_READY" \
   SESSION="$SESSION" CREDIT_READY="$CREDIT_READY" WALLET="$WALLET" STABLE="$stable" \
   OTHER_CONTAINERS="$OTHER_CONTAINERS" python3 load/report.py "$OUT" "$REPORT" || missed=$?
 case $missed in
