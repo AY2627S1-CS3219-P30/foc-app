@@ -100,6 +100,7 @@ export function createChatState(orderId: string, userId: string, authed: Authed,
     signal: AbortSignal,
     final: boolean,
     version?: number,
+    live = false,
   ): Promise<number | null> {
     const { current } = scope();
     const valid = () => !signal.aborted && current();
@@ -145,8 +146,8 @@ export function createChatState(orderId: string, userId: string, authed: Authed,
         if (!page.hasMore) break;
       }
       update({ loading: false, error: null, hasOlder: (state.messages[0]?.seq ?? 1) > 1 });
-      // Polling for now. A notify-only WebSocket replaces this timer later (ADR 0012); reads stay on GET /messages.
-      return !readOnly && channel.open && !state.closed && !final ? 2_000 : null;
+      // While the socket nudges (ADR 0012), polling is only a backstop; reads stay on GET /messages.
+      return !readOnly && channel.open && !state.closed && !final ? (live ? 30_000 : 2_000) : null;
     } catch (err) {
       if (!valid()) return null;
       failed(err);
@@ -272,6 +273,8 @@ export function createChatState(orderId: string, userId: string, authed: Authed,
       return () => lifetime.abort();
     },
     refresh,
+    /** Whether the channel has messages past the last one read through GET. */
+    behind: (latestSeq: number) => cursor === null || latestSeq > cursor,
     older,
     markVisibleRead,
     send: (body: string, final: boolean) =>
