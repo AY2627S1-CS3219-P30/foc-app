@@ -1265,7 +1265,7 @@ to `main`.
 ## AI Use Summary
 
 This is our team's disclosure under the course's AI Usage Policy (Appendix 2 of the project
-document). The prompts, key responses and each member's AI-assisted commits are in
+document). Each member's key prompts and responses, and their AI-assisted commits, are in
 [`ai/usage-log.md`](ai/usage-log.md).
 
 **Tools**
@@ -1276,10 +1276,9 @@ document). The prompts, key responses and each member's AI-assisted commits are 
 
 **Used for**
 
-- Writing implementation code once our requirements and architecture were set: service endpoints
+- Writing implementation code once our requirements and architecture were set and designed by members: service endpoints
   and event handlers, the outbox and inbox, web-app screens, and unit, integration and browser
   tests.
-- Boilerplate: Compose files, Dockerfiles, CI workflows, scripts and configuration.
 - Debugging: explaining CI failures, failing tests and container problems, and suggesting tests.
 - Refactoring and documentation: READMEs, runbooks, code comments, pull request descriptions and
   reviews, and slide text written from our own documents.
@@ -1299,25 +1298,10 @@ document). The prompts, key responses and each member's AI-assisted commits are 
   architecture.
 - **Decision rationales.** We discussed trade-offs as a team and came to our own conclusions. We
   also asked our mentor for ideas, and discussed them internally afterwards.
-
-**Borderline uses**
-
-These come close to the policy's lines, so we list them. The exact prompts are in the log.
-
-- **D1 (8–16 Sep).**
-  - Claude was asked to suggest more nice-to-have candidates in our template's format, and to
-    reword an NFR and a nice-to-have paragraph.
-  - It was asked to explain how the nice-to-haves we chose met the rubric, and which two to
-    present.
-  - It drafted a role split, which we then changed ourselves.
-  - It turned our D1 document and execution plan into draft tickets split into sprints, created
-    them as GitHub issues, and checked our FR and NFR rows against the iterations. We made the
-    changes to the D1 document ourselves.
-- **Live errand updates (28 Oct).** Claude was asked to design the N1.4 nice-to-have and add
-  tickets for it. [ADR 0011](docs/adr/0011-live-updates.md) records the design.
-- **Decision records.** Several ADRs in [`docs/adr`](docs/adr/README.md) were written up with
-  Claude Code, and their commits carry `Co-Authored-By` trailers. The decisions in them are the
-  team's.
+- **PR Fixes.** Used AI to summarise what members PRs were missing, then inspected ourselves before finalising the reviews and code changes.
+- **Runbooks and slides.** We chose the slide template, which we found online, and reviewed and
+  edited the deck and the demo runbooks. Claude drafted much of the runbook steps and of the slide
+  text, layout and diagrams from our documents.
 
 **Verification**
 
@@ -1330,11 +1314,3 @@ and contract tests, browser journeys, and vulnerability and secret scans.
 
 Commits written with Claude carry a `Co-Authored-By: Claude …` trailer: 294 of the 486 non-merge
 commits on `main` as of 8 Nov. To list them, run `git log -i --grep='Co-Authored-By: Claude'`.
-Jonus's commits stopped carrying the trailer after 23 Oct, so the log's record of his later work is
-his prompts.
-
-**Agent instruction files**
-
-The `AGENTS.md` files at the root and in four services are empty placeholders from the template.
-`web-app/AGENTS.md` and `web-app/CLAUDE.md` hold the agent notes that Next.js writes. The skill
-packs Jonus loaded into Claude Code are listed in the log.

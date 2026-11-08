@@ -13,6 +13,14 @@ Claude Code keeps each session as a JSON-lines file under ~/.claude/projects/<fo
 
 then paste the output under your heading in ai/usage-log.md and run Prettier on the file.
 
+To quote only your key prompts (about 20), run it once as above to see each prompt's time, then
+again with --pick and those local times, comma-separated or with --pick repeated:
+
+    python3 ai/export-claude-code-log.py --author "Your Name" \
+        --pick 2026-09-20T10:08,2026-10-22T09:26 ~/.claude/projects/<folder>
+
+With --pick, the output still counts all your prompts by use, so the reader sees the whole scale.
+
 What it keeps, and what it leaves out:
 - Prompts you typed. Prompts written by Claude to its own subagents, terminal commands you ran in
   the session, and the summaries Claude Code writes when a session runs out of context are left
@@ -262,35 +270,52 @@ def fence(text: str) -> str:
     return f"{marker}text\n{text}\n{marker}"
 
 
-def render(entries, author, tz, since, until):
+def entry_lines(when, e):
+    meta = [f"**{when:%H:%M}**", use_of(e["prompt"], e["branch"])]
+    if e["branch"] and e["branch"] != "HEAD":
+        meta.append(f"`{e['branch']}`")
+    if e["models"]:
+        meta.append(", ".join(sorted(e["models"])))
+    lines = [" · ".join(meta), "", fence(redact(e["prompt"])), ""]
+    if e["response"]:
+        lines += [f"> **Key response:** {redact(key_response(e['response']))}", ""]
+    return lines
+
+
+def render(entries, author, tz, since, until, picks=None, summary=True):
     zone = dt.timezone(dt.timedelta(hours=tz))
     zone_name = "SGT" if tz == 8 else f"UTC{tz:+d}"
-    picked = []
+    in_range = []
     for e in entries:
         when = parse(e["ts"]).astimezone(zone)
         if (since and when < since) or (until and when >= until):
             continue
-        picked.append((when, e))
-    if not picked:
+        in_range.append((when, e))
+    if not in_range:
         return f"No prompts found for {author}.\n"
-    quoted = [(w, e) for w, e in picked if not is_routine(e["prompt"])]
-    models = sorted({m for _, e in picked for m in e["models"]})
+    models = sorted({m for _, e in in_range for m in e["models"]})
+    first, last = in_range[0][0], in_range[-1][0]
+    if picks is not None:
+        return render_picked(in_range, author, zone_name, models, first, last, picks, summary)
+    quoted = [(w, e) for w, e in in_range if not is_routine(e["prompt"])]
     uses = {}
     for _, e in quoted:
         u = use_of(e["prompt"], e["branch"])
         uses[u] = uses.get(u, 0) + 1
-    lines = [
-        f"Exported from {author}'s Claude Code transcripts with `ai/export-claude-code-log.py`: "
-        f"{len(picked)} prompts from {picked[0][0]:%-d %b %Y} to {picked[-1][0]:%-d %b %Y}. "
-        f"{len(quoted)} are quoted below; the other {len(picked) - len(quoted)} are routine "
-        f"(approvals, push and merge notices, status checks) and are counted per day. "
-        f"Times are {zone_name}. Models: {', '.join(f'`{m}`' for m in models)}.",
-        "",
-        "| Use (tagged by keyword) | Quoted prompts |",
-        "| --- | --- |",
-    ]
-    lines += [f"| {u} | {n} |" for u, n in sorted(uses.items(), key=lambda x: -x[1])]
-    lines.append("")
+    lines = []
+    if summary:
+        lines = [
+            f"Exported from {author}'s Claude Code transcripts with `ai/export-claude-code-log.py`: "
+            f"{len(in_range)} prompts from {first:%-d %b %Y} to {last:%-d %b %Y}. "
+            f"{len(quoted)} are quoted below; the other {len(in_range) - len(quoted)} are routine "
+            f"(approvals, push and merge notices, status checks) and are counted per day. "
+            f"Times are {zone_name}. Models: {', '.join(f'`{m}`' for m in models)}.",
+            "",
+            "| Use (tagged by keyword) | Quoted prompts |",
+            "| --- | --- |",
+        ]
+        lines += [f"| {u} | {n} |" for u, n in sorted(uses.items(), key=lambda x: -x[1])]
+        lines.append("")
     day = None
     routine_today = 0
 
@@ -299,7 +324,7 @@ def render(entries, author, tz, since, until):
             lines.append(f"Routine prompts this day, not quoted: {routine_today}.")
             lines.append("")
 
-    for when, e in picked:
+    for when, e in in_range:
         if when.date() != day:
             close_day()
             day, routine_today = when.date(), 0
@@ -307,15 +332,44 @@ def render(entries, author, tz, since, until):
         if is_routine(e["prompt"]):
             routine_today += 1
             continue
-        meta = [f"**{when:%H:%M}**", use_of(e["prompt"], e["branch"])]
-        if e["branch"] and e["branch"] != "HEAD":
-            meta.append(f"`{e['branch']}`")
-        if e["models"]:
-            meta.append(", ".join(sorted(e["models"])))
-        lines += [" · ".join(meta), "", fence(redact(e["prompt"])), ""]
-        if e["response"]:
-            lines += [f"> **Key response:** {redact(key_response(e['response']))}", ""]
+        lines += entry_lines(when, e)
     close_day()
+    return "\n".join(lines)
+
+
+def render_picked(in_range, author, zone_name, models, first, last, picks, summary):
+    chosen, seen = [], set()
+    for when, e in in_range:
+        minute = f"{when:%Y-%m-%dT%H:%M}"
+        if minute in picks and minute not in seen:
+            seen.add(minute)
+            chosen.append((when, e))
+    for minute in sorted(set(picks) - seen):
+        print(f"warning: no prompt at {minute}", file=sys.stderr)
+    lines = []
+    if summary:
+        uses = {}
+        for _, e in in_range:
+            u = ("Routine: approvals, push and merge notices, status checks"
+                 if is_routine(e["prompt"]) else use_of(e["prompt"], e["branch"]))
+            uses[u] = uses.get(u, 0) + 1
+        lines = [
+            f"{len(chosen)} key prompts, picked by {author} from their {len(in_range)} Claude Code "
+            f"prompts between {first:%-d %b %Y} and {last:%-d %b %Y}. Exported with "
+            f"`ai/export-claude-code-log.py`. Times are {zone_name}. "
+            f"Models: {', '.join(f'`{m}`' for m in models)}.",
+            "",
+            f"| All {len(in_range)} prompts, by use (tagged by keyword) | Prompts |",
+            "| --- | --- |",
+        ]
+        lines += [f"| {u} | {n} |" for u, n in sorted(uses.items(), key=lambda x: -x[1])]
+        lines.append("")
+    day = None
+    for when, e in chosen:
+        if when.date() != day:
+            day = when.date()
+            lines += [f"#### {when:%a %-d %b %Y}", ""]
+        lines += entry_lines(when, e)
     return "\n".join(lines)
 
 
@@ -326,11 +380,17 @@ def main():
     ap.add_argument("--tz", type=int, default=8, help="hours from UTC for the times shown (default 8)")
     ap.add_argument("--since", help="first local time to include, e.g. 2026-09-01T00:00")
     ap.add_argument("--until", help="local time to stop before, e.g. 2026-11-08T22:06")
+    ap.add_argument("--pick", action="append",
+                    help="quote only the prompts at these local times (YYYY-MM-DDTHH:MM, comma-separated)")
+    ap.add_argument("--no-summary", action="store_true", help="leave out the opening counts")
     a = ap.parse_args()
     zone = dt.timezone(dt.timedelta(hours=a.tz))
     since = dt.datetime.fromisoformat(a.since).replace(tzinfo=zone) if a.since else None
     until = dt.datetime.fromisoformat(a.until).replace(tzinfo=zone) if a.until else None
-    sys.stdout.write(render(load(a.paths), a.author, a.tz, since, until))
+    picks = None
+    if a.pick:
+        picks = {t.strip() for group in a.pick for t in group.split(",") if t.strip()}
+    sys.stdout.write(render(load(a.paths), a.author, a.tz, since, until, picks, not a.no_summary))
 
 
 if __name__ == "__main__":
