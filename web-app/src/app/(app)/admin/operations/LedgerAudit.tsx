@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth';
 import { formatInstant } from '@/lib/admin-labels';
 import { useAdminData } from '../_components/use-admin-data';
 import { Loaded, Section, Tag } from '../_components/ui';
+import styles from '../_components/admin.module.css';
 
 /** CRD-10: summaries only; detailed findings stay behind the operator runbook and audited reads. */
 export function LedgerAudit() {
@@ -50,7 +51,7 @@ export function LedgerAudit() {
                 <Tag tone={run.status === 'PASS' ? 'info' : 'danger'}>{run.status}</Tag>{' '}
                 {run.mismatchCount === null
                   ? 'Scan did not complete.'
-                  : `${run.mismatchCount} mismatch(es).`}
+                  : `${run.mismatchCount} ${run.mismatchCount === 1 ? 'mismatch' : 'mismatches'}.`}
               </p>
               <p>
                 Completed {formatInstant(run.completedAt)} · {run.origin}
@@ -59,7 +60,7 @@ export function LedgerAudit() {
                 Run ID: <code>{run.runId}</code>
               </p>
               {run.error && <FormAlert>{run.error}</FormAlert>}
-              <ul>
+              <ul className={styles.plainList}>
                 {run.checks.map((check) => (
                   <li key={check.name}>
                     {check.name}: {check.mismatchCount}
