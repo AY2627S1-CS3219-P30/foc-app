@@ -747,7 +747,7 @@ display a summary of all the findings in the following table at the end:
 generate a database schema and system diagram for the order service
 ```
 
-> **Key response:** I've published both diagrams on one page: https://claude.ai/artifact/N19yJJRjZ4FuVRamHAkzTs They're built from `order-service/src/db/schema.ts`, migrations `0000` to `0015`, `app.module.ts` and the `order-service` block in `compose.yaml`.
+> **Key response:** I've published both diagrams on one page: [link removed] They're built from `order-service/src/db/schema.ts`, migrations `0000` to `0015`, `app.module.ts` and the `order-service` block in `compose.yaml`.
 
 **12:56** · Learning / explanation · `main` · claude-opus-5-5
 
