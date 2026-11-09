@@ -3,6 +3,7 @@
   max-width: var(--size-phone);
   margin: 0 auto;
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--color-surface);
   box-shadow: 0 0 0 1px var(--color-border);
   display: flex;
@@ -21,6 +22,7 @@
 @media (min-width: 768px) {
   .page {
     min-height: 100vh;
+    min-height: 100dvh;
     background: var(--color-page);
     display: flex;
     justify-content: center;

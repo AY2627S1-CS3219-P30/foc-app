@@ -9,11 +9,25 @@
   font-size: var(--text-md);
   font-weight: var(--weight-semibold);
   white-space: nowrap;
-  transition: filter 0.15s ease;
+  transition:
+    filter 0.15s ease,
+    transform 0.1s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .button:hover:not(:disabled) {
   filter: brightness(0.95);
+}
+
+/* A press you can feel, so a tap registers before the server answers. */
+.button:active:not(:disabled) {
+  filter: brightness(0.9);
+  transform: scale(0.98);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 .button:disabled {
@@ -31,8 +45,10 @@
   color: var(--color-text);
 }
 
+/* The control border, drawn at 3:1 like a text field's, so the button's edge reads as one. */
 .outline {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-control-border);
+  background: var(--color-surface);
   color: var(--color-text);
 }
 

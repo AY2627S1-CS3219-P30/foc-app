@@ -10,6 +10,7 @@
 
 import { useStore } from "@/lib/store";
 import styles from "./AppBar.module.css";
+import { Icon } from "./Icon";
 import { LiveLabel } from "./LiveLabel";
 
 export function AppBar({
@@ -27,11 +28,11 @@ export function AppBar({
     <header className={styles.bar}>
       {onBack ? (
         <button className={styles.iconBtn} aria-label="Back" onClick={onBack}>
-          ←
+          <Icon name="back" />
         </button>
       ) : (
         <button className={styles.iconBtn} aria-label="Open menu" onClick={() => setMenuOpen(true)}>
-          ☰
+          <Icon name="menu" />
         </button>
       )}
       <span className={styles.titleBlock}>
@@ -40,7 +41,7 @@ export function AppBar({
       </span>
       {action ? (
         <button className={styles.iconBtn} aria-label={action.label} onClick={action.onClick}>
-          +
+          <Icon name="plus" />
         </button>
       ) : (
         <span className={styles.spacer} />

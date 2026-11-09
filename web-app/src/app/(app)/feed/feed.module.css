@@ -4,3 +4,16 @@
   gap: var(--space-4);
   align-items: end;
 }
+
+/* An errand about to leave the board, told apart from the rest by more than its number. */
+.urgent {
+  color: var(--color-warning);
+  font-weight: var(--weight-semibold);
+}
+
+/* From 768 px the page's main column is a block, not a flex column with gaps. */
+@media (min-width: 768px) {
+  .filters {
+    margin-bottom: var(--space-5);
+  }
+}

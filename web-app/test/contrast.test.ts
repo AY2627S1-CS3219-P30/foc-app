@@ -34,7 +34,7 @@ const NON_TEXT: [string, Color, Color][] = [
   ["chosen mode ring against the switch track", "primary", "border"],
   ["selected filter chip against an unselected one", "primary", "border"],
   ["slider thumb and filled track (accent-color)", "primary", "surface"],
-  ["app bar icons (☰, ←, +)", "onPrimary", "primary"],
+  ["app bar icons (menu, back, add)", "onPrimary", "primary"],
   ["back arrow and list chevrons", "text", "surface"],
 ];
 

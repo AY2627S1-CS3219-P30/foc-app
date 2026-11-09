@@ -38,7 +38,7 @@ export function ErrandHistory({
   return (
     <section
       aria-label="Errand history"
-      style={{ display: "flex", flexDirection: "column", gap: vars.space[3], overflowWrap: "anywhere" }}
+      style={{ display: "flex", flexDirection: "column", gap: vars.space[3], marginTop: vars.space[3], overflowWrap: "anywhere" }}
     >
       <h2 style={{ fontSize: vars.text.lg, fontWeight: vars.weight.semibold }}>Errand history</h2>
       {error ? (
