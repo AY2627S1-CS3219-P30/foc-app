@@ -1315,7 +1315,7 @@ and contract tests, browser journeys, and vulnerability and secret scans.
 
 Commits written with Claude carry a `Co-Authored-By: Claude …` trailer: 294 of the 486 non-merge
 commits on `main` as of 8 Nov. To list them, run `git log --no-merges -i --grep='Co-Authored-By: Claude'`.
-The key implementation files, 231 TypeScript, JavaScript, shell and Python files, start with an
+The key implementation files, 244 TypeScript, JavaScript, shell and Python files, start with an
 `AI Assistance Disclosure` comment: the tool and dates, the scope of the AI-assisted work, and who
 reviewed it. Tests, configuration and generated files carry no header. Jonus's commits after 23 Oct
 lack the trailer, so `git log` undercounts them, and the headers count them as AI-assisted.

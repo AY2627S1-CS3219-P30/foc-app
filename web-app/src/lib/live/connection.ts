@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-29 to 2026-11-08
+// Scope: Generated the initial implementation for "live errand updates, one stream per tab and the
+//   pages that use it" (N1.4, #331, #346); later new features.
+// Author review: Jonus Ho and Patrick Thomas reviewed the implementation for correctness, ran it
+//   against the test suite, and checked that it fits our service boundaries without fatal errors
+//   before committing.
+
 import { toApiError } from "../api-client";
 import { sseParser, type SseEvent } from "./sse";
 
