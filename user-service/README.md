@@ -12,46 +12,61 @@ once from the repository root — this is an npm workspace, so a per-service
 
 ```bash
 npm install
+npm run build -w @foc/platform   # again after pulling a change to platform/
 ```
+
+The service imports the compiled `@foc/platform`, so it cannot start until that is built.
 
 ### Commands
 
 Run these from the repository root.
 
-| Command                                   | What it does                       |
-| ----------------------------------------- | ---------------------------------- |
-| `npm run db:migrate -w @foc/user-service` | Apply migrations to `DATABASE_URL` |
-| `npm run dev:user`                        | Start with reload on change        |
-| `npm run build -w @foc/user-service`      | Compile TypeScript to `dist/`      |
-| `npm test -w @foc/user-service`           | Run this service's tests           |
-| `npm run typecheck -w @foc/user-service`  | Type-check without emitting        |
-| `npm run lint`                            | Lint every service                 |
+| Command                                   | What it does                                                                                       |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `npm run db:migrate -w @foc/user-service` | Apply migrations to `DATABASE_URL`                                                                 |
+| `npm run dev:user`                        | Start with reload on change                                                                        |
+| `npm run build -w @foc/user-service`      | Compile TypeScript to `dist/`                                                                      |
+| `npm test -w @foc/user-service`           | Run the PGlite tests and, with `TEST_POSTGRES_URL`, the real-PostgreSQL re-registration lock tests |
+| `npm run typecheck -w @foc/user-service`  | Type-check without emitting                                                                        |
+| `npm run lint`                            | Lint every service                                                                                 |
 
 ### Required environment
 
-| Variable                           | Example                                            | Notes                                                                                                   |
-| ---------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `SERVICE_NAME`                     | `user-service`                                     | Tags every log line                                                                                     |
-| `PORT`                             | `3001`                                             | Bind port                                                                                               |
-| `NODE_ENV`                         | `development`                                      | `development` \| `test` \| `production`                                                                 |
-| `LOG_LEVEL`                        | `info`                                             | Defaults to `info`                                                                                      |
-| `DATABASE_URL`                     | `postgres://user_service:…@postgres:5432/foc_user` | Supplied by Compose                                                                                     |
-| `ALLOWED_EMAIL_DOMAINS`            | `u.nus.edu,nus.edu.sg`                             | Registration is limited to these domains                                                                |
-| `INTERNAL_SERVICE_KEYS`            | (16+ chars each)                                   | Keys other services send as `X-Service-Key` on `/internal/**`                                           |
-| `ACTIVATION_TOKEN_TTL_MINUTES`     | `30`                                               | Optional; 5–1440. How long an activation link works (where the password is chosen)                      |
-| `PASSWORD_RESET_TOKEN_TTL_MINUTES` | `30`                                               | Optional; 5–1440. How long a password reset link works                                                  |
-| `SMTP_HOST`                        | `mailpit`                                          | Where activation and reset email goes. Required in production                                           |
-| `SMTP_PORT`                        | `1025`                                             | Defaults to `587`; `465` means implicit TLS                                                             |
-| `SMTP_USER`, `SMTP_PASSWORD`       | (secret store)                                     | Optional, both or neither. Never committed                                                              |
-| `SMTP_REQUIRE_TLS`                 | `false`                                            | Defaults to required in production; `false` only for Mailpit                                            |
-| `MAIL_FROM`                        | `Friend on Campus <no-reply@foc.local>`            | Optional; the default is shown                                                                          |
-| `ACTIVATION_URL`                   | `http://localhost:3000/activate`                   | The web app page the email links to. Required with SMTP. Reset links open its sibling, `reset-password` |
+| Variable                                   | Example                                            | Notes                                                                                                   |
+| ------------------------------------------ | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `SERVICE_NAME`                             | `user-service`                                     | Tags every log line                                                                                     |
+| `PORT`                                     | `3001`                                             | Bind port                                                                                               |
+| `NODE_ENV`                                 | `development`                                      | `development` \| `test` \| `production`                                                                 |
+| `LOG_LEVEL`                                | `info`                                             | Defaults to `info`                                                                                      |
+| `DATABASE_URL`                             | `postgres://user_service:…@postgres:5432/foc_user` | Supplied by Compose                                                                                     |
+| `ALLOWED_EMAIL_DOMAINS`                    | `u.nus.edu,nus.edu.sg`                             | Registration is limited to these domains                                                                |
+| `INTERNAL_SERVICE_KEYS`                    | (16+ chars each)                                   | Keys other services send as `X-Service-Key` on `/internal/**`                                           |
+| `ACTIVATION_TOKEN_TTL_MINUTES`             | `30`                                               | Optional; 5–1440. How long an activation link works (where the password is chosen)                      |
+| `PASSWORD_RESET_TOKEN_TTL_MINUTES`         | `30`                                               | Optional; 5–1440. How long a password reset link works                                                  |
+| `SMTP_HOST`                                | `mailpit`                                          | Where activation and reset email goes. Required in production                                           |
+| `SMTP_PORT`                                | `1025`                                             | Defaults to `587`; `465` means implicit TLS                                                             |
+| `SMTP_USER`, `SMTP_PASSWORD`               | (secret store)                                     | Optional, both or neither. Never committed                                                              |
+| `SMTP_REQUIRE_TLS`                         | `false`                                            | Defaults to required in production; `false` only for Mailpit                                            |
+| `MAIL_FROM`                                | `Friend on Campus <no-reply@foc.local>`            | Optional; the default is shown                                                                          |
+| `ACTIVATION_URL`                           | `http://localhost:3000/activate`                   | The web app page the email links to. Required with SMTP. Reset links open its sibling, `reset-password` |
+| `JWT_PRIVATE_KEY`                          | (generated into `.env`)                            | Signs access tokens; see "Signing key" below. Required in production                                    |
+| `ADMIN_SEED_EMAILS`, `ADMIN_SEED_PASSWORD` | `admin@u.nus.edu`, (generated)                     | Optional, set together; the password is 12–128 characters. See "First admin" below                      |
+| `LOGIN_LIMIT_PER_IP`                       | `50`                                               | Optional. Sign-ins per IP in 15 minutes                                                                 |
+| `LOGIN_LIMIT_PER_EMAIL`                    | `10`                                               | Optional. Sign-ins per email in 15 minutes                                                              |
+| `REGISTER_LIMIT_PER_IP`                    | `20`                                               | Optional. Registrations per IP in an hour. Production refuses any of these three above its default      |
+
+Also from the shared base, all optional: `INTERNAL_PORT` (Compose: 4001; with it set, `/internal/**`
+is served there only), `RABBITMQ_URL` (without it, events wait in the outbox), `CORS_ORIGINS`
+(`http://localhost:3000` by default), `TRUSTED_PROXY` (Compose: `edge`; the per-address limits rely
+on it) and `METRICS_TOKEN` (16+ characters).
 
 **Mail.** Compose sends activation and password reset email to Mailpit, a local inbox at <http://localhost:8025>.
 Without `SMTP_HOST`, outside production, each email is kept in memory where nobody receives it,
-and a warning at boot says so. Run `docker compose -f compose.yaml -f compose.dev.yaml up -d` and set
-`SMTP_HOST=localhost SMTP_PORT=1025` to send to the stack's inbox from `npm run dev:user`. With
-`NODE_ENV=production` the service refuses to start without `SMTP_HOST`. No route returns a token.
+and a warning at boot says so. To send to the stack's inbox from `npm run dev:user`, start
+`postgres mailpit` with `compose.dev.yaml` and set `SMTP_HOST`, `SMTP_PORT` and `ACTIVATION_URL`, as in
+the example below. With `NODE_ENV=production` the service refuses to start without `SMTP_HOST`, and
+requires TLS to it unless `SMTP_REQUIRE_TLS=false`, which it allows with a warning (Compose sets this
+for Mailpit). No route returns a token.
 
 Optional controls on administrators ([ADR 0008](../docs/adr/0008-controlling-administrators.md)), with
 their defaults: `ROLE_REQUEST_TTL_HOURS=24` (1–168), `STEP_UP_WINDOW_SECONDS=300` (30–3600),
@@ -60,18 +75,30 @@ their defaults: `ROLE_REQUEST_TTL_HOURS=24` (1–168), `STEP_UP_WINDOW_SECONDS=3
 A missing required variable stops the service at boot and names the variable.
 Nothing falls back to an insecure default.
 
+To run it by hand, from the repository root. `npm run dev:user` runs in `user-service/`, so it never
+reads the root `.env`: load it into the shell first. `.env` says `NODE_ENV=production`, which a
+service run by hand should not use.
+
 ```bash
-SERVICE_NAME=user-service PORT=3001 npm run dev:user
+docker compose -f compose.yaml -f compose.dev.yaml up -d postgres mailpit
+set -a; . ./.env; NODE_ENV=development; set +a
+DATABASE_URL=$HOST_USER_DATABASE_URL npm run db:migrate -w @foc/user-service
+DATABASE_URL=$HOST_USER_DATABASE_URL SMTP_HOST=localhost SMTP_PORT=1025 \
+  ACTIVATION_URL=http://localhost:3000/activate npm run dev:user
 curl -i http://localhost:3001/health
 ```
+
+Do not run the stack's own `user-service` at the same time: it holds port 3001. This recipe starts
+only Postgres and Mailpit, so nothing else calls the service: try it at `http://localhost:3001`. It
+runs without the broker, so its events wait in the outbox until it runs with `RABBITMQ_URL`.
 
 ### What you get from `@foc/platform`
 
 Importing `PlatformModule.forRoot(...)` gives this service a `GET /health`
-endpoint, structured JSON logging where every line carries a correlation ID,
-request logging, a shared error envelope, and graceful shutdown on `SIGTERM`.
-Do not re-implement these per service — extend the shared package instead, so a
-change lands once rather than four times.
+endpoint, Prometheus metrics at `GET /metrics` (behind `METRICS_TOKEN`), structured JSON logging
+where every line carries a correlation ID, request logging, a shared error envelope, and graceful
+shutdown on `SIGTERM`. Do not re-implement these per service — extend the shared package instead,
+so a change lands once rather than five times.
 
 ### Docker
 
@@ -81,29 +108,40 @@ docker build -f user-service/Dockerfile -t foc/user-service .
 
 The build context is the **repository root**, not this folder, because the image
 needs the workspace manifests and `@foc/platform`. The image runs as a non-root
-user and declares a `HEALTHCHECK`. `compose.yaml` wiring arrives with PLT-02.
+user and declares a `HEALTHCHECK`. `compose.yaml` runs it on port 3001, with `/internal/**` on the
+internal port 4001 (not published), after the one-shot `user-service-migrate`.
 
 ### What is implemented (USR-01)
 
-| Endpoint                              | Purpose                                                                                                                                                          |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /auth/register`                 | Normalise the email, enforce the domain allowlist, reject duplicates, email a one-time activation link. Takes no password (#309)                                 |
-| `POST /auth/activate`                 | Token and password: sets the password (Argon2id), activates, publishes exactly one `UserActivated`. Single-use, 30 minutes, replay-idempotent; no sign-in        |
-| `POST /auth/activation/resend`        | Mails a new link to a pending account and invalidates the old ones. Same `202` for any address; 3 per address and 20 per IP an hour                              |
-| `POST /auth/password-reset`           | Mails a reset link to an active or pending account and invalidates the old ones. Same `202` for any address; its own 3 per address and 20 per IP an hour         |
-| `POST /auth/password-reset/confirm`   | Sets the password from the link (registration policy), activates a pending account, revokes every session, deletes the unused activation link. `204`; no sign-in |
-| `GET /internal/users/:id`             | Least-data identity lookup (`X-Service-Key` required)                                                                                                            |
-| `GET /internal/users/:id/permissions` | Effective permissions for admin authorisation (`X-Service-Key` required)                                                                                         |
+| Endpoint                              | Purpose                                                                                                                                                                                       |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /auth/register`                 | Normalise the email, enforce the domain allowlist, reject duplicates, email a one-time activation link. Takes no password (#309); 20 per IP an hour (`REGISTER_LIMIT_PER_IP`)                 |
+| `POST /auth/activate`                 | Token and password: sets the password (Argon2id), activates, publishes exactly one `UserActivated`. Single-use, `ACTIVATION_TOKEN_TTL_MINUTES` (30 by default), replay-idempotent; no sign-in |
+| `POST /auth/activation/resend`        | Mails a new link to a pending account and invalidates the old ones. Same `202` for any address; 3 per address and 20 per IP an hour                                                           |
+| `POST /auth/password-reset`           | Mails a reset link to an active or pending account and invalidates the old ones. Same `202` for any address; its own 3 per address and 20 per IP an hour                                      |
+| `POST /auth/password-reset/confirm`   | Sets the password from the link (12–128 characters, as at activation), activates a pending account, revokes every session, deletes the unused activation link. `204`; no sign-in              |
+| `GET /internal/users/:id`             | Least-data identity lookup (`X-Service-Key` required)                                                                                                                                         |
+| `GET /internal/users/:id/permissions` | Effective permissions for admin authorisation (`X-Service-Key` required)                                                                                                                      |
+| `GET /internal/introspect`            | Session liveness plus identity, for `@foc/auth-client` (`X-Service-Key` required)                                                                                                             |
+| `GET /internal/admins`                | Active administrators, for dispute referral (`X-Service-Key` required)                                                                                                                        |
+
+With `INTERNAL_PORT` set, the `/internal/**` routes answer only there; on the public port they are
+`404`.
 
 The contract is `contracts/user-service.openapi.yaml`; role and schema design are in
 `docs/user-service/`, and every decision with its trade-offs is in `docs/user-service/decisions.md`. Migrations are forward-only, live in `drizzle/`, and are applied by `npm run db:migrate -w @foc/user-service` before the service starts; the service never migrates at boot.
 
 **Tests run on PGlite** (PostgreSQL compiled to WASM), so `npm test -w @foc/user-service` needs no
-database server or Docker. Runtime uses `pg` against the Compose Postgres.
+database server or Docker. Runtime uses `pg` against the Compose Postgres. The re-registration lock
+tests in `test/re-register.postgres.test.ts` need real PostgreSQL and are skipped without
+`TEST_POSTGRES_URL`: `TEST_POSTGRES_URL=$HOST_POSTGRES_URL npm test -w @foc/user-service` runs them,
+with postgres up and `.env` loaded as in the by-hand recipe; without `.env`, the variable is empty
+and they skip as if they passed (see [docs/testing.md](../docs/testing.md)).
 
 **The password is chosen at activation (#309).** Registration takes none: whoever signs up has not
 proven the inbox, so a password chosen then could be someone else's. A pending account has no
-password (`password_hash` is NULL, which migration 0007 allows only while it is pending), and signing
+password (`password_hash` is NULL: migration 0007 only drops NOT NULL, and the service keeps NULL to
+pending accounts until a later release adds the CHECK), and signing
 in to it fails as for an unknown address. The emailed link opens the web app's activation page, where
 the student chooses one; `POST /auth/activate` sets it and activates in one transaction. So someone who
 registers a student's address and keeps resending its link never chooses its password: see
@@ -131,13 +169,13 @@ curl -s localhost:3001/auth/activate -H 'content-type: application/json' \
 
 ### Sessions and tokens (USR-02)
 
-| Endpoint                     | Purpose                                                                                                                                                                                   |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /auth/login`           | Valid credentials on an `ACTIVE` account → 15-minute access token in the body, 7-day refresh token in an `HttpOnly` cookie. Rate limited per email (10 / 15 min) and per IP (50 / 15 min) |
-| `POST /auth/refresh`         | Rotates the refresh token. Reusing an already-rotated token revokes the whole session family                                                                                              |
-| `POST /auth/logout`          | Revokes the caller's whole session family. Idempotent                                                                                                                                     |
-| `GET /users/me`              | The caller's account (read-only here; edits arrive with USR-03)                                                                                                                           |
-| `GET /.well-known/jwks.json` | Public key other services use to verify access tokens                                                                                                                                     |
+| Endpoint                     | Purpose                                                                                                                                                                                                                                  |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /auth/login`           | Valid credentials on an `ACTIVE` account → 15-minute access token in the body, 7-day refresh token in an `HttpOnly` cookie. Rate limited per email (10 / 15 min, `LOGIN_LIMIT_PER_EMAIL`) and per IP (50 / 15 min, `LOGIN_LIMIT_PER_IP`) |
+| `POST /auth/refresh`         | Rotates the refresh token. Reusing an already-rotated token revokes the whole session family                                                                                                                                             |
+| `POST /auth/logout`          | Revokes the caller's whole session family. Idempotent                                                                                                                                                                                    |
+| `GET /users/me`              | The caller's account (`PATCH /users/me` edits it, below)                                                                                                                                                                                 |
+| `GET /.well-known/jwks.json` | Public key other services use to verify access tokens                                                                                                                                                                                    |
 
 ### Decision: where tokens live, and what that means for CSRF
 
@@ -158,7 +196,8 @@ sends it to `http://localhost`, which it counts as secure).
 `/auth/logout`) are defended in layers: `SameSite=Strict` (the browser will not send it cross-site), an
 `Origin` check against `CORS_ORIGINS` (a foreign origin gets `403 CSRF_REJECTED`), and a required
 `Content-Type: application/json` (a plain HTML form post cannot set it). None of these endpoints changes
-data an attacker could profit from, but logout and refresh are still guarded.
+data an attacker could profit from, but logout and refresh are still guarded. Sign-in and
+`POST /auth/password` get the same check, against login CSRF.
 
 **Why not `localStorage` for everything?** It would be simpler and needs no CSRF defence, but any XSS
 would then hand an attacker a 7-day credential. The cost of the cookie design is that the web app and API
@@ -175,8 +214,9 @@ Outside production, if it is unset the service generates a throwaway key at boot
 committed; every restart then invalidates existing access tokens (refresh sessions survive and re-issue).
 
 **Known limits.** Logout and suspension take effect immediately _for this service_, because the access-token
-guard checks the session in the database on every request. Other services will get the same guarantee from
-the shared middleware (USR-06), which must check session state rather than trust the JWT alone. Rate
+guard checks the session in the database on every request. Other services get it through
+`@foc/auth-client` (USR-06), which asks `GET /internal/introspect`, caches the answer for at most
+5 seconds, and drops it on `user.suspended`, `user.reactivated` or `user.role-changed`. Rate
 limiting is in memory, so it is per instance. A session ends 7 days after login, however often it refreshes: each rotation keeps the expiry set at login.
 
 ### Roles, profile and administration (USR-03)
@@ -228,6 +268,14 @@ Authorisation reads the caller's role from the database on every request, never 
 `test/matrix.test.ts` runs every protected endpoint as four actors and fails if a route is added without a
 row. Role design: `docs/user-service/roles.md`.
 
-### Next tickets
+### Events
 
-USR-06 (shared middleware for other services), USR-07 (cross-service status enforcement), USR-05 (account screens)
+Every event is written to `outbox_events` in the transaction that caused it, and published by the
+shared relay when `RABBITMQ_URL` is set.
+
+- `user.activated`: on activation, on a password reset that activates a pending account, and for each
+  seeded administrator. The Credit Service issues the wallet. It is the one event published as
+  mandatory, so a broker with no queue bound for it refuses it rather than dropping it.
+- `user.suspended`, `user.reactivated`, `user.role-changed`: every `@foc/auth-client` cache (Supplier,
+  Order, Credit, Chat) drops that user. The Order Service also handles `user.suspended` for the user's
+  errands (ORD-06). Chat also closes that user's chat sockets (#346).
