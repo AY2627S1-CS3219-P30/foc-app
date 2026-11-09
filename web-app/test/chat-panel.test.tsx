@@ -15,6 +15,21 @@ const { ChatPanel } = await import("../src/components/ChatPanel");
 const realFetch = globalThis.fetch;
 const realTimeout = globalThis.setTimeout;
 const realObserver = globalThis.IntersectionObserver;
+const realSocket = globalThis.WebSocket;
+class FakeSocket {
+  static all: FakeSocket[] = [];
+  sent: unknown[] = [];
+  onopen?: () => void;
+  onmessage?: (event: { data: string }) => void;
+  onclose?: (event: { code: number }) => void;
+  constructor(readonly url: string) {
+    FakeSocket.all.push(this);
+  }
+  send(data: string) {
+    this.sent.push(JSON.parse(data));
+  }
+  close() {}
+}
 let observer: ((entries: { isIntersecting: boolean }[]) => void) | null;
 let container: HTMLElement;
 let root: ReturnType<typeof createRoot>;
@@ -53,6 +68,8 @@ beforeEach(() => {
   status = 200;
   items = [message];
   observer = null;
+  FakeSocket.all = [];
+  globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket;
   globalThis.setTimeout = ((fn: () => void, delay = 0) => {
     if (delay < 1000) return realTimeout(fn, delay);
     timers.push(delay);
@@ -82,6 +99,7 @@ afterEach(async () => {
   globalThis.fetch = realFetch;
   globalThis.setTimeout = realTimeout;
   globalThis.IntersectionObserver = realObserver;
+  globalThis.WebSocket = realSocket;
 });
 afterAll(() => {
   for (const key of ["window", "document", "IS_REACT_ACT_ENVIRONMENT"])
@@ -249,4 +267,57 @@ it("resizing retains one textarea and identity/order changes replace private sta
   expect(container.querySelector("textarea")).toBeNull();
   expect(container.textContent).not.toContain(message.body);
   expect(container.textContent).not.toContain("Mei Tan");
+});
+
+it("reads at once on a nudge past its messages, and polls every 30 s while the socket is live", async () => {
+  await render();
+  expect(FakeSocket.all).toHaveLength(1);
+  const socket = FakeSocket.all[0];
+  expect(socket.url).toBe("ws://localhost:3006/socket");
+  await act(async () => socket.onopen?.());
+  expect(socket.sent).toEqual([{ type: "auth", token: "test-token" }]);
+  requests = [];
+  await act(async () => socket.onmessage?.({ data: JSON.stringify({ type: "ready" }) }));
+  await settle();
+  expect(requests.map((r) => new URL(r.url).pathname)).toEqual(["/channels/order"]);
+  expect(timers.at(-1)).toBe(30_000);
+  requests = [];
+  const nudge = (orderId: string, latestSeq: number) =>
+    act(async () =>
+      socket.onmessage?.({ data: JSON.stringify({ type: "messages", orderId, latestSeq }) }),
+    );
+  await nudge("order", 1);
+  await nudge("other-order", 2);
+  await settle();
+  expect(requests).toHaveLength(0);
+  nextChannel = { ...channel, latestSeq: 2 };
+  items = [{ ...message, seq: 2, clientId: "incoming-2", body: "Here now." }];
+  await nudge("order", 2);
+  await settle();
+  expect(requests.map((r) => new URL(r.url).pathname)).toEqual([
+    "/channels/order",
+    "/channels/order/messages",
+  ]);
+  await open();
+  expect(container.textContent).toContain("Here now.");
+});
+
+it("falls back to two-second polling at once when the socket drops", async () => {
+  await render();
+  const socket = FakeSocket.all[0];
+  await act(async () => socket.onmessage?.({ data: JSON.stringify({ type: "ready" }) }));
+  await settle();
+  expect(timers.at(-1)).toBe(30_000);
+  requests = [];
+  await act(async () => socket.onclose?.({ code: 1006 }));
+  await settle();
+  expect(requests.map((r) => new URL(r.url).pathname)).toEqual(["/channels/order"]);
+  expect(timers.at(-1)).toBe(2_000);
+});
+
+it("opens no socket for a read-only view or a final errand", async () => {
+  await render({ readOnly: true });
+  nextChannel = { ...channel, open: false };
+  await render({ orderId: "ended", final: true });
+  expect(FakeSocket.all).toHaveLength(0);
 });

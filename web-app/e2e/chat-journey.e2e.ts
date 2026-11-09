@@ -4,9 +4,26 @@ import { ORDER, errandEmail, firstSupplier, signIn } from "./request-helpers";
 
 const CHAT = `${process.env.E2E_BASE_URL ?? "http://localhost:3000"}/api/chat`;
 async function openChat(page: Page) {
+  // The panel mounts once the order has loaded; only then does the toggle exist to be checked.
+  await expect(page.getByRole("region", { name: "Participant chat", exact: true })).toBeVisible();
   const toggle = page.getByRole("button", { name: "Open chat", exact: true });
   if (await toggle.isVisible()) await toggle.click();
   await expect(page.getByRole("textbox", { name: "Message", exact: true })).toBeVisible();
+}
+/** #346: with both sockets ready, polling is a 30 s backstop, so only a nudge arrives within 1 s. */
+const NUDGED_WITHIN_MS = 1_000;
+function socketReady(page: Page) {
+  return page
+    .waitForEvent("websocket", {
+      predicate: (ws) => ws.url().endsWith("/api/chat/socket"),
+      timeout: 10_000,
+    })
+    .then((ws) =>
+      ws.waitForEvent("framereceived", {
+        predicate: (frame) => frame.payload === '{"type":"ready"}',
+        timeout: 10_000,
+      }),
+    );
 }
 
 /** Real edge/services, two browser sessions, all release breakpoints; no mocked requests. */
@@ -49,27 +66,42 @@ test("chat: send, receive, offline catch-up, outsider refusal and final-state cl
       data: { expectedVersion: (await readOrder()).version },
     });
     expect(accepted.status()).toBe(201);
+    const ready = Promise.all([socketReady(page), socketReady(courier)]);
     await page.goto(`/request/${orderId}`);
     await courier.goto(`/request/${orderId}`);
     await openChat(page);
     await openChat(courier);
+    await ready;
     const panel = page.getByRole("region", { name: "Participant chat", exact: true });
     const otherPanel = courier.getByRole("region", { name: "Participant chat", exact: true });
-    await panel
-      .getByRole("textbox", { name: "Message", exact: true })
-      .fill("Meet at the COM2 entrance?");
-    await panel.getByRole("button", { name: "Send", exact: true }).click();
-    await courier.bringToFront();
+    const send = async (from: typeof panel, body: string) => {
+      await from.getByRole("textbox", { name: "Message", exact: true }).fill(body);
+      await from.getByRole("button", { name: "Send", exact: true }).click();
+    };
+    await send(panel, "Meet at the COM2 entrance?");
     await expect(otherPanel.getByText("Meet at the COM2 entrance?", { exact: true })).toBeVisible({
-      timeout: 10000,
+      timeout: NUDGED_WITHIN_MS,
     });
-    await otherPanel
-      .getByRole("textbox", { name: "Message", exact: true })
-      .fill("Yes, by the stairs.");
-    await otherPanel.getByRole("button", { name: "Send", exact: true }).click();
-    await page.bringToFront();
+    await send(otherPanel, "Yes, by the stairs.");
     await expect(panel.getByText("Yes, by the stairs.", { exact: true })).toBeVisible({
-      timeout: 10000,
+      timeout: NUDGED_WITHIN_MS,
+    });
+
+    await test.step("with its socket blocked, a panel sends and receives on polling", async () => {
+      await courier.routeWebSocket("**/api/chat/socket", (ws) => ws.close({ code: 4503 }));
+      await courier.reload();
+      await openChat(courier);
+      await send(panel, "Blocked socket, still here?");
+      await expect(
+        otherPanel.getByText("Blocked socket, still here?", { exact: true }),
+      ).toBeVisible({
+        timeout: 10000,
+      });
+      await send(otherPanel, "Yes, on polling.");
+      await expect(panel.getByText("Yes, on polling.", { exact: true })).toBeVisible({
+        timeout: NUDGED_WITHIN_MS,
+      });
+      await courier.unrouteAll();
     });
 
     await test.step("an offline participant catches up with all missed messages", async () => {
