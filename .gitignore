@@ -24,6 +24,8 @@ backups/
 .recovery-results/
 .release-results/
 .lighthouse-results/
+.deploy-history
+.deploy.lock
 __pycache__/
 *.tsbuildinfo
 

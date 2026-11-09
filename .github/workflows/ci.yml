@@ -753,3 +753,20 @@ jobs:
             docker tag "$REGISTRY/foc-$application:$FOC_IMAGE_TAG" "$REGISTRY/foc-$application:main"
             docker push "$REGISTRY/foc-$application:main"
           done
+
+  # ---------------------------------------------------------------------------
+  # PLT-14 (#357): start the images just published on the AWS host, while the
+  # repository variable AWS_AUTO_DEPLOY is `true`. Turn it off to freeze what
+  # the host runs, such as for the D4 demo; .github/workflows/deploy.yml can
+  # still be run by hand. docs/runbooks/aws-deploy.md says how it is set up.
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Deploy
+    needs: [publish]
+    if: vars.AWS_AUTO_DEPLOY == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/deploy.yml
+    with:
+      tag: sha-${{ github.sha }}
