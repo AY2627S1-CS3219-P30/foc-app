@@ -67,8 +67,9 @@ a header, a body, or the token.
 
 A non-admin mutation returns `403 FORBIDDEN` and changes nothing (proven by a
 direct API call in `test/suppliers.test.ts`). A suspended or not-yet-activated account is
-`403 ACCOUNT_SUSPENDED` or `403 ACCOUNT_NOT_ACTIVATED`. If the User Service cannot be reached, every
-route but `/health` fails closed with `503 IDENTITY_UNAVAILABLE`.
+`403 ACCOUNT_SUSPENDED` or `403 ACCOUNT_NOT_ACTIVATED`. If the User Service cannot be reached, a
+signed-in request fails closed with `503 IDENTITY_UNAVAILABLE`; `/health` and `/metrics` never ask
+it.
 
 ### Validation — `422 VALIDATION_FAILED`
 
@@ -152,8 +153,9 @@ enough to render a card and open the detail view. Floor, location description,
 opening hours and coordinates are returned only by `GET /suppliers/:id`.
 
 > **Contract.** [`contracts/supplier-service.openapi.yaml`](../contracts/supplier-service.openapi.yaml)
-> is the published contract (FND-03, #117), and `test/provider.contract.test.ts` checks real
-> responses against it. The list uses the house page shape, `{ page, pageSize, total, items }`.
+> is the contract (FND-03, #117), and `test/provider.contract.test.ts` checks real responses
+> against it. Its header still says `1.0.0-draft.1` and "not frozen", although the API it describes
+> is the one this service serves. The list uses the house page shape, `{ page, pageSize, total, items }`.
 
 ### Location-query decision
 
@@ -229,9 +231,9 @@ Compose sets `INTERNAL_PORT` to 4002, though this service has no `/internal` rou
 A missing required variable stops the service at boot and names the variable.
 Nothing falls back to an insecure default.
 
-To run it by hand against the rest of the stack, from the repository root. `npm run dev:supplier`
-runs in `supplier-service/`, so it never reads the root `.env`: load it into the shell first. `.env`
-says `NODE_ENV=production`, which a service run by hand should not use.
+To run it by hand against the rest of the stack, work from the repository root. `npm run
+dev:supplier` runs in `supplier-service/`, so it never reads the root `.env`: load it into the shell
+first. `.env` says `NODE_ENV=production`, which a service run by hand should not use.
 
 ```bash
 docker compose -f compose.yaml -f compose.dev.yaml up -d   # publishes the User Service's internal port 4001
@@ -242,6 +244,10 @@ DATABASE_URL=$HOST_SUPPLIER_DATABASE_URL USER_SERVICE_URL=http://localhost:4001 
   INTERNAL_SERVICE_KEY=$SUPPLIER_INTERNAL_KEY npm run dev:supplier
 curl -i http://localhost:3002/health
 ```
+
+The stack still routes to the stopped container, so neither the web app nor the Order Service, when
+it checks a pickup point, reaches this process: call it at `http://localhost:3002`. It runs without
+the broker, which costs the 5-second window described above.
 
 The service never migrates at boot, and it seeds the catalogue on every boot, skipping suppliers
 already present.

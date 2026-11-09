@@ -8,10 +8,9 @@ API is [`contracts/chat-service.openapi.yaml`](../contracts/chat-service.openapi
 The fifth service's wiring came with #345, its channels and messages with
 [#162](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/162), and read-only access for
 administrators, the 280-character and 20-a-minute limits and the 90-day retention with
-[#163](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/163). The service side of the socket
-that says when to read again came with #362 and #391. The web app's chat panel does not use it
-yet, and polls every 2 seconds: connecting it is the browser half of
-[#346](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/346).
+[#163](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/163). The socket that says when to
+read again came with #362 and #391 on the service side, and with #399 in the web app's chat panel
+([#346](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/346)).
 
 Built on the shared runtime: `@foc/platform` (config, logging, correlation, health, the error
 envelope) and `@foc/auth-client` (verifies a caller's token and resolves their live identity from
@@ -62,8 +61,8 @@ whether it has ended, and decides from that alone. Chat keeps no copy of the err
   are `403 NOT_PARTICIPANT`. A user who is both an administrator and a participant is treated as
   the participant, and those reads are not recorded. Reads are recorded one row per admin,
   errand, resource and hour, with a count, the first read's correlation ID and the last read's
-  time. The admin view (#161) reads once and refreshes on request, rather than polling every 2
-  seconds as the participant panel does, since a disputed errand stays open until it is decided.
+  time. The admin view (#161) reads once and refreshes on request, rather than polling as the
+  participant panel does, since a disputed errand stays open until it is decided.
 - **A channel opens** on the first participant request while the errand has a courier and has not
   reached a final status. An administrator's read never opens one. Before that, for an errand that
   ended without one, or for an unknown errand, every route answers `404`.
@@ -134,17 +133,18 @@ racing its original is stored once (`test/chat.postgres.test.ts`).
 
 ## The socket
 
-A WebSocket that can tell a participant's client that a channel has new messages, so it reads them
-at once instead of on its next poll (ADR 0012 §3). The service side is built (#362, #391). **The web
-app's chat panel does not open it yet**: it polls every 2 seconds (`web-app/src/lib/chat-state.ts`),
-and connecting it is the browser half of #346. It says that something new arrived, never what: a
-frame carries an errand's ID and its latest `seq`, never a message. A client still reads through `GET /channels/:orderId/messages`, where the live Order lookup decides access, and
-still sends with `POST`, so every rule above applies unchanged. A socket that outlives its owner's
-right to a channel can leak a number, but no text. OpenAPI cannot describe a socket, so this section
-is its contract.
+A WebSocket that tells a participant's open chat panel that a channel has new messages, so the panel
+reads them at once instead of on its next poll (ADR 0012 §3). The service side came with #362 and
+#391, and the web app's panel opens it since #399 (`web-app/src/lib/chat-socket.ts`). It says that
+something new arrived, never what: a frame carries an errand's ID and its latest `seq`, never a
+message. A client still reads through `GET /channels/:orderId/messages`, where the live Order lookup
+decides access, and still sends with `POST`, so every rule above applies unchanged. A socket that
+outlives its owner's right to a channel can leak a number, but no text. OpenAPI cannot describe a
+socket, so this section is its contract.
 
-**Polling stays the fallback**, and for now it is the only path the chat panel uses. A client
-without a socket, whether refused, closed or blocked by a network, polls and misses nothing. With
+**Polling stays the fallback.** While the socket is live the panel still polls every 30 seconds as
+a backstop; a panel without a socket, whether refused, closed or blocked by a network, polls every 2
+seconds and misses nothing. With
 `CHAT_SOCKET_ENABLED=false` the service answers no upgrade at all, so every socket fails to open and
 every client polls.
 
@@ -172,7 +172,7 @@ A new message goes to every open socket of the errand's requester and current co
 sender's other tabs included. Administrators get none, since they are not participants. A retried
 send that answers the stored message (`200`) sends nothing. A nudge may be lost, repeated or arrive
 out of order, so the client reads up to the highest `latestSeq` it has seen. A lost nudge costs at
-most a poll interval.
+most the panel's 30-second backstop poll.
 
 The service pings every 25 seconds, and a socket that has not answered the previous ping is dropped
 without a close frame. Browsers answer pings by themselves.
@@ -293,9 +293,9 @@ Optional, with the defaults of ADR 0012:
 
 A missing required variable stops the service at boot and names the variable.
 
-To run it by hand against the rest of the stack, from the repository root. `npm run dev:chat` runs in
-`chat-service/`, so it never reads the root `.env`: load it into the shell first. `.env` says
-`NODE_ENV=production`, which a service run by hand should not use.
+To run it by hand against the rest of the stack, work from the repository root. `npm run dev:chat`
+runs in `chat-service/`, so it never reads the root `.env`: load it into the shell first. `.env`
+says `NODE_ENV=production`, which a service run by hand should not use.
 
 ```bash
 docker compose -f compose.yaml -f compose.dev.yaml up -d   # publishes the internal ports 4001 and 4003
@@ -307,6 +307,9 @@ DATABASE_URL=$HOST_CHAT_DATABASE_URL USER_SERVICE_URL=http://localhost:4001 \
   npm run dev:chat
 curl -i http://localhost:3006/health
 ```
+
+The stack still routes to the stopped container, so the web app's chat panel and its socket do not
+reach this process: call it at `http://localhost:3006`.
 
 Without `RABBITMQ_URL` neither identity-change queue is declared, so a suspension reaches chat only
 through the 5-second cache and the socket's recheck.
@@ -334,8 +337,9 @@ no `foc_chat` database and `chat-service-migrate` fails. Either start over with
   including a burst of 30 from one sender, of which exactly 20 are stored.
 - `test/auth-status-wiring.test.ts` proves both identity-change subscriptions are wired when a
   broker is configured, and that an event on the socket queue closes that user's sockets.
-- `test/retention.test.ts` covers the cleanup on fake timers: the one retry after the Order Service
-  did not answer, pages of 100 with at most five lookups at once, and a failed delete.
+- `test/retention.test.ts` covers the cleanup: on fake timers, the one retry after the Order
+  Service did not answer; then reading in pages with a bounded number of lookups at once, and a
+  failed delete.
 - `test/socket-hub.test.ts` covers the socket's rules without Nest, on fake timers: signing in,
   nudges, limits, the recheck, expiry, identity changes, keep-alive, shutdown, closing once.
 - `test/socket.test.ts` connects real WebSocket clients to the app: a message nudges both

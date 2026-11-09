@@ -264,9 +264,9 @@ docker compose up -d --build
 curl http://localhost:3004/health
 ```
 
-To run Credit by hand against the rest of the stack instead. `npm run dev:credit` runs in
-`credit-service/`, so it never reads the root `.env`: load it into the shell first. `.env` says
-`NODE_ENV=production`, which a service run by hand should not use.
+To run Credit by hand against the rest of the stack, work from the repository root. `npm run
+dev:credit` runs in `credit-service/`, so it never reads the root `.env`: load it into the shell
+first. `.env` says `NODE_ENV=production`, which a service run by hand should not use.
 
 ```bash
 docker compose -f compose.yaml -f compose.dev.yaml up -d   # publishes the User Service's internal port 4001
@@ -280,6 +280,10 @@ DATABASE_URL=$HOST_CREDIT_DATABASE_URL \
   npm run dev:credit
 ```
 
+The stack still routes to the stopped container, so the web app, the Order Service's reconciliation
+(`credit-service:4004`) and `npm run audit:credits`, which runs inside the container, do not reach
+this process: call it at `http://localhost:3004`. Events reach it through the broker.
+
 `INTERNAL_SERVICE_KEYS` must be overridden: `.env`'s value is the User Service's list of every
 service's key. `RABBITMQ_URL` must use Credit's own broker account, or the Order Service
 dead-letters its replies as `untrusted_sender`; leave it out to run without the broker.
@@ -291,10 +295,11 @@ repository root because it imports the shared workspace packages:
 docker build -f credit-service/Dockerfile -t foc/credit-service .
 ```
 
-The normal suite uses PGlite and skips the two real-PostgreSQL suites: reservation concurrency over
-separate connections, and the ledger audit's lock and snapshot. Run them by pointing `TEST_POSTGRES_URL` at a role that may create databases; the
-shared test harness creates, migrates and drops a uniquely named database per run (CI does this
-automatically, see [docs/testing.md](../docs/testing.md)):
+The normal suite uses PGlite and skips the two real-PostgreSQL suites: reservation and
+transfer/release concurrency over separate connections, and the ledger audit's lock and snapshot.
+Run them by pointing `TEST_POSTGRES_URL` at a role that may create databases; the shared test
+harness creates, migrates and drops a uniquely named database per run (CI does this automatically,
+see [docs/testing.md](../docs/testing.md)):
 
 ```bash
 set -a; . ./.env; NODE_ENV=development; set +a   # the stack's addresses and logins, from your .env

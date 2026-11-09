@@ -51,9 +51,9 @@ Run these from the repository root.
 | `ACTIVATION_URL`                           | `http://localhost:3000/activate`                   | The web app page the email links to. Required with SMTP. Reset links open its sibling, `reset-password` |
 | `JWT_PRIVATE_KEY`                          | (generated into `.env`)                            | Signs access tokens; see "Signing key" below. Required in production                                    |
 | `ADMIN_SEED_EMAILS`, `ADMIN_SEED_PASSWORD` | `admin@u.nus.edu`, (generated)                     | Optional, set together; the password is 12–128 characters. See "First admin" below                      |
-| `LOGIN_LIMIT_PER_IP`                       | `50`                                               | Optional. Sign-ins per address in 15 minutes                                                            |
+| `LOGIN_LIMIT_PER_IP`                       | `50`                                               | Optional. Sign-ins per IP in 15 minutes                                                                 |
 | `LOGIN_LIMIT_PER_EMAIL`                    | `10`                                               | Optional. Sign-ins per email in 15 minutes                                                              |
-| `REGISTER_LIMIT_PER_IP`                    | `20`                                               | Optional. Registrations per address in an hour. Production refuses any of these three above its default |
+| `REGISTER_LIMIT_PER_IP`                    | `20`                                               | Optional. Registrations per IP in an hour. Production refuses any of these three above its default      |
 
 Also from the shared base, all optional: `INTERNAL_PORT` (Compose: 4001; with it set, `/internal/**`
 is served there only), `RABBITMQ_URL` (without it, events wait in the outbox), `CORS_ORIGINS`
@@ -65,7 +65,8 @@ Without `SMTP_HOST`, outside production, each email is kept in memory where nobo
 and a warning at boot says so. To send to the stack's inbox from `npm run dev:user`, start
 `postgres mailpit` with `compose.dev.yaml` and set `SMTP_HOST`, `SMTP_PORT` and `ACTIVATION_URL`, as in
 the example below. With `NODE_ENV=production` the service refuses to start without `SMTP_HOST`, and
-requires TLS to it. No route returns a token.
+requires TLS to it unless `SMTP_REQUIRE_TLS=false`, which it allows with a warning (Compose sets this
+for Mailpit). No route returns a token.
 
 Optional controls on administrators ([ADR 0008](../docs/adr/0008-controlling-administrators.md)), with
 their defaults: `ROLE_REQUEST_TTL_HOURS=24` (1–168), `STEP_UP_WINDOW_SECONDS=300` (30–3600),
@@ -87,7 +88,9 @@ DATABASE_URL=$HOST_USER_DATABASE_URL SMTP_HOST=localhost SMTP_PORT=1025 \
 curl -i http://localhost:3001/health
 ```
 
-Do not run the stack's own `user-service` at the same time: it holds port 3001.
+Do not run the stack's own `user-service` at the same time: it holds port 3001. This recipe starts
+only Postgres and Mailpit, so nothing else calls the service: try it at `http://localhost:3001`. It
+runs without the broker, so its events wait in the outbox until it runs with `RABBITMQ_URL`.
 
 ### What you get from `@foc/platform`
 
@@ -112,7 +115,7 @@ internal port 4001 (not published), after the one-shot `user-service-migrate`.
 
 | Endpoint                              | Purpose                                                                                                                                                                                       |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /auth/register`                 | Normalise the email, enforce the domain allowlist, reject duplicates, email a one-time activation link. Takes no password (#309); 20 per address an hour (`REGISTER_LIMIT_PER_IP`)            |
+| `POST /auth/register`                 | Normalise the email, enforce the domain allowlist, reject duplicates, email a one-time activation link. Takes no password (#309); 20 per IP an hour (`REGISTER_LIMIT_PER_IP`)                 |
 | `POST /auth/activate`                 | Token and password: sets the password (Argon2id), activates, publishes exactly one `UserActivated`. Single-use, `ACTIVATION_TOKEN_TTL_MINUTES` (30 by default), replay-idempotent; no sign-in |
 | `POST /auth/activation/resend`        | Mails a new link to a pending account and invalidates the old ones. Same `202` for any address; 3 per address and 20 per IP an hour                                                           |
 | `POST /auth/password-reset`           | Mails a reset link to an active or pending account and invalidates the old ones. Same `202` for any address; its own 3 per address and 20 per IP an hour                                      |
@@ -131,8 +134,9 @@ The contract is `contracts/user-service.openapi.yaml`; role and schema design ar
 **Tests run on PGlite** (PostgreSQL compiled to WASM), so `npm test -w @foc/user-service` needs no
 database server or Docker. Runtime uses `pg` against the Compose Postgres. The re-registration lock
 tests in `test/re-register.postgres.test.ts` need real PostgreSQL and are skipped without
-`TEST_POSTGRES_URL`: `TEST_POSTGRES_URL=$HOST_POSTGRES_URL npm test -w @foc/user-service` runs them
-(see [docs/testing.md](../docs/testing.md)).
+`TEST_POSTGRES_URL`: `TEST_POSTGRES_URL=$HOST_POSTGRES_URL npm test -w @foc/user-service` runs them,
+with postgres up and `.env` loaded as in the by-hand recipe; without `.env`, the variable is empty
+and they skip as if they passed (see [docs/testing.md](../docs/testing.md)).
 
 **The password is chosen at activation (#309).** Registration takes none: whoever signs up has not
 proven the inbox, so a password chosen then could be someone else's. A pending account has no
@@ -274,4 +278,4 @@ shared relay when `RABBITMQ_URL` is set.
   mandatory, so a broker with no queue bound for it refuses it rather than dropping it.
 - `user.suspended`, `user.reactivated`, `user.role-changed`: every `@foc/auth-client` cache (Supplier,
   Order, Credit, Chat) drops that user. The Order Service also handles `user.suspended` for the user's
-  errands (ORD-06).
+  errands (ORD-06). Chat also closes that user's chat sockets (#346).

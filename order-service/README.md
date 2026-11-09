@@ -1,7 +1,7 @@
 # State Table
-**Order lifecycle.** The Order Service requirements refer to the states and transitions below. Any transition not listed is not permitted. The last column is what the web app shows for each state.
+**Order lifecycle.** The Order Service requirements refer to the states and transitions below. Any transition not listed is not permitted. The last column is what students see in the web app; the admin console uses its own labels (`web-app/src/lib/admin-labels.ts`).
 
-| State | Meaning | Final | Web app shows |
+| State | Meaning | Final | Students see |
 | ----- | ----- | :---: | ----- |
 | PENDING\_CREDIT | The request is submitted and waiting for the Credit Service to reserve its reward. Couriers cannot see it. | No | Waiting for credits |
 | OPEN | The reward is reserved and the order is waiting for a courier to accept it. | No | Open |
@@ -75,7 +75,7 @@ While an order is in any `*_PENDING_CREDIT` state, no participant action, admini
 
 - **Credit Service down.** Requests wait in the broker. The order moves on once the Credit Service replies; nobody has to resubmit.
 - **Transfers and releases do not fail as a business outcome.** The credits are already reserved, so a transfer or release has no reason to be refused. A missing reply leaves the order pending for retry or support handling (D1 OS-FR5.1.2); reconciliation (ORD-09) re-sends the same request, which the Credit Service applies at most once.
-- **Messages that cannot be processed** are tried five times (four retries, over about 81 seconds) and then dead-lettered for an operator. They are never dropped.
+- **Messages that cannot be processed** are tried five times (four retries, over about 81 seconds) and then dead-lettered for an operator; one that can never apply, such as a reply that contradicts the record, is dead-lettered at once. They are never dropped.
 - **The release reason** (cancelled or expired) is kept on the order. The Credit Service does not need it and does not send it back.
 
 # Races and corner cases
@@ -351,7 +351,8 @@ dispute referred to no one yet without them, each with `referredBy` (the action 
 `assignedToMe`. `GET /admin/orders/decisions` shows every administrator the 100 most recent
 decisions: errand, administrator, outcome, reason and time.
 
-The operator views (PLT-05): `GET /admin/orders/alerts` lists every operator alert, newest first;
+The operator views (PLT-05): `GET /admin/orders/alerts` lists the 100 most recent operator alerts,
+newest first;
 `GET /admin/orders/:orderId/timeline` shows one errand's state changes, events, reconciliation, alerts
 and dead letters; `GET /admin/dead-letters`, `GET /admin/dead-letters/:id` and
 `POST /admin/dead-letters/:id/redrive` (with a reason) list, open and redrive this service's dead
@@ -545,7 +546,8 @@ duplicate delivery and overlapping runs.
 The first migration includes a deterministic demonstration errand at
 `00000000-0000-4000-8000-000000000129`; after Compose is healthy, an authenticated caller can retrieve
 its projection from `/orders/00000000-0000-4000-8000-000000000129`. It is `OPEN` only for the hour
-after the migration ran; then it expires.
+after the migration ran. Then the sweep starts its expiry, but Credit holds no reservation for it,
+so it stays in `RELEASE_PENDING_CREDIT` and raises an operator alert.
 
 # UML Diagram
 ```mermaid
@@ -709,7 +711,7 @@ errand from creation to payment, one cancelled, and the refused cases between.
 A missing required variable stops the service at boot and names the variable.
 Nothing falls back to an insecure default.
 
-To run it by hand against the rest of the stack, from the repository root. `npm run dev:order`
+To run it by hand against the rest of the stack, work from the repository root. `npm run dev:order`
 runs in `order-service/`, so it never reads the root `.env`: load it into the shell first. `.env`
 says `NODE_ENV=production`, which a service run by hand should not use.
 
@@ -732,6 +734,10 @@ SERVICE_NAME=order-service PORT=3003 \
 # service's key, and an Order started with it would accept them all on /internal/**.
 curl -i http://localhost:3003/health
 ```
+
+The stack still routes to the stopped container, so neither the web app nor the Chat Service's
+participant lookups (`order-service:4003`) reach this process: call it at `http://localhost:3003`.
+Events reach it through the broker.
 
 Apply the same generated migrations used by Compose with:
 
@@ -769,9 +775,7 @@ errand's details.
 
 The same run measures CS-NFR3.1.1's second half. Afterwards, the harness reads when each
 reservation, transfer and return was requested (from this service's database) and when the Credit
-Service recorded it. At least 99% must be recorded within five seconds. The reports are
-`docs/reports/load-*.md`.
-
-### Next tickets
-
-- ORD-08 (#131) supplier snapshot contract.
+Service recorded it. At least 99% of each kind must be recorded within five seconds. The latest
+report, [`docs/reports/load-2026-11-09.md`](../docs/reports/load-2026-11-09.md), meets every Order
+Service target: create p95 99 ms, the open list 31 ms, details 19 ms, commands 22 ms, and all 3,651
+credit steps within five seconds.

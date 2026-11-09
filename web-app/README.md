@@ -113,8 +113,8 @@ bun run e2e
 `$E2E_BASE_URL/api/<service>`, as the page does: a sign-in there sets the refresh cookie for
 `/api/user/auth`, where the page refreshes (`E2E_USER_SERVICE_URL` and the like override one). Each run
 registers two accounts per width, well inside the sign-up limit of 20 an hour per address. Specs are
-named `*.e2e.ts` so `bun test` leaves them alone. The admin specs (`dispute-outcome`, `ledger-audit`)
-claim the seeded administrator from `../.env` on a fresh stack, replacing its bootstrap password;
+named `*.e2e.ts` so `bun test` leaves them alone. The admin specs (`dispute-outcome` and
+`ledger-audit`, plus three release-only ones) claim the seeded administrator from `../.env` on a fresh stack, replacing its bootstrap password;
 against a stack whose admin you already claimed, set `E2E_ADMIN_PASSWORD` to its current password.
 
 `E2E_BROWSER_CHANNEL=chrome` drives an installed Google Chrome instead of Playwright's Chromium, so
@@ -142,8 +142,8 @@ This resets **only `foc-e2e-release` and its volumes**, on ports 14500–14511 (
 activated test identities through public APIs for each clean run. It does not reset `foc` or
 `foc-d4-demo`. There are 63 browser cases (21 per width) across 360, 768 and 1440 px, with no
 retries in release mode. CI requires both `Browser journeys (smoke)` (24 baseline cases,
-release-only cases skipped) and `Browser journeys (release)` (all 63 cases from clean volumes: once
-on a pull request, twice on a push to `main`). The latter reuses the job's
+release-only cases skipped) and `Browser journeys (release)` (all 63 cases from clean volumes: twice
+on a push to `main`, once otherwise). The latter reuses the job's
 baked images with `E2E_IMAGE_TAG=ci`; leave that unset for local source builds.
 
 `release-journeys.e2e.ts` covers the composer, withdrawal/reacceptance and cancellation before
@@ -226,8 +226,10 @@ pill call the real Order and Credit Services (below). Nothing reads mock data.
 - **Details**: items (name, quantity, optional note), a delivery zone, delivery instructions and a
   reward of 1–5 credits, checked against the Order Service's rules before anything is sent.
 - **Review** shows the supplier, items, zone, that it stays open for a set time once the credits are
-  reserved (the errand page shows the deadline), the reward, the **available** balance from `GET /wallets/me` and `available − reward`, which is what the
-  Credit Service reserves. Zero available credits, or fewer than the reward, blocks posting and says
+  reserved (the errand page shows the deadline), the reward, the **available** balance and
+  `available − reward`, which is what the Credit Service reserves. The balance is the credits pill's
+  own `GET /wallets/me` (`useCredits()`), read again on opening the step, on retry and before
+  posting. Zero available credits, or fewer than the reward, blocks posting and says
   why; with none, it says courier work is how credits are earned.
 - **Submit** sends `POST /orders` with an `Idempotency-Key` made once per draft. The draft and its key
   live in `sessionStorage`, so a retry, a reload or a reconnect replays the same key and the Order
@@ -269,15 +271,18 @@ reserved its reward once.
 
 - **Feed** (`/feed`): `GET /orders`, which already leaves out the student's own errands. Each card
   shows the supplier, items, zone, reward and time left, counted from `timeRemainingSeconds` so a
-  wrong device clock cannot skew it, and goes at zero. The list is read again every 30 seconds, on
-  returning to the tab and on reconnecting. In courier mode it is narrowed by pickup building and
+  wrong device clock cannot skew it, and goes at zero. The list is read again every 30 seconds (in
+  requester mode every 5 seconds while any errand is waiting on credits), on returning to the tab
+  and on reconnecting. A failed refresh keeps the cards on screen and tries again in 30 seconds. In courier mode it is narrowed by pickup building and
   minimum reward; in requester mode the feed is *Active requests*,
   `GET /orders/mine?role=REQUESTER&active=true`.
 - **History** (`/order-history`): `GET /orders/mine`, split into active and past. Each card shows the
   status, what it means for the student's part, their role, when it was posted, and until when it is
-  open, when it last changed or when it ended. A complete errand links to its receipt. The list is read every 5 seconds while
-  any errand is in a `*_PENDING_CREDIT` state, every 30 seconds while any is otherwise active, and on
-  returning or reconnecting.
+  open, when it last changed or when it ended. A complete errand links to its receipt. The list is
+  read every 5 seconds while any errand is in a `*_PENDING_CREDIT` state, every 30 seconds while any
+  is otherwise active, and on returning or reconnecting; it stops once every errand is final. *Load
+  more requests* and *Load more errands* page each list, one at a time, and a mode change cancels a
+  page still loading. Feed and history share this in `src/lib/use-paged-poll.ts` (#269).
 - **Receipt** (`/request/{orderId}/receipt`): `GET /orders/{orderId}/receipt`, readable by the
   requester and courier once the courier is paid. It shows the supplier, reward, both parties, every
   timestamp (`deliveredAt` is null when an administrator decided the errand for the courier) and links
