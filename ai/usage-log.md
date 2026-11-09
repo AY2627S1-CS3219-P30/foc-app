@@ -34,7 +34,7 @@ Commit counts leave out merge commits and are taken from `main` at `646c67e` (8 
 | Anselm Long    | Claude Code                              | 91 of 105                     | to be added  |
 | Isaac Chua     | Claude Code                              | 50 of 96                      | to be added  |
 | Patrick Thomas | Claude Code                              | 57 of 79                      | to be added  |
-| Zhang Yuan     | Claude Code                              | 54 of 55                      | to be added  |
+| Zhang Yuan     | Claude Code                              | 54 of 55                      | 20 key       |
 
 ## Adding your prompts
 
@@ -381,7 +381,203 @@ okay im done stop the running stuff also found this frotnend error
 
 - **Tool:** Claude Code (Anthropic). Models named in commit trailers: Claude Opus 5.5 (54).
 - **AI-assisted commits on `main`:** 54 of 55.
-- **Prompts:** to be added by Zhang. See [Adding your prompts](#adding-your-prompts).
+- **Prompts:** 20 key prompts, below. Zhang's Claude Code transcripts on their machine start on
+  12 Oct 2026, so the AI-assisted commits from 30 Sep to 8 Oct have no prompts here.
+
+### Key prompts
+
+20 key prompts, picked by Zhang Yuan from their 249 Claude Code prompts between 12 Oct 2026 and 7 Nov 2026.
+
+| All 249 prompts, by use (tagged by keyword)               | Prompts |
+| --------------------------------------------------------- | ------- |
+| Routine: approvals, push and merge notices, status checks | 46      |
+| Implementation                                            | 42      |
+| Review and verification                                   | 41      |
+| Learning / explanation                                    | 35      |
+| Documentation and slides                                  | 26      |
+| General request                                           | 26      |
+| Release and PR workflow                                   | 15      |
+| Debugging                                                 | 8       |
+| Design and decisions (topic)                              | 6       |
+| Testing                                                   | 2       |
+| Requirements and planning (topic)                         | 2       |
+
+#### Wed 14 Oct 2026
+
+**18:54** · Learning / explanation · `main` · claude-opus-5-5
+
+```text
+https://github.com/AY2627S1-CS3219-P30/foc-app/pull/229. Work with me to review the comments on this PR. Explain what is wrong with each one
+```
+
+> **Key response:** I went through all 9 inline comments from jonushzw against the code. The review was left on `233bcad`, which is still the branch head, so every comment applies to the current code. Each one below covers what's wrong, whether I agree, and the smallest fix. --- 1.
+
+**19:15** · Learning / explanation · `feat/171-admin-referral-decision` · claude-opus-5-5
+
+```text
+explain what the empty admin list does to existing referrals, and explain waht the existing referrals are.
+```
+
+> **Key response:** What an existing referral is A referral is the single administrator assigned to decide a disputed errand. It is stored on the order row as `referred_admin_id`. The scheduler sets it with an `ADMIN_ASSIGNED` transition, and that one value decides who can act:
+
+**19:18** · Learning / explanation · `feat/171-admin-referral-decision` · claude-opus-5-5
+
+```text
+explain thie interaction between order and user service in this scenario end to end
+```
+
+> **Key response:** Two separate channels connect the services, and in this scenario they work independently: - **Scheduler channel:** the Order Service's scheduler polls the User Service for "who may act". This is the channel that clears referrals.
+
+**19:21** · Learning / explanation · `feat/171-admin-referral-decision` · claude-opus-5-5
+
+```text
+i follow until point 6. Once i hvae this list of admins, how are the errands assigned to an admin?
+```
+
+> **Key response:** From step 6, the scheduler has the list of admins who can act, say `[A, B, C]`. It then handles each dispute that needs an admin, one at a time. All the steps below run in the Order Service against its own database; the User Service isn't called again during the run. 7.
+
+**19:24** · Implementation · `feat/171-admin-referral-decision` · claude-opus-5-5
+
+```text
+is it becauyse with an empty list, all admins are not in the list, therefore all the tasks belong to someone not in the list and people who are not in the list do not have a right to act on disputes?
+```
+
+> **Key response:** Yes, that's it. The scheduler's rule is "not on the list means can't act". An empty list has nobody on it, so every admin holding a dispute counts as unable to act, and every referral gets cleared. One correction: the list doesn't decide who has the right to act. The real check happens on every request.
+
+**19:25** · Learning / explanation · `feat/171-admin-referral-decision` · claude-opus-5-5
+
+```text
+what are the implications if i make the method do nothing if an empty list is returned from user service
+```
+
+> **Key response:** Doing nothing on an empty list is safe for existing referrals, but you lose the alert for the case where nobody at all can take disputes. The change would be: [code block] **What you gain** - **Existing referrals are never wiped by one bad response.** That's the same protection as the SQL guard, but it's visible in …
+
+**19:26** · Learning / explanation · `feat/171-admin-referral-decision` · claude-opus-5-5
+
+```text
+what is the difference between this and the SQL guard
+```
+
+> **Key response:** Both leave existing referrals alone when the list is empty, recover the same way on the next good list, and still clear on a partial list. The only real difference is what happens to disputes that have no admin yet while the list is empty.
+
+**19:28** · Learning / explanation · `feat/171-admin-referral-decision` · claude-opus-5-5
+
+```text
+what about this permanent alert row?
+```
+
+> **Key response:** First a correction: I said the SQL guard's alerts would show on the operator dashboard in #228. I checked, and they wouldn't. Nothing reads `REFERRAL_UNASSIGNED` rows: not this PR, and not #228, whose diff never mentions the alerts table.
+
+#### Thu 15 Oct 2026
+
+**11:32** · Learning / explanation · `feat/171-admin-referral-decision` · claude-opus-5-5
+
+```text
+the issue is the value of the column at the moment that the issue is escalated to admin?
+```
+
+> **Key response:** Yes. `delivered_at` doesn't change once the errand is escalated. The courier can only record a delivery from `PICKED_UP` (`order-state-machine.ts:177`), and nothing in `DISPUTED` sets it. So whatever the column holds at escalation is what the receipt gets. Which state the errand was escalated from decides it:
+
+**11:38** · Implementation · `feat/171-admin-referral-decision` · claude-opus-5-5
+
+```text
+what if the delivered_at time is changed to the time of escalation while waiting for the admin decision, and then changed to decision time after the admin makes the decision
+```
+
+> **Key response:** That ends with the same receipt as today, but it adds stored data that's false, more code, and a new problem on the cancel path. Here's what each stage would hold, for a dispute raised from `PICKED_UP`: [table] **What the receipt gets:** the decision time, which is exactly what it publishes now.
+
+**11:39** · Implementation · `feat/171-admin-referral-decision` · claude-opus-5-5
+
+```text
+why cant i just change the delivered_at column to be nullable
+```
+
+> **Key response:** You can, and it's already done for the database. Migration `0010` makes `order_receipts.delivered_at` nullable, and `orders.delivered_at` was always nullable. The stored receipt does hold `NULL` for these errands. What you can't make nullable is the API field:
+
+#### Mon 19 Oct 2026
+
+**12:09** · Design and decisions (topic) · `feat/232-order-d3-evidence` · claude-opus-5-5
+
+```text
+Record my approval in docs/adr/README.md dated today, on a branch from origin/main with a PR. Raise the three ADR 0005/0006 mismatches as a comment on #238 for Isaac and Jonus. Then move on to #233.
+```
+
+> **Key response:** 238 is done on my side, and #233 is built but not committed. **#238.** [#246](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/246) records your approval, dated 2026-10-19.
+
+#### Wed 21 Oct 2026
+
+**11:31** · Debugging · `main` · claude-opus-5-5
+
+```text
+bun dev doesnt work
+```
+
+> **Key response:** `bun dev` works on this machine. I ran it from `web-app/`, it was ready in about 350 ms, and http://localhost:3000 returned 200. I've stopped my copy, so port 3000 is free for you. The likely reason the app looks broken is that **the backends aren't running**.
+
+**11:41** · Learning / explanation · `main` · claude-opus-5-5
+
+```text
+what is blocking me from being able to demonstrate order and credit service functionality using the frontend
+```
+
+> **Key response:** Nothing on the backend is blocking you. The Order and Credit services, and the parts of the web app's API client that call them, are already on `main`. What's missing is the student screens that use them. There are three layers. **1.**
+
+**16:03** · Learning / explanation · `main` · claude-opus-5-5
+
+```text
+Does this logic already exist in Order Service?
+```
+
+> **Key response:** Yes. The Order Service on `main` already decides and stores the reason. The only thing missing was returning it. **Already on `main`:** - **Deciding it:** each rule in `order-state-machine.ts` that moves an errand into `RELEASE_PENDING_CREDIT` sets `releaseReason`.
+
+**16:04** · Learning / explanation · `main` · claude-opus-5-5
+
+```text
+what is blocking this PR from being approved
+```
+
+> **Key response:** Nothing is stopping you from approving #257. What's stopping it from merging is the 5 comments I left on it, which are still open. **What the `main` branch rules require:** - **Passing CI:** it passes. - **Branch up to date with `main`:** it is. - **Approvals:** none are required.
+
+**16:07** · Learning / explanation · `main` · claude-opus-5-5
+
+```text
+what is the suspension gap
+```
+
+> **Key response:** The Order Service tries to hide from the other participant on an errand that someone was suspended, but students can still work it out. **What it's meant to do** When a suspension changes an errand, the status history keeps the real entry: for example, action `REQUESTER_SUSPENDED` with reason "requester suspended".
+
+**16:08** · Documentation and slides · `main` · claude-opus-5-5
+
+```text
+File Issue under as an Order Service gap, assigned to me. Approve this PR and change the inline comments to a PR commet
+```
+
+> **Key response:** I filed the issue, moved the comments, and approved #257, which can now merge. - **Issue:** I filed [#260](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/260), "Order Service gap: a participant can still tell the other was suspended".
+
+#### Thu 22 Oct 2026
+
+**00:00** · Testing · `pastchum/web-02-to-web-05-assess` · claude-opus-5-5
+
+```text
+start up the app. I wnat to try an end to end test of the Order Service functionality
+```
+
+> **Key response:** The stack is up on PR #262's code, every container reports healthy, and `./scripts-smoke.sh` passes all its checks. The other containers were already built from the same code, so only order-service and web-app were rebuilt. Your data was kept. **To try the Order Service end to end in the browser** 1.
+
+**13:04** · Review and verification · `main` · claude-opus-5-5
+
+```text
+1. Requester should not accept their own orders
+2. Unrelated users cannot update an order
+3. Same student can simultaneously request errands and fulfill others errands, showing that a student can be both a requester and a couriter
+4. Negative credit check
+5. When a courier withdraws the order goes back to open.
+
+
+Give me the curl commands to run on zshell to show this
+```
+
+> **Key response:** I ran these twice against your local stack and every step returned the expected result. Paste the setup block into zsh first, then each numbered block in order (each block uses the IDs and versions left by the one before). You need `jq`, which you already have.
 
 ### AI-assisted commits
 
