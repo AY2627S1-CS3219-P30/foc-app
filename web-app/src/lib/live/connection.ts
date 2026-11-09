@@ -23,7 +23,7 @@ export function reconnectDelay(failures: number, random: () => number = Math.ran
   return Math.min(MAX_DELAY_MS, Math.round(base * (0.8 + 0.4 * random())));
 }
 
-type Timer = { set(fn: () => void, ms: number): unknown; clear(handle: unknown): void };
+export type Timer = { set(fn: () => void, ms: number): unknown; clear(handle: unknown): void };
 
 export type LiveConnectionOptions = {
   /** `${ORDER_SERVICE_URL}/live`, or `null` in a build without the Order Service's address. */
@@ -37,7 +37,7 @@ export type LiveConnectionOptions = {
   timer?: Timer;
 };
 
-const browserTimer: Timer = {
+export const browserTimer: Timer = {
   set: (fn, ms) => setTimeout(fn, ms),
   clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };

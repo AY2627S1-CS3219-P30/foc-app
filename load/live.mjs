@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-29 to 2026-11-09
+// Scope: Joint work by Jonus Ho and Zhang Yuan (#332, #181). Generated the implementation of the
+//   live-update client, and the fix that reopens each stream the Order Service ends after 5
+//   minutes.
+// Author review: Zhang Yuan's load run found the lost nudges. Jonus Ho validated the cause, fixed
+//   the reconnect, and ran the final load test, with no nudge lost, before committing.
+
 /**
  * N1.4 (#332): live updates under load. Run by ./scripts-load.sh beside the k6 scenarios, on the
  * stack's own network, straight to the Order Service: the edge's cap of ten streams per address
@@ -5,6 +13,8 @@
  *
  *   LIVE_STUDENTS students (the harness's seeded demo-load-<n>) each hold STREAMS_EACH streams, the
  *   Order Service's own cap per user, for the whole run. A sixth for one of them must be refused.
+ *   The Order Service ends a stream after LIVE_STREAM_MAX_MS (5 minutes, ADR 0011), and the run is
+ *   longer, so each one is reopened when that happens, as the web app does.
  *   LIVE_ERRANDS errands are posted at a steady rate over LIVE_SECONDS, each by a student of the
  *   first half and accepted by one of the second; each accept is timed from its answer to the
  *   `errand` nudge on the requester's stream.
@@ -52,6 +62,26 @@ export function eventReader(onEvent) {
   };
 }
 
+/**
+ * Reads one stream for as long as the run lasts. When `read(body)` returns, the stream has ended:
+ * if the run is not over, it opens another with `connect()` and reads that, as the web app does
+ * when the Order Service ends a stream at its time limit. It stops when `stopped()` says so, or
+ * when the service refuses another stream or cannot be reached. Resolves with how many times it
+ * reconnected.
+ */
+export async function hold(first, connect, read, stopped) {
+  let body = first;
+  let reconnects = 0;
+  for (;;) {
+    await read(body);
+    if (stopped()) return reconnects;
+    const again = await connect().catch(() => null);
+    if (!again || again.status !== 200) return reconnects;
+    reconnects++;
+    body = again.body;
+  }
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function main() {
@@ -66,6 +96,7 @@ async function main() {
     streamsOpened: 0,
     streamsReady: 0,
     sixthStream: null,
+    reconnects: 0,
     errands: 0,
     timed: 0,
     lost: 0,
@@ -93,10 +124,12 @@ async function main() {
   async function openStream(student) {
     const controller = new AbortController();
     controllers.push(controller);
-    const answer = await fetch(`${env.ORDER_URL}/live`, {
-      headers: bearer(tokens[student]),
-      signal: controller.signal,
-    });
+    const connect = () =>
+      fetch(`${env.ORDER_URL}/live`, {
+        headers: bearer(tokens[student]),
+        signal: controller.signal,
+      });
+    const answer = await connect();
     if (answer.status !== 200) {
       controller.abort();
       return { status: answer.status, ready: Promise.resolve(false) };
@@ -106,20 +139,28 @@ async function main() {
       saidReady = resolve;
       setTimeout(() => resolve(false), READY_WITHIN_MS).unref();
     });
-    const feed = eventReader(({ event, data }) => {
+    const onEvent = ({ event, data }) => {
       if (event === 'ready') saidReady(true);
       if (event !== 'errand') return;
       const nudge = JSON.parse(data);
       for (const notify of waiting.get(student) ?? []) notify(nudge, performance.now());
-    });
-    void (async () => {
+    };
+    // A reader of its own for each stream, so a frame cut short when one ends can't run into the next.
+    const read = async (body) => {
+      const feed = eventReader(onEvent);
       const decoder = new TextDecoder();
       try {
-        for await (const chunk of answer.body) feed(decoder.decode(chunk, { stream: true }));
+        for await (const chunk of body) feed(decoder.decode(chunk, { stream: true }));
       } catch {
         // Aborted at the end of the run.
       }
-    })();
+    };
+    const reconnect = async () => {
+      const again = await connect();
+      if (again.status === 200) result.reconnects++;
+      return again;
+    };
+    void hold(answer.body, reconnect, read, () => controller.signal.aborted);
     return { status: answer.status, ready };
   }
 
@@ -211,7 +252,8 @@ async function main() {
   writeFileSync('/out/live.json', JSON.stringify(result, null, 2));
   console.log(
     `live: ${result.streamsReady} of ${students * streamsEach} streams held; ${result.timed} accepts timed, ` +
-      `p95 ${result.latencyMs.p95} ms; ${result.lost} lost; sixth stream ${result.sixthStream}`,
+      `p95 ${result.latencyMs.p95} ms; ${result.lost} lost; sixth stream ${result.sixthStream}; ` +
+      `${result.reconnects} reconnected after the Order Service ended them`,
   );
 }
 

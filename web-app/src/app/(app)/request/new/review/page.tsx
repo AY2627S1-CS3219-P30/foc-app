@@ -25,8 +25,9 @@ import {
   type SubmitFailure,
 } from "@/lib/composer";
 import { creditLabel } from "@/lib/credit-label";
+import { useCredits } from "@/lib/credits";
 import { STUDENT_NAV } from "@/lib/nav";
-import { createOrder, getMyWallet, type CreateOrder, type Wallet } from "@/lib/order-api";
+import { createOrder, type CreateOrder } from "@/lib/order-api";
 import type { Supplier } from "@/lib/supplier-api";
 import { useSupplier } from "@/lib/use-supplier";
 import styles from "../composer.module.css";
@@ -43,9 +44,7 @@ function Summary({
   const router = useRouter();
   const { authed } = useAuth();
   const [draft, setDraft] = useState(stored);
-  const [wallet, setWallet] = useState<Wallet | null>(null);
-  const [walletProblem, setWalletProblem] = useState("");
-  const [walletRevision, setWalletRevision] = useState(0);
+  const { wallet, problem: walletProblem, refresh: refreshWallet } = useCredits();
   const [submitting, setSubmitting] = useState(false);
   const [failure, setFailure] = useState<SubmitFailure | null>(null);
   const [alreadyPosted, setAlreadyPosted] = useState<string | null>(null);
@@ -54,18 +53,8 @@ function Summary({
   const sentBody = draft.sentBody ?? order;
   const detailsHref = `/request/new/details?supplierId=${supplier.supplierId}`;
 
-  useEffect(() => {
-    const controller = new AbortController();
-    let live = true;
-    authed((token) => getMyWallet(token, controller.signal)).then(
-      (found) => live && setWallet(found),
-      (cause: Error) => live && setWalletProblem(cause.message),
-    );
-    return () => {
-      live = false;
-      controller.abort();
-    };
-  }, [authed, walletRevision]);
+  // The balance check needs a fresh read, not the last poll's.
+  useEffect(() => refreshWallet(), [refreshWallet]);
 
   const keep = (next: Draft) => {
     saveDraft(userId, next);
@@ -132,7 +121,7 @@ function Summary({
             variant="outline"
             onClick={() => {
               setAlreadyPosted(null);
-              setWalletRevision((r) => r + 1);
+              refreshWallet();
             }}
           >
             Post these changes as a new request
@@ -175,14 +164,8 @@ function Summary({
           )}
         </>
       ) : walletProblem ? (
-        <ErrorState
-          title="Could not load your balance"
-          onRetry={() => {
-            setWalletProblem("");
-            setWalletRevision((r) => r + 1);
-          }}
-        >
-          {walletProblem}
+        <ErrorState title="Could not load your balance" onRetry={refreshWallet}>
+          {walletProblem.message}
         </ErrorState>
       ) : (
         <LoadingState label="Loading your balance…" rows={1} />

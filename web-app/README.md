@@ -554,9 +554,17 @@ Two-second polling pages `after` until caught up, including on reconnect; older 
 The fetch cursor advances only through GET pages, so a send cannot skip concurrent incoming messages.
 Initial reads also fetch every unread message, even beyond the latest history page. Metadata refreshes
 pick up reads made on another device. Timed polling stops when closed; order revisions and returning
-online recheck availability. The Chat Service also serves a notify-only socket at
-`/api/chat/socket` (#362, #391); this panel does not open it yet and keeps its 2-second polling (the
-browser half of #346, ADR 0012).
+online recheck availability.
+
+A participant's panel on an open channel also holds the Chat Service's notify-only socket (#346,
+ADR 0012; contract in `chat-service/README.md`, "The socket"). `src/lib/chat-socket.ts` connects to
+`${NEXT_PUBLIC_CHAT_SERVICE_URL}/socket` on `ws:`/`wss:` and signs in with the first frame, never
+the URL. `ready` reads once and slows polling to a 30 s backstop; a `messages` nudge reads only
+when its `latestSeq` is past the panel's. A `4401` refreshes the token through the session and
+reconnects. Any other close, or a socket the network blocks, returns to two-second polling at once
+and reconnects on the live stream's 1–10 s backoff. The socket closes while the tab is hidden and
+retries at once when the network is back. The edge's `connect-src 'self'` allows the same-origin
+socket in Chromium and WebKit.
 
 Unread counts exclude your own messages. Read positions advance only for a visible, expanded
 conversation at the bottom of its scroll area, using messages fetched through GET. New messages
@@ -566,8 +574,11 @@ history readable. Final errands, closed channels and CHANNEL_CLOSED responses di
 a reason. Account/order changes replace all private state and stale async responses are ignored.
 
 `test/chat-state.test.ts` covers paging, merges, reconciliation, retries, read positions, access,
-closure and identity cleanup. `test/chat-panel.test.tsx` uses Happy DOM for responsive lifecycle and
-read visibility. `e2e/chat-journey.e2e.ts` runs only in the dedicated release suite at every width:
-send/receive in two sessions, offline catch-up, outsider refusal and final-state closure. Run the real
-stack with `./scripts-e2e-release.sh --twice` from the repository root; it requires Docker and sets
-`E2E_RELEASE=1`. Ordinary smoke runs skip this journey to stay within their shared login limits.
+closure and identity cleanup. `test/chat-socket.test.ts` covers the auth frame, nudges, every close
+code, backoff and the `4401` refresh. `test/chat-panel.test.tsx` uses Happy DOM for responsive
+lifecycle, read visibility, nudged reads and the fall back to polling. `e2e/chat-journey.e2e.ts`
+runs only in the dedicated release suite at every width: send/receive in two sessions within 1 s
+over the socket, and again with one socket blocked, on polling; offline catch-up, outsider refusal
+and final-state closure. Run the real stack with `./scripts-e2e-release.sh --twice` from the
+repository root; it requires Docker and sets `E2E_RELEASE=1`. Ordinary smoke runs skip this journey
+to stay within their shared login limits.
