@@ -9,8 +9,8 @@ CI passes → publish (sha-<commit> on GHCR) → deploy job → SSM Run Command 
 
 GitHub signs in to AWS with OIDC: no AWS key is stored in GitHub, and port 22 can stay closed.
 `./scripts-deploy.sh` checks out the commit, so `compose.yaml` matches the images, then pulls them,
-starts them (each migrate container first), and runs the smoke test and the credit invariants. It
-builds nothing, only moves forward, and never rolls back by itself.
+starts them (each migrate container first), checks that `/edge/ready` answers 200, and runs the
+credit invariants. It builds nothing, only moves forward, and never rolls back by itself.
 
 ## One-time setup
 
@@ -25,10 +25,12 @@ cd ~/foc-app
 ./scripts-init-env.sh                   # then set the production values #357 lists
 ```
 
-The clone must be at a commit that has `scripts-deploy.sh`. Its `.env` stays on the host and the
-deploy never touches it. If TLS runs as a Compose override, name it `compose.aws.yaml` in the clone
-and the deploy includes it. Alternatively, set `COMPOSE_FILE` in `.env`, which overrides the
-default. The images are public, so no `docker login` is needed.
+The clone must be at a commit that has `scripts-deploy.sh`. Its `.env` stays on the host. A deploy
+that passes changes one line of it, `FOC_IMAGE_TAG`, to the tag it deployed, so any later
+`docker compose` command in the clone starts the same images and never quietly goes back to older
+ones. If TLS runs as a Compose override, name it `compose.aws.yaml` in the clone and the deploy
+includes it. Alternatively, set `COMPOSE_FILE` in `.env`, which overrides the default. The images
+are public, so no `docker login` is needed.
 
 The SSM agent ships with Ubuntu's AMIs. It needs the instance to have a role with the managed policy
 **AmazonSSMManagedInstanceCore** (EC2 → instance → Actions → Security → Modify IAM role). Check that
@@ -80,8 +82,14 @@ the instance shows under Systems Manager → Fleet Manager.
 
 ### 3. GitHub: the environment and variables
 
-Settings → Environments → New environment `aws`. Optionally add required reviewers, so a person
-approves each deploy. Then set its variables. None of them is a secret:
+Settings → Environments → New environment `aws`. Under **Deployment branches and tags**, choose
+**Selected branches and tags** and add `main`. Don't skip this. The trust policy only checks that a
+job names the `aws` environment, and the role can run any command as root on the instance, so
+without the rule a workflow on any branch, including a pull request's, could use it. Release tags
+still deploy by hand, because the workflow runs on `main` and takes the tag as its input. Required
+reviewers are an optional second layer, if a person should approve each deploy.
+
+Then set the environment's variables. None of them is a secret:
 
 | Variable                 | Value                                                   |
 | ------------------------ | ------------------------------------------------------- |
@@ -131,11 +139,18 @@ as it is, and prints the commit that last deployed cleanly. Look before changing
 | `local changes to tracked files`      | someone edited the clone by hand. Commit the change on `main`, or `git checkout -- <file>`, then run the deploy again                              |
 | `not on main`                         | deploy a commit that is on `main`                                                                                                                |
 | `already includes`                    | a newer commit is already deployed; nothing was changed                                                                                          |
-| `did not become healthy`, `smoke test` | fix forward with a new commit, or roll back: [Backup, restore and rollback](backup-restore-rollback.md), with the `sha-` the failure message gives |
+| `did not become healthy`, `did not report the stack ready`, `smoke test` | fix forward with a new commit, or roll back: [Backup, restore and rollback](backup-restore-rollback.md), with the `sha-` the failure message gives |
 | the workflow ends `Failed` with no output, or never leaves `Pending` | the instance is not reachable through SSM: check Fleet Manager and the instance's role                                       |
 
 `.deploy-history` in the clone lists each deploy that passed, one per line: time, tag, commit.
 
-The smoke test signs up a throwaway student and reads its activation email from Mailpit. If the
-host sends real mail instead (SES), set `DEPLOY_SMOKE=0` in its `.env`. Health and the credit
-invariants are still checked.
+By default a deploy checks that the stack is ready, not that it behaves: every container healthy,
+`/edge/ready` answering 200, and the credit invariants holding. `DEPLOY_SMOKE=1` in the host's
+`.env` also runs `./scripts-smoke.sh`. Leave it off on a host people use. The smoke test is made for
+a throwaway stack:
+
+- It stops the Order Service to check that `/edge/ready` notices, an outage of up to about two
+  minutes.
+- It sends a burst of writes to trip the edge's rate limit.
+- It signs up `smoke-…@u.nus.edu` students and reads their activation mail from Mailpit. A host that
+  sends through SES has no Mailpit, and those would be real emails.

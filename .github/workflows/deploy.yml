@@ -31,7 +31,7 @@ jobs:
     name: Deploy to AWS
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # The environment holds the variables, and can be given required reviewers.
+    # The environment holds the variables, deploys from main only, and can be given required reviewers.
     environment:
       name: aws
       url: ${{ vars.AWS_DEPLOY_URL }}

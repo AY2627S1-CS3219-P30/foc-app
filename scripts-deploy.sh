@@ -11,8 +11,14 @@
 #   ./scripts-deploy.sh sha-<40 hex commit> | rc1-d4 | v1.0-d4
 #
 # It checks out that commit, so compose.yaml always matches the images it starts, pulls the six
-# application images, starts them (each migrate container first), and runs the smoke test and the
-# credit invariants. It builds nothing.
+# application images, starts them (each migrate container first), checks that the edge reports the
+# whole stack ready, and runs the credit invariants. It builds nothing. Once that passes, it writes
+# the tag to .env as FOC_IMAGE_TAG, so any later docker compose command here starts the same images.
+#
+# DEPLOY_SMOKE=1 also runs ./scripts-smoke.sh. It is off by default, because the smoke test is made
+# for a throwaway stack: it stops the Order Service for a while, bursts writes at the rate limit, and
+# signs up students whose activation mail it reads from Mailpit. Turn it on only for a host that has
+# Mailpit and no real users.
 #
 # Only moves forward: a commit that the deployed one already includes is skipped, as when two runs
 # on main finish out of order. Going back is a rollback, which needs its migrations reviewed:
@@ -88,10 +94,22 @@ main() {
 
   # Pull first: an image that cannot be read must not stop what is running.
   docker compose pull user-service supplier-service order-service credit-service chat-service web-app
-  local failed=''
+  local failed='' checked='the edge reports the stack ready'
   docker compose up -d --wait --no-build || failed='a container did not become healthy'
-  if [[ -z "$failed" && "${DEPLOY_SMOKE:-1}" != 0 ]]; then
+  if [[ -z "$failed" && "${DEPLOY_SMOKE:-0}" == 1 ]]; then
+    checked='the smoke test passed'
     ./scripts-smoke.sh || failed='the smoke test failed'
+  elif [[ -z "$failed" ]]; then
+    # What the edge's own health check asks, asked now: the web app and all five services answer
+    # through it. Read inside the container, so it holds whatever port the host publishes it on.
+    local tries=0
+    until docker compose exec -T edge wget -qO- http://127.0.0.1:8080/edge/ready >/dev/null 2>&1; do
+      if ((++tries >= 30)); then
+        failed='the edge did not report the stack ready'
+        break
+      fi
+      sleep 2
+    done
   fi
   if [[ -z "$failed" ]]; then
     docker compose exec -T credit-service node credit-service/dist/check-invariants.js ||
@@ -108,10 +126,19 @@ main() {
     exit 1
   fi
 
+  # .env names what runs, so a plain `docker compose up -d` here, by hand or while debugging, starts
+  # these images and not older ones whose code predates the migrations that have now run.
+  if [[ -f .env ]] && grep -q '^FOC_IMAGE_TAG=' .env; then
+    sed -i "s/^FOC_IMAGE_TAG=.*/FOC_IMAGE_TAG=$target/" .env
+  else
+    [[ -s .env && -n "$(tail -c 1 .env)" ]] && echo >>.env
+    echo "FOC_IMAGE_TAG=$target" >>.env
+  fi
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $target $commit" >>.deploy-history
-  # Application images unused for three days. Any of them can be pulled again for a rollback.
+  # Application images built more than three days ago that no container uses. GHCR keeps every tag,
+  # so a rollback can pull any of them again.
   docker image prune -af --filter until=72h --filter "label=org.opencontainers.image.source" >/dev/null || true
-  echo "Deployed $target ($commit): healthy, smoke test and credit invariants passed."
+  echo "Deployed $target ($commit): healthy, $checked, and the credit invariants passed."
   exit 0
 }
 
