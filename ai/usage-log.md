@@ -438,7 +438,7 @@ can u fix those
 propose a hosting plam
 ```
 
-> **Key response:** I've written up the hosting proposal as a page: **https://claude.ai/code/artifact/8202b465-1b50-4651-a004-426648ef8861** The link is private for now. Use the page's Share menu to give your teammates access. The proposal is an optional hosted copy of the D4 release on one EC2 t3.medium instance.
+> **Key response:** I've written up the hosting proposal as a page: [link removed] The link is private for now. Use the page's Share menu to give your teammates access. The proposal is an optional hosted copy of the D4 release on one EC2 t3.medium instance.
 
 **14:49** · Learning / explanation · `main` · claude-opus-5-5
 
@@ -470,7 +470,7 @@ i can't get emails, can we check that
 give me a brief for my tream
 ```
 
-> **Key response:** I've written the team brief as a page: https://claude.ai/code/artifact/47bcb7dd-a308-402b-b997-de2556172b4c It's private for now, so share it from the page's Share menu before you post the link. It uses the same look as your "FoC on EC2" proposal so the two read as a pair. It covers:
+> **Key response:** I've written the team brief as a page: [link removed] It's private for now, so share it from the page's Share menu before you post the link. It uses the same look as your "FoC on EC2" proposal so the two read as a pair. It covers:
 
 **23:34** · Learning / explanation · `main` · claude-opus-5-5
 
