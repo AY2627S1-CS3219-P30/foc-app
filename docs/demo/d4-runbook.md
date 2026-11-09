@@ -10,7 +10,8 @@ results below before #167 closes.
 A script walked the story below once in a browser, on a fresh seed of commit `fa392df` (5 Nov), to
 check its errands, chat, dispute, role approval, broker stop and audit. It runs far faster than a
 person, so it says nothing about timing, and it is not a rehearsal. Do not present planned work as
-live: the AWS deployment and chat's WebSocket are not part of this demo. This runbook does not
+live: the AWS deployment is not part of this demo. Chat's notify-only WebSocket is: the panel holds
+it from #399 on, so `rc3-d4` and `v1.0-d4` have it and `rc2-d4` does not. This runbook does not
 change the D3 runbook.
 
 The permanent conservation evidence is `docs/reports/credit-conservation-2026-10-01.md`
@@ -51,12 +52,14 @@ verify your identity”; `./scripts-init-env.sh`, which `--fresh` runs, adds it 
 That builds your checkout. To rehearse a release, start from a checkout of its tag and name it:
 
 ```bash
-git checkout rc1-d4
-FOC_IMAGE_TAG=rc1-d4 ./scripts-seed-demo.sh --fresh
+git checkout rc3-d4
+FOC_IMAGE_TAG=rc3-d4 ./scripts-seed-demo.sh --fresh
 ```
 
+Rehearse on the newest release candidate. The demo itself runs `v1.0-d4`, tagged on Tue 10 Nov.
+
 It runs that release's images, which CI built and scanned, and builds nothing. It pulls them before
-deleting anything, so a tag it cannot pull leaves the demo as it was. It prints `Demo images: rc1-d4`,
+deleting anything, so a tag it cannot pull leaves the demo as it was. It prints `Demo images: rc3-d4`,
 and with the demo context selected, `docker compose images` shows that tag on every application
 image. The stack stays on those images: later commands need no tag, `--fresh` included.
 `FOC_IMAGE_TAG= ./scripts-seed-demo.sh --fresh` goes back to building your checkout.
@@ -171,7 +174,7 @@ claim that a failed live action succeeded.
 | 01:30–03:30 | Patrick, Jonus | “Alyssa's prints errand is already up. She has a second errand to post.” Alyssa: Suppliers → search **Printer** to show the catalogue. Then **Active requests** → **New request** → pick **Printer @ Com 2** → item “D4 dispute example”, zone PGP House 7, reward **1**. Review the available balance and its projection, then post. **N1.4:** Ben's feed is visible with **Live**; the new card appears without a reload. Leave it unaccepted. | If the composer fails, keep the refusal and use the preseeded prints errand for the core flow. The composer is covered by the release suite (`release-journeys.e2e.ts`); do not mark a live failure passed from a seed API call. |
 | 03:30–04:30 | Zhang Yuan | Ben and Chloe open **Accept** on the card “Project poster — two couriers, one acceptance” in their own feeds. Ben confirms, then Chloe: **Another courier accepted this errand first, or it closed.** “One conditional update in the database decides the winner, so the app can't have two.” Ben withdraws: the errand is **Open** again and the reward stays reserved. | If the timing is missed, show the CI contention test (1 of 100 simultaneous accepts wins) and its 409. If a step fails, refresh to get the current version; never force a status back. |
 | 04:30–05:00 | Jonus | Alyssa's and Ben's prints pages side by side, both **Live**. Ben accepts. Alyssa's page goes **Open** → **Accepted** with no one touching it. Use the words under “N1.4 browser arrangement”. | If the label shows polling, disclose it and show the 29 Oct report and `live-journey.e2e.ts`. |
-| 05:00–06:30 | Patrick, Zhang Yuan, Anselm | **N1.2 chat.** Alyssa: “Please leave them at the PGP House 7 lobby counter.” Ben sees it within about 2 s, because the panel polls, and replies. Chloe opens the same errand: its public details, no chat panel and no delivery instructions. “Chat asks Order who the participants are on every request, so there is no copy to fall behind, and a courier who withdraws loses access at once.” Say, without demonstrating: 20 messages a minute, kept 90 days after the errand ends. | “Could not verify your identity” means an old `.env`: see “Start from zero”. Otherwise show `chat-journey.e2e.ts` in CI. Do not claim the WebSocket is in use: its server side is merged (#362), but the panel isn't connected to it yet. |
+| 05:00–06:30 | Patrick, Zhang Yuan, Anselm | **N1.2 chat.** Alyssa: “Please leave them at the PGP House 7 lobby counter.” Ben sees it at once, because his panel holds the Chat Service's notify-only socket, which tells it to read, and he replies. Chloe opens the same errand: its public details, no chat panel and no delivery instructions. “Chat asks Order who the participants are on every request, so there is no copy to fall behind, and a courier who withdraws loses access at once.” Say, without demonstrating: 20 messages a minute, kept 90 days after the errand ends. | “Could not verify your identity” means an old `.env`: see “Start from zero”. Otherwise show `chat-journey.e2e.ts` in CI. If a message takes about 2 s, the socket is down and the panel is polling: say so, as nothing is missed. On a release before `rc3-d4` the panel always polls. |
 | 06:30–08:00 | Isaac | Ben records pickup and delivery. Alyssa's page shows **Delivered, confirm receipt**; she confirms, and it reaches **Complete**. Open the receipt and follow **See it in your wallet**. Show both ledgers: Alyssa's total −2, Ben's +2. Back on the errand, chat's history stays readable and sending is off. “Credits only moved when Credit confirmed it, once.” | If the transfer is slow, wait for the actual reply and show the errand's history. No SQL credit edits. |
 | 08:00–09:00 | Isaac | Alyssa cancels the **cancel** errand, then the reopened **race** errand. Both reach **Cancelled**, and the wallet shows the credits released. “Withdrawing removed a courier; cancelling returned the reward.” | If a release is delayed, show the errand's history and wait. Restart only the named demo dependency. |
 | 09:00–11:30 | Zhang Yuan, Jonus | Ben accepts the “D4 dispute example”, records pickup and delivery. Alyssa, in chat: “It wasn't at the counter when I came down.”, then **I didn't receive it** → **Report**: **With an administrator**. Within about 10 s the sweep refers it to one admin: open Admin → Errands → the errand in both profiles, and the one who sees **Decide for the requester** is the one referred. They read the conversation (read-only, and the read is recorded), give a reason and decide. Alyssa's errand reaches **Cancelled**, with the decision in its history. “A dispute is decided through the same state machine, so an admin can't edit a balance.” | If the composer errand is absent, say the dispute is unavailable and show `dispute-outcome.e2e.ts` in CI. Do not fake a referral or a second person's action. |
@@ -229,8 +232,8 @@ the seed does not reset a persisted deadline or undo a terminal transition.
 
 | Run | Non-owner | Commit / clean seed | Date / duration | Result and evidence |
 | --- | --- | --- | --- | --- |
-| RC1 | UNRESOLVED | UNRESOLVED | UNRESOLVED | Pending actual rehearsal |
-| RC2 | UNRESOLVED | UNRESOLVED | UNRESOLVED | Pending actual rehearsal |
+| 1 | UNRESOLVED | `rc3-d4`, `--fresh` | UNRESOLVED | Pending actual rehearsal |
+| 2 | UNRESOLVED | `rc3-d4` or `v1.0-d4`, `--fresh` | UNRESOLVED | Pending actual rehearsal |
 
 Record who actually performed the steps, the commit and clean-start command, which segments ran
 live, the timed result, failures/fallbacks and evidence links. An agent run, CI personas or an
