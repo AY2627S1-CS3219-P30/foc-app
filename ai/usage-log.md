@@ -31,7 +31,7 @@ Commit counts leave out merge commits and are taken from `main` at `646c67e` (8 
 | Member         | Tools                                    | AI-assisted commits on `main` | Prompts here |
 | -------------- | ---------------------------------------- | ----------------------------- | ------------ |
 | Jonus Ho       | Claude Code; GitHub Copilot coding agent | 37 of 140                     | 20 key       |
-| Anselm Long    | Claude Code                              | 96 of 110[^claude]            | to be added  |
+| Anselm Long    | Claude Code                              | 96 of 110[^claude]            | 20 key       |
 | Isaac Chua     | Claude Code                              | 50 of 96                      | to be added  |
 | Patrick Thomas | Claude Code                              | 57 of 79                      | to be added  |
 | Zhang Yuan     | Claude Code                              | 54 of 55                      | to be added  |
@@ -296,7 +296,189 @@ okay im done stop the running stuff also found this frotnend error
 
 - **Tool:** Claude Code (Anthropic). Models named in commit trailers: Claude Opus 5.5 (54), Claude Opus 5.5 (1M context) (21), Claude Sonnet 5 (16).
 - **AI-assisted commits on `main`:** 91 of 105.
-- **Prompts:** to be added by Anselm. See [Adding your prompts](#adding-your-prompts).
+- **Prompts:** Anselm's surviving Claude Code transcripts start on 13 Oct 2026, so the counts below cover 13 Oct to 9 Nov only; earlier sessions (including the September User Service work) are no longer available.
+
+20 key prompts, picked by Anselm from their 69 Claude Code prompts between 13 Oct 2026 and 9 Nov 2026. Exported with `ai/export-claude-code-log.py`. Times are SGT. Models: `claude-opus-5-5`.
+
+| All 69 prompts, by use (tagged by keyword)                | Prompts |
+| --------------------------------------------------------- | ------- |
+| Learning / explanation                                    | 28      |
+| Implementation                                            | 15      |
+| General request                                           | 12      |
+| Review and verification                                   | 3       |
+| Debugging                                                 | 3       |
+| Release and PR workflow                                   | 2       |
+| Requirements and planning (topic)                         | 2       |
+| Design and decisions (topic)                              | 1       |
+| Routine: approvals, push and merge notices, status checks | 1       |
+| Documentation and slides                                  | 1       |
+| Testing                                                   | 1       |
+
+#### Tue 13 Oct 2026
+
+**12:46** · General request · `main` · claude-opus-5-5
+
+```text
+brief me on the changes since last milestone
+```
+
+> **Key response:** Since D2 (Sprint 1, due 25 Sep), 37 PRs have merged to `main` and 8 are open. I've used D2 as the baseline because Sprint 2 (due 11 Oct) is the most recent milestone that has passed, but nothing has merged since 8 Oct.
+
+**12:48** · Design and decisions (topic) · `main` · claude-opus-5-5
+
+```text
+okay looks good so far, can you draw the architecture of this app for now?
+```
+
+> **Key response:** Here's the current architecture, based on `compose.yaml`, `postgres-init.sql`, `contracts/events.schema.json` and the consumer wiring in each service: [code block] **Events (`contracts/events.schema.json`)** [code block] **Shared packages** - **`@foc/platform`**:
+
+**13:10** · Learning / explanation · `main` · claude-opus-5-5
+
+```text
+whats the audit about
+```
+
+> **Key response:** The audit records are the User Service's log of admin actions on accounts: who did what to whom, when, and why. Your PR #230 only adds ways to search that log. Writing to it already existed in USR-03 (#179). What gets recorded Every row in `audit_records` (`user-service/src/db/schema.ts:161`) is one admin action:
+
+**13:15** · Review and verification · `main` · claude-opus-5-5
+
+```text
+review responder to my prs
+```
+
+> **Key response:** The four #230 fixes are pushed, but CI on the new commits is still running, so I can't call it ready yet. The #231 agent is still working. The agent merged `origin/main` into the branch with no conflicts, so it's no longer behind. It replied in all four review threads and left one summary comment.
+
+#### Thu 5 Nov 2026
+
+**10:05** · Implementation · `main` · claude-opus-5-5
+
+```text
+Can you do the FOC app stuff
+```
+
+> **Key response:** In option B, the field is optional for one reason: so the CI check doesn't notice. The check, `test-harness/src/compat.ts`, flags only certain kinds of change. Adding an **optional** request field is additive, so it passes.
+
+**11:15** · Learning / explanation · `main` · claude-opus-5-5
+
+```text
+whats the root cause?
+```
+
+> **Key response:** The root cause is that registration saves a password before anyone has shown they own the email address. Activation only confirms the inbox; it never asks who chose the password. On `main`: - **`register` sets the password.** `users.service.ts:84` hashes `input.password`.
+
+**18:17** · Learning / explanation · `main` · claude-opus-5-5
+
+```text
+what are best practices?
+```
+
+> **Key response:** **Short version:** the usual guidance agrees with the plan, especially for _when_ the password is [redacted] It adds a few items on how the link behaves, and it changes how I described option B.
+
+**18:28** · Learning / explanation · `feat/309-password-at-activation` · claude-opus-5-5
+
+```text
+how should i deploy this on aws?
+```
+
+> **Key response:** Run the existing Compose stack on a single EC2 instance, using the images CI already publishes. First, though, check that the team actually wants a hosted deployment. The README says D4 is deployed as local containers on purpose, and that "there is no hosted deployment" (PLT-11, #286).
+
+**18:30** · Learning / explanation · `feat/309-password-at-activation` · claude-opus-5-5
+
+```text
+why not one EC2 per container?
+```
+
+> **Key response:** You could, but it gives you microservices isolation the hard way. You'd pay more and rebuild things Compose does for you, without gaining much a single host lacks. If you want each service separate, ECS is the AWS tool for that, not one instance per container.
+
+**18:34** · Documentation and slides · `feat/309-password-at-activation` · claude-opus-5-5
+
+```text
+draw an ascii diagram of the infra
+```
+
+> **Key response:** This is the one-EC2 setup I recommended. The inside of the host follows the README's deployment diagram (`README.md:470`). I've added the AWS pieces around it: Caddy for HTTPS, SES for mail, and S3, SSM and EBS snapshots for backups and access.
+
+**19:24** · Implementation · `feat/309-password-at-activation` · claude-opus-5-5
+
+```text
+so what aws services do i need
+```
+
+> **Key response:** For the single-EC2 setup, you need five services, plus a few optional ones. **Required** [table] **Strongly recommended** [table] **Optional** - **Route 53** for DNS, about $0.50 a month plus the domain. Any DNS provider works; you just need a name for Let's Encrypt to issue a certificate.
+
+**19:28** · Implementation · `feat/309-password-at-activation` · claude-opus-5-5
+
+```text
+eli5 the stack and what i should propose to my team
+```
+
+> **Key response:** The stack, explained simply Think of FoC as a small office building. - **The front desk (edge, nginx).** Every visitor comes in through one door, `:3000`. The desk sends each visitor to the right room, turns away anyone asking for staff-only rooms (`/internal` and `/metrics`), and stops anyone who's making too many …
+
+**19:31** · Learning / explanation · `feat/309-password-at-activation` · claude-opus-5-5
+
+```text
+whats caddy
+```
+
+> **Key response:** Caddy is a small web server that sits in front of your app and handles HTTPS for you, automatically. It's the doorman outside the building. Browsers connect to Caddy over encrypted HTTPS on port 443. Caddy then passes each request to the edge on `127.0.0.1:3000` over plain HTTP inside the machine.
+
+#### Fri 6 Nov 2026
+
+**02:58** · Debugging · `feat/309-password-at-activation` · claude-opus-5-5
+
+```text
+can u fix those
+```
+
+> **Key response:** Of the three items, I fixed one, CI is rerunning, and two need you. 1. **CI failed, so I fixed that first.** The secret scanner (gitleaks) flagged an example activation token the PR had added to the contract. It's just the text "foc-activation-token-example" in base64, but it matches the scanner's API-key rule.
+
+**03:10** · Implementation · `feat/309-password-at-activation` · claude-opus-5-5
+
+```text
+propose a hosting plam
+```
+
+> **Key response:** I've written up the hosting proposal as a page: **https://claude.ai/code/artifact/8202b465-1b50-4651-a004-426648ef8861** The link is private for now. Use the page's Share menu to give your teammates access. The proposal is an optional hosted copy of the D4 release on one EC2 t3.medium instance.
+
+**14:49** · Learning / explanation · `main` · claude-opus-5-5
+
+```text
+https://nus-aws-cloud.awsapps.com/start/#/?tab=accounts im using the nus accoutn actually
+```
+
+> **Key response:** The wizard now starts properly. Both of your attempts stopped at stage 1 because the `!` prefix gives a script no terminal input. Every prompt got an empty answer at once, and the "is this the right account" check defaulted to no. Nothing was created in AWS. Run it in a separate terminal tab, from the repo root:
+
+**23:17** · Learning / explanation · `main` · claude-opus-5-5
+
+```text
+must we have backups?
+```
+
+> **Key response:** No. For this copy, backups are optional, and skipping most of stage 14 is reasonable: - **Nothing official runs on it.** The local Compose stack is the official D4 deployment. This server is a convenience link for testers and graders.
+
+**23:19** · Review and verification · `main` · claude-opus-5-5
+
+```text
+i can't get emails, can we check that
+```
+
+> **Key response:** I can't reach the server, so I'll need you to run three checks and paste me the output. Between them they show whether the problem is in the app's settings, the login to Mail Manager, or what Mail Manager does with the mail afterwards. Run them in the Session Manager tab as `ubuntu`, in `~/foc-app`. **1.**
+
+**23:28** · General request · `main` · claude-opus-5-5
+
+```text
+give me a brief for my tream
+```
+
+> **Key response:** I've written the team brief as a page: https://claude.ai/code/artifact/47bcb7dd-a308-402b-b997-de2556172b4c It's private for now, so share it from the page's Share menu before you post the link. It uses the same look as your "FoC on EC2" proposal so the two read as a pair. It covers:
+
+**23:34** · Learning / explanation · `main` · claude-opus-5-5
+
+```text
+how can my friends modify the server and stuff?
+```
+
+> **Key response:** Right now they can't. The only way onto the server is Session Manager, and that goes through your NUS sign-in to an account that is yours alone. You also can't give them AWS logins, because NUS blocks creating IAM users. Most "modifying" doesn't need server access anyway:
 
 ### AI-assisted commits
 
