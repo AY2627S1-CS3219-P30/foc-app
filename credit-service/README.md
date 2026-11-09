@@ -124,12 +124,20 @@ To check a running stack's economy at any time (read-only; exits 1 on any violat
 docker compose exec -T credit-service node credit-service/dist/check-invariants.js
 ```
 
+For evidence beyond one stack, `npm run report:conservation` runs Order's and Credit's real code
+through seeded runs that drop and duplicate deliveries, checking the invariants after every step.
+The latest result is
+[docs/reports/credit-conservation-2026-10-01.md](../docs/reports/credit-conservation-2026-10-01.md)
+(N3.1).
+
 ## Daily financial audit (CRD-10)
 
-Credit checks every wallet against its ledger once per UTC day and on demand, using one consistent
-database snapshot. Each run appends immutable PASS/MISMATCH/ERROR evidence; it never changes a
-balance. Administrators see the latest result and can start a scan in **Admin → Operations**.
-Operators can run `npm run audit:credits` from the repository root (exit 0 clean, 1 mismatch,
+Credit runs six checks once per UTC day and on demand, in one consistent database snapshot: the
+five invariants `check-invariants` prints, and that every wallet's balances agree with its ledger.
+Each run appends immutable PASS/MISMATCH/ERROR evidence; it never changes a balance. Administrators
+see the latest result and can start a scan in **Admin → Operations**; a scan started while another
+runs is refused (`409 LEDGER_AUDIT_BUSY`). Operators can run `npm run audit:credits` from the
+repository root against the running stack; it prints the run as JSON (exit 0 clean, 1 mismatch,
 2 busy/failure). Metrics and Prometheus rules report mismatches, failed scans and overdue scans.
 See the [ledger-audit runbook](../docs/runbooks/credit-ledger-audit.md) for incident response,
 restricted findings, scheduling and test evidence. This differs from Order's pending-saga recovery
@@ -139,6 +147,9 @@ job (#152), which replays ordinary idempotent commands.
 
 Student/admin routes require an active identity resolved by `@foc/auth-client`. The internal status
 route uses the ADR-0004 `X-Service-Key` mechanism and accepts only configured service callers.
+With `INTERNAL_PORT` set (Compose: 4004, published only by `compose.dev.yaml`), `/internal/**` is
+served there alone and answers `404` on `PORT`; unset, as with `npm run dev:credit`, it is on `PORT`.
+`GET /health` and `GET /metrics` (counts and timings, no balances) are served as on every service.
 
 | Method and path                                | Caller           | Result                                                           |
 | ---------------------------------------------- | ---------------- | ---------------------------------------------------------------- |
@@ -195,14 +206,17 @@ or economic event input appears without updating and reviewing the explicit surf
 
 ## Events
 
-| Queue                            | Consumes                      | Trusted producer | Result                                             |
-| -------------------------------- | ----------------------------- | ---------------- | -------------------------------------------------- |
-| `foc.credit.wallet-provisioning` | `user.activated`              | `user-service`   | wallet + `ISSUE` transaction                       |
-| `foc.credit.reservations`        | `order.reservation-requested` | `order-service`  | `credit.reserved` or `credit.reservation-rejected` |
-| `foc.credit.completions`         | `order.completion-requested`  | `order-service`  | `credit.transferred`                               |
-| `foc.credit.releases`            | `order.release-requested`     | `order-service`  | `credit.released`                                  |
+| Queue                             | Consumes                                                  | Trusted producer | Result                                                    |
+| --------------------------------- | --------------------------------------------------------- | ---------------- | --------------------------------------------------------- |
+| `foc.credit.wallet-provisioning`  | `user.activated`                                          | `user-service`   | wallet + `ISSUE` transaction                              |
+| `foc.credit.reservations`         | `order.reservation-requested`                             | `order-service`  | `credit.reserved` or `credit.reservation-rejected`        |
+| `foc.credit.completions`          | `order.completion-requested`                              | `order-service`  | `credit.transferred`                                      |
+| `foc.credit.releases`             | `order.release-requested`                                 | `order-service`  | `credit.released`                                         |
+| `foc.credit.auth-status.<random>` | `user.suspended`, `user.reactivated`, `user.role-changed` | `user-service`   | drops that user's cached identity; one queue per instance |
 
-All queues use bounded retry and a dead-letter queue. Every handler uses the transactional inbox.
+The four economic queues use bounded retry and a dead-letter queue, and their handlers use the
+transactional inbox. The identity queue has neither: it is exclusive and deleted with the instance,
+and a lost invalidation only waits out the 5-second identity cache.
 The outbox relay publishes committed replies with at-least-once delivery.
 
 What a consumer does with a message that is not the ordinary case (EVT-03, PLT-06):
@@ -215,13 +229,16 @@ What a consumer does with a message that is not the ordinary case (EVT-03, PLT-0
 | A major `schemaVersion` this service does not list                              | Dead-lettered whole, before its payload is read (`unsupported_version`)                                      |
 | Published by a broker account other than the trusted producer's                 | Dead-lettered (`untrusted_sender`); see [ADR 0004](../docs/adr/0004-authentication-and-trust.md)             |
 
-`test/delivery.test.ts` drives the real consumers through a broker for the out-of-order and
+`test/delivery.test.ts` drives the real consumers through an in-memory broker with the production
+topology (no RabbitMQ needed) for the out-of-order and
 unsupported-version cases, and for a crash before and after the transfer commits.
 `test/terminal-operations.test.ts` covers a request that is sent again.
 
 ## Commands
 
-Run from the repository root after `npm ci`:
+Run from the repository root after `npm install` and a build of the shared packages, which the
+service imports compiled: `npm run build -w @foc/platform -w @foc/auth-client` (again after pulling a
+change to either).
 
 | Command                                      | Purpose                                        |
 | -------------------------------------------- | ---------------------------------------------- |
@@ -247,6 +264,30 @@ docker compose up -d --build
 curl http://localhost:3004/health
 ```
 
+To run Credit by hand against the rest of the stack, work from the repository root. `npm run
+dev:credit` runs in `credit-service/`, so it never reads the root `.env`: load it into the shell
+first. `.env` says `NODE_ENV=production`, which a service run by hand should not use.
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml up -d   # publishes the User Service's internal port 4001
+docker compose stop credit-service                          # it holds port 3004
+set -a; . ./.env; NODE_ENV=development; set +a
+DATABASE_URL=$HOST_CREDIT_DATABASE_URL npm run db:migrate -w @foc/credit-service
+DATABASE_URL=$HOST_CREDIT_DATABASE_URL \
+  USER_SERVICE_URL=http://localhost:4001 INTERNAL_SERVICE_KEY=$CREDIT_INTERNAL_KEY \
+  INTERNAL_SERVICE_KEYS=$CREDIT_INBOUND_SERVICE_KEYS \
+  RABBITMQ_URL=amqp://credit-service:$CREDIT_BROKER_PASSWORD@localhost:$RABBITMQ_PORT \
+  npm run dev:credit
+```
+
+The stack still routes to the stopped container, so the web app, the Order Service's reconciliation
+(`credit-service:4004`) and `npm run audit:credits`, which runs inside the container, do not reach
+this process: call it at `http://localhost:3004`. Events reach it through the broker.
+
+`INTERNAL_SERVICE_KEYS` must be overridden: `.env`'s value is the User Service's list of every
+service's key. `RABBITMQ_URL` must use Credit's own broker account, or the Order Service
+dead-letters its replies as `untrusted_sender`; leave it out to run without the broker.
+
 The image runs as the unprivileged `node` user and includes a health check. Build it from the
 repository root because it imports the shared workspace packages:
 
@@ -254,12 +295,13 @@ repository root because it imports the shared workspace packages:
 docker build -f credit-service/Dockerfile -t foc/credit-service .
 ```
 
-The normal suite uses PGlite and skips the separate-connection concurrency case. Run that case
-against real PostgreSQL by pointing `TEST_POSTGRES_URL` at a role that may create databases; the
-shared test harness creates, migrates and drops a uniquely named database per run (CI does this
-automatically, see [docs/testing.md](../docs/testing.md)):
+The normal suite uses PGlite and skips the two real-PostgreSQL suites: reservation and
+transfer/release concurrency over separate connections, and the ledger audit's lock and snapshot.
+Run them by pointing `TEST_POSTGRES_URL` at a role that may create databases; the shared test
+harness creates, migrates and drops a uniquely named database per run (CI does this automatically,
+see [docs/testing.md](../docs/testing.md)):
 
 ```bash
-set -a; . ./.env; set +a   # the stack's addresses and logins, from your .env
+set -a; . ./.env; NODE_ENV=development; set +a   # the stack's addresses and logins, from your .env
 TEST_POSTGRES_URL=$HOST_POSTGRES_URL npm test -w @foc/credit-service
 ```
