@@ -15,6 +15,7 @@ import {
  * WEB-01 end to end, once per breakpoint, against the real stack (nothing mocked):
  * - a submitted request is `PENDING_CREDIT`, then opens, and the Credit Service reserves exactly
  *   the reward the review projected;
+ * - once the wallet can no longer cover the reward, the review step blocks the post and says why;
  * - a request the wallet can no longer cover when it reaches the Credit Service is rejected, and the
  *   page says why with the balance it reported.
  *
@@ -53,24 +54,38 @@ test("request journey: post, wait for credits, open; then an insufficient-credit
     expect(await wallet()).toMatchObject({ available: 5, reserved: 5 });
   });
 
-  await test.step("a reward the wallet no longer covers is rejected with the reason", async () => {
+  await test.step("a reward the wallet no longer covers is blocked, and one Credit refuses says why", async () => {
     await compose(page, { supplier: supplier.name, item: "Kaya toast", reward: 5 });
     await expect(row(page, "Available after reserving the reward")).toContainText("0 credits");
 
-    const other = await request.post(`${ORDER}/orders`, {
-      headers: { ...auth, "idempotency-key": randomUUID() },
-      data: {
-        supplierId: supplier.supplierId,
-        items: [{ name: "Drained elsewhere", quantity: 1 }],
-        deliveryZone: "PGP",
-        deliveryInstructions: "Lobby",
-        reward: 5,
-      },
-    });
-    expect(other.status()).toBe(201);
-    await expect.poll(async () => (await wallet()).available, { timeout: 30_000 }).toBe(0);
+    const post = (name: string) =>
+      request.post(`${ORDER}/orders`, {
+        headers: { ...auth, "idempotency-key": randomUUID() },
+        data: {
+          supplierId: supplier.supplierId,
+          items: [{ name, quantity: 1 }],
+          deliveryZone: "PGP",
+          deliveryInstructions: "Lobby",
+          reward: 5,
+        },
+      });
 
-    await page.getByRole("button", { name: "Post request" }).click();
+    // Another errand takes the last 5 credits through the API. The review step reads the shared
+    // balance, which refreshes on that errand's live nudge or within 30 s, so it then blocks the post
+    // rather than send one the Credit Service would refuse. Before, this step clicked "Post request"
+    // and raced that refresh.
+    expect((await post("Drained elsewhere")).status()).toBe(201);
+    await expect.poll(async () => (await wallet()).available, { timeout: 30_000 }).toBe(0);
+    await expect(
+      visible(page, "You have no credits available, so you can't post a request yet."),
+    ).toBeVisible({ timeout: 35_000 });
+    await expect(page.getByRole("button", { name: "Post request" })).toBeDisabled();
+
+    // A request that reaches the Credit Service anyway, as one sent before the balance refreshed
+    // would, is rejected, and its page says why with the balance the Credit Service reported.
+    const refused = await post("Kaya toast");
+    expect(refused.status()).toBe(201);
+    await page.goto(`/request/${(await refused.json()).orderId}`);
     await expect(page).toHaveURL(ORDER_URL);
     await expect(visible(page, "Not placed")).toBeVisible({ timeout: 30_000 });
     await expect(
