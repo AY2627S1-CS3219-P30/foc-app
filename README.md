@@ -1298,7 +1298,8 @@ document). Each member's key prompts and responses, and their AI-assisted commit
   architecture.
 - **Decision rationales.** We discussed trade-offs as a team and came to our own conclusions. We
   also asked our mentor for ideas, and discussed them internally afterwards.
-- **PR Fixes.** Used AI to summarise what members PRs were missing, then inspected ourselves before finalising the reviews and code changes.
+- **PR fixes.** We used AI to summarise what members' PRs were missing, then checked them ourselves
+  before finalising the reviews and code changes.
 - **Runbooks and slides.** We chose the slide template, which we found online, and reviewed and
   edited the deck and the demo runbooks. Claude drafted much of the runbook steps and of the slide
   text, layout and diagrams from our documents.
@@ -1313,8 +1314,8 @@ and contract tests, browser journeys, and vulnerability and secret scans.
 **Finding AI-assisted changes**
 
 Commits written with Claude carry a `Co-Authored-By: Claude …` trailer: 294 of the 486 non-merge
-commits on `main` as of 8 Nov. To list them, run `git log -i --grep='Co-Authored-By: Claude'`.
+commits on `main` as of 8 Nov. To list them, run `git log --no-merges -i --grep='Co-Authored-By: Claude'`.
 The key implementation files, 231 TypeScript, JavaScript, shell and Python files, start with an
 `AI Assistance Disclosure` comment: the tool and dates, the scope of the AI-assisted work, and who
-reviewed it. Tests, configuration and generated files carry no header, so `git log` is the full
-record.
+reviewed it. Tests, configuration and generated files carry no header. Jonus's commits after 23 Oct
+lack the trailer, so `git log` undercounts them, and the headers count them as AI-assisted.

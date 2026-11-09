@@ -1,37 +1,44 @@
 #!/usr/bin/env python3
 # AI Assistance Disclosure:
-# Tool: Claude Code (model: claude-opus-5-5), date: 2026-11-08
+# Tool: Claude Code (model: claude-opus-5-5), dates: 2026-11-08 to 2026-11-09
 # Scope: Generated this exporter, which writes one member's section of ai/usage-log.md.
 # Author review: Jonus read the rules below and checked the section it wrote for him.
 """Write one member's section of ai/usage-log.md from their Claude Code transcripts.
 
 Claude Code keeps each session as a JSON-lines file under ~/.claude/projects/<folder>/, where
-<folder> is the checkout's path with every "/" turned into "-". Run this on your own machine:
+<folder> is the checkout's path with every "/" turned into "-". Each checkout, worktree and
+Conductor workspace has a folder of its own, so pass them all. Run this on your own machine:
 
     python3 ai/export-claude-code-log.py --author "Your Name" \
-        ~/.claude/projects/-Users-you-path-to-foc-app > /tmp/my-section.md
+        ~/.claude/projects/*foc-app* > /tmp/my-section.md
 
 then paste the output under your heading in ai/usage-log.md and run Prettier on the file.
 
 To quote only your key prompts (about 20), run it once as above to see each prompt's time, then
-again with --pick and those local times, comma-separated or with --pick repeated:
+again with --pick and those local times, comma-separated or with --pick repeated. A minute picks
+the first prompt in it; add the seconds, which the full export shows, to pick another:
 
     python3 ai/export-claude-code-log.py --author "Your Name" \
-        --pick 2026-09-20T10:08,2026-10-22T09:26 ~/.claude/projects/<folder>
+        --pick 2026-09-20T10:08,2026-10-22T09:26:41 ~/.claude/projects/*foc-app*
 
 With --pick, the output still counts all your prompts by use, so the reader sees the whole scale.
 
 What it keeps, and what it leaves out:
-- Prompts you typed. Prompts written by Claude to its own subagents, terminal commands you ran in
-  the session, and the summaries Claude Code writes when a session runs out of context are left
-  out. A prompt that a resumed session repeats is kept once.
+- Prompts you typed, including ones typed while Claude was still working. Prompts written by
+  Claude to its own subagents, terminal commands you ran in the session, the summaries Claude Code
+  writes when a session runs out of context, and the instructions a tool such as Conductor or an
+  IDE adds to a prompt are left out. A prompt that a resumed session repeats is kept once.
 - Pasted text becomes "[pasted text, N lines]", and screenshots become a note. Email addresses,
-  tokens and anything after "password:" and similar are replaced with placeholders.
-- A prompt is quoted word for word unless it is routine: a short approval, a push or merge notice,
-  or a status check ("pushed, open the pr", "is the ci done yet"). Routine prompts are counted per
-  day instead. A prompt that touches requirements, planning, design or decisions is always quoted,
-  however short.
-- The key response is the start of Claude's last message in that turn.
+  credentials in URLs, private keys, common token formats, and the value after a name such as
+  "password", "secret", "token" or "api_key" (POSTGRES_PASSWORD=..., password: ...) are replaced
+  with placeholders. That list can't catch everything: read the output before committing it.
+- A prompt is quoted word for word unless it is routine: a short reply that is only an approval
+  ("ok", "yes go ahead"), a push or merge notice, or a CI check ("pushed, open the pr", "is the ci
+  done yet"). Routine prompts are not quoted: each day lists how many there were, and when, so you
+  can still pick one. A prompt that touches requirements, planning, design or decisions is always
+  quoted, however short.
+- The key response is the start of Claude's last message in that turn. A reply to a background
+  task's notification, or an API error, is not a key response.
 - The "use" tag is assigned by keyword from the prompt and the branch, so treat it as a guide.
 """
 
@@ -59,17 +66,36 @@ SKIP_PREFIXES = (
     "<ci-monitor-event>",
 )
 
+# A turn these start is not the member's prompt, and Claude's reply to it is no key response.
+ENDS_TURN = ("[Request interrupted", "<task-notification>", "<ci-monitor-event>")
+
+# Blocks a tool adds to the prompt the member typed: Claude Code's reminders, Conductor's
+# instructions, the file and selection an IDE shares.
+INJECTED = re.compile(
+    r"<(system-reminder|system_instruction|ide_opened_file|ide_selection)>.*?</\1>", re.S
+)
+
 SECRETS = [
+    (
+        re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(-----END [A-Z ]*PRIVATE KEY-----|$)", re.S),
+        "[private key]",
+    ),
+    # Before the email pattern: a password in a URL sits just before its @.
+    (re.compile(r"(\w+://[^\s:/@]+:)[^\s@]+@"), r"\1[redacted]@"),
     (re.compile(r"[\w.+-]+@[\w-]+(\.[\w-]+)+"), "[email]"),
     (
         re.compile(
             r"\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|sk-[A-Za-z0-9_-]{20,}"
-            r"|AKIA[0-9A-Z]{16}|xox[abp]-[\w-]+|eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]+)"
+            r"|[sr]k_(live|test)_[A-Za-z0-9]{10,}|AIza[0-9A-Za-z_-]{30,}|npm_[A-Za-z0-9]{30,}"
+            r"|glpat-[\w-]{20,}|AKIA[0-9A-Z]{16}|xox[abp]-[\w-]+|eyJ[\w-]{10,}\.[\w-]{10,}\.[\w-]+)"
         ),
         "[token]",
     ),
+    # A prefix or suffix on the name too: POSTGRES_PASSWORD=..., JWT_SECRET=..., aws_secret_access_key=...
     (
-        re.compile(r"(?i)\b(password|passwd|secret|token|api[_-]?key)(\s*[:=]\s*|\s+is\s+)(\S{6,})"),
+        re.compile(
+            r"(?i)(\w*(?:password|passwd|pwd|secret|token|api[_-]?key)\w*)(\s*[:=]\s*|\s+is\s+)(\S+)"
+        ),
         r"\1\2[redacted]",
     ),
     (re.compile(r"\b[A-Fa-f0-9]{48,}\b"), "[hex]"),
@@ -86,14 +112,20 @@ TOPIC_DESIGN = re.compile(
     r"justif\w*|risks?|which (one|is better|should|\d)|should (we|i) (use|pick|choose|take))\b",
     re.I,
 )
-ROUTINE = re.compile(
+# A reply that is nothing more than this ("ok", "yes go ahead", "no wait.") is routine; one that
+# goes on ("no, the payment service should retry instead") is not.
+REPLY = re.compile(
     r"^\s*(ok(ay)?|yes|yea|yeah|yep|y|no|nope|nah|sure|thanks|thank you|ty|continue|go ahead|"
     r"done|pushed|merged|committed|stop|wait|got it|cool|nice|great|sorry|rerun|retry|proceed|"
-    r"try again|open it|post (them|it))\b"
-    r"|^/(model|clear|compact|login|config|cost|status)\b"
+    r"try again|open it|post (them|it))\b",
+    re.I,
+)
+REPLY_MAX_WORDS = 4
+ROUTINE = re.compile(
+    r"^/(model|clear|compact|login|config|cost|status)\b"
     r"|\b(pushed|merged|is the ci|ci (done|finished|passed)|is it done|isit done|is .* done yet|"
     r"done yet|still running|what'?s next|whats next|taking so long|let me know when|open the prs?|"
-    r"logged in|continue from where|status|ready to (merge|push)|merge main into|stash|"
+    r"logged in|continue from where|ready to (merge|push)|merge main into|"
     r"resolve the merge conflicts|solve the merge conflicts|mark .* ready|commit message|"
     r"commands to commit|make a branch)\b",
     re.I,
@@ -147,7 +179,7 @@ def text_and_images(content):
 
 
 def clean_prompt(raw: str) -> str:
-    s = re.sub(r"<system-reminder>.*?</system-reminder>", "", raw, flags=re.S)
+    s = INJECTED.sub("", raw)
 
     def pasted(m):
         n = len(m.group(2).strip().splitlines())
@@ -190,6 +222,8 @@ def is_routine(prompt: str) -> bool:
         return False
     if TOPIC_REQUIREMENTS.search(prompt) or TOPIC_DESIGN.search(prompt):
         return False
+    if REPLY.search(prompt) and len(prompt.split()) <= REPLY_MAX_WORDS:
+        return True
     return bool(ROUTINE.search(prompt))
 
 
@@ -225,32 +259,49 @@ def load(paths):
                     continue
                 if r.get("isSidechain"):
                     continue
-                if r.get("type") == "user" and not r.get("isMeta") and not r.get("isCompactSummary"):
-                    raw, images = text_and_images(r.get("message", {}).get("content"))
-                    if raw is None:
+                queued = r.get("attachment") if r.get("type") == "attachment" else None
+                if queued is not None:
+                    # A prompt typed while Claude was working is kept as a queued command. Commands
+                    # from background tasks and subagents are queued the same way; only a person's count.
+                    origin = queued.get("origin") or {}
+                    if queued.get("type") != "queued_command" or not (
+                        origin.get("kind") == "human" or queued.get("humanTurn")
+                    ):
                         continue
-                    raw = raw.strip()
-                    if raw.startswith("[Request interrupted"):
-                        current = None
-                    if raw.startswith(SKIP_PREFIXES) or not (raw or images):
-                        continue
-                    p = clean_prompt(raw)
-                    if images:
-                        p = (p + "\n" if p else "") + f"[{images} screenshot{'s' if images > 1 else ''} attached]"
-                    if not p:
-                        continue
-                    current = prompts.setdefault(
-                        r["uuid"],
-                        {"ts": r["timestamp"], "prompt": p, "branch": r.get("gitBranch") or "",
-                         "response": "", "models": set()},
-                    )
+                    content, ts = queued.get("prompt"), queued.get("timestamp") or r["timestamp"]
+                elif r.get("type") == "user" and not r.get("isMeta") and not r.get("isCompactSummary"):
+                    content, ts = r.get("message", {}).get("content"), r["timestamp"]
                 elif r.get("type") == "assistant" and current is not None:
                     m = r.get("message", {})
-                    if m.get("model") and not m["model"].startswith("<"):
+                    # Claude Code's own messages, such as "API Error: …", are no answer.
+                    if (m.get("model") or "").startswith("<"):
+                        continue
+                    if m.get("model"):
                         current["models"].add(m["model"])
                     for b in m.get("content") or []:
                         if b.get("type") == "text" and b["text"].strip():
                             current["response"] = b["text"].strip()
+                    continue
+                else:
+                    continue
+                raw, images = text_and_images(content)
+                if raw is None:
+                    continue
+                raw = raw.strip()
+                if raw.startswith(ENDS_TURN):
+                    current = None
+                if raw.startswith(SKIP_PREFIXES) or not (raw or images):
+                    continue
+                p = clean_prompt(raw)
+                if images:
+                    p = (p + "\n" if p else "") + f"[{images} screenshot{'s' if images > 1 else ''} attached]"
+                if not p:
+                    continue
+                current = prompts.setdefault(
+                    r["uuid"],
+                    {"ts": ts, "prompt": p, "branch": r.get("gitBranch") or "",
+                     "response": "", "models": set()},
+                )
     out = []
     for e in sorted(prompts.values(), key=lambda e: e["ts"]):
         if out and out[-1]["prompt"] == e["prompt"] and abs(parse(e["ts"]) - parse(out[-1]["ts"])).total_seconds() < 5:
@@ -270,8 +321,8 @@ def fence(text: str) -> str:
     return f"{marker}text\n{text}\n{marker}"
 
 
-def entry_lines(when, e):
-    meta = [f"**{when:%H:%M}**", use_of(e["prompt"], e["branch"])]
+def entry_lines(when, e, seconds=False):
+    meta = [f"**{when:%H:%M:%S}**" if seconds else f"**{when:%H:%M}**", use_of(e["prompt"], e["branch"])]
     if e["branch"] and e["branch"] != "HEAD":
         meta.append(f"`{e['branch']}`")
     if e["models"]:
@@ -317,35 +368,49 @@ def render(entries, author, tz, since, until, picks=None, summary=True):
         lines += [f"| {u} | {n} |" for u, n in sorted(uses.items(), key=lambda x: -x[1])]
         lines.append("")
     day = None
-    routine_today = 0
+    routine_today = []
 
     def close_day():
+        # With their times, so a routine prompt can still be picked.
         if day is not None and routine_today:
-            lines.append(f"Routine prompts this day, not quoted: {routine_today}.")
+            lines.append(
+                f"Routine prompts this day, not quoted: {len(routine_today)} "
+                f"({', '.join(f'{w:%H:%M:%S}' for w in routine_today)})."
+            )
             lines.append("")
 
     for when, e in in_range:
         if when.date() != day:
             close_day()
-            day, routine_today = when.date(), 0
+            day, routine_today = when.date(), []
             lines += [f"#### {when:%a %-d %b %Y}", ""]
         if is_routine(e["prompt"]):
-            routine_today += 1
+            routine_today.append(when)
             continue
-        lines += entry_lines(when, e)
+        lines += entry_lines(when, e, seconds=True)
     close_day()
     return "\n".join(lines)
 
 
 def render_picked(in_range, author, zone_name, models, first, last, picks, summary):
-    chosen, seen = [], set()
+    # A pick is a minute (the first prompt in it) or a second (exactly that prompt).
+    chosen, matches = [], {}
     for when, e in in_range:
-        minute = f"{when:%Y-%m-%dT%H:%M}"
-        if minute in picks and minute not in seen:
-            seen.add(minute)
-            chosen.append((when, e))
-    for minute in sorted(set(picks) - seen):
-        print(f"warning: no prompt at {minute}", file=sys.stderr)
+        for pick in (f"{when:%Y-%m-%dT%H:%M:%S}", f"{when:%Y-%m-%dT%H:%M}"):
+            if pick in picks:
+                matches.setdefault(pick, []).append((when, e))
+    for pick in sorted(picks):
+        found = matches.get(pick, [])
+        if not found:
+            print(f"warning: no prompt at {pick}", file=sys.stderr)
+            continue
+        if len(found) > 1:
+            others = ", ".join(f"{w:%H:%M:%S}" for w, _ in found[1:])
+            print(f"warning: {pick} has {len(found)} prompts; picked {found[0][0]:%H:%M:%S}, "
+                  f"not {others}. Add the seconds to pick another.", file=sys.stderr)
+        if found[0] not in chosen:
+            chosen.append(found[0])
+    chosen.sort(key=lambda c: c[0])
     lines = []
     if summary:
         uses = {}
@@ -381,7 +446,8 @@ def main():
     ap.add_argument("--since", help="first local time to include, e.g. 2026-09-01T00:00")
     ap.add_argument("--until", help="local time to stop before, e.g. 2026-11-08T22:06")
     ap.add_argument("--pick", action="append",
-                    help="quote only the prompts at these local times (YYYY-MM-DDTHH:MM, comma-separated)")
+                    help="quote only the prompts at these local times "
+                         "(YYYY-MM-DDTHH:MM or YYYY-MM-DDTHH:MM:SS, comma-separated)")
     ap.add_argument("--no-summary", action="store_true", help="leave out the opening counts")
     a = ap.parse_args()
     zone = dt.timezone(dt.timedelta(hours=a.tz))
