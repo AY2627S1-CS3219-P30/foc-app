@@ -1,6 +1,6 @@
 <!--
 AI Assistance Disclosure:
-Tool: Claude Code (model: claude-opus-5-5), date: 2026-11-08
+Tool: Claude Code (model: claude-opus-5-5), dates: 2026-11-08 to 2026-11-09
 Scope: Generated this template for members to fill up.
 Author review: Jonus checked the entries and the redactions before committing.
 -->
@@ -31,20 +31,31 @@ Commit counts leave out merge commits and are taken from `main` at `646c67e` (8 
 | Member         | Tools                                    | AI-assisted commits on `main` | Prompts here |
 | -------------- | ---------------------------------------- | ----------------------------- | ------------ |
 | Jonus Ho       | Claude Code; GitHub Copilot coding agent | 37 of 140                     | 20 key       |
-| Anselm Long    | Claude Code                              | 91 of 105                     | to be added  |
+| Anselm Long    | Claude Code                              | 96 of 110[^claude]            | to be added  |
 | Isaac Chua     | Claude Code                              | 50 of 96                      | to be added  |
 | Patrick Thomas | Claude Code                              | 57 of 79                      | to be added  |
 | Zhang Yuan     | Claude Code                              | 54 of 55                      | to be added  |
 
+[^claude]:
+    Including 5 commits authored as `Claude` on Anselm's User Service tickets (USR-03, USR-05,
+    USR-06, USR-07, USR-08), so the rows add up to the 294 the README gives.
+
 ## Adding your prompts
 
-1. Find your transcripts: `ls ~/.claude/projects/ | grep foc-app`.
+1. Find your transcripts: `ls ~/.claude/projects/ | grep foc-app`. Each checkout, worktree and
+   Conductor workspace has a folder of its own, so there may be many. Pass them all.
 2. Export them all once, to see each prompt and its time:
-   `python3 ai/export-claude-code-log.py --author "Your Name" ~/.claude/projects/<that folder> > /tmp/all.md`.
+   `python3 ai/export-claude-code-log.py --author "Your Name" ~/.claude/projects/*foc-app* > /tmp/all.md`.
+   Claude Code deletes old transcripts, after 30 days unless you changed `cleanupPeriodDays`. If
+   your earliest prompts are gone, say which period your count covers.
 3. Choose about 20 key prompts that show how you used AI, and export just those:
-   `python3 ai/export-claude-code-log.py --author "Your Name" --pick 2026-10-01T14:05,2026-10-03T09:30 ~/.claude/projects/<that folder> > /tmp/my-section.md`.
+   `python3 ai/export-claude-code-log.py --author "Your Name" --pick 2026-10-01T14:05,2026-10-03T09:30:41 ~/.claude/projects/*foc-app* > /tmp/my-section.md`.
+   A minute picks the first prompt in it; add the seconds from the full export to pick another.
    Include any prompt that comes close to the policy's limits (requirements, planning, design).
-4. Read the output. Check the placeholders, and that nothing personal or secret is left.
+4. Read the output. Check the placeholders, and that nothing personal or secret is left. The
+   exporter replaces email addresses, credentials in URLs, private keys, common token formats and
+   values named like `password`, `secret`, `token` or `api_key`, but it can't recognise every
+   secret, so this check is the one that counts.
 5. Paste it under your heading, in place of "Prompts: to be added", then run
    `npx prettier --write ai/usage-log.md`.
 
@@ -60,21 +71,21 @@ format: the time, the use, the exact prompt in a `text` block, and the key respo
 
 ### Key prompts
 
-20 key prompts, picked by Jonus from their 610 Claude Code prompts between 7 Sep 2026 and 8 Nov 2026.
+20 key prompts, picked by Jonus from their 619 Claude Code prompts between 7 Sep 2026 and 8 Nov 2026.
 
-| All 610 prompts, by use (tagged by keyword)               | Prompts |
+| All 619 prompts, by use (tagged by keyword)               | Prompts |
 | --------------------------------------------------------- | ------- |
-| Routine: approvals, push and merge notices, status checks | 285     |
-| Documentation and slides                                  | 73      |
-| Implementation                                            | 65      |
-| Review and verification                                   | 39      |
+| Routine: approvals, push and merge notices, status checks | 212     |
+| Documentation and slides                                  | 94      |
+| Implementation                                            | 86      |
+| Debugging                                                 | 45      |
+| Review and verification                                   | 41      |
 | Requirements and planning (topic)                         | 36      |
-| Learning / explanation                                    | 33      |
-| Debugging                                                 | 33      |
-| Release and PR workflow                                   | 20      |
-| General request                                           | 16      |
+| Learning / explanation                                    | 35      |
+| Release and PR workflow                                   | 31      |
+| General request                                           | 27      |
 | Design and decisions (topic)                              | 7       |
-| Testing                                                   | 3       |
+| Testing                                                   | 5       |
 
 #### Tue 8 Sep 2026
 
