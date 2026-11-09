@@ -10,6 +10,7 @@ what to do, and what never to do.
 | [Credit ledger audit](credit-ledger-audit.md) | the daily wallet-versus-ledger reconciliation and its alerts                     |
 | [Backup, restore and rollback](backup-restore-rollback.md) | a consistent four-database backup, verified fresh-stack restore, timed recovery and prior-image rollback |
 | [Cutting a release](release.md) | a release candidate or the final release: the tag, what it records, and rehearsing it |
+| [Deploying to AWS](aws-deploy.md) | the hosted stack: setting up auto-deploy from `main`, deploying by hand, freezing it, a failed deploy |
 
 Alerts show on the Grafana dashboard's **Firing alerts** panel and at <http://localhost:9090/alerts>;
 the README's [Observability](../../README.md#observability) section lists them all.
