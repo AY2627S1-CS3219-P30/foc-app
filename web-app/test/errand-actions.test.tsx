@@ -262,6 +262,42 @@ describe('feed', () => {
     expect(alert.textContent).toContain('Could not refresh the list.');
   });
 
+  it('shows a failed first load with a retry, then keeps the errands through a failed refresh', async () => {
+    const service = fakeOrderService();
+    service.open = [listing(OTHER_ID, 'Their cafe')];
+    const working = service.feed;
+    service.feed = () => failure(503, 'INTERNAL');
+    const container = await render(<FeedPage />, service);
+    expect(container.textContent).toContain('Could not load open errands');
+
+    service.feed = working;
+    await act(async () => button(container, 'Try again').click());
+    await flush();
+    expect(container.textContent).toContain('Their cafe');
+
+    service.feed = () => failure(503, 'INTERNAL');
+    await act(async () => window.dispatchEvent(new window.Event('online')));
+    await flush();
+    expect(container.textContent).toContain('Could not refresh the list.');
+    expect(container.textContent).toContain('Their cafe');
+  });
+
+  it('reads every 30 seconds, and again after a failed read', async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    await render(<FeedPage />, service, false);
+    const reads = () => service.queries.filter((query) => query === '/orders').length;
+    expect(reads()).toBe(1);
+
+    service.feed = () => failure(503, 'INTERNAL');
+    await clock.advance(29_000);
+    expect(reads()).toBe(1);
+    await clock.advance(1_000);
+    expect(reads()).toBe(2);
+    await clock.advance(30_000);
+    expect(reads()).toBe(3);
+  });
+
   describe('a Load more still in flight', () => {
     /** A feed with a next page, whose requests for that page wait until they are cancelled. */
     async function loadingMore() {
@@ -520,6 +556,24 @@ describe('requester open requests', () => {
     expect(shell.primaryAction?.label).toBe('New request');
     shell.primaryAction!.onClick();
     expect(router.push).toHaveBeenCalledWith('/request/new');
+  });
+
+  it('reads every 5 seconds while credits move, then every 30', async () => {
+    const clock = fakeClock();
+    const service = fakeOrderService();
+    let status: Order['status'] = 'PENDING_CREDIT';
+    service.history = () => json(200, { items: [{ ...order({ status }), myRole: 'REQUESTER' }], truncated: false });
+    await render(<FeedPage />, service, false);
+    const reads = () => service.queries.filter((query) => query.startsWith('/orders/mine')).length;
+    expect(reads()).toBe(1);
+
+    status = 'OPEN';
+    await clock.advance(5_000);
+    expect(reads()).toBe(2);
+    await clock.advance(25_000);
+    expect(reads()).toBe(2);
+    await clock.advance(5_000);
+    expect(reads()).toBe(3);
   });
 
   it('shows a withdrawal notice immediately in requester mode', async () => {

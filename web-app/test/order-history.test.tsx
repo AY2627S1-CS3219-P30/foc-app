@@ -254,6 +254,55 @@ describe("order history (WEB-03)", () => {
     expect(container.textContent).not.toContain("Could not refresh your errands");
   });
 
+  it("stops polling once a refresh finds every errand final, and keeps the list through a failed one", async () => {
+    serve([errand("open", "OPEN")]);
+    await render();
+    expect(scheduled).toEqual([30_000]);
+
+    serve([errand("open", "COMPLETED")]);
+    await act(async () => window.dispatchEvent(new window.Event("online")));
+    await settle();
+    expect(scheduled).toEqual([30_000]);
+    expect(section("Past")?.textContent).toContain("Supplier open");
+
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ error: { code: "UNAVAILABLE", message: "Try later." } }), {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      })) as typeof fetch;
+    await act(async () => window.dispatchEvent(new window.Event("online")));
+    await settle();
+    expect(scheduled).toEqual([30_000, 30_000]);
+    expect(container.textContent).toContain("Could not refresh your errands");
+    expect(section("Past")?.textContent).toContain("Supplier open");
+  });
+
+  it("cancels a page still loading when the mode changes, and leaves no error behind", async () => {
+    const more: Request[] = [];
+    serve([errand("done", "COMPLETED"), errand("delivery", "COMPLETED", { myRole: "COURIER" })], true);
+    const answer = globalThis.fetch;
+    globalThis.fetch = (async (request: Request) => {
+      if (!new URL(request.url).searchParams.has("cursor")) return answer(request);
+      more.push(request);
+      return new Promise<Response>((_, reject) =>
+        request.signal.addEventListener("abort", () => reject(new window.DOMException("Aborted", "AbortError"))),
+      );
+    }) as typeof fetch;
+    await render();
+    const loadMore = [...container.querySelectorAll("button")].find((b) => b.textContent === "Load more errands")!;
+    await act(async () => loadMore.click());
+    await settle();
+    expect(more).toHaveLength(1);
+    expect(more[0]!.signal.aborted).toBe(false);
+
+    auth.user.profile.preferredMode = "COURIER";
+    await act(async () => root.render(<StoreProvider><OrderHistoryPage /></StoreProvider>));
+    await settle();
+    expect(more[0]!.signal.aborted).toBe(true);
+    expect(section("Past deliveries")?.textContent).toContain("Supplier delivery");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it("polls quickly while credits move, slowly while errands are active, and not once all are past", async () => {
     serve([errand("pending", "COMPLETION_PENDING_CREDIT"), errand("open", "OPEN")]);
     await render();

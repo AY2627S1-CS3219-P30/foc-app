@@ -100,12 +100,17 @@ function fakeServices({ available = 10 } = {}) {
     answer: (): Promise<Response> | Response => json(201, order()),
     reads: [] as (Order | Response | Promise<Response>)[],
     gets: 0,
+    wallet: (): Promise<Response> | Response =>
+      json(200, { userId: 'me', available, reserved: 0, total: available, createdAt: '', updatedAt: '' }),
+    walletReads: 0,
     async fetch(request: Request): Promise<Response> {
       const { pathname } = new URL(request.url);
       if (pathname === `/orders/${ORDER_ID}/history`) return json(200, { orderId: ORDER_ID, entries: [] });
       if (pathname === `/suppliers/${SUPPLIER_ID}`) return json(200, supplier);
-      if (pathname === '/wallets/me')
-        return json(200, { userId: 'me', available, reserved: 0, total: available, createdAt: '', updatedAt: '' });
+      if (pathname === '/wallets/me') {
+        services.walletReads++;
+        return services.wallet();
+      }
       if (pathname === '/orders' && request.method === 'POST') {
         services.posts.push({ key: request.headers.get('idempotency-key'), body: await request.json() });
         return services.answer();
@@ -349,6 +354,62 @@ describe('review and submit', () => {
     await act(async () => button(container, 'Post request').click());
     await flush();
     expect(router.replace).toHaveBeenCalledWith(`/request/${ORDER_ID}`);
+  });
+
+  it('reads the balance from the shared wallet, once on arriving and once per retry', async () => {
+    const services = fakeServices();
+    let respond!: () => void;
+    services.wallet = () => new Promise((resolve) => (respond = () => resolve(failure(503, 'UNAVAILABLE', 'down'))));
+    const container = await render(<ReviewPage />, services);
+    expect(container.textContent).toContain('Loading your balance…');
+    // The provider's own read, then the review step's fresh one, which cancels it.
+    expect(services.walletReads).toBe(2);
+
+    respond();
+    await flush();
+    expect(container.textContent).toContain('Could not load your balance');
+    expect(container.textContent).toContain('down');
+
+    services.wallet = () => json(200, { userId: 'me', available: 10, reserved: 0, total: 10, createdAt: '', updatedAt: '' });
+    await act(async () => button(container, 'Try again').click());
+    await flush();
+    expect(services.walletReads).toBe(3);
+    expect(container.textContent).not.toContain('Could not load your balance');
+    expect(container.textContent).toContain('Available after reserving the reward7 credits');
+  });
+
+  it('shows the balance the credit pill reads, refreshed with it', async () => {
+    const services = fakeServices({ available: 10 });
+    const container = await render(<ReviewPage />, services);
+    expect(container.textContent).toContain('Available balance10 credits');
+    const reads = services.walletReads;
+
+    services.wallet = () => json(200, { userId: 'me', available: 2, reserved: 0, total: 2, createdAt: '', updatedAt: '' });
+    await act(async () => window.dispatchEvent(new window.Event('online')));
+    await flush();
+    expect(services.walletReads).toBe(reads + 1);
+    expect(container.textContent).toContain('This reward needs 3 credits and you have 2 available.');
+    expect(button(container, 'Post request').disabled).toBe(true);
+  });
+
+  it('reads the balance again before posting skipped edits as a new request', async () => {
+    saveDraft({ ...DRAFT, reward: 4, sentBody: toCreateOrder(DRAFT) });
+    const services = fakeServices();
+    const answers = [
+      failure(422, 'IDEMPOTENCY_KEY_REUSED', 'This Idempotency-Key was already used.'),
+      json(200, order()),
+    ];
+    services.answer = () => answers.shift()!;
+    const container = await render(<ReviewPage />, services);
+    await act(async () => button(container, 'Post request').click());
+    await flush();
+    const reads = services.walletReads;
+
+    services.wallet = () => json(200, { userId: 'me', available: 3, reserved: 0, total: 3, createdAt: '', updatedAt: '' });
+    await act(async () => button(container, 'Post these changes as a new request').click());
+    await flush();
+    expect(services.walletReads).toBe(reads + 1);
+    expect(container.textContent).toContain('This reward needs 4 credits and you have 3 available.');
   });
 
   it('takes the service\'s field errors back to the details form', async () => {

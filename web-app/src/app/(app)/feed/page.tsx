@@ -8,17 +8,15 @@ import { Button } from "@/components/Button";
 import { ErrandCard, ErrandGrid } from "@/components/ErrandCard";
 import { FormAlert, FormField } from "@/components/FormField";
 import { EmptyState, ErrorState, LoadingState } from "@/components/States";
-import { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth";
 import { boardReadDelay, useLive } from "@/lib/live/live";
 import { STUDENT_NAV } from "@/lib/nav";
 import { listMyOrders, listOpenOrders, type MyOrder, type OpenOrder } from "@/lib/order-api";
 import { ORDER_ACTIONS } from "@/lib/order-actions";
 import { PENDING_POLL_MS, statusWording, waitsOnCredit } from "@/lib/order-status";
-import { appendPage, refreshPage, type PagedOrders } from "@/lib/paged-orders";
 import { useNowAfter } from "@/lib/use-now";
 import { useOrderAction } from "@/lib/use-order-action";
-import { usePoll } from "@/lib/use-poll";
+import { usePagedPoll } from "@/lib/use-paged-poll";
 import { useUrlFlag } from "@/lib/use-query-param";
 import type { PreferredMode } from "@/lib/user-api";
 import styles from "./feed.module.css";
@@ -29,7 +27,15 @@ const WITHDRAWN = "You withdrew from the errand. Another courier can take it, un
 
 /** `expiresAt` counts from the server's `timeRemainingSeconds`, so a wrong device clock can't skew it. */
 type Listing = OpenOrder & { expiresAt: number };
-type FeedItems = { key: string; mode: PreferredMode; page: PagedOrders<MyOrder | Listing> };
+type Page = { items: (MyOrder | Listing)[]; nextCursor: string | null };
+
+function toListings(open: { items: OpenOrder[]; nextCursor: string | null }) {
+  const readAt = Date.now();
+  return {
+    items: open.items.map((o) => ({ ...o, expiresAt: readAt + o.timeRemainingSeconds * 1000 })),
+    nextCursor: open.nextCursor,
+  };
+}
 
 function useFeed(mode: PreferredMode | undefined, pickupBuilding: string, minimumReward: string) {
   const { authed } = useAuth();
@@ -42,104 +48,26 @@ function useFeed(mode: PreferredMode | undefined, pickupBuilding: string, minimu
     };
   }, [pickupBuilding, minimumReward]);
   const key = JSON.stringify([mode, filters.pickupBuilding?.toLowerCase(), filters.minReward]);
-  const [result, setResult] = useState<FeedItems | null>(null);
-  const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
-  const [moreFailure, setMoreFailure] = useState<{ key: string; message: string } | null>(null);
-  const [moreInFlight, setMoreInFlight] = useState<string | null>(null);
+  const readPage = useCallback(
+    async (signal: AbortSignal, cursor?: string): Promise<Page> => {
+      if (mode === "REQUESTER")
+        return authed((token) => listMyOrders(token, { role: mode, active: true, cursor }, signal));
+      return toListings(await authed((token) => listOpenOrders(token, { ...filters, cursor }, signal)));
+    },
+    [authed, mode, filters],
+  );
   const read = useCallback(
     async (signal: AbortSignal) => {
       if (!mode) return null;
-      try {
-        if (mode === "REQUESTER") {
-          const mine = await authed((token) => listMyOrders(token, { role: mode, active: true }, signal));
-          if (signal.aborted) return null;
-          const items = mine.items;
-          setResult((current) => ({
-            key,
-            mode,
-            page: refreshPage(current?.key === key ? current.page : null, mine),
-          }));
-          setFailure(null);
-          return items.some((o) => waitsOnCredit(o.status)) ? PENDING_POLL_MS : FEED_POLL_MS;
-        }
-        const open = await authed((token) => listOpenOrders(token, filters, signal));
-        if (signal.aborted) return null;
-        const readAt = Date.now();
-        const page = {
-          items: open.items.map((o) => ({ ...o, expiresAt: readAt + o.timeRemainingSeconds * 1000 })),
-          nextCursor: open.nextCursor,
-        };
-        setResult((current) => ({
-          key,
-          mode,
-          page: refreshPage(current?.key === key ? current.page : null, page),
-        }));
-        setFailure(null);
-      } catch (err) {
-        if (signal.aborted) return null;
-        setFailure({ key, message: err instanceof ApiError ? err.message : "Something went wrong." });
-      }
-      return FEED_POLL_MS;
+      const page = await readPage(signal);
+      const pending = page.items.some((o) => waitsOnCredit(o.status));
+      return { lists: { page }, delay: pending ? PENDING_POLL_MS : FEED_POLL_MS };
     },
-    [authed, mode, filters, key],
+    [mode, readPage],
   );
-  const reload = usePoll(read);
-  // A page still loading is cancelled with the feed, or when its filters change, as `read` is.
-  const moreRequest = useRef<AbortController | null>(null);
-  useEffect(() => () => moreRequest.current?.abort(), [key]);
-  const loadMore = useCallback(async () => {
-    const cursor = result?.key === key ? result.page.nextCursor : null;
-    if (!mode || !cursor || moreInFlight === key) return;
-    const controller = new AbortController();
-    moreRequest.current = controller;
-    const { signal } = controller;
-    setMoreInFlight(key);
-    setMoreFailure(null);
-    try {
-      if (mode === "REQUESTER") {
-        const next = await authed((token) =>
-          listMyOrders(token, { role: mode, active: true, cursor }, signal),
-        );
-        if (signal.aborted) return;
-        setResult((current) =>
-          current?.key === key && current.page.nextCursor === cursor
-            ? { ...current, page: appendPage(current.page, next) }
-            : current,
-        );
-      } else {
-        const next = await authed((token) => listOpenOrders(token, { ...filters, cursor }, signal));
-        if (signal.aborted) return;
-        const readAt = Date.now();
-        const page = {
-          items: next.items.map((o) => ({ ...o, expiresAt: readAt + o.timeRemainingSeconds * 1000 })),
-          nextCursor: next.nextCursor,
-        };
-        setResult((current) =>
-          current?.key === key && current.page.nextCursor === cursor
-            ? { ...current, page: appendPage(current.page, page) }
-            : current,
-        );
-      }
-    } catch (err) {
-      if (signal.aborted) return;
-      setMoreFailure({ key, message: err instanceof ApiError ? err.message : "Something went wrong." });
-    } finally {
-      setMoreInFlight((current) => (current === key ? null : current));
-    }
-  }, [authed, filters, key, mode, moreInFlight, result]);
-  const remove = useCallback((orderId: string) => {
-    setResult((current) =>
-      current?.key === key
-        ? {
-            ...current,
-            page: {
-              ...current.page,
-              items: current.page.items.filter((item) => item.orderId !== orderId),
-            },
-          }
-        : current,
-    );
-  }, [key]);
+  const readMore = useCallback((cursor: string, signal: AbortSignal) => readPage(signal, cursor), [readPage]);
+  const feed = usePagedPoll(key, read, readMore);
+  const { reload } = feed;
   // N1.4: a requester's errands change with their own errand nudges; the open list on the board,
   // read a moment later by each feed, so they do not all read it at once.
   const boardRead = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -152,15 +80,7 @@ function useFeed(mode: PreferredMode | undefined, pickupBuilding: string, minimu
       boardRead.current = setTimeout(reload, boardReadDelay());
     }
   });
-  return {
-    result: result?.key === key ? result : null,
-    problem: failure?.key === key ? failure.message : null,
-    moreProblem: moreFailure?.key === key ? moreFailure.message : null,
-    loadingMore: moreInFlight === key,
-    loadMore,
-    remove,
-    reload,
-  };
+  return feed;
 }
 
 function timeLeft(ms: number) {
@@ -190,7 +110,7 @@ export default function FeedPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const showWithdrawn = useCallback(() => setNotice(WITHDRAWN), []);
   useUrlFlag("withdrawn", showWithdrawn);
-  const listings = result?.mode === "COURIER"
+  const listings = result && mode === "COURIER"
     ? result.page.items.filter((item): item is Listing => "expiresAt" in item)
     : null;
   const now = useNowAfter((time) => nextChange(listings, time));
@@ -224,7 +144,7 @@ export default function FeedPage() {
       }
     />
   ));
-  const requesterCards = (result?.mode === "REQUESTER"
+  const requesterCards = (result && mode === "REQUESTER"
     ? result.page.items.filter((item): item is MyOrder => "myRole" in item)
     : []).map((order) => (
     <ErrandCard
@@ -280,9 +200,9 @@ export default function FeedPage() {
         ) : (
           <ErrandGrid>{cards}</ErrandGrid>
         )}
-        <FormAlert>{moreProblem ? `Could not load more errands. ${moreProblem}` : null}</FormAlert>
+        <FormAlert>{moreProblem ? `Could not load more errands. ${moreProblem.message}` : null}</FormAlert>
         {result.page.nextCursor && (
-          <Button variant="outline" onClick={loadMore} disabled={loadingMore}>
+          <Button variant="outline" onClick={() => loadMore("page")} disabled={!!loadingMore}>
             {loadingMore ? "Loading…" : "Load more"}
           </Button>
         )}
