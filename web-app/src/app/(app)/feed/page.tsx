@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-11-08
+// Scope: Implementation for "request composer on the Order API" (WEB-00, WEB-01, WEB-02); also bug
+//   fixes, refactoring and tests.
+// Author review: Patrick Thomas, Jonus Ho and Anselm Long validated correctness and the
+//   implementation, and checked for fatal errors and architectural conflicts, before committing.
+
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
