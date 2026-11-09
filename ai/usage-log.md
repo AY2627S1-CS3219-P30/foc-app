@@ -33,7 +33,7 @@ Commit counts leave out merge commits and are taken from `main` at `646c67e` (8 
 | Jonus Ho       | Claude Code; GitHub Copilot coding agent | 37 of 140                     | 20 key       |
 | Anselm Long    | Claude Code                              | 96 of 110[^claude]            | 20 key       |
 | Isaac Chua     | Claude Code                              | 50 of 96                      | to be added  |
-| Patrick Thomas | Claude Code                              | 57 of 79                      | to be added  |
+| Patrick Thomas | Claude Code                              | 57 of 79                      | 20 key       |
 | Zhang Yuan     | Claude Code                              | 54 of 55                      | 20 key       |
 
 [^claude]:
@@ -542,7 +542,303 @@ how can my friends modify the server and stuff?
 
 - **Tool:** Claude Code (Anthropic). Models named in commit trailers: Claude Opus 5.5 (1M context) (46), Claude Opus 4.8 (1M context) (11), Claude Fable 5.1 (1).
 - **AI-assisted commits on `main`:** 57 of 79.
-- **Prompts:** to be added by Patrick. See [Adding your prompts](#adding-your-prompts).
+- **Prompts:** 20 key prompts, below, from the Claude Code transcripts on Patrick's laptop. They
+  start on 13 Oct 2026 and cover the 12 AI-assisted commits made on it (13 Oct to 4 Nov). The
+  other 45, from 28 Sep to 29 Oct, were made on Patrick's Mac mini (author email
+  `patrick@patricks-Mac-mini.local`), whose transcripts are not in this export.
+
+### Key prompts
+
+20 key prompts, picked by Patrick Thomas from their 89 Claude Code prompts between 13 Oct 2026 and 9 Nov 2026. Exported with `ai/export-claude-code-log.py`. Times are SGT. Models: `claude-opus-5-5`.
+
+| All 89 prompts, by use (tagged by keyword)                | Prompts |
+| --------------------------------------------------------- | ------- |
+| General request                                           | 20      |
+| Review and verification                                   | 15      |
+| Debugging                                                 | 13      |
+| Release and PR workflow                                   | 12      |
+| Documentation and slides                                  | 10      |
+| Learning / explanation                                    | 9       |
+| Design and decisions (topic)                              | 6       |
+| Requirements and planning (topic)                         | 2       |
+| Routine: approvals, push and merge notices, status checks | 1       |
+| Implementation                                            | 1       |
+
+#### Tue 13 Oct 2026
+
+**12:13** · Requirements and planning (topic) · `pastchum/drom0` · claude-opus-5-5
+
+```text
+on the branch pastchum:pastchum/pasted-text-review,
+
+
+
+Solid D2 deliverable — server authz is right (`@Authenticated` on reads, `@AdminOnly` + `If-Match` on writes), 422 field errors are wired to inputs with `aria-invalid`/`aria-describedby`, effects cancel properly, and the image fallback is accessible. A few things I'd want fixed:
+
+### Blocking
+
+**1. Each listing page makes 21 requests, and one failure blanks the page** — `web-app/src/lib/supplier-api.ts:20-37`
+`listSupplierDetails` does `GET /suppliers` then `Promise.all` over 20 `GET /suppliers/{id}`, and it reruns on every filter/sort/page/debounced search. Any single detail call that times out or 5xxs rejects the lot and the user gets "Could not load suppliers" even though the list loaded. Root cause is `SupplierListItem` (`contracts/supplier-service.openapi.yaml:382-390`) lacking `floor`, `locationDescription`, `openingHours` — adding them is additive and passes the new compat gate. Interim: `Promise.allSettled` with the summary as fallback.
+
+**2. No page-level tests** — `page.tsx` holds most of the logic but only `SupplierCard`, `SupplierForm` (one 422) and URL-building are tested. At minimum: filter resets to page 1, PUT/DELETE send `If-Match`, a failed detail fetch, retry, and students not seeing "Add supplier". #128's DoD also asks for integration tests.
+
+### Should fix
+- **Hard-coded building list** (`supplier-display.ts:13-33`) — a supplier added in a new building can never be filtered for, and #128 says no hard-coded supplier data. A facet endpoint or merging buildings from results would do.
+- **Edit form opens off-screen** (`page.tsx:154-161`) — at 360 px clicking Edit on a lower card does nothing visible. Focus the form heading + `scrollIntoView` (or use a dialog), and return focus on cancel/save.
+- **Focus lost on page change** (`page.tsx:242-294`) — pagination unmounts while loading so focus drops to `<body>`. Keep the list mounted with `aria-busy`, or move focus to the results count.
+- **412 STALE_VERSION leaves the admin stuck** (`page.tsx:92-109`) — the form keeps the stale `editing.version` so every retry 412s. Re-fetch on 412 and keep typed values. Delete shows the 412 text but doesn't `reload()`.
+- **Opening-hours errors shown twice** (`SupplierForm.tsx:65-74`, `:225`) — `error('openingHours')` matches every `openingHours.*` path; duplicate-day errors only show in the generic alert.
+- **CI coverage** — the 4 skips are expected for a web-only diff, but nothing exercises the web app against a real Supplier Service, so the 20 cards / axe / 403 claims are manual-only. Worth attaching the evidence, or routing `suppliers/**` to the stack job.
+
+### Minor
+- Branch is 87 commits behind main — no semantic conflicts I could see, but rebase and re-run CI.
+- Single quotes in `ResponsiveShell.tsx` / `supplier-api.ts` and new files; rest of `web-app` uses double quotes.
+- `showCreditPill={false}` (`page.tsx:146`) hides the credit pill for students too — `{!admin}`?
+- Suppliers link is added inline (`page.tsx:144`) rather than in `ADMIN_NAV`, so it's missing from `/admin`.
+- `SupplierForm.tsx:106` — "a, b," sends an empty tag and 422s; `.filter(Boolean)`.
+- "Add supplier" while editing silently discards the edit; the `role="status"` count remounts each load so may not be announced; no focus move to first invalid field after 422.
+- `SupplierCard.tsx:81` checks `latitude !== null` — if the generated type allows `undefined` the map link becomes `q=undefined,undefined`.
+
+
+what fixes areq required?
+```
+
+> **Key response:** You need six fixes before merging. The rest can wait or be dropped. I checked each point against the PR #200 code (`pastchum/pasted-text-review`), and one of the minor points turned out not to be a bug. Required before merge 1. **One failed detail call blanks the whole page** (`supplier-api.ts:27`). This is real:
+
+**12:15** · Debugging · `pastchum/supplier-service-fixes` · claude-opus-5-5
+
+```text
+generate a prompt to fix each of 1 through 6 on the required before merging
+```
+
+> **Key response:** Here are six prompts, one per fix. Each one is self-contained. Run them in this order, on the same branch, one after another: 1. **#6 (rebase)** first, so every other fix lands on current `main`. 2. **#1, #3, #4, #5** next. They all touch `page.tsx`, so running them in parallel would cause conflicts. 3.
+
+**12:16** · Design and decisions (topic) · `pastchum/supplier-service-fixes` · claude-opus-5-5
+
+```text
+Branch: pastchum/pasted-text-review (PR #200). Work in web-app/.
+
+Bug: `listSupplierDetails` in web-app/src/lib/supplier-api.ts does GET /suppliers, then `Promise.all` over up to 20 GET /suppliers/{id} calls. If any one detail call fails (timeout/5xx/404 because it was deleted between calls), the whole promise rejects and web-app/src/app/(app)/suppliers/page.tsx shows "Could not load suppliers", even though the list itself loaded.
+
+Fix (interim, client-side only; do NOT change the OpenAPI contract in this PR):
+1. Switch to `Promise.allSettled`. For each rejected detail call, fall back to the `SupplierListItem` summary (supplierId, name, type, building, imageUrl) instead of failing.
+2. Model the result so the UI knows which entries are partial, e.g. return `suppliers: Array<{ summary: SupplierListItem; detail: Supplier | null }>` or a discriminated union. Export a `SupplierListItem` type from components['schemas']['SupplierListItem'].
+3. Update SupplierCard (web-app/src/components/SupplierCard.tsx) to render a summary-only entry: show name/type/building/image, show "Details unavailable" (or similar) in place of floor/location/hours/tags/map, and hide Edit for that card (editing needs `version`). Delete can stay hidden too.
+4. Only throw (and show the page-level ErrorState) when the GET /suppliers list call itself fails.
+5. Keep the existing cancellation (`current` flag) and page-clamping logic in page.tsx working with the new shape.
+6. Match surrounding style (double quotes if main uses them after rebase; check eslint/prettier config).
+
+Tests: in web-app/test/supplier-api.test.ts add cases where (a) all details succeed, (b) one detail call rejects → result still has all items, that one marked summary-only, (c) list call fails → rejects. In web-app/test/suppliers.test.tsx add a SupplierCard test for the summary-only rendering (no Edit button, fallback text).
+
+Run `bun test`, `bun run lint`, `bun run build`. Commit as `fix(web): degrade to summaries when a supplier detail fetch fails`.
+
+Also draft (don't file) a follow-up issue: add floor, locationDescription, openingHours to SupplierListItem in contracts/supplier-service.openapi.yaml (additive, passes the compat gate) so the listing needs one request instead of 21.
+```
+
+> **Key response:** I've committed the fix as `d2bc6fd` (`fix(web): degrade to summaries when a supplier detail fetch fails`). It's on a new local branch, `pastchum/supplier-detail-fallback`, not on PR #200's branch, and nothing is pushed.
+
+**12:22** · Learning / explanation · `pastchum/pasted-text-review` · claude-opus-5-5
+
+```text
+stash pop and compare the changes to what you originally intended to do. what is the difference in the approaches?
+```
+
+> **Key response:** I applied the stash on `pastchum/pasted-text-review`, here in this workspace. It applied cleanly, I dropped the entry afterwards, and the stash list is now empty. The changes are uncommitted, and all 89 tests pass with them. My version is still committed separately on `pastchum/supplier-detail-fallback` (`d2bc6fd`).
+
+**12:54** · Requirements and planning (topic) · `pastchum/pasted-text-review` · claude-opus-5-5
+
+```text
+Branch: pastchum/pasted-text-review (PR #200, closes #128). Work in web-app/. Fixes for partial detail failures, 412 recovery, form focus and live building lists should already be on the branch. Read the current page.tsx before writing tests.
+
+Gap: web-app/src/app/(app)/suppliers/page.tsx holds most of the logic but has no tests. Only SupplierCard, one SupplierForm 422 case and URL building are covered (web-app/test/suppliers.test.tsx, web-app/test/supplier-api.test.ts). #128's Definition of Done requires "Unit and integration tests committed alongside the change".
+
+Part A: page tests (bun:test + happy-dom, following the setup at the top of web-app/test/suppliers.test.tsx). Mock `useAuth` (authed should call its callback with a fake token; `user.roles` controls admin vs student) and either mock `supplierApi` or stub `fetch` to route by method + path. Prefer stubbing fetch, so the real openapi-fetch client and ApiError mapping are exercised. Add web-app/test/suppliers-page.test.tsx covering:
+1. Initial load calls GET /suppliers with page=1, pageSize=20, sort=name, order=asc and renders one card per item plus "N suppliers found".
+2. Changing type, building, sort or order while on page 2 resets to page 1 (assert the query string of the next request).
+3. Typing in search is debounced (use fake timers): only one request after 300 ms, and it resets to page 1.
+4. Next/Previous pagination sends the right page and disables at the ends.
+5. List request fails → ErrorState with "Could not load suppliers"; clicking Retry re-requests and renders cards.
+6. One detail request fails → page still renders, that card is summary-only.
+7. Empty result → EmptyState copy.
+8. Student (`roles: ["STUDENT"]`): no "Add supplier", no Edit/Delete buttons. Admin: all present.
+9. Admin edit → PUT /suppliers/{id} sent with If-Match equal to the supplier's version and the form's body. Admin delete (stub window.confirm → true) → DELETE with If-Match, then the list reloads.
+10. PUT 412 → form keeps typed values, and the retry uses the refreshed version.
+11. PUT 422 with details → field errors render with aria-invalid on the matching inputs.
+
+Part B: integration test. Look at how other services/web features in the repo do integration or stack tests (search .github/workflows, any docker-compose test job, Playwright config). If a stack/e2e harness exists, add a supplier-listing test that runs against the real Supplier Service:
+- student browses and sees cards
+- student POST /suppliers returns 403
+- admin creates, edits, deletes
+Then make CI run it when suppliers/** or web-app/src/app/(app)/suppliers/** changes. If no harness exists, write the smallest viable one (e.g. a bun test that hits a running supplier service via SUPPLIER_SERVICE_URL, skipped when unset) and document how to run it in web-app/README.md. Tell me which route you took.
+
+Run `bun test`, `bun run lint`, `bun run build`. Commit Part A and Part B separately: `test(web): cover supplier page flows` and `test(web): add supplier listing integration test`.
+```
+
+> **Key response:** I've added both test layers and made two commits on `pastchum/pasted-text-review`: `b6609a3 test(web): cover supplier page flows` and `e2de01a test(web): add supplier listing integration test`. I haven't pushed, so the new CI job hasn't run on GitHub yet.
+
+#### Tue 20 Oct 2026
+
+**17:04** · Review and verification · `pastchum/xx3t6` · claude-opus-5-5
+
+```text
+give me a code review on the branch feat/235-admin-account-errands
+```
+
+> **Key response:** I reviewed `feat/235-admin-account-errands` (commit `40983d9`) against `main`: 9 files, about 310 added lines. I couldn't run the tests or the type check because `web-app/node_modules` isn't installed. I read the code for the first three findings myself and they hold up.
+
+#### Wed 21 Oct 2026
+
+**16:00** · Learning / explanation · `pastchum/47dm6` · claude-opus-5-5
+
+```text
+pastchum/release-reason-order-projection for PR #257
+
+Pull in PR comments, assess validity and explain why the issues come about
+```
+
+> **Key response:** I read all five review comments on PR #257 (all from volleyballkickedme) and checked each one against the PR branch. All five are valid. None is a correctness bug: the code does what the PR says. Four are about tests or docs, and one points at a privacy leak that was there before this PR. 1.
+
+**16:06** · Release and PR workflow · `pastchum/release-reason-order-projection` · claude-opus-5-5
+
+```text
+.context/attachments/BQ81Ql/Transcript of PR #257 issues explanation.md was 1 always an issue before this PR?
+```
+
+> **Key response:** Yes. Issue 1 was already there before PR #257, and the PR doesn't make it worse. **Where it came from:** commit `e2ecb76` (2026-10-19, "fix(order): keep suspensions private…") added both `withoutSuspension` (`order-service/src/orders/orders.service.ts:26`) and the contract's "so it does not reveal the suspension" …
+
+**17:07** · Debugging · `pastchum/zkrz7` · claude-opus-5-5
+
+```text
+for branch fix/260-system-outcome-for-every-system-move with PR #261,
+
+/code-review
+perform a code review on it.
+```
+
+> **Key response:** I reviewed PR #261 (`fix/260-system-outcome-for-every-system-move`) and found 8 issues. Two are real bugs in `asParticipantSees`, two are leaks the new README doesn't mention, and four are about tests. Bugs in the masking logic (`order-service/src/orders/orders.service.ts`) 1.
+
+**17:08** · General request · `pastchum/m9ja5` · claude-opus-5-5
+
+```text
+investigate and assess what needs to be done for issues WEB 02, WEB-03 and WEB-05
+```
+
+> **Key response:** The backend for all three issues is already done. Every ticket they're blocked by (ORD-03/04/10/11, CRD-05, WEB-01) is closed, so this is front-end work in `web-app/`. Right now the feed, order history, wallet, and the detail and edit pages for mock errands all read the in-memory mock store (`src/lib/store.tsx`).
+
+**17:35** · Learning / explanation · `pastchum/w6qx8` · claude-opus-5-5
+
+```text
+pull in branch pastchum/web-04-connectivity-recovery with PR #259
+
+triage the PR comments, assess their validity and explain for each one why the issue comes about.
+
+display a summary of all the findings in the following table at the end:
+| comment number | validity | reason |
+|-----------------|----------|----------|
+```
+
+> **Key response:** I've checked out `pastchum/web-04-connectivity-recovery` (PR #259). It has one review from jonushzw: an approval-style comment ("nothing blocking") and three inline notes, all marked Minor. There are no other issue comments. --- Comment 1:
+
+#### Thu 22 Oct 2026
+
+**12:21** · Design and decisions (topic) · `main` · claude-opus-5-5
+
+```text
+generate a database schema and system diagram for the order service
+```
+
+> **Key response:** I've published both diagrams on one page: https://claude.ai/artifact/N19yJJRjZ4FuVRamHAkzTs They're built from `order-service/src/db/schema.ts`, migrations `0000` to `0015`, `app.module.ts` and the `order-service` block in `compose.yaml`.
+
+**12:56** · Learning / explanation · `main` · claude-opus-5-5
+
+```text
+how does rabbit mq being down affect services
+```
+
+> **Key response:** **Short version:** a running service keeps serving HTTP and accepting writes while RabbitMQ is down. What stops is anything that happens _between_ services, because those steps travel as events. Once the broker comes back, everything catches up and nothing is lost. The one weak spot is startup:
+
+**12:59** · Learning / explanation · `main` · claude-opus-5-5
+
+```text
+how do i demo the rabbit mq duplicate message
+```
+
+> **Key response:** All 19 checks passed, so the duplicate part is working. Step 2 shows that the two extra copies were counted as duplicates and moved no extra credits: still one wallet, one issue of 10 credits. On the day, run `./scripts-demo-journey.sh --stage` before the slot.
+
+**14:29** · General request · `pastchum/xrhs3` · claude-opus-5-5
+
+```text
+investigate the raw sql code in each of the services.
+
+i want to know if they can be converted into drizzle-kit to simplify deployments
+```
+
+> **Key response:** I didn't change anything. Short answer: **the services already use drizzle-kit for migrations.** The hand-written SQL that's left is mostly things drizzle-kit can't express, so converting more of it wouldn't make deployments simpler. There are a few smaller cleanups worth doing.
+
+#### Tue 27 Oct 2026
+
+**21:41** · General request · `pastchum/3kyk1` · claude-opus-5-5
+
+```text
+pull in the issues that are assigned to @pastchum and see what needs to be done
+```
+
+> **Key response:** You have 8 open issues assigned to you, and none of them has a PR yet. Today is Tue 27 Oct. Here they are by deadline, taken from the D4 tracker (#288): Overdue (was due Sun 25 Oct) **#238 DOC-04:**
+
+**21:51** · Design and decisions (topic) · `pastchum/pastchum-issues-review` · claude-opus-5-5
+
+```text
+Fix issue #264 in AY2627S1-CS3219-P30/foc-app: "Web app: order page stops updating after 10 minutes on a visible tab". Run `gh issue view 264` for the full context. It's P1 and due Thu 29 Oct.
+
+The bug:
+- `useOrder` in web-app/src/lib/use-order.ts keeps polling every SETTLED_DELAY_MS once an order is settled.
+- `nextDelay()` returns `null` once `Date.now() - since.current >= IDLE_LIMIT_MS` (10 minutes). That stops `usePoll` (web-app/src/lib/use-poll.ts).
+- Only `useOnReturn` (online / visibilitychange) resets `since.current`. A tab that simply stays visible never fires either event.
+- So a student watching an OPEN errand never sees a courier accept it, and nothing on the page says updates have stopped. The same goes for a DELIVERED errand waiting for confirmation and a DISPUTED one waiting for an administrator.
+
+What to build (the fix proposed in the issue):
+1. `useOrder` also returns a `paused` boolean. It is true when settled polling has gone idle: the order isn't final, isn't waiting on credit, and `nextDelay` returned `null`. It is false again once a read happens because of a return to the tab, a refresh, or a status change. Don't count a 4xx/UNEXPECTED stop as "paused", because that is already shown through `problem`. Keep the existing behaviour otherwise, including `version` ordering, `stillWaiting`, `skew` and 404 handling.
+2. Resuming: `refresh()`, or a new `resume()` if that turns out cleaner, resets `since.current`, reads once, and restarts settled polling. Check that `usePoll`'s `readNow` actually restarts the loop after a `null` delay. If it doesn't, fix that in `usePoll` without changing how its other callers behave.
+3. In web-app/src/app/(app)/request/[id]/OrderDetail.tsx, while `paused`, show a short, polite hint such as "Updates paused" with a "Refresh" button that calls the resume path. Match the copy style, design tokens and accessibility of the existing status and problem messages (an aria-live region if the neighbouring messages use one). It must work at 360, 768 and 1440 px.
+4. Tests in web-app/test/ (bun test; follow the patterns in order-history.test.tsx and errand-actions.test.tsx). Cover at least:
+   - polling pauses after IDLE_LIMIT_MS on a settled, non-final order, and `paused` becomes true
+   - refreshing reads exactly once, `paused` becomes false, and settled polling resumes
+   - a final order never reports paused
+   - OrderDetail shows the hint and its button works
+   Use fake timers or controlled time, not real waits.
+
+Conventions: branch from origin/main as fix/264-order-updates-paused. Keep the doc comment above `useOrder` accurate. Run lint, typecheck and `bun test` in web-app before opening the PR. Open the PR against main with "Closes #264", and describe the behaviour change and how you tested it.
+```
+
+> **Key response:** I've opened PR #320, which fixes #264: https://github.com/AY2627S1-CS3219-P30/foc-app/pull/320. The order page now says when its updates have stopped and lets the student start them again. Lint and typecheck have no errors, and `bun test` passes (376 pass, 0 fail).
+
+#### Wed 4 Nov 2026
+
+**00:22** · Debugging · `pastchum/pasted-text` · claude-opus-5-5
+
+```text
+Fix the failing CI actions. I've attached the failure logs. .context/attachments/5uTfuU/Browser_journeys__smoke__126033582537.log .context/attachments/BcFIbC/Browser_journeys__release__126033582600.log .context/attachments/wbq34t/CI_126039555851.log .context/attachments/Vh4tbc/Fix errors instructions.md
+```
+
+> **Key response:** I've fixed the failure and pushed it to PR #365 as `59e31b9`. I couldn't run the end-to-end tests here because Docker isn't running, so the new CI run will be the real check. Typecheck and lint pass. **Cause:** The smoke and release browser-journey jobs both failed on the same thing.
+
+#### Mon 9 Nov 2026
+
+**04:35** · Learning / explanation · `pastchum/kviv0` · claude-opus-5-5
+
+```text
+is there a ci cd way to aws such that any pushes to main will automatically deploy CI/CD onto the AWS instance set up by @anselmlong
+```
+
+> **Key response:** Yes, and most of it is already in place. You'd add one job to `ci.yml`. Nothing for AWS is in the repo yet: no workflow, runbook, `compose.aws.yaml` or AWS secrets (the only repo secrets are the old Vercel ones).
+
+**15:25** · Implementation · `pastchum/ci/cd-aws-deployment` · claude-opus-5-5
+
+```text
+do up the scripts
+```
+
+> **Key response:** I've written the scripts. Merging changes nothing until someone sets the variable that turns auto-deploy on. Nothing is committed yet. Files **`scripts-deploy.sh`** runs on the EC2 host: `./scripts-deploy.sh sha-&lt;commit>`, or a release tag such as `rc1-d4`.
 
 ### AI-assisted commits
 
