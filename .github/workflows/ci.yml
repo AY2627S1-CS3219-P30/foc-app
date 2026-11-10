@@ -763,7 +763,9 @@ jobs:
   deploy:
     name: Deploy
     needs: [publish]
-    if: vars.AWS_AUTO_DEPLOY == 'true'
+    # Without a status function, `if` implies success(), which is false when any job upstream of
+    # publish was skipped by change detection. Gate on publish's own result instead, as publish does.
+    if: always() && needs.publish.result == 'success' && vars.AWS_AUTO_DEPLOY == 'true'
     permissions:
       contents: read
       id-token: write
