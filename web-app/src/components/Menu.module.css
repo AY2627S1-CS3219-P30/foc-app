@@ -5,19 +5,19 @@
   z-index: 100;
   display: flex;
   justify-content: center;
-  animation: fade-in var(--motion-base) ease both;
+  animation: dim-in var(--motion-base) ease both;
 }
 
-@keyframes fade-in {
+/* Only the backdrop fades: the panel takes focus at once, so it is never transparent. */
+@keyframes dim-in {
   from {
-    opacity: 0;
+    background: transparent;
   }
 }
 
-/* The drawer comes down from the app bar that opened it. Reduced motion: it only fades. */
+/* The drawer comes down from the app bar that opened it. Reduced motion: it simply appears. */
 @keyframes drop-in {
   from {
-    opacity: 0;
     transform: translateY(calc(var(--motion-distance) * -3));
   }
 }

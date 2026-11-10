@@ -86,10 +86,11 @@ textarea {
   }
 }
 
-/* Something new arriving: it fades in from slightly below. Content stays visible without CSS. */
+/* Something new arriving: it firms up from slightly below. It starts partly visible, never at 0,
+   so an alert that takes focus as it arrives shows its ring from the first frame. */
 @keyframes rise-in {
   from {
-    opacity: 0;
+    opacity: 0.35;
     transform: translateY(var(--motion-distance));
   }
 }

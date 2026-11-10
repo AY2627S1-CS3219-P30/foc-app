@@ -11,9 +11,10 @@
   box-shadow: var(--shadow-lg);
 }
 
-/* It opens from where attention already is: a fade with a slight rise, the page dimming behind. */
+/* It rises slightly as the page dims behind it. It never fades from invisible: focus moves into it
+   at once, and a keyboard user's ring must show from the first frame. */
 .dialog[open] {
-  animation: rise-in var(--motion-base) var(--motion-ease-out);
+  animation: rise var(--motion-base) var(--motion-ease-out);
 }
 
 .dialog::backdrop {
@@ -21,10 +22,9 @@
   animation: backdrop-in var(--motion-base) ease;
 }
 
-/* Its own copy: a module's keyframe names are scoped, so the global rise-in isn't reachable here. */
-@keyframes rise-in {
+/* Defined here: a module's keyframe names are scoped, so globals.css's aren't reachable. */
+@keyframes rise {
   from {
-    opacity: 0;
     transform: translateY(var(--motion-distance));
   }
 }
