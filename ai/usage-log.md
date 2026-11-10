@@ -33,9 +33,13 @@ Commit counts leave out merge commits and are taken from `main` at `646c67e` (8 
 | -------------- | ---------------------------------------- | ----------------------------- | ------------ |
 | Jonus Ho       | Claude Code; GitHub Copilot coding agent | 37 of 140                     | 20 key       |
 | Anselm Long    | Claude Code                              | 96 of 110[^claude]            | 20 key       |
-| Isaac Chua     | Claude Code                              | 50 of 96                      | to be added  |
+| Isaac Chua     | Claude Code; OpenAI Codex                | 50 of 96[^codex]              | 20 key       |
 | Patrick Thomas | Claude Code                              | 57 of 79                      | 20 key       |
 | Zhang Yuan     | Claude Code                              | 54 of 55                      | 20 key       |
+
+[^codex]:
+    Commits made through OpenAI Codex carry no trailer, so they are not counted here: all of
+    Isaac's commits in PRs #201 to #209 and #313 to #325. See [Isaac Chua](#isaac-chua).
 
 [^claude]:
     Including 5 commits authored as `Claude` on Anselm's User Service tickets (USR-03, USR-05,
@@ -512,9 +516,415 @@ how can my friends modify the server and stuff?
 
 ## Isaac Chua
 
-- **Tool:** Claude Code (Anthropic). Models named in commit trailers: Claude Opus 5.5 (50).
-- **AI-assisted commits on `main`:** 50 of 96.
-- **Prompts:** to be added by Isaac. See [Adding your prompts](#adding-your-prompts).
+- **Tools:** Claude Code (Anthropic), in the desktop app. Models named in commit trailers: Claude
+  Opus 5.5 (50). OpenAI Codex (the Codex desktop app, model `gpt-5.6-sol`), from 30 Sep to 28 Oct.
+- **AI-assisted commits on `main`:** 50 of 96 carry a Claude trailer. Codex adds no trailer, so the
+  commits Isaac made through Codex are not in that count or in the table below. They are every
+  commit in PRs #201 to #209 (the Credit foundation, transfer and release, status query, the Order
+  schema and creation, and the D1 backlog revision) and #313 to #325 (the daily ledger audit #283,
+  backup and restore #284, the D4 seed #167, participant dispute history #281, and the browser
+  release journeys #160). PRs #210 to #217, #250, #300 and #326 were made through Claude Code, and
+  every commit in them carries the trailer.
+- **Prompts:** 20 key prompts, below, from both tools.
+- **Work close to the policy's limits:** Codex drafted `PROJECT_PR_CONTEXT.md`, the dependency map
+  and implementation order for Isaac's tickets (30 Sep), the text of ADRs 0002 to 0007 (in #201),
+  and the D1 backlog revision (#207). The team reviewed and approved the ADRs in the register in
+  `docs/adr/README.md` (#238). Isaac answered Codex's question on chat retention with "90 days
+  after the errand ends" (28 Oct). He passed that to the chat owners as a suggestion (#161 to
+  #163), and they decided it in ADR 0012. On 1 Oct and 26 Oct Isaac authorised merges ahead of
+  teammates' reviews; those prompts are quoted below.
+
+### Key prompts
+
+20 key prompts, picked by Isaac Chua from their 70 prompts on this project: 31 in Claude Code (10 Sep to 10 Nov 2026) and 39 in OpenAI Codex (30 Sep to 28 Oct 2026). Claude Code prompts were exported with `ai/export-claude-code-log.py`. Codex prompts were taken from the Codex desktop app's local history (`~/.codex`) with the same rules: quoted exactly, attachments and pasted text replaced by a note, Codex's own injected instructions removed, and the same redaction and use tags. Codex's Goal Mode goals are quoted as `/goal` prompts. Times are SGT.
+
+Two Codex prompts from 16 Oct, which drafted answers to the course peer evaluation, are counted but not quoted: one of those answers is confidential to the instructor.
+
+| All 70 prompts, by use (tagged by keyword)                | Prompts |
+| --------------------------------------------------------- | ------- |
+| General request                                           | 33      |
+| Documentation and slides                                  | 9       |
+| Requirements and planning (topic)                         | 7       |
+| Release and PR workflow                                   | 6       |
+| Learning / explanation                                    | 5       |
+| Implementation                                            | 4       |
+| Routine: approvals, push and merge notices, status checks | 3       |
+| Testing                                                   | 1       |
+| Debugging                                                 | 1       |
+| Design and decisions (topic)                              | 1       |
+
+#### Wed 30 Sep 2026
+
+**22:23** · Requirements and planning (topic) · OpenAI Codex · gpt-5.6-sol
+
+````text
+[attached: CS3219-Instructions-MilestoneD1.pdf, CS3219-Instructions-MilestoneD2.pdf, CS3219-ProjectDocument-FoC.pdf, Project-D1-Template.docx]
+
+[pasted text: CS3219 Complete Product and Engineering Execution Plan ProjectGroup 30 AY2627 S…; CS3219: Project Milestone 1 (D1) ProjectGroup 30 No. Full Name (as in EduRec) S…]
+
+Treat this repository and the context you establish below as the **current source of truth for the project**.
+
+Act as the software developer responsible for completing the GitHub issues and PRs assigned to **`isaacchua0309`**. Your goal is not just to implement individual issues in isolation, but to understand their relationships, dependencies, blockers, and the correct implementation order.
+
+## Phase 1 — Discover My Work
+
+Use GitHub access (for example, `gh`) to find all relevant **open issues and PRs assigned to ****`isaacchua0309`** for this repository.
+
+For each item, capture:
+
+- Issue/PR number and title
+- Description and acceptance criteria
+- Current status
+- Labels/milestone, if relevant
+- Related or linked issues/PRs
+- Explicit blockers or dependencies
+- Any useful discussion or implementation details from comments
+
+Do not rely only on issue titles. Read the full issue/PR context where available.
+
+## Phase 2 — Analyze the Existing Codebase
+
+Inspect the current repository before making implementation decisions.
+
+For each issue:
+
+1. Identify the relevant modules, files, classes, functions, APIs, schemas, and tests.
+2. Determine how the requested feature fits into the existing architecture.
+3. Identify shared components or infrastructure used by multiple issues.
+4. Determine whether implementing one issue changes or enables another.
+5. Identify technical blockers, missing infrastructure, conflicting assumptions, or unclear requirements.
+6. Distinguish between:
+   - **Explicit dependencies** stated in GitHub
+   - **Inferred technical dependencies** discovered from the codebase
+
+Do not infer a dependency merely because two issues touch similar code. Explain the concrete technical reason for every inferred dependency.
+
+## Phase 3 — Build a Dependency Map
+
+Create a dependency graph for all work assigned to me.
+
+For example:
+```less
+#101 Shared infrastructure
+ ├── #104 Feature A
+ │    └── #108 Feature A integration
+ └── #105 Feature B
+
+#106 Independent feature
+
+#109 BLOCKED
+ └── requires #105
+```
+
+For every dependency, explain **why** it exists.
+
+Classify each issue as one of:
+
+- Foundation / prerequisite
+- Independent
+- Depends on another issue
+- Blocked
+- Integration / finalization
+
+Then determine a sensible **implementation sequence** based on dependencies and the current architecture.
+
+Do not prioritize based solely on issue number or creation date.
+
+## Phase 4 — Create Persistent Project Context
+
+Create a Markdown file in the repository:
+
+`PROJECT_PR_CONTEXT.md`
+
+This file will serve as the persistent source of truth for future Codex sessions.
+
+Include:
+
+### 1. Project Overview
+
+Briefly explain the relevant architecture and feature area.
+
+### 2. Assigned Work
+
+A table containing:
+
+| IssueFeatureStatusDependenciesBlockersRelevant Code |
+| --------------------------------------------------- |
+
+### 3. Dependency Graph
+
+Show the dependency relationships between all assigned issues.
+
+### 4. Issue-by-Issue Technical Context
+
+For every issue include:
+
+- Goal
+- Acceptance criteria
+- Relevant architecture
+- Relevant files/components
+- Expected implementation
+- Dependencies
+- Blockers / uncertainties
+- Testing considerations
+
+### 5. Recommended Implementation Order
+
+Provide the proposed sequence and explain why that order minimizes rework and dependency conflicts.
+
+### 6. Shared Technical Decisions
+
+Record architectural decisions, assumptions, conventions, reusable components, and implementation constraints that should remain consistent across PRs.
+
+### 7. Progress Tracker
+```ini
+[ ] #123 — Feature
+[ ] #124 — Feature
+[ ] #125 — Feature
+```
+
+Keep this section updated as work progresses.
+
+## Important Rules
+
+- **Do not start implementing the issues yet.**
+- First establish an accurate understanding of GitHub state and the existing codebase.
+- Do not invent dependencies, requirements, or architecture.
+- If GitHub information conflicts with the implementation, explicitly document the discrepancy.
+- If something is uncertain, mark it as **UNRESOLVED** rather than guessing.
+- Cite concrete file paths, classes, functions, and issue numbers whenever possible.
+- Treat `PROJECT_PR_CONTEXT.md` as a **living document** and update it whenever an issue is completed, requirements change, blockers are discovered, or architectural decisions are made.
+- Future implementation work should consult this document before starting another issue.
+
+After creating the file, give me a concise summary of:
+
+1. How many issues/PRs are currently on my plate.
+2. The dependency structure.
+3. Which items are blocked.
+4. The recommended implementation order.
+5. Any major architectural risks or unresolved questions.
+
+**Stop after the analysis and creation of ****`PROJECT_PR_CONTEXT.md`****. Do not modify production code until I explicitly tell you to begin implementation.**
+````
+
+> **Key response:** Created `PROJECT_PR_CONTEXT.md` at `/Users/isaac/Developer/foc-app/PROJECT_PR_CONTEXT.md`. No production code was modified. - **Workload:** 11 open assigned issues; 0 open assigned PRs.
+
+#### Thu 1 Oct 2026
+
+**03:13** · Requirements and planning (topic) · OpenAI Codex · gpt-5.6-sol
+
+```text
+/goal Work in `/Users/isaac/Developer/foc-app` and review `PROJECT_PR_CONTEXT.md` before making changes.
+
+Create a single feature branch from the latest `main` to fully resolve issues **#183, #132, #133, #140, and #143**. Use a clear branch name such as:
+
+`feat/183-132-133-140-143-credit-foundation`
+
+Implement the issues in dependency order:
+
+1. Complete **#183** and **#132** as the foundational work.
+2. Complete **#133** once those foundations are in place.
+3. Complete **#140** and **#143** on top of the completed wallet-issuance work.
+
+Before implementation, inspect each issue’s current description, acceptance criteria, discussions, linked documents, and dependencies. Reconcile them with `PROJECT_PR_CONTEXT.md` and the current codebase. Do not rely on stale synchronous D1 requirements if the accepted architecture now uses asynchronous reservation. If requirements conflict or a product decision is genuinely missing, clearly identify the blocker rather than inventing behavior.
+
+For all five issues:
+
+- Implement production-quality behavior, including validation, authorization, persistence, error handling, idempotency, and concurrency handling where applicable.
+- Add or update database migrations, schemas, contracts, event definitions, API documentation, and configuration as required.
+- Add comprehensive automated tests covering successful flows, failure cases, boundary conditions, and relevant integration behavior.
+- Preserve backward compatibility unless an issue explicitly requires a breaking change.
+- Remove obsolete paths only when their replacement is complete and verified.
+- Keep changes focused on these five issues and avoid unrelated refactoring.
+
+Work autonomously until all five issues satisfy their acceptance criteria. Run the full relevant test suite, linting, type checking, builds, migration validation, and any repository-specific checks. Fix every regression caused by the branch. Also perform a final review against each issue and record concrete evidence showing how every acceptance criterion was met.
+
+Organize the work into clear, logical commits. Do not merge into `main`. When implementation and verification are complete, push the branch and create a merge request targeting `main` that:
+
+- Summarizes the architecture and user-visible behavior.
+- Explains the dependency order and key design decisions.
+- Lists the changes made for each of #183, #132, #133, #140, and #143.
+- Includes test and validation evidence.
+- Calls out migrations, deployment considerations, compatibility risks, and any required follow-up.
+- Uses the repository’s supported issue-closing syntax for all five issues.
+
+The task is complete only when all five issues are implemented and verified, the branch is clean and pushed, CI is passing or all actionable failures are resolved, and the merge request is ready for review and safe to merge into `main`. Do not claim completion if acceptance criteria remain unmet or required verification could not be performed.
+```
+
+> **Key response:** PR [#201 — Credit foundation](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/201) is ready for review and has not been merged. - Branch: `feat/183-132-133-140-143-credit-foundation` - Final commit: `9fa83882e70acee71b064ff019e0cf43a15e7c62` - Merge state: clean - CI:
+
+**03:56** · Release and PR workflow · OpenAI Codex · gpt-5.6-sol
+
+```text
+Give me the full set of goals in chat that i can work towards with a full 7hours of curn time on goal mode on codex with all the remaining Prs assigned to me
+```
+
+> **Key response:** You currently have no open PRs formally assigned to you. You have one authored PR, [#201](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/201), plus 11 open assigned issues. Five issues are implemented by #201, leaving six issue outcomes: [code block] The best immediate seven-hour run is Goal 1.
+
+**10:44** · Requirements and planning (topic) · OpenAI Codex · gpt-5.6-sol
+
+```text
+I want you to assume that everything has been approved, reviewed and is safe to merge and commence the entire dependency tree
+
+
+
+1. PR #201: CI green and mergeable, but has zero human reviews and cannot be merged without your authorization.
+2. \#183 and #132: required human approvals remain missing.
+3. \#186: backlog revision remains incomplete.
+4. PR #202: implementation and exact-head CI are green, but it awaits review, PR #201’s merge, and retargeting to `main`.
+5. \#151, #152, #165, and #172 cannot legally begin or close until their specified dependencies are merged or approved.
+```
+
+> **Key response:** Understood. Your message explicitly authorizes the merges and removes the approval/review gates. I’ll merge PR #201 first, verify the linked issue disposition on `main`, then retarget and validate PR #202 before merging it.
+
+**11:07** · Documentation and slides · OpenAI Codex · gpt-5.6-sol
+
+```text
+I dont need a rebuilt deck. I only need the full script for the current existng deck taht i uploaded.
+```
+
+> **Key response:** Created the full script for the existing 50-slide deck, including: - Slide-by-slide narration and timing - A 7–8 minute live-demo script - 30 prepared Q&A answers - Accuracy warnings for incomplete features - Final rehearsal checklist [Download the complete D2 presentation …
+
+**11:41** · Implementation · OpenAI Codex · gpt-5.6-sol
+
+```text
+What I want you to do is to resolve all blocking issues that are blocking the progress of my goal as well and add the blockers to the goal state.
+```
+
+> **Key response:** The first edit pass is complete. I’m now running two independent checks: a structural content audit for every inserted/replaced requirement and a full DOCX render so I can inspect every page for broken tables, clipping, or pagination regressions.
+
+**14:59** · Release and PR workflow · Claude Code · claude-opus-5-5
+
+```text
+Commence the merge of all 6 open PRs after verification and commence the completetion of the unblocked issues /goal
+```
+
+> **Key response:** Two failures appeared while every workspace ran at once: an Order creation test and one system test. I'll run each on its own to tell load timeouts from real bugs.
+
+#### Tue 13 Oct 2026
+
+**16:53** · Implementation · Claude Code · claude-opus-5-5
+
+```text
+For all my open tickets, I want you to look through the codebase and identify if my tickets are blocked, independent and can just be implemnted by not needing to wait for anyhting downstream.
+```
+
+> **Key response:** You can build all of #234 now without waiting on anyone. #238 is a team ticket, and you can only do your own share of it. I checked everything against `main` at `c991910`. #234 [CRD-09] Credit D3 evidence:
+
+#### Tue 20 Oct 2026
+
+**14:12** · General request · Claude Code · claude-opus-5-5
+
+```text
+Pull and complete the full 234 /goal
+```
+
+> **Key response:** I've finished #234 and opened [PR #250](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/250) against `main`. It's not merged. CI is still running, so I can't say it passes yet. I requested review from Jonus, Zhang Yuan, Anselm and Patrick, and posted a comment on #234 listing where each item lives.
+
+**14:36** · Documentation and slides · OpenAI Codex · gpt-5.6-sol
+
+```text
+[attached: CS3219-Instructions-MilestoneD3.pdf]
+
+My goal is to complete my preperation of teh presnetaioon of my servies and demo for the d3 presentation.
+```
+
+> **Key response:** Your Credit Service preparation pack is ready. Editable deck: **3 core slides + 4 Q&A slides**, with speaker notes. [file] - [Quick cue card](/Users/isaac/Documents/Codex/2026-09-30/https-github-com-ay2627s1-cs3219-p30/outputs/d3-preparation/Isaac-D3-Cue-Card.md) - [Full rehearsal guide, speaking script and …
+
+**15:33** · Documentation and slides · OpenAI Codex · gpt-5.6-sol
+
+```text
+I dont need to present a slides or prsentation anymore. the main goal is to do the full demo walk through of the credit service as required by the D3 guideline.
+```
+
+> **Key response:** Your preparation now follows a **live Credit Service demo**. I rehearsed the complete walkthrough successfully. The sequence covers: [table] [Full walkthrough: commands, expected results and what to …
+
+#### Thu 22 Oct 2026
+
+**11:23** · General request · OpenAI Codex · gpt-5.6-sol
+
+```text
+assume that i have no instruction ro wahtever at all now. I need you to generate the full walk through script and all the commands set up for me to follow completely end to end for my entire demo portion in chat
+```
+
+> **Key response:** Your complete D3 demo script This is one self-contained sequence for **your Credit Service demonstration, N3.1 conservation/concurrency evidence, and N3.2 reconciliation**. Follow it from top to bottom. Everything you need to type, show and say is included. The commands use the demo helper already on your Mac.
+
+**12:56** · General request · OpenAI Codex · gpt-5.6-sol
+
+```text
+what happens if the rabbitmq is down
+```
+
+> **Key response:** **If RabbitMQ goes down after the application has started, the services can keep accepting database-backed work, but asynchronous Credit workflows stop progressing until the broker returns.** Credits are not automatically lost or released.
+
+**13:22** · Learning / explanation · OpenAI Codex · gpt-5.6-sol
+
+```text
+backward transition meaning
+```
+
+> **Key response:** A **backward transition** means moving an order from a later state back to an earlier state. For example: [code block] If a delayed “accepted” message arrives after completion, it must **not** change: [code block] That would incorrectly undo progress and could enable invalid actions. For your demo, say:
+
+**15:44** · Learning / explanation · OpenAI Codex · gpt-5.6-sol
+
+```text
+what are my current existing tickets and their dependency tree as well as what needs to be compelted in the current graphical order forme to make progress with my tickets
+```
+
+> **Key response:** As of **22 October 2026**, you have **5 open assigned issues and 1 open PR** in `foc-app`. Two issues are shared with teammates. Your original Credit implementation and nice-to-haves **#152 and #165 are closed**. The remaining work is D3 evidence/review, daily ledger auditing, durability, and D4 preparation. 1.
+
+#### Mon 26 Oct 2026
+
+**14:13** · Release and PR workflow · Claude Code · claude-opus-5-5
+
+```text
+I want you to merge all my MRs
+```
+
+> **Key response:** CI is running on #250's updated head (`ca767eb`). I'll admin-merge as soon as every check passes, and stop if anything fails.
+
+#### Tue 27 Oct 2026
+
+**14:36** · Release and PR workflow · OpenAI Codex · gpt-5.6-sol
+
+```text
+/goal Complete all the issues that gave no blockers fully, compelteing the entire pipeline internally and idnependently, coding, code revice, merging and closing of the issues that are compelted post merge.
+```
+
+> **Key response:** [PR #325](https://github.com/AY2627S1-CS3219-P30/foc-app/pull/325) is running in CI. The clock cases are now passing with the visibility check, and the first local release run is nearly finished. CI’s shared-package and lint checks have passed; the browser and stack jobs are still running.
+
+#### Wed 28 Oct 2026
+
+**15:39** · Design and decisions (topic) · OpenAI Codex · gpt-5.6-sol
+
+```text
+Answer to Codex's question "The remaining chat work (#161–#163), which blocks #167’s complete demo, leaves message retention unspecified. How long should messages remain available after an errand ends? I can use the separate chat service and WebSocket design you described earlier.": 90 days after the errand ends
+```
+
+> **Key response:** I’ll use **90 days after the errand ends** for chat retention and record that as your decision. Active errands will retain their messages. The first clean release run has passed all 42 cases. The runner has reset its test volumes and started the second run.
+
+**16:14** · General request · Claude Code · claude-opus-5-5
+
+```text
+/goal using the previous chat as context continue where codex ended from and compelte his goal
+```
+
+> **Key response:** CI for #326 is running. It's docs-only, so it should be quick. I'll merge it when it's green.
+
+#### Tue 10 Nov 2026
+
+**12:03** · Documentation and slides · Claude Code · claude-opus-5-5
+
+```text
+Pull the latest code.
+
+Complete my backload tagged @[handle]
+
+outstanding
+@[handle] Isaac: review AY2627S1-CS3219-P30/foc-app#405 · docs(#167): the D4 runbook's…, and add his prompts to AY2627S1-CS3219-P30/foc-app#397 · docs: add the AI usage log and… by Tue 12:00.
+```
+
+> **Key response:** Review submitted. Now #397. I'm reading your section of `ai/usage-log.md` and the exporter's format, then finding your transcripts. You used Codex for most foc-app work and Claude Code in this session.
 
 ### AI-assisted commits
 

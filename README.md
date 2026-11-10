@@ -1273,6 +1273,9 @@ document). Each member's key prompts and responses, and their AI-assisted commit
 - **Claude Code** (Anthropic), used by all five of us. Models: mostly Claude Opus 5.5, with Claude
   Opus 5, Claude Sonnet 5, Claude Opus 4.8 and Claude Fable 5.1.
 - **GitHub Copilot coding agent**, for two merge commits.
+- **OpenAI Codex** (the Codex desktop app, model `gpt-5.6-sol`), used by Isaac from 30 Sep to
+  28 Oct. Its commits carry no trailer; [Isaac's section](ai/usage-log.md#isaac-chua) of the log
+  lists the PRs.
 
 **Used for**
 
