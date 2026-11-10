@@ -4,10 +4,7 @@ info:
   version: 1.0.0-draft.1
   summary: Identity, sessions, RBAC and account status for Friend on Campus.
   description: |
-    **DRAFT — proposal for FND-03 (#117). Not frozen until the producer (Anselm) and one consumer
-    owner (Patrick for `web-app`, Jonus for platform) approve the PR.**
-
-    ## Conventions (cross-service proposals — see `contracts/README.md`)
+    ## Conventions (see `contracts/README.md`)
     - IDs are UUID strings. Timestamps are RFC 3339 UTC (`2026-09-21T08:30:00Z`).
     - Every error uses the `Error` envelope. `401` = missing/invalid/expired access token, or
       `STEP_UP_REQUIRED` (re-enter the password with `POST /auth/step-up`, then retry),

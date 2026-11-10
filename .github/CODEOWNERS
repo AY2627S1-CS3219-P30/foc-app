@@ -1,10 +1,7 @@
-# Who GitHub asks to review a change, by what it touches (NTH-04, #164). A pull request
-# requests a review from the owners of every file it changes. The last matching line wins,
-# so the more specific lines come after the folders they sit in.
-#
-# Reviews are a team rule, not enforced by branch protection: main requires the CI check.
+# The owner of each part of the repository (NTH-04, #164). The last matching line wins, so the
+# more specific lines come after the folders they sit in.
 
-# Anything no line below names, a new root file included, so no change goes unreviewed
+# Anything no line below names, a new root file included
 *                    @jonushzw
 
 # The five services, each by its owner (chat by N1.2's three)

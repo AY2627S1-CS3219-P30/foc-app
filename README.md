@@ -231,9 +231,11 @@ Then open <http://localhost:3000>. That is the edge
 ([ADR 0010](docs/adr/0010-api-edge.md)): the web app and every API on one origin, the APIs under
 `/api/user/`, `/api/supplier/`, `/api/order/` and `/api/credit/`.
 
-**This is how FoC is deployed for D4:** the whole stack in local containers, which the D3
-instructions accept. There is no hosted deployment
-([PLT-11 #286](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/286)).
+**The same stack is hosted on AWS** at <https://foc.anselmlong.com> (PLT-14,
+[#357](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/357)). One EC2 host runs this
+Compose stack from the images CI published, with Caddy in front for HTTPS and Amazon SES for
+mail. A push to `main` that passes CI deploys there by itself; see
+[Deployed to AWS](#deployed-to-aws). The D4 demo runs on it, with this local stack as the fallback.
 
 The services run with `NODE_ENV=production`
 ([PLT-10 #285](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/285)). The User Service then
@@ -265,13 +267,12 @@ fixture, so the stack shown in the D4 demo runs in development too.
 | `./scripts-restart-check.sh`          | Restart, recreate and take Postgres away      |
 | `./scripts-demo-journey.sh`           | A student, an errand and its credits, by API  |
 
-For the named D4 demonstration on a separate local stack, run `./scripts-seed-demo.sh --fresh`.
-It prepares five personas, three errands and a clean financial audit on ports 14000–14011.
-To rehearse a release's images instead of building, name it:
-`FOC_IMAGE_TAG=rc1-d4 ./scripts-seed-demo.sh --fresh`.
-Use `./scripts-seed-demo.sh --check` for the demo smoke check, and follow the
-[D4 runbook](docs/demo/d4-runbook.md) for all browser profiles/tabs, the 17-minute script and
-the outstanding real-rehearsal gates.
+The D4 demo runs on the AWS deployment, on the team's own accounts; the
+[D4 runbook](docs/demo/d4-runbook.md) has the accounts, the timed script and the rehearsals.
+Its fallback is a separate local stack: `./scripts-seed-demo.sh --fresh` prepares five personas,
+three errands and a clean financial audit on ports 14000–14011. To rehearse a release's images
+instead of building, name it: `FOC_IMAGE_TAG=rc1-d4 ./scripts-seed-demo.sh --fresh`.
+`./scripts-seed-demo.sh --check` is that stack's smoke check.
 
 For a consistent five-database backup, fresh-stack restore, timed disposable drill and prior-image
 rollback, follow the [recovery runbook](docs/runbooks/backup-restore-rollback.md). Start a backup
@@ -1102,7 +1103,7 @@ never arrive, and the PR would be blocked forever. The `CI` job always runs and
 fails if any job it depends on failed, so it is the only check that needs to be
 required on `main`.
 
-### Vulnerabilities, coverage, owners and what `main` requires
+### Vulnerabilities, coverage and pinned tools
 
 - **A critical vulnerability with a fix fails the pull request** (NTH-04,
   [#164](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/164); PL-NFR4.1.2), as a failed
@@ -1116,12 +1117,6 @@ required on `main`.
   ([`.github/actions/trivy-db`](.github/actions/trivy-db/action.yml)), so a run seldom downloads it.
   To run it: `./scripts-scan-vulnerabilities.sh --lockfile`, or `--image <name>` for an image you
   have built.
-- **Code owners.** [`.github/CODEOWNERS`](.github/CODEOWNERS) asks each service's owner, and the
-  owner of the web app, the console, the contracts and the pipeline, to review a change to theirs.
-  A catch-all line gives everything else, root files included, an owner too.
-- **What `main` requires.** Branch protection requires the `CI` check, on a branch up to date with
-  `main`, and refuses force pushes. It does not require an approval: a review by one person other
-  than the author is the team's rule (each ticket's Definition of Done), and `CODEOWNERS` requests it.
 - **Coverage is reported, not gated** (PL-NFR4.1.1). Each service's and shared package's tests run
   with `--coverage` in CI, and [`scripts-coverage-summary.sh`](scripts-coverage-summary.sh) puts
   their lines, branches and functions in the job's summary; the web app's table is in its log. No
@@ -1216,6 +1211,34 @@ through `docker buildx bake`, so a published image has exactly `compose.yaml`'s 
   under the package's settings, or you sign in first with
   `docker login ghcr.io -u <github-user>` and a token that has `read:packages`.
 
+### Deployed to AWS
+
+While the repository variable `AWS_AUTO_DEPLOY` is `true`, the `Deploy` job in CI starts each
+published `sha-<commit>` on the EC2 host behind <https://foc.anselmlong.com> (PLT-14,
+[#357](https://github.com/AY2627S1-CS3219-P30/foc-app/issues/357)):
+
+```text
+CI passes → publish to GHCR → Deploy (.github/workflows/deploy.yml) → SSM Run Command → ./scripts-deploy.sh on the host
+```
+
+- **No stored keys, no SSH.** GitHub signs in to AWS with OIDC, as a role that only jobs in the
+  repository's `aws` environment can assume and that can only run the command on this one instance
+  through SSM, so port 22 stays closed.
+- **It deploys only what CI proved.** `scripts-deploy.sh` checks out the commit, pulls all six
+  images before stopping anything, runs each migrate job, then checks that every container is
+  healthy, `/edge/ready` answers 200 and the credit invariants hold. Only then does it record the
+  tag in the host's `.env` and `.deploy-history`.
+- **One at a time, only forward.** Deploys share one concurrency group and a lock on the host, and a
+  commit the host already includes is skipped. A failed deploy leaves the stack as it is to look at;
+  rolling back is a deliberate step
+  ([Backup, restore and rollback](docs/runbooks/backup-restore-rollback.md)).
+- **Freezing it.** `gh variable set AWS_AUTO_DEPLOY --body false --repo AY2627S1-CS3219-P30/foc-app`
+  stops automatic deploys, as for the D4 demo; `gh workflow run deploy.yml -f tag=v1.0-d4` still
+  deploys a release by hand.
+
+Setting it up, deploying by hand and what a failed deploy prints are in the
+[AWS runbook](docs/runbooks/aws-deploy.md).
+
 ## Repository Structure
 
 This repository follows a **one-service-per-folder** structure: each
@@ -1230,21 +1253,24 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
 ├── credit-service/      wallets and the double-entry ledger
 ├── chat-service/        messages between an errand's requester and courier
 ├── web-app/             the Next.js front end, students' and administrators'
+├── edge/                the nginx edge: one origin, security headers, rate limits
 ├── platform/            what every service shares: config, logging, health, events
 ├── auth-client/         how a service verifies a caller with the User Service
 ├── contracts/           the OpenAPI and event contracts, checked for breaking changes
 ├── test-harness/        shared test fixtures, contract and deployment-file checks
 ├── system-tests/        Order and Credit run together: races, faults, conservation
+├── load/                the k6 load and latency scripts, and their report
 ├── observability/       Prometheus rules and the Grafana dashboard
 ├── data/                the supplier seed data (see Seed data, above)
 ├── docs/                decision records, runbooks, reports, the plan
+├── ai/                  the AI usage log and its exporter (see AI Use Summary)
 ├── compose*.yaml        the stack, and its overrides
 └── scripts-*.sh         start, smoke-test, demo and check the stack
 ```
 
 - Any **nice-to-have (N2H)** feature that warrants its own service should
   be added as an **additional folder** at the same level, following the
-  same per-service structure (the chat service, N1.2, would be one).
+  same per-service structure, as the chat service (N1.2) is.
 - Files for agentic coding tools (e.g. agent configs, prompts, skills)
   may be added as needed, but must still **respect the
   one-service-per-folder skeleton** for core implementation.
@@ -1308,10 +1334,9 @@ document). Each member's key prompts and responses, and their AI-assisted commit
 
 **Verification**
 
-Each of us reviewed and tested the AI output we used. Our rule is that someone other than the
-author reviews each pull request, and [`CODEOWNERS`](.github/CODEOWNERS) requests the owner's
-review. Branch protection requires the `CI` check, which runs lint, type checks, unit, integration
-and contract tests, browser journeys, and vulnerability and secret scans.
+Each of us reviewed and tested the AI output we used. Every pull request also runs the `CI`
+check: lint, type checks, unit, integration and contract tests, browser journeys, and
+vulnerability and secret scans.
 
 **Finding AI-assisted changes**
 

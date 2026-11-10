@@ -1,11 +1,10 @@
 # contracts/
 
-Shared wire contracts (OpenAPI / AsyncAPI). Execution plan §8.1: contract changes need the producer
-owner, one consumer owner, and Dev 3 or Dev 4 review; within v1, changes are additive only.
+Shared wire contracts: one OpenAPI file per service, and the event schemas. Within v1, changes are
+additive only.
 
-> **Location note.** FND-03 (#117) says `packages/contracts`, but execution plan §3.1 / §8.1 and the root
-> `README.md` use a flat layout with a top-level `contracts/`. This folder follows the plan. If the team
-> prefers `packages/`, it is a `git mv`.
+> **Location note.** FND-03 (#117) says `packages/contracts`. The repository keeps a flat layout
+> instead, with `contracts/` at the top level beside the services.
 
 ## Files
 
@@ -32,47 +31,47 @@ contracts:events`; do not edit it by hand. CI fails a pull request that changes 
 incompatibly (removed or redefined required field, removed operation, newly required request
 field). See [docs/testing.md](../docs/testing.md#contract-checks-ei-nfr311).
 
-A breaking change that the same three reviews approve goes in `approved-breaking-changes.json`: the
-exact line the check prints, the pull request, why, and who reviewed it. The check lets through only
-those lines. An entry can be deleted once its pull request has merged and main has been pushed
+A breaking change the team accepts goes in `approved-breaking-changes.json`: the exact line the
+check prints, the pull request, why, and who reviewed it. The check lets through only those lines. An entry can be deleted once its pull request has merged and main has been pushed
 again, since no later base still has the old contract.
 
-## Cross-service proposals for approval (FND-03 scope)
+## Cross-service conventions (FND-03)
 
-These are **proposals, not decisions**. They live here so Jonus and Patrick can approve or change them in a PR
-instead of a workshop. The User Service spec is written against them.
+Agreed in FND-03 and followed by every service and contract.
 
-| Topic              | Proposal                                                                                                                                                                                |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Error envelope     | `{ "error": { "code", "message", "correlationId", "details": [{ "field", "code", "message" }] } }`. `code` is a stable SCREAMING_SNAKE machine code; clients never parse `message`.     |
-| Status codes       | 401 unauthenticated · 403 forbidden · 404 absent · 409 state conflict · 422 validation/business rule · 429 rate limited · 503 dependency down (callers fail closed). Matches plan §3.5. |
-| Auth header        | `Authorization: Bearer <JWT>`. JWT claims: `sub`, `sid`, `iat`, `exp`, `jti` only — **no role or status**.                                                                              |
-| Caller identity    | Services read `sub` from the verified JWT, then call `GET /internal/users/{sub}` (`X-Service-Key`) for status and roles. Cache ≤ 5 s. Shared middleware is USR-06.                      |
-| Service credential | `X-Service-Key: <per-service secret>` on `/internal/**`. User tokens are not accepted there.                                                                                            |
-| IDs                | UUID strings (v7 preferred for index locality).                                                                                                                                         |
-| Timestamps         | RFC 3339, UTC, e.g. `2026-09-21T08:30:00Z`.                                                                                                                                             |
-| Pagination         | Listings use `page` / `pageSize`; immutable ledgers use opaque `cursor` / `limit` so concurrent appends cannot shift later pages. Limits default to 20 and are capped at 100.           |
-| Correlation        | Read `X-Correlation-Id`, generate one if absent, echo on the response, include in every log line and event.                                                                             |
-| Port (local)       | user-service `3001`, supplier `3002` (from `compose.yaml`).                                                                                                                             |
+| Topic              | Proposal                                                                                                                                                                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Error envelope     | `{ "error": { "code", "message", "correlationId", "details": [{ "field", "code", "message" }] } }`. `code` is a stable SCREAMING_SNAKE machine code; clients never parse `message`.                                             |
+| Status codes       | 401 unauthenticated · 403 forbidden · 404 absent · 409 state conflict · 422 validation/business rule · 429 rate limited · 503 dependency down (callers fail closed). Matches plan §3.5.                                         |
+| Auth header        | `Authorization: Bearer <JWT>`. JWT claims: `sub`, `sid`, `iat`, `exp`, `jti` only — **no role or status**.                                                                                                                      |
+| Caller identity    | Services verify the JWT, then ask the User Service `GET /internal/introspect` (`X-Service-Key`) for the account's status and roles. A good answer is cached ≤ 5 s, a failure never. `auth-client/` does this for every service. |
+| Service credential | `X-Service-Key: <per-service secret>` on `/internal/**`. User tokens are not accepted there.                                                                                                                                    |
+| IDs                | UUID strings (v7 preferred for index locality).                                                                                                                                                                                 |
+| Timestamps         | RFC 3339, UTC, e.g. `2026-09-21T08:30:00Z`.                                                                                                                                                                                     |
+| Pagination         | Listings use `page` / `pageSize`; immutable ledgers use opaque `cursor` / `limit` so concurrent appends cannot shift later pages. Limits default to 20 and are capped at 100.                                                   |
+| Correlation        | Read `X-Correlation-Id`, generate one if absent, echo on the response, include in every log line and event.                                                                                                                     |
+| Ports              | Browsers reach every service through the edge at `/api/<service>`. Inside the stack: user `3001`, supplier `3002`, order `3003`, credit `3004`, chat `3006` (from `compose.yaml`).                                              |
 
-## Event envelope (proposal, for EVT-01)
+## Event envelope (EVT-01)
 
 ```json
 {
   "eventId": "uuid",
-  "eventType": "UserActivated",
+  "eventType": "user.activated",
   "schemaVersion": 1,
   "aggregateId": "uuid",
-  "aggregateVersion": 3,
   "occurredAt": "2026-09-21T08:30:00Z",
   "producer": "user-service",
   "correlationId": "string",
-  "causationId": "string | null",
+  "causationId": "string",
   "payload": {}
 }
 ```
 
-`aggregateVersion` is optional (plan §3.2 lists it; FND-03's scope list omits it — decide at review).
+The schema is `platform/src/events/envelope.ts`; every field is validated on send and on receive. The
+plan's optional `aggregateVersion` was left out. Where order matters, the payload says it:
+`order.status-changed` carries the errand's `orderVersion`, and a reader ignores a change at or below
+the one it applied. See the root README's [envelope](../README.md#the-envelope).
 
 ### Events published by the User Service
 

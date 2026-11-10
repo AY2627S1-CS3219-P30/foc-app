@@ -32,8 +32,8 @@ another member to record it for them, as the notes below say.
 | Anselm Long (`@anselmlong`) | #183, #218 | Approved 0002–0012, with the amendments to 0005 and 0006 (#254) and to 0007 (#250) | 2026-11-03 |
 | Patrick Thomas (`@pastchum`) | #183 | Approved 0002–0012, with the amendments to 0005 and 0006 (#254) and to 0007 (#250) | 2026-11-03 |
 
-At least one non-author must approve the pull request before merge. Accept each record only when
-all five members' recorded approval covers that record and its amendments. Every row now covers
+Accept each record only when all five members' recorded approval covers that record and its
+amendments. Every row now covers
 0002–0012, so all twelve records are Accepted.
 
 Jonus's expanded approval and requested date are recorded in his
