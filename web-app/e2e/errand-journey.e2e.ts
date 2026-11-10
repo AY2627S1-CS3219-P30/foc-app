@@ -131,7 +131,11 @@ async function student(browser: Browser, like: Page, email: string): Promise<Pag
 }
 
 const badge = (page: Page, label: string) =>
-  page.getByText(label, { exact: true }).filter({ visible: true });
+  page
+    .getByText(label, { exact: true })
+    .filter({ visible: true })
+    // The progress track names the current stop too; the badge is the one outside it.
+    .and(page.locator(':not([aria-label="Errand progress"] *)'));
 
 const card = (page: Page, item: string) => page.locator(".card", { hasText: item }).filter({ visible: true });
 

@@ -21,6 +21,7 @@ import { NavRow } from "@/components/NavRow";
 import { ScreenHeader } from "@/components/ScreenHeader";
 import { ErrorState, LoadingState } from "@/components/States";
 import { ErrandHistory } from "@/components/ErrandHistory";
+import { ErrandProgress } from "@/components/ErrandProgress";
 import type { ApiError } from "@/lib/api-client";
 import { useAuth } from "@/lib/auth";
 import { draftFrom, itemsLabel, saveDraft } from "@/lib/composer";
@@ -128,6 +129,7 @@ function StatusBody({
       <div>
         <Badge order={order} role={role} />
       </div>
+      {role && <ErrandProgress status={order.status} reward={order.reward} role={role} />}
       <div
         ref={status}
         role="status"

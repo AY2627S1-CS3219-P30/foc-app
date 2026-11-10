@@ -30,6 +30,8 @@ import styles from "./feed.module.css";
 
 const FEED_POLL_MS = 30_000;
 const MINUTE_MS = 60_000;
+/** Below this, a card's time left is marked so a courier can see which errands are about to go. */
+const URGENT_MS = 5 * MINUTE_MS;
 const WITHDRAWN = "You withdrew from the errand. Another courier can take it, unless its deadline has passed.";
 
 /** `expiresAt` counts from the server's `timeRemainingSeconds`, so a wrong device clock can't skew it. */
@@ -115,6 +117,7 @@ export default function FeedPage() {
     minimumReward,
   );
   const [notice, setNotice] = useState<string | null>(null);
+  const filtersRef = useRef<HTMLDivElement>(null);
   const showWithdrawn = useCallback(() => setNotice(WITHDRAWN), []);
   useUrlFlag("withdrawn", showWithdrawn);
   const listings = result && mode === "COURIER"
@@ -136,7 +139,13 @@ export default function FeedPage() {
     <ErrandCard
       key={l.orderId}
       errand={{ ...l, items: l.itemSummary }}
-      meta={timeLeft(l.expiresAt - now)}
+      meta={
+        l.expiresAt - now <= URGENT_MS ? (
+          <span className={styles.urgent}>{timeLeft(l.expiresAt - now)}</span>
+        ) : (
+          timeLeft(l.expiresAt - now)
+        )
+      }
       action={
         <Button
           variant="accent"
@@ -165,8 +174,10 @@ export default function FeedPage() {
   const title = mode === "REQUESTER" ? "Active requests" : "Open errands";
   const invalidReward = minimumReward !== "" &&
     (!Number.isInteger(Number(minimumReward)) || Number(minimumReward) < 1);
+  // Only the filters the query sends: an invalid reward is left out of it.
+  const filtered = mode === "COURIER" && (pickupBuilding.trim() !== "" || (minimumReward !== "" && !invalidReward));
   const filterFields = mode === "COURIER" && (
-    <div className={styles.filters} role="group" aria-label="Filter open errands">
+    <div ref={filtersRef} className={styles.filters} role="group" aria-label="Filter open errands">
       <FormField
         label="Pickup building"
         placeholder="e.g. COM2"
@@ -200,7 +211,26 @@ export default function FeedPage() {
       <>
         <FormAlert tone="info" takeFocus>{notice}</FormAlert>
         <FormAlert>{problem ? `Could not refresh the list. ${problem}` : null}</FormAlert>
-        {cards.length === 0 ? (
+        {cards.length === 0 && filtered ? (
+          <EmptyState
+            title="No open errands match these filters"
+            action={
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setPickupBuilding("");
+                  setMinimumReward("");
+                  // The button goes with the empty state, so focus returns to the first filter.
+                  filtersRef.current?.querySelector("input")?.focus();
+                }}
+              >
+                Clear filters
+              </Button>
+            }
+          >
+            Try another building or a lower minimum reward.
+          </EmptyState>
+        ) : cards.length === 0 ? (
           <EmptyState title={mode === "REQUESTER" ? "No active requests" : "No open errands right now"}>
             {mode === "REQUESTER" ? "Create a request to get started." : "Check back soon."}
           </EmptyState>

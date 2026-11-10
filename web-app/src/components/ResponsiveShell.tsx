@@ -9,6 +9,7 @@
 import type { ReactNode } from 'react';
 import { AppBar } from './AppBar';
 import { Button } from './Button';
+import { Icon } from './Icon';
 import { Sidebar, type NavItem } from './Sidebar';
 import { TopBar } from './TopBar';
 import styles from './ResponsiveShell.module.css';
@@ -55,7 +56,7 @@ export function ResponsiveShell({
           <div className={styles.header}>
             {onBack && (
               <button className={styles.back} aria-label="Back" onClick={onBack}>
-                ←
+                <Icon name="back" />
               </button>
             )}
             <h1 className={styles.heading}>{title}</h1>

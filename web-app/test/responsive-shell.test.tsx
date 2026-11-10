@@ -83,7 +83,9 @@ describe("the app frame is one tree at every width (#367)", () => {
     await render({ primaryAction: { label: "New request", onClick: () => (done += 1) } });
     const [plus, full] = button("New request");
     expect(plus?.getAttribute("aria-label")).toBe("New request");
-    expect(plus?.textContent).toBe("+");
+    // Icon only: the drawn + is decorative and the label names it.
+    expect(plus?.textContent).toBe("");
+    expect(plus?.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
     expect(full?.textContent).toBe("New request");
     await act(async () => plus!.click());
     await act(async () => full!.click());
