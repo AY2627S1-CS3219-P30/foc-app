@@ -24,12 +24,15 @@ export default function ProfilePage() {
 
   return (
     <ResponsiveShell title="Profile" navItems={STUDENT_NAV} activeHref="/profile">
-      <div style={{ display: "flex", flexDirection: "column", gap: vars.space[3] }}>
-        <div className="card" style={{ display: "flex", flexDirection: "column", gap: vars.space[2] }}>
-          <h2 style={{ fontSize: vars.text.lg, fontWeight: vars.weight.bold }}>Mode</h2>
-          <p style={{ fontSize: vars.text.sm, color: vars.color.textSubtle }}>
-            Switch between asking for errands and running them. You can always do both.
-          </p>
+      {/* A form's width, not the page's: a name and a faculty don't need 1000 px of field. */}
+      <div style={{ display: "flex", flexDirection: "column", gap: vars.space[4], maxWidth: "40rem" }}>
+        <div className="card" style={{ display: "flex", flexDirection: "column", gap: vars.space[3] }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: vars.space[1] }}>
+            <h2 style={{ fontSize: vars.text.lg, fontWeight: vars.weight.bold }}>Mode</h2>
+            <p style={{ fontSize: vars.text.sm, color: vars.color.textSubtle }}>
+              Switch between asking for errands and running them. You can always do both.
+            </p>
+          </div>
           <ModeSwitch />
         </div>
         <ProfileForm user={user} />

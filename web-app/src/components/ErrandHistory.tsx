@@ -38,7 +38,14 @@ export function ErrandHistory({
   return (
     <section
       aria-label="Errand history"
-      style={{ display: "flex", flexDirection: "column", gap: vars.space[3], marginTop: vars.space[3], overflowWrap: "anywhere" }}
+      // More room above the heading than below it: a new part of the page, not the end of the last.
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: vars.space[2],
+        marginTop: vars.space[4],
+        overflowWrap: "anywhere",
+      }}
     >
       <h2 style={{ fontSize: vars.text.lg, fontWeight: vars.weight.semibold }}>Errand history</h2>
       {error ? (

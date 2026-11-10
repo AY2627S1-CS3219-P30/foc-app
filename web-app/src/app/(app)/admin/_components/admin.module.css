@@ -20,6 +20,12 @@
   gap: var(--space-3);
 }
 
+.sectionHead > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
 .sectionTitle {
   font-size: var(--text-lg);
   font-weight: var(--weight-bold);
@@ -41,16 +47,27 @@
 
 /* ---- Overview figures ---- */
 
+/* Six figures: one row on a desktop, two columns on a phone, never five and an orphan. */
 .stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr));
+  gap: var(--space-3);
+}
+
+@media (min-width: 768px) {
+  .stats {
+    gap: var(--space-4);
+  }
 }
 
 .stat {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+}
+
+.stat {
+  transition: border-color var(--motion-base) ease;
 }
 
 .stat:hover {
@@ -62,7 +79,9 @@
   color: var(--color-text-subtle);
 }
 
+/* Pinned to the card's foot, so a label that wraps doesn't lower its figure below its neighbour's. */
 .statValue {
+  margin-top: auto;
   font-size: var(--text-3xl);
   font-weight: var(--weight-bold);
 }
@@ -162,6 +181,12 @@
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--color-border);
   vertical-align: top;
+  transition: background-color var(--motion-fast) ease;
+}
+
+/* Tracks the row being read across a wide table. */
+.table tbody tr:hover td {
+  background: var(--color-page);
 }
 
 .table tr:last-child td {
