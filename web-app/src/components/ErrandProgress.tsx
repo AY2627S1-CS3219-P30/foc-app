@@ -1,7 +1,8 @@
 // AI Assistance Disclosure:
 // Tool: Claude Code (Claude Opus 5.5), date: 2026-11-09
 // Scope: Generated the initial implementation for the interface polish pass (errand progress track).
-// Author review: pending author review before merge.
+// Author review: Anselm Long fixed the findings of Jonus Ho's review in #404, with tests for the
+//   track's rules, before merge.
 
 "use client";
 

@@ -2,7 +2,7 @@
 // Tool: Claude Code (Claude Opus 5.5), date: 2026-11-09
 // Scope: Generated the initial implementation for the interface polish pass (drawn icons in place of
 //   text glyphs).
-// Author review: pending author review before merge.
+// Author review: Jonus Ho reviewed it in #404, and Anselm Long addressed the review, before merge.
 
 import type { SVGProps } from "react";
 
