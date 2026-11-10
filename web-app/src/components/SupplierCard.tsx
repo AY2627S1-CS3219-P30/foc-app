@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-10-13
+// Scope: Bug fixes, including "refresh supplier version after 412 so admins can retry".
+// Author review: Patrick Thomas checked the code for correctness against the ticket, confirmed the
+//   tests pass, and made sure it caused no fatal errors or architectural conflicts before
+//   committing.
+
 'use client';
 
 import { useState } from 'react';

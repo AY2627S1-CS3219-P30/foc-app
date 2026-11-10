@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Sonnet 5, Claude Opus 4.8), dates: 2026-09-21 to
+//   2026-10-13
+// Scope: Generated the initial implementation for "RBAC, profile edits and admin controls"
+//   (USR-03); later new features, bug fixes and refactoring.
+// Author review: Anselm Long and Patrick Thomas validated correctness and the implementation, and
+//   checked for fatal errors and architectural conflicts, before committing.
+
 import { and, eq, gte, lt, sql, type SQL } from 'drizzle-orm';
 import { execute, type Database } from '../db/db.js';
 import {

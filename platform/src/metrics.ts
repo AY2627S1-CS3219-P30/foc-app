@@ -1,3 +1,9 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-13 to 2026-10-28
+// Scope: Implementation for "delivery guarantees, duplicates and schema versions" (EVT-03, #329).
+// Author review: Jonus Ho checked the code for correctness against the ticket, confirmed the tests
+//   pass, and made sure it caused no fatal errors or architectural conflicts before committing.
+
 import { Controller, Get, Header, Headers, Inject, Logger } from '@nestjs/common';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { collectDefaultMetrics, Counter, Gauge, Histogram, Registry } from 'prom-client';

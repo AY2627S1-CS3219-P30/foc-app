@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), date: 2026-11-03
+# Scope: Generated the first version of this script for "cut a release from a tag, without
+#   rebuilding" (REL-03, #169).
+# Author review: Jonus Ho validated correctness and the implementation, and checked for fatal errors
+#   and architectural conflicts, before committing.
+
 # Cuts a release candidate or the final release (REL-03, #169) from images CI already built and
 # scanned. It builds nothing: each of the six images published as sha-<commit> also gets the
 # release's tag, and a GitHub Release records the commit and their digests.

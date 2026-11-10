@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Sonnet 5), date: 2026-09-20
+// Scope: Generated the initial implementation for "registration, one-time activation and identity
+//   lookup" (USR-01).
+// Author review: Anselm Long verified correctness, tested the change, and checked for fatal errors
+//   and conflicts with our architecture before committing.
+
 import { CanActivate, ExecutionContext, Inject, Injectable } from '@nestjs/common';
 import { timingSafeEqual } from 'node:crypto';
 import type { Request } from 'express';

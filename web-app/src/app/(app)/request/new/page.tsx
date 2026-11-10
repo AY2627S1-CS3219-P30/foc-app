@@ -1,3 +1,9 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-10-21
+// Scope: Implementation for "supplier picker and deletion hold" (WEB-00, SUP-04); also bug fixes.
+// Author review: Patrick Thomas validated correctness and the implementation, and checked for fatal
+//   errors and architectural conflicts, before committing.
+
 "use client";
 
 import { useRouter } from "next/navigation";

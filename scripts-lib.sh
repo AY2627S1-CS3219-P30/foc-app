@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-13 to 2026-11-05
+# Scope: Generated the first version of this script for "secrets, container hardening and restart
+#   recovery" (PLT-06, PLT-07, CRD-09); later code comments, new features, bug fixes and tooling and
+#   boilerplate.
+# Author review: Anselm Long, Isaac Chua, Jonus Ho and Zhang Yuan validated correctness and the
+#   implementation, and checked for fatal errors and architectural conflicts, before committing.
+
 # Sourced by the scripts that drive a running stack as a user would (the failure
 # demo and the restart check): where the services are, and the few things both
 # do — sign a student up, read an errand or a wallet, wait for something.

@@ -1,3 +1,9 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-10-20
+// Scope: Generated the initial implementation (WEB-00, SUP-04); later bug fixes and new features.
+// Author review: Patrick Thomas validated correctness and the implementation, and checked for fatal
+//   errors and architectural conflicts, before committing.
+
 import { bearer, createApiClient, serviceUrl, unwrap } from './api-client';
 import type { components, operations, paths } from './generated/supplier-service';
 

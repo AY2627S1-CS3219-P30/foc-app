@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Sonnet 5), dates: 2026-09-20 to 2026-11-05
+// Scope: Generated the initial implementation for "registration, one-time activation and identity
+//   lookup" (USR-01, USR-02, USR-03); later new features and bug fixes.
+// Author review: Anselm Long validated correctness and the implementation, and checked for fatal
+//   errors and architectural conflicts, before committing.
+
 import { Body, Controller, HttpCode, Inject, Post, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { ApiException } from '@foc/platform';

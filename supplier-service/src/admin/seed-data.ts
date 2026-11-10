@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 4.8), dates: 2026-09-28 to 2026-09-30
+// Scope: Generated the initial implementation for "SUP-01: supplier schema, admin CRUD, and
+//   idempotent seed" (SUP-01, #187); later new features.
+// Author review: Patrick Thomas checked the code for correctness against the ticket, confirmed the
+//   tests pass, and made sure it caused no fatal errors or architectural conflicts before
+//   committing.
+
 import { readFile } from 'node:fs/promises';
 import { csvToRecords } from './csv.js';
 import { recordToSupplier, type SupplierSeed } from './normalize.js';

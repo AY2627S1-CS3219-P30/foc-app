@@ -1,3 +1,9 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-10-14
+// Scope: Bug fixes, including "answer an admin's wallet read when the alert check fails".
+// Author review: Jonus Ho validated correctness and the implementation, and checked for fatal
+//   errors and architectural conflicts, before committing.
+
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ApiException, type Queryable } from '@foc/platform';
 import { z } from 'zod';

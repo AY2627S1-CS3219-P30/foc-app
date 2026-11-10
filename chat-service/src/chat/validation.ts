@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-30 to 2026-11-03
+// Scope: Generated the initial implementation for "channels and messages for an errand" (NTH-02,
+//   #162, NTH-03); later bug fixes and new features.
+// Author review: Anselm Long and Zhang Yuan validated correctness and the implementation, and
+//   checked for fatal errors and architectural conflicts, before committing.
+
 import { ApiException } from '@foc/platform';
 import { z } from 'zod';
 

@@ -1,3 +1,9 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-20 to 2026-11-08
+// Scope: Implementation for "show an account's errands on its admin page" (ADM-05); also bug fixes.
+// Author review: Jonus Ho checked the code for correctness against the ticket, confirmed the tests
+//   pass, and made sure it caused no fatal errors or architectural conflicts before committing.
+
 "use client";
 
 import Link from "next/link";

@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-13 to 2026-10-14
+// Scope: Implementation for "secrets, container hardening and restart recovery" (PLT-06); also bug
+//   fixes.
+// Author review: Jonus Ho validated correctness and the implementation, and checked for fatal
+//   errors and architectural conflicts, before committing.
+
 import { Logger, type FactoryProvider, type InjectionToken } from '@nestjs/common';
 import type { ConfirmChannel, ConsumeMessage, Options } from 'amqplib';
 import { randomUUID } from 'node:crypto';

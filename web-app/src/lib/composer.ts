@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-20 to 2026-10-21
+// Scope: Generated the initial implementation for "request composer on the Order API" (WEB-01,
+//   WEB-04); later bug fixes and new features.
+// Author review: Patrick Thomas verified correctness, tested the change, and checked for fatal
+//   errors and conflicts with our architecture before committing.
+
 import { ApiError, newCorrelationId } from "./api-client";
 import type { CreateOrder, Order, OrderItem } from "./order-api";
 import type { Supplier } from "./supplier-api";

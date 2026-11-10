@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-11-03 to 2026-11-07
+// Scope: Generated the initial implementation for "socket hub for notify-only chat sockets" (#346,
+//   #369, #370); later refactoring and bug fixes.
+// Author review: Anselm Long and Jonus Ho validated the behaviour and the implementation, checked
+//   for fatal errors, and confirmed it does not conflict with the architecture before committing.
+
 import { Inject, Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { AUTHENTICATOR, type Authenticator } from '@foc/auth-client';
 import { ApiException, METRICS, type Metrics } from '@foc/platform';

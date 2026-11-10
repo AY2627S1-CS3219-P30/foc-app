@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-27 to 2026-11-03
+// Scope: Generated the initial implementation for "real activation email, resend, and no token on
+//   an open route" (USR-09, #309); later new features.
+// Author review: Anselm Long checked the code for correctness against the ticket, confirmed the
+//   tests pass, and made sure it caused no fatal errors or architectural conflicts before
+//   committing.
+
 import type { ActivationEmail, Mailer, PasswordResetEmail } from './mailer.js';
 
 /**

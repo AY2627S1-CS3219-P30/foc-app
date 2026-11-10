@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-20 to 2026-10-21
+// Scope: Generated the initial implementation for "supplier picker and deletion hold" (SUP-04);
+//   later bug fixes.
+// Author review: Patrick Thomas validated the behaviour and the implementation, checked for fatal
+//   errors, and confirmed it does not conflict with the architecture before committing.
+
 'use client';
 
 import { useEffect, useState } from 'react';

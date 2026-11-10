@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Sonnet 5), date: 2026-09-20
+// Scope: Generated the initial implementation for "login, refresh-token rotation and logout"
+//   (USR-02).
+// Author review: Anselm Long checked the code for correctness against the ticket, confirmed the
+//   tests pass, and made sure it caused no fatal errors or architectural conflicts before
+//   committing.
+
 import {
   createPrivateKey,
   createPublicKey,

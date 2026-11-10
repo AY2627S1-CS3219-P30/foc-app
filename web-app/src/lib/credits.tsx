@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-21 to 2026-10-29
+// Scope: Generated the initial implementation for "share one credit balance and steady focus around
+//   errand commands" (#331); later new features.
+// Author review: Jonus Ho and Patrick Thomas validated the behaviour and the implementation,
+//   checked for fatal errors, and confirmed it does not conflict with the architecture before
+//   committing.
+
 "use client";
 
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";

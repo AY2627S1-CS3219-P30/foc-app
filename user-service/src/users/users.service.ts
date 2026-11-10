@@ -1,3 +1,12 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Sonnet 5, Claude Opus 4.8), dates: 2026-09-20 to
+//   2026-11-05
+// Scope: Generated the initial implementation for "registration, one-time activation and identity
+//   lookup" (USR-01, USR-06, USR-07); later tests and new features.
+// Author review: Anselm Long, Patrick Thomas and Zhang Yuan validated the behaviour and the
+//   implementation, checked for fatal errors, and confirmed it does not conflict with the
+//   architecture before committing.
+
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { ApiException } from '@foc/platform';

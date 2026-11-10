@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-10-01
+// Scope: Generated the initial implementation for "reconcile workflows stuck waiting on Credit"
+//   (CRD-07).
+// Author review: Isaac Chua validated the behaviour and the implementation, checked for fatal
+//   errors, and confirmed it does not conflict with the architecture before committing.
+
 import {
   Inject,
   Injectable,

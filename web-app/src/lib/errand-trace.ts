@@ -1,3 +1,9 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-15 to 2026-10-20
+// Scope: Bug fixes, including "regenerate the Order Service client and label referral alerts".
+// Author review: Jonus Ho and Zhang Yuan validated correctness and the implementation, and checked
+//   for fatal errors and architectural conflicts, before committing.
+
 /**
  * PLT-05 (EI-NFR4.1.1) — one errand's story from one ID. The Order Service and the Credit Service
  * each answer for what they recorded; this lays both out as one list in the order things happened.

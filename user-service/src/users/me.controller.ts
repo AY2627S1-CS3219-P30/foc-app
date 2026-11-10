@@ -1,3 +1,12 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Sonnet 5, Claude Opus 4.8, Claude Opus 5.5), dates: 2026-09-20 to
+//   2026-09-30
+// Scope: Generated the initial implementation for "login, refresh-token rotation and logout"
+//   (USR-02, USR-03); later new features.
+// Author review: Anselm Long and Patrick Thomas reviewed the implementation for correctness, ran it
+//   against the test suite, and checked that it fits our service boundaries without fatal errors
+//   before committing.
+
 import { Body, Controller, Get, Inject, Patch, Req, UseGuards } from '@nestjs/common';
 import { ApiException } from '@foc/platform';
 import { AccessTokenGuard, type AuthedRequest } from '../auth/access-token.guard.js';

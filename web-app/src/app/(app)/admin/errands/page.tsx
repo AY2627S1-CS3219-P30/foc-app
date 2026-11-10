@@ -1,3 +1,9 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-10-20
+// Scope: Implementation for "show an account's errands on its admin page" (ADM-05).
+// Author review: Jonus Ho reviewed the implementation for correctness, ran it against the test
+//   suite, and checked that it fits our service boundaries without fatal errors before committing.
+
 "use client";
 
 import { Button } from "@/components/Button";

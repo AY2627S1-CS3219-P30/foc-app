@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-11-08
+// Scope: Implementation for "rename the app from NUQueSt to Friend on Campus" (WEB-00).
+// Author review: Jonus Ho and Patrick Thomas validated the behaviour and the implementation,
+//   checked for fatal errors, and confirmed it does not conflict with the architecture before
+//   committing.
+
 import type { CSSProperties } from "react";
 import { values } from "@/styles/tokens";
 

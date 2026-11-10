@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-13 to 2026-11-05
+# Scope: Generated the first version of this script for "secrets, container hardening and restart
+#   recovery" (PLT-06); later bug fixes.
+# Author review: Jonus Ho validated the behaviour and the implementation, checked for fatal errors,
+#   and confirmed it does not conflict with the architecture before committing.
+
 # Creates or completes `.env` from `.env.example` (PLT-06; PL-NFR2.1.1).
 #
 #   ./scripts-init-env.sh           create .env, or add what a newer .env.example needs

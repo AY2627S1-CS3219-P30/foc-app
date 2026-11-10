@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-30 to 2026-11-06
+// Scope: Generated the initial implementation for "wire the fifth service into the stack" (NTH-11,
+//   #345, #346); later new features, refactoring and bug fixes.
+// Author review: Anselm Long, Jonus Ho and Zhang Yuan verified correctness, tested the change, and
+//   checked for fatal errors and conflicts with our architecture before committing.
+
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { createLogger, errorMessage, PinoLoggerService, startService } from '@foc/platform';

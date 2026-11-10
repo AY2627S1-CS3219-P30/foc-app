@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Sonnet 5, Claude Opus 5.5), dates: 2026-09-21 to 2026-09-30
+// Scope: Generated the initial implementation for "shared auth middleware for the other services"
+//   (USR-06, USR-07); later bug fixes and new features.
+// Author review: Anselm Long and Jonus Ho validated the behaviour and the implementation, checked
+//   for fatal errors, and confirmed it does not conflict with the architecture before committing.
+
 import { authFailure } from './errors.js';
 import { IdentityClient } from './identity-client.js';
 import { TokenVerifier } from './token-verifier.js';

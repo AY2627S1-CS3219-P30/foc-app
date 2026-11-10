@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), date: 2026-11-05
+# Scope: Tooling and boilerplate (#309), including "send the password with activation in scripts and
+#   compose".
+# Author review: Anselm Long validated correctness and the implementation, and checked for fatal
+#   errors and architectural conflicts, before committing.
+
 """Named local D4 fixture, through public APIs only. Secrets stay in private ignored state."""
 import json
 import os

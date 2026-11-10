@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-09-30
+// Scope: Generated the initial implementation for "account screens on the real User Service"
+//   (USR-05, #193, WEB-00); later bug fixes and new features.
+// Author review: Anselm Long, Jonus Ho and Patrick Thomas validated the behaviour and the
+//   implementation, checked for fatal errors, and confirmed it does not conflict with the
+//   architecture before committing.
+
 "use client";
 
 import { useState, type FormEvent } from "react";

@@ -1,3 +1,12 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Sonnet 5, Claude Opus 4.8), dates: 2026-09-20 to
+//   2026-10-27
+// Scope: Generated the initial implementation for "login, refresh-token rotation and logout"
+//   (USR-02, #189); later bug fixes and new features.
+// Author review: Anselm Long, Patrick Thomas and Jonus Ho reviewed the implementation for
+//   correctness, ran it against the test suite, and checked that it fits our service boundaries
+//   without fatal errors before committing.
+
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { execute, type Database } from '../db/db.js';
 import { refreshSessions, users } from '../db/schema.js';

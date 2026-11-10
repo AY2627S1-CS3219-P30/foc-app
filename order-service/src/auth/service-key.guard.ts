@@ -1,3 +1,9 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-10-30
+// Scope: Generated the initial implementation for "serve the Chat Service's lookup" (NTH-02, #162).
+// Author review: Zhang Yuan validated the behaviour and the implementation, checked for fatal
+//   errors, and confirmed it does not conflict with the architecture before committing.
+
 import { CanActivate, ExecutionContext, Inject, Injectable } from '@nestjs/common';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { ApiException } from '@foc/platform';

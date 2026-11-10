@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 4.8), dates: 2026-09-28 to 2026-09-29
+// Scope: Generated the initial implementation for "SUP-01: supplier schema, admin CRUD, and
+//   idempotent seed" (SUP-01); later new features.
+// Author review: Patrick Thomas validated correctness and the implementation, and checked for fatal
+//   errors and architectural conflicts, before committing.
+
 import Papa from 'papaparse';
 
 /**

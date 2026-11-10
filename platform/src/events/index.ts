@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Opus 4.8), dates: 2026-09-30 to 2026-10-28
+// Scope: Implementation for "transactional outbox relay and inbox" (EVT-02, EVT-03, PLT-06); also
+//   bug fixes.
+// Author review: Jonus Ho and Patrick Thomas reviewed the implementation for correctness, ran it
+//   against the test suite, and checked that it fits our service boundaries without fatal errors
+//   before committing.
+
 export {
   createEnvelope,
   envelopeSchema,

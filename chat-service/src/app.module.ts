@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-30 to 2026-11-04
+// Scope: Generated the initial implementation for "wire the fifth service into the stack" (NTH-11,
+//   #345, NTH-02); later new features and refactoring.
+// Author review: Anselm Long and Zhang Yuan validated correctness and the implementation, and
+//   checked for fatal errors and architectural conflicts, before committing.
+
 import { Module } from '@nestjs/common';
 import { authStatusEvents, AuthModule } from '@foc/auth-client';
 import { EventsModule, PlatformModule } from '@foc/platform';

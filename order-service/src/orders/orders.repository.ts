@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-01 to 2026-11-04
+// Scope: Implementation for "add discovery and one-winner atomic acceptance" (CRD-07, #171,
+//   EVT-03); also bug fixes, refactoring and tests.
+// Author review: Zhang Yuan, Isaac Chua, Jonus Ho and Patrick Thomas verified correctness, tested
+//   the change, and checked for fatal errors and conflicts with our architecture before committing.
+
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { EVENTS, insertOutboxEvent, type Queryable, type Row } from '@foc/platform';

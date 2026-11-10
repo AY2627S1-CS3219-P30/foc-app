@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 4.8, Claude Opus 5.5), dates: 2026-09-28 to 2026-10-01
+// Scope: Generated the initial implementation for "SUP-01: supplier schema, admin CRUD, and
+//   idempotent seed" (SUP-01, #188); later refactoring, new features and bug fixes.
+// Author review: Patrick Thomas and Jonus Ho reviewed the implementation for correctness, ran it
+//   against the test suite, and checked that it fits our service boundaries without fatal errors
+//   before committing.
+
 import { Module, type DynamicModule } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { LOGGER, PgDb, type PgDbOptions } from '@foc/platform';

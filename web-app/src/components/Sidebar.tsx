@@ -1,3 +1,9 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-10-27
+// Scope: Implementation for "account screens on the real User Service" (USR-05).
+// Author review: Anselm Long validated correctness and the implementation, and checked for fatal
+//   errors and architectural conflicts, before committing.
+
 "use client";
 
 import Link from "next/link";

@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-13 to 2026-10-26
+// Scope: Implementation for "delivery guarantees, duplicates and schema versions" (EVT-03, CRD-09);
+//   also bug fixes.
+// Author review: Isaac Chua, Jonus Ho and Patrick Thomas verified correctness, tested the change,
+//   and checked for fatal errors and conflicts with our architecture before committing.
+
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import {

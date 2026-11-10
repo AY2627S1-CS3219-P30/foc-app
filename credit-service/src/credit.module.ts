@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-10-20
+// Scope: Implementation for "make the initial allocation configuration" (CRD-09).
+// Author review: Isaac Chua checked the code for correctness against the ticket, confirmed the
+//   tests pass, and made sure it caused no fatal errors or architectural conflicts before
+//   committing.
+
 import { Module, type DynamicModule } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { LOGGER, PgDb, provideDeadLetters, type PgDbOptions } from '@foc/platform';

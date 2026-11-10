@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-27 to 2026-10-30
+// Scope: Generated the initial implementation for "the stack is ready only when every page can
+//   work" (PLT-13, NTH-11, #345); later new features.
+// Author review: Jonus Ho and Zhang Yuan reviewed the implementation for correctness, ran it
+//   against the test suite, and checked that it fits our service boundaries without fatal errors
+//   before committing.
+
 // The stack's readiness (PLT-13, #289), for GET /edge/ready, run by nginx's JavaScript module.
 //
 // 200 only while the web app and all five services answer their health checks, so "ready" means

@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-10-30
+// Scope: Bug fixes (SUP-05, #278), including "keep older suppliers' buildings filterable and
+//   editable".
+// Author review: Jonus Ho checked the code for correctness against the ticket, confirmed the tests
+//   pass, and made sure it caused no fatal errors or architectural conflicts before committing.
+
 'use client';
 
 import { useEffect, useState } from 'react';

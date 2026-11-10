@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-10-01
+// Scope: Generated the initial implementation for "mask query errors at every sink and share the
+//   migration runner".
+// Author review: Patrick Thomas verified correctness, tested the change, and checked for fatal
+//   errors and conflicts with our architecture before committing.
+
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { drizzle } from 'drizzle-orm/node-postgres';

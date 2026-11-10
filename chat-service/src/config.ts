@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-30 to 2026-11-04
+// Scope: Generated the initial implementation for "wire the fifth service into the stack" (NTH-11,
+//   #345, NTH-02); later new features and bug fixes.
+// Author review: Anselm Long and Zhang Yuan validated the behaviour and the implementation, checked
+//   for fatal errors, and confirmed it does not conflict with the architecture before committing.
+
 import { z } from 'zod';
 import { authConfigFromEnv, authEnvSchema } from '@foc/auth-client';
 import { loadEnv } from '@foc/platform';

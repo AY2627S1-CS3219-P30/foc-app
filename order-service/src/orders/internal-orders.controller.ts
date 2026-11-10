@@ -1,3 +1,9 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-10-30
+// Scope: Generated the initial implementation for "serve the Chat Service's lookup" (NTH-02, #162).
+// Author review: Zhang Yuan reviewed the implementation for correctness, ran it against the test
+//   suite, and checked that it fits our service boundaries without fatal errors before committing.
+
 import { Controller, Get, Inject, Param, UseGuards } from '@nestjs/common';
 import { ApiException } from '@foc/platform';
 import { ServiceKeyGuard } from '../auth/service-key.guard.js';

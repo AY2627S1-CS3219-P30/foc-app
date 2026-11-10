@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 4.8, Claude Opus 5.5), dates: 2026-09-28 to 2026-09-30
+// Scope: Generated the initial implementation for "SUP-01: supplier schema, admin CRUD, and
+//   idempotent seed" (SUP-01); later new features.
+// Author review: Patrick Thomas reviewed the implementation for correctness, ran it against the
+//   test suite, and checked that it fits our service boundaries without fatal errors before
+//   committing.
+
 import type { Database } from '../db/db.js';
 import {
   isUniqueViolation,

@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Sonnet 5, Claude Opus 5.5), dates: 2026-09-20 to 2026-10-29
+// Scope: Generated the initial implementation for "login, refresh-token rotation and logout"
+//   (USR-02, PLT-10, #285); later bug fixes and new features.
+// Author review: Anselm Long and Jonus Ho reviewed the implementation for correctness, ran it
+//   against the test suite, and checked that it fits our service boundaries without fatal errors
+//   before committing.
+
 import type { Request, Response } from 'express';
 import { ApiException } from '@foc/platform';
 

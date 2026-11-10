@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-10-28
+// Scope: Generated the initial implementation for "live errand updates over Server-Sent Events
+//   (N1.4, #329)" (#329).
+// Author review: Jonus Ho validated the behaviour and the implementation, checked for fatal errors,
+//   and confirmed it does not conflict with the architecture before committing.
+
 import { Controller, Get, Inject, Res } from '@nestjs/common';
 import { Authenticated, CurrentUser, type AuthContext } from '@foc/auth-client';
 import { ApiException } from '@foc/platform';

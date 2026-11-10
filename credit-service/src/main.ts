@@ -1,3 +1,9 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5), date: 2026-09-20
+// Scope: Generated the initial implementation for "scaffold the four services on a shared runtime".
+// Author review: Jonus Ho verified correctness, tested the change, and checked for fatal errors and
+//   conflicts with our architecture before committing.
+
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { createLogger, PinoLoggerService, startService } from '@foc/platform';

@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-10-13
+// Scope: Generated the initial implementation for "secrets, container hardening and restart
+//   recovery" (PLT-06).
+// Author review: Jonus Ho reviewed the implementation for correctness, ran it against the test
+//   suite, and checked that it fits our service boundaries without fatal errors before committing.
+
 /**
  * Who published a message, as the broker vouches for it (PLT-06).
  *
