@@ -51,8 +51,9 @@ export interface ReconciliationRun {
  * has none — and never moves an order itself: only Credit's reply does.
  *
  * A combination that re-issuing cannot fix (for example a release pending for money Credit already
- * transferred) raises one CREDIT_STATE_CONFLICT operator alert. Every decision is recorded, and the
- * row lock plus the retry window mean overlapping runs, in one process or several, act once.
+ * transferred) raises one CREDIT_STATE_CONFLICT operator alert, and the order is not checked again
+ * until it changes. Every decision is recorded, and the row lock plus the retry window mean
+ * overlapping runs, in one process or several, act once.
  */
 @Injectable()
 export class CreditReconciler implements OnApplicationBootstrap, OnApplicationShutdown {

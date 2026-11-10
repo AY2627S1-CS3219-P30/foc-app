@@ -53,7 +53,7 @@ export default function AdminOverviewPage() {
         <Stat
           href="/admin/errands"
           label="Credit contradictions"
-          value={figure(reconciliation, (d) => d.items.filter((a) => a.action === "ALERTED").length)}
+          value={figure(reconciliation, (d) => d.openContradictions)}
         />
         <Stat href="/admin/operations" label="Dead letters waiting" value={deadLetters} />
       </div>

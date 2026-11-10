@@ -520,7 +520,8 @@ would make the history false, and a suspension can still be worked out from thes
 Order hosts the reconciliation job (repository owner's decision, 2026-10-01). Every
 `RECONCILE_INTERVAL_MS` it takes orders that have waited in a `*_PENDING_CREDIT` state longer than
 `CREDIT_WAIT_TIMEOUT_MS`, skipping any whose request is still in the outbox (that is the relay's job)
-and any attempted within `RECONCILE_RETRY_MS`. For each one it reads Credit's authoritative
+and any attempted within `RECONCILE_RETRY_MS`. It also skips an order it has already found
+contradicting Credit, until the order changes. For each one it reads Credit's authoritative
 `GET /internal/orders/{id}/credit-status` with this service's `INTERNAL_SERVICE_KEY`, which must be
 one of Credit's `INTERNAL_SERVICE_KEYS`.
 
@@ -529,7 +530,7 @@ one of Credit's `INTERNAL_SERVICE_KEYS`.
 | `PENDING_CREDIT` | `NONE` or `RESERVED` | Re-issue `order.reservation-requested` |
 | `COMPLETION_PENDING_CREDIT` | `RESERVED` or `TRANSFERRED` | Re-issue `order.completion-requested` |
 | `RELEASE_PENDING_CREDIT` | `RESERVED` or `RELEASED` | Re-issue `order.release-requested` |
-| anything else | — | One `CREDIT_STATE_CONFLICT` operator alert; nothing re-issued |
+| anything else | — | One `CREDIT_STATE_CONFLICT` operator alert; nothing re-issued, and not checked again until the order changes |
 
 Re-issuing is the only repair. Credit applies each operation at most once per order and answers a
 repeat with its recorded result, which then moves the order through the ordinary consumer. The job
@@ -538,7 +539,8 @@ in the append-only `order_reconciliation_attempts` table, after re-checking the 
 the retry window, so overlapping runs in one process or several act once. If Credit is unreachable,
 nothing is repaired and the attempt is recorded as `CREDIT_UNAVAILABLE`. Each run logs a
 `credit reconciliation run` metrics line (candidates, re-issued, alerted, unavailable, skipped,
-duration). `GET /admin/orders/reconciliation-attempts` shows recent decisions to administrators.
+duration). `GET /admin/orders/reconciliation-attempts` shows recent decisions to administrators,
+and how many errands found contradicting Credit have not changed since.
 `system-tests/test/reconciliation.test.ts` runs the real Order and Credit code to show that every
 lost request or reply converges with exactly one Credit transaction per operation, including under
 duplicate delivery and overlapping runs.
@@ -547,7 +549,7 @@ The first migration includes a deterministic demonstration errand at
 `00000000-0000-4000-8000-000000000129`; after Compose is healthy, an authenticated caller can retrieve
 its projection from `/orders/00000000-0000-4000-8000-000000000129`. It is `OPEN` only for the hour
 after the migration ran. Then the sweep starts its expiry, but Credit holds no reservation for it,
-so it stays in `RELEASE_PENDING_CREDIT` and raises an operator alert on every reconciliation run.
+so it stays in `RELEASE_PENDING_CREDIT` and the reconciliation job raises an operator alert.
 Migration `0023` closes it as `REJECTED` on a database where that has already happened, such as
 the AWS host, and removes the reconciliation decisions and alerts about it. It leaves a database
 where the errand is still `OPEN` alone, so on a fresh stack the alert returns once the hour passes.
