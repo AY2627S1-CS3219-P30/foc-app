@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-09-30
+// Scope: Implementation for "account screens on the real User Service" (USR-05).
+// Author review: Anselm Long checked the code for correctness against the ticket, confirmed the
+//   tests pass, and made sure it caused no fatal errors or architectural conflicts before
+//   committing.
+
 import type { NavItem } from "@/components/Sidebar";
 import type { PreferredMode } from "./user-api";
 

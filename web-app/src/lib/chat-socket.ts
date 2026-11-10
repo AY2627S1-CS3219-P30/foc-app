@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-11-08
+// Scope: Generated the initial implementation for "nudge the chat panel over the notify-only
+//   socket" (#346).
+// Author review: Patrick Thomas checked the code for correctness against the ticket, confirmed the
+//   tests pass, and made sure it caused no fatal errors or architectural conflicts before
+//   committing.
+
 import { ApiError } from "./api-client";
 import { browserTimer, reconnectDelay, type Timer } from "./live/connection";
 

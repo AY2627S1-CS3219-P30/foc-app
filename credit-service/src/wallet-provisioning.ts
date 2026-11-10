@@ -1,3 +1,9 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-10-20
+// Scope: Implementation for "make the initial allocation configuration" (CRD-09).
+// Author review: Isaac Chua reviewed the implementation for correctness, ran it against the test
+//   suite, and checked that it fits our service boundaries without fatal errors before committing.
+
 import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import {
   EVENTS,

@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-20 to 2026-10-26
+// Scope: Generated the initial implementation for "check that reserved credits are open
+//   reservations" (CRD-09); later refactoring.
+// Author review: Isaac Chua checked the code for correctness against the ticket, confirmed the
+//   tests pass, and made sure it caused no fatal errors or architectural conflicts before
+//   committing.
+
 import type { Queryable, Row } from '@foc/platform';
 
 /**

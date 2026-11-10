@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-20 to 2026-10-21
+// Scope: Implementation for "make the initial allocation configuration" (CRD-09).
+// Author review: Isaac Chua and Patrick Thomas checked the code for correctness against the ticket,
+//   confirmed the tests pass, and made sure it caused no fatal errors or architectural conflicts
+//   before committing.
+
 /**
  * What a student's wallet is issued on first activation, unless `INITIAL_CREDIT_ALLOCATION` is set
  * (`config.ts`). The reasoning is in the README, under "The initial allocation".

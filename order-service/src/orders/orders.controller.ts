@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-01 to 2026-11-03
+// Scope: Implementation for "add discovery and one-winner atomic acceptance" (#171, #170, #268).
+// Author review: Isaac Chua, Zhang Yuan and Patrick Thomas reviewed the implementation for
+//   correctness, ran it against the test suite, and checked that it fits our service boundaries
+//   without fatal errors before committing.
+
 import {
   Body,
   Controller,

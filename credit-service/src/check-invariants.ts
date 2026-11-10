@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-10-26
+// Scope: Generated the initial implementation for "state the economy invariants once, and check
+//   them live".
+// Author review: Isaac Chua validated correctness and the implementation, and checked for fatal
+//   errors and architectural conflicts, before committing.
+
 import { PgDb, errorMessage } from '@foc/platform';
 import { CREDIT_INVARIANTS } from './credits/invariants.js';
 

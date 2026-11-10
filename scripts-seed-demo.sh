@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), dates: 2026-11-03 to 2026-11-05
+# Scope: Bug fixes (#285, #169), including "keep production out of a from-source shell, and prove
+#   the cookie is Secure".
+# Author review: Jonus Ho and Anselm Long validated the behaviour and the implementation, checked
+#   for fatal errors, and confirmed it does not conflict with the architecture before committing.
+
 # Isolated, named D4 personas and errands. Never modifies the developer's default project.
 # Usage: [FOC_IMAGE_TAG=rc1-d4] ./scripts-seed-demo.sh --fresh | --up | --check | --stop
 #

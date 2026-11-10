@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-10-21
+// Scope: Generated the initial implementation for "share polling in usePoll and tick the feed only
+//   on change".
+// Author review: Patrick Thomas validated correctness and the implementation, and checked for fatal
+//   errors and architectural conflicts, before committing.
+
 "use client";
 
 import { useCallback, useEffect, useState } from "react";

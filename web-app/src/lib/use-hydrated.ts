@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-09-30
+// Scope: Generated the initial implementation for "harden account screens and sessions (PR #193
+//   review)" (#193).
+// Author review: Jonus Ho reviewed the implementation for correctness, ran it against the test
+//   suite, and checked that it fits our service boundaries without fatal errors before committing.
+
 "use client";
 
 import { useSyncExternalStore } from "react";

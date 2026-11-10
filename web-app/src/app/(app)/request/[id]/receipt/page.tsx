@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-22 to 2026-11-05
+// Scope: Generated the initial implementation for "show real order history, receipts and wallet"
+//   (WEB-03, #276, #367); later new features and bug fixes.
+// Author review: Jonus Ho, Patrick Thomas and Zhang Yuan verified correctness, tested the change,
+//   and checked for fatal errors and conflicts with our architecture before committing.
+
 "use client";
 
 import Link from "next/link";

@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-11-03
+// Scope: Generated the initial implementation for "close a user's sockets on identity change"
+//   (#346).
+// Author review: Anselm Long reviewed the implementation for correctness, ran it against the test
+//   suite, and checked that it fits our service boundaries without fatal errors before committing.
+
 import { randomUUID } from 'node:crypto';
 import {
   Inject,

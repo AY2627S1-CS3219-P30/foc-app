@@ -1259,3 +1259,65 @@ twice from clean containers. It resets only the dedicated `foc-e2e-release` proj
 [web app release suite](web-app/README.md#full-release-suite-tst-02-160). CI requires both its ordinary
 browser smoke and the full release suite, which it runs once on a pull request and twice on a push
 to `main`.
+
+---
+
+## AI Use Summary
+
+This is our team's disclosure under the course's AI Usage Policy (Appendix 2 of the project
+document). Each member's key prompts and responses, and their AI-assisted commits, are in
+[`ai/usage-log.md`](ai/usage-log.md).
+
+**Tools**
+
+- **Claude Code** (Anthropic), used by all five of us. Models: mostly Claude Opus 5.5, with Claude
+  Opus 5, Claude Sonnet 5, Claude Opus 4.8 and Claude Fable 5.1.
+- **GitHub Copilot coding agent**, for two merge commits.
+- **OpenAI Codex** (the Codex desktop app, model `gpt-5.6-sol`), used by Isaac from 30 Sep to
+  28 Oct. Its commits carry no trailer; [Isaac's section](ai/usage-log.md#isaac-chua) of the log
+  lists the PRs.
+
+**Used for**
+
+- Writing implementation code once our requirements and architecture were set and designed by members: service endpoints
+  and event handlers, the outbox and inbox, web-app screens, and unit, integration and browser
+  tests.
+- Debugging: explaining CI failures, failing tests and container problems, and suggesting tests.
+- Refactoring and documentation: READMEs, runbooks, code comments, pull request descriptions and
+  reviews, and slide text written from our own documents.
+- Learning: explaining the course brief, frameworks we were unsure of, and parts of our own system.
+- Writing up requirements we had already decided: expanding the tickets we drafted, for example
+  which tickets link to which and who owns each, before we implemented and tagged them.
+
+**What we decided ourselves**
+
+- **Requirements.** We made our requirements first. The FRs, NFRs and nice-to-haves were all
+  decided by us, and we prioritised them and consolidated the backlog ourselves.
+- **Architecture and design.** The major architectural designs and the frontend design are ours,
+  and the team vetted the requirements and architecture before each major milestone. We thought up
+  the data schemas and sometimes asked AI whether one was realistic. Choices such as PostgreSQL and
+  Drizzle were proposed by our members. When we were unsure about a framework we asked AI about it,
+  then discussed as a group whether it made sense before adding it to the requirements or the
+  architecture.
+- **Decision rationales.** We discussed trade-offs as a team and came to our own conclusions. We
+  also asked our mentor for ideas, and discussed them internally afterwards.
+- **PR fixes.** We used AI to summarise what members' PRs were missing, then checked them ourselves
+  before finalising the reviews and code changes.
+- **Runbooks and slides.** We chose the slide template, which we found online, and reviewed and
+  edited the deck and the demo runbooks. Runbook was mainly discussed by our members before asking Claude if it was realistic and then refining the kinks here and there. For the slides, diagrams and layout were done up by ourselves, through drawing shapes and lines on the slides. Asked Claude for what information would be good to put besides following the FoC guidelines and put it in the content.
+
+**Verification**
+
+Each of us reviewed and tested the AI output we used. Our rule is that someone other than the
+author reviews each pull request, and [`CODEOWNERS`](.github/CODEOWNERS) requests the owner's
+review. Branch protection requires the `CI` check, which runs lint, type checks, unit, integration
+and contract tests, browser journeys, and vulnerability and secret scans.
+
+**Finding AI-assisted changes**
+
+Commits written with Claude carry a `Co-Authored-By: Claude …` trailer: 294 of the 486 non-merge
+commits on `main` as of 8 Nov. To list them, run `git log --no-merges -i --grep='Co-Authored-By: Claude'`.
+The key implementation files, 244 TypeScript, JavaScript, shell and Python files, start with an
+`AI Assistance Disclosure` comment: the tool and dates, the scope of the AI-assisted work, and who
+reviewed it. Tests, configuration and generated files carry no header. Jonus's commits after 23 Oct
+lack the trailer, so `git log` undercounts them, and the headers count them as AI-assisted.

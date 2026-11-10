@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), date: 2026-10-30
+# Scope: Implementation for "wire the fifth service into the stack" (NTH-11, #345).
+# Author review: Zhang Yuan verified correctness, tested the change, and checked for fatal errors
+#   and conflicts with our architecture before committing.
+
 # A quiescent five-database backup outside Docker volumes; output is a private timestamped bundle.
 # Usage: ./scripts-backup.sh [--leave-stopped] [BACKUP_PARENT]
 set -euo pipefail

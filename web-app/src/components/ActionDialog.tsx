@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-10-21
+// Scope: Generated the initial implementation for "take errands from post to paid in the app"
+//   (WEB-02, WEB-05); later bug fixes.
+// Author review: Patrick Thomas verified correctness, tested the change, and checked for fatal
+//   errors and conflicts with our architecture before committing.
+
 "use client";
 
 import { useEffect, useId, useRef } from "react";

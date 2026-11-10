@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 4.8, Claude Opus 5.5), dates: 2026-09-28 to 2026-11-04
+// Scope: Generated the initial implementation for "SUP-01: supplier schema, admin CRUD, and
+//   idempotent seed" (SUP-01); later bug fixes.
+// Author review: Jonus Ho and Patrick Thomas verified correctness, tested the change, and checked
+//   for fatal errors and conflicts with our architecture before committing.
+
 import {
   DAYS,
   type OpeningHours,

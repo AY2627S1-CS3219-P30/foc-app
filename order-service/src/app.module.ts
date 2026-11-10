@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Opus 5), dates: 2026-09-20 to 2026-10-28
+// Scope: Generated the initial implementation for "scaffold the four services on a shared runtime"
+//   (USR-07, CRD-07, ORD-06); later new features.
+// Author review: Isaac Chua, Jonus Ho, Anselm Long and Zhang Yuan reviewed the implementation for
+//   correctness, ran it against the test suite, and checked that it fits our service boundaries
+//   without fatal errors before committing.
+
 import { Module } from '@nestjs/common';
 import { authStatusEvents, AuthModule } from '@foc/auth-client';
 import {

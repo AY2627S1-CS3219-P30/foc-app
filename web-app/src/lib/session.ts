@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-09-30
+// Scope: Generated the initial implementation for "harden account screens and sessions (PR #193
+//   review)" (#193).
+// Author review: Jonus Ho validated the behaviour and the implementation, checked for fatal errors,
+//   and confirmed it does not conflict with the architecture before committing.
+
 import { ApiError, type UserApi } from "./user-api";
 
 /**

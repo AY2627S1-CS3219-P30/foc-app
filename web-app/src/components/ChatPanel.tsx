@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-11-04
+// Scope: Bug fixes, including "address chat review findings".
+// Author review: Patrick Thomas reviewed the implementation for correctness, ran it against the
+//   test suite, and checked that it fits our service boundaries without fatal errors before
+//   committing.
+
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";

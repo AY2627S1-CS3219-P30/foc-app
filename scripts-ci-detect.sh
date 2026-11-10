@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-11-03
+# Scope: Implementation for "delivery guarantees, duplicates and schema versions" (WEB-00, EVT-03,
+#   PLT-06); also tooling and boilerplate, tests and code comments.
+# Author review: Jonus Ho, Isaac Chua, Anselm Long, Patrick Thomas and Zhang Yuan validated the
+#   behaviour and the implementation, checked for fatal errors, and confirmed it does not conflict
+#   with the architecture before committing.
+
 # Decide what CI needs to run, given a list of changed paths on stdin.
 #
 #   git diff --name-only BASE HEAD | ./scripts-ci-detect.sh

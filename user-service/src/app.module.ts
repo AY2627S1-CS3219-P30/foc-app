@@ -1,3 +1,12 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Opus 5, Claude Sonnet 5, Claude Opus 4.8), dates:
+//   2026-09-20 to 2026-09-30
+// Scope: Generated the initial implementation for "scaffold the four services on a shared runtime"
+//   (USR-01, EVT-02); later new features.
+// Author review: Jonus Ho, Anselm Long and Patrick Thomas validated the behaviour and the
+//   implementation, checked for fatal errors, and confirmed it does not conflict with the
+//   architecture before committing.
+
 import { Module } from '@nestjs/common';
 import {
   EventsModule,

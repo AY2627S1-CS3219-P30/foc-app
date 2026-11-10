@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Sonnet 5, Claude Opus 4.8), dates: 2026-09-20 to
+//   2026-11-05
+// Scope: Generated the initial implementation for "registration, one-time activation and identity
+//   lookup" (USR-01, USR-02, USR-03); later tests, new features and bug fixes.
+// Author review: Anselm Long, Jonus Ho, Patrick Thomas and Zhang Yuan validated correctness and the
+//   implementation, and checked for fatal errors and architectural conflicts, before committing.
+
 import { and, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core';
 import { toOutboxRow, type CataloguedEventType, type NewOutboxEvent } from '@foc/platform';

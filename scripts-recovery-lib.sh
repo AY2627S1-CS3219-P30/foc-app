@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), date: 2026-10-30
+# Scope: Implementation for "wire the fifth service into the stack" (NTH-11, #345).
+# Author review: Zhang Yuan verified correctness, tested the change, and checked for fatal errors
+#   and conflicts with our architecture before committing.
+
 # Shared by the backup and restore entry points. Sourced after scripts-env.sh.
 
 RECOVERY_APPS=(edge web-app user-service supplier-service order-service credit-service chat-service)

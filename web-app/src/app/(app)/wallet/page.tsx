@@ -1,3 +1,9 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-10-29
+// Scope: Implementation for "request composer on the Order API" (WEB-00, WEB-01, WEB-03).
+// Author review: Patrick Thomas and Jonus Ho verified correctness, tested the change, and checked
+//   for fatal errors and conflicts with our architecture before committing.
+
 "use client";
 
 import Link from "next/link";

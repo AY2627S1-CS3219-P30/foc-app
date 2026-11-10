@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-15 to 2026-11-04
+// Scope: Implementation for "request composer on the Order API" (WEB-01, ADM-05, #268); also bug
+//   fixes.
+// Author review: Jonus Ho, Zhang Yuan and Patrick Thomas verified correctness, tested the change,
+//   and checked for fatal errors and conflicts with our architecture before committing.
+
 /**
  * The admin console's calls (ADM-02), typed from the contracts: the User Service's administration
  * and its controls on administrators (ADR 0008), the Order Service's operator views, and the Credit

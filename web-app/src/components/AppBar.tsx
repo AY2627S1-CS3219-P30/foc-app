@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-21 to 2026-11-05
+// Scope: Implementation for "live errand updates, one stream per tab and the pages that use it
+//   (N1.4, #331)" (SUP-04, #331, #166); also bug fixes and tests.
+// Author review: Jonus Ho, Anselm Long and Patrick Thomas checked the code for correctness against
+//   the ticket, confirmed the tests pass, and made sure it caused no fatal errors or architectural
+//   conflicts before committing.
+
 "use client";
 
 import { useStore } from "@/lib/store";

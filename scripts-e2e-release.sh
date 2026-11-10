@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), date: 2026-11-03
+# Scope: Bug fixes (#285), including "keep production out of a from-source shell, and prove the
+#   cookie is Secure".
+# Author review: Anselm Long and Jonus Ho reviewed the implementation for correctness, ran it
+#   against the test suite, and checked that it fits our service boundaries without fatal errors
+#   before committing.
+
 # Destructive only to the dedicated foc-e2e-release test project, never foc or foc-d4-demo.
 set -euo pipefail
 cd "$(dirname "$0")"

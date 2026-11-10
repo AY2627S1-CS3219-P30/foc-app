@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-11-04 to 2026-11-08
+// Scope: Implementation for "nudge the chat panel over the notify-only socket" (#346); also bug
+//   fixes.
+// Author review: Patrick Thomas verified correctness, tested the change, and checked for fatal
+//   errors and conflicts with our architecture before committing.
+
 import { ApiError, newCorrelationId } from "./api-client";
 import * as api from "./chat-api";
 import type { Channel, Message } from "./chat-api";

@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-27 to 2026-11-05
+// Scope: Generated the initial implementation for "real activation email, resend, and no token on
+//   an open route" (USR-09, #309, USR-12); later new features and bug fixes.
+// Author review: Anselm Long reviewed the implementation for correctness, ran it against the test
+//   suite, and checked that it fits our service boundaries without fatal errors before committing.
+
 import { createTransport, type Transporter } from 'nodemailer';
 import type { ActivationEmail, Mailer, PasswordResetEmail } from './mailer.js';
 

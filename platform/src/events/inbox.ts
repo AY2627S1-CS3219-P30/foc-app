@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-10-13
+// Scope: Generated the initial implementation for "transactional outbox relay and inbox" (EVT-02,
+//   EVT-03); later new features.
+// Author review: Jonus Ho validated correctness and the implementation, and checked for fatal
+//   errors and architectural conflicts, before committing.
+
 import { Logger } from '@nestjs/common';
 import type { Db, Queryable } from '../db.js';
 import type { EventHandler, HandlerContext } from './consumer.js';

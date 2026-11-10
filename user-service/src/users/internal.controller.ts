@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Sonnet 5, Claude Opus 5.5), dates: 2026-09-20 to 2026-10-12
+// Scope: Generated the initial implementation for "registration, one-time activation and identity
+//   lookup" (USR-01, USR-06); later new features.
+// Author review: Anselm Long and Zhang Yuan validated correctness and the implementation, and
+//   checked for fatal errors and architectural conflicts, before committing.
+
 import { Controller, Get, Inject, Param, Query, UseGuards } from '@nestjs/common';
 import { ServiceKeyGuard } from '../auth/service-key.guard.js';
 import { UsersService } from './users.service.js';

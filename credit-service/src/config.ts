@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Opus 5), dates: 2026-09-20 to 2026-10-26
+// Scope: Generated the initial implementation for "scaffold the four services on a shared runtime"
+//   (USR-07, CRD-09); later new features and bug fixes.
+// Author review: Isaac Chua, Anselm Long and Jonus Ho validated the behaviour and the
+//   implementation, checked for fatal errors, and confirmed it does not conflict with the
+//   architecture before committing.
+
 import { authConfigFromEnv, authEnvSchema } from '@foc/auth-client';
 import { loadEnv } from '@foc/platform';
 import { z } from 'zod';

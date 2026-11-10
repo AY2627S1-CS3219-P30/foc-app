@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-30 to 2026-11-07
+// Scope: Generated the initial implementation for "channels and messages for an errand" (NTH-02,
+//   #162, NTH-03); later new features, refactoring and bug fixes.
+// Author review: Anselm Long, Jonus Ho and Zhang Yuan validated the behaviour and the
+//   implementation, checked for fatal errors, and confirmed it does not conflict with the
+//   architecture before committing.
+
 import { Module, type DynamicModule } from '@nestjs/common';
 import { LOGGER, PgDb, type PgDbOptions } from '@foc/platform';
 import { env } from '../config.js';

@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), date: 2026-10-30
+# Scope: Implementation for "wire the fifth service into the stack" (NTH-11, #345).
+# Author review: Zhang Yuan validated correctness and the implementation, and checked for fatal
+#   errors and architectural conflicts, before committing.
+
 # Uses prior published images against the current schema. Never downgrades a database.
 # Usage: ./scripts-rollback.sh sha-<40 hex commit> --additive-migrations-reviewed
 set -euo pipefail

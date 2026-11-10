@@ -1,4 +1,11 @@
 #!/bin/sh
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-13 to 2026-10-30
+# Scope: Generated the first version of this script for "secrets, container hardening and restart
+#   recovery" (PLT-06, NTH-11, #345); later new features.
+# Author review: Jonus Ho and Zhang Yuan validated correctness and the implementation, and checked
+#   for fatal errors and architectural conflicts, before committing.
+
 # Entrypoint of the rabbitmq container (PLT-06): one broker account per service.
 #
 # Every service used to share one login, so anything holding it could publish

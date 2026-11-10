@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-11-06 to 2026-11-07
+// Scope: Generated the initial implementation for "quieter protocol errors, a cap on unsigned
+//   sockets, a 60 s socket refusal" (#369, #370, #371); later bug fixes.
+// Author review: Jonus Ho verified correctness, tested the change, and checked for fatal errors and
+//   conflicts with our architecture before committing.
+
 import type { IncomingMessage } from 'node:http';
 import type { INestApplicationContext } from '@nestjs/common';
 import { WsAdapter } from '@nestjs/platform-ws';

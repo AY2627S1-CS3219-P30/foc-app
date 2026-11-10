@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-30 to 2026-11-04
+// Scope: Generated the initial implementation for "channels and messages for an errand" (NTH-02,
+//   #162, NTH-03); later new features and bug fixes.
+// Author review: Anselm Long and Zhang Yuan reviewed the implementation for correctness, ran it
+//   against the test suite, and checked that it fits our service boundaries without fatal errors
+//   before committing.
+
 import { sql } from 'drizzle-orm';
 import {
   check,

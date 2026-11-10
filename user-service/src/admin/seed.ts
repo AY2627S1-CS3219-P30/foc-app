@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Sonnet 5, Claude Opus 4.8), dates: 2026-09-21 to
+//   2026-09-30
+// Scope: Generated the initial implementation for "RBAC, profile edits and admin controls" (USR-03,
+//   USR-08, USR-07); later new features and bug fixes.
+// Author review: Anselm Long, Jonus Ho and Patrick Thomas validated correctness and the
+//   implementation, and checked for fatal errors and architectural conflicts, before committing.
+
 import { randomUUID } from 'node:crypto';
 import type { LoggerService } from '@nestjs/common';
 import { EVENTS } from '@foc/platform';

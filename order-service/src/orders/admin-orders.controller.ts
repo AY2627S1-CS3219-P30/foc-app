@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-01 to 2026-11-03
+// Scope: Generated the initial implementation for "surface stale credit waits and expose private
+//   history" (CRD-07, #171, #268); later new features.
+// Author review: Zhang Yuan and Isaac Chua checked the code for correctness against the ticket,
+//   confirmed the tests pass, and made sure it caused no fatal errors or architectural conflicts
+//   before committing.
+
 import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query, Req } from '@nestjs/common';
 import { AdminOnly, CurrentUser, type AuthContext } from '@foc/auth-client';
 import { ApiException, DEAD_LETTERS, type DeadLetters } from '@foc/platform';

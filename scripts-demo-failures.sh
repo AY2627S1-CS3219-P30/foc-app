@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), dates: 2026-10-13 to 2026-10-26
+# Scope: Generated the first version of this script for "delivery guarantees, duplicates and schema
+#   versions" (EVT-03, PLT-06); later new features and bug fixes.
+# Author review: Jonus Ho and Isaac Chua verified correctness, tested the change, and checked for
+#   fatal errors and conflicts with our architecture before committing.
+
 # Failure-handling demo for the containerized stack (EVT-03; D3 Part 3.4).
 #
 #   ./scripts-demo-failures.sh         against the stack that is already up

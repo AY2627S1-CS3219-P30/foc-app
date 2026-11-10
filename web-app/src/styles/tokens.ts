@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-11-03
+// Scope: Generated the initial implementation (WEB-00, #166); later bug fixes and tests.
+// Author review: Patrick Thomas and Anselm Long checked the code for correctness against the
+//   ticket, confirmed the tests pass, and made sure it caused no fatal errors or architectural
+//   conflicts before committing.
+
 /**
  * The design tokens, carried from the D1 deck. This file is the source of truth: `tokens.css` is
  * generated from it (`bun run generate`), so components use `var(--color-primary)` in CSS or

@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Sonnet 5), dates: 2026-09-20 to 2026-11-05
+// Scope: Generated the initial implementation for "registration, one-time activation and identity
+//   lookup" (USR-01, USR-02, USR-03); later new features, refactoring and bug fixes.
+// Author review: Anselm Long reviewed the implementation for correctness, ran it against the test
+//   suite, and checked that it fits our service boundaries without fatal errors before committing.
+
 import { z } from 'zod';
 import { ApiException } from '@foc/platform';
 import { AUDIT_ACTIONS } from '../admin/admin.repository.js';

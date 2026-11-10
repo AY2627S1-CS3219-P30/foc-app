@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-10-28
+// Scope: Implementation for "delivery guarantees, duplicates and schema versions" (EVT-03, #329);
+//   also bug fixes.
+// Author review: Jonus Ho validated the behaviour and the implementation, checked for fatal errors,
+//   and confirmed it does not conflict with the architecture before committing.
+
 import { z } from 'zod';
 
 /**

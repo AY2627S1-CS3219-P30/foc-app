@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Opus 5), dates: 2026-09-20 to 2026-10-27
+// Scope: Generated the initial implementation for "scaffold the four services on a shared runtime"
+//   (WEB-00, PLT-06, PLT-10); later bug fixes and new features.
+// Author review: Jonus Ho and Patrick Thomas checked the code for correctness against the ticket,
+//   confirmed the tests pass, and made sure it caused no fatal errors or architectural conflicts
+//   before committing.
+
 import { lookup } from 'node:dns/promises';
 import { createServer, type Server } from 'node:http';
 import {

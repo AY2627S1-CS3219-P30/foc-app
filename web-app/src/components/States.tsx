@@ -1,3 +1,9 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), date: 2026-09-30
+// Scope: Generated the initial implementation (WEB-00).
+// Author review: Patrick Thomas validated the behaviour and the implementation, checked for fatal
+//   errors, and confirmed it does not conflict with the architecture before committing.
+
 import type { ReactNode } from "react";
 import { cx } from "@/lib/cx";
 import { Button } from "./Button";

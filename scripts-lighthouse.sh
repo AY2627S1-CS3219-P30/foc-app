@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), date: 2026-11-03
+# Scope: Generated the first version of this script for "axe on every core screen, keyboard-only
+#   errand journey, Lighthouse" (#166).
+# Author review: Anselm Long verified correctness, tested the change, and checked for fatal errors
+#   and conflicts with our architecture before committing.
+
 # Lighthouse, mobile, three runs per core screen (UI-NFR3.1.1, TST-03 #166), on a Compose project
 # of its own ('foc-lighthouse', ports from LIGHTHOUSE_PORT_BASE, default 14600), so it starts beside
 # the demo and release stacks. Destructive only to that project: each run starts it from empty

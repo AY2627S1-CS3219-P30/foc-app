@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# AI Assistance Disclosure:
+# Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-11-07
+# Scope: Implementation for "secrets, container hardening and restart recovery" (PLT-06, PLT-07,
+#   CRD-09); also bug fixes, code comments, tests and tooling and boilerplate.
+# Author review: Jonus Ho, Anselm Long, Zhang Yuan, Isaac Chua and Patrick Thomas validated the
+#   behaviour and the implementation, checked for fatal errors, and confirmed it does not conflict
+#   with the architecture before committing.
+
 # Smoke test for the containerized stack (PLT-02).
 #
 #   ./scripts-smoke.sh            assume the stack is already up

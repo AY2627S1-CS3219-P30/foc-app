@@ -1,3 +1,12 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5, Claude Sonnet 5, Claude Opus 4.8), dates: 2026-09-20 to
+//   2026-11-05
+// Scope: Generated the initial implementation for "login, refresh-token rotation and logout"
+//   (USR-02, USR-03, #189); later new features and bug fixes.
+// Author review: Anselm Long, Jonus Ho and Patrick Thomas reviewed the implementation for
+//   correctness, ran it against the test suite, and checked that it fits our service boundaries
+//   without fatal errors before committing.
+
 import { Inject, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { ApiException } from '@foc/platform';

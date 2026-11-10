@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Sonnet 5), date: 2026-09-21
+// Scope: Generated the initial implementation for "shared auth middleware for the other services"
+//   (USR-06).
+// Author review: Anselm Long checked the code for correctness against the ticket, confirmed the
+//   tests pass, and made sure it caused no fatal errors or architectural conflicts before
+//   committing.
+
 import { z } from 'zod';
 
 export type Role = 'STUDENT' | 'ADMIN';

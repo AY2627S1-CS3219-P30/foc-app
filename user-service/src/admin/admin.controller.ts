@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Sonnet 5), date: 2026-09-21
+// Scope: Generated the initial implementation for "RBAC, profile edits and admin controls"
+//   (USR-03).
+// Author review: Anselm Long validated the behaviour and the implementation, checked for fatal
+//   errors, and confirmed it does not conflict with the architecture before committing.
+
 import {
   Body,
   Controller,

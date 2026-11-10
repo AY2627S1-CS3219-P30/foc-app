@@ -1,3 +1,10 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Opus 5.5), dates: 2026-09-30 to 2026-10-13
+// Scope: Implementation for "secrets, container hardening and restart recovery" (PLT-06); also bug
+//   fixes.
+// Author review: Jonus Ho reviewed the implementation for correctness, ran it against the test
+//   suite, and checked that it fits our service boundaries without fatal errors before committing.
+
 /**
  * The broker layout, declared as data so it can be asserted in a test and
  * recreated from an empty broker (an acceptance criterion of EVT-01).

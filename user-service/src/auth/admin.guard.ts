@@ -1,3 +1,11 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (Claude Sonnet 5, Claude Opus 4.8, Claude Opus 5.5), dates: 2026-09-21 to
+//   2026-09-30
+// Scope: Generated the initial implementation for "RBAC, profile edits and admin controls"
+//   (USR-03); later tests and new features.
+// Author review: Anselm Long and Patrick Thomas verified correctness, tested the change, and
+//   checked for fatal errors and conflicts with our architecture before committing.
+
 import { CanActivate, ExecutionContext, Inject, Injectable } from '@nestjs/common';
 import { ApiException } from '@foc/platform';
 import { DB, type Database } from '../db/db.js';
