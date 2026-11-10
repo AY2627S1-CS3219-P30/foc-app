@@ -1304,8 +1304,7 @@ document). Each member's key prompts and responses, and their AI-assisted commit
 - **PR fixes.** We used AI to summarise what members' PRs were missing, then checked them ourselves
   before finalising the reviews and code changes.
 - **Runbooks and slides.** We chose the slide template, which we found online, and reviewed and
-  edited the deck and the demo runbooks. Claude drafted much of the runbook steps and of the slide
-  text, layout and diagrams from our documents.
+  edited the deck and the demo runbooks. Runbook was mainly discussed by our members before asking Claude if it was realistic and then refining the kinks here and there. For the slides, diagrams and layout were done up by ourselves, through drawing shapes and lines on the slides. Asked Claude for what information would be good to put besides following the FoC guidelines and put it in the content.
 
 **Verification**
 

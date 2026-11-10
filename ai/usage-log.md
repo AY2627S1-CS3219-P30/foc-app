@@ -16,7 +16,8 @@ document). The summary is the last section of the [README](../README.md#ai-use-s
   prompts, exported from their own Claude Code transcripts with
   [`export-claude-code-log.py`](export-claude-code-log.py).
   - Each section also counts that member's prompts by use, so the scale is still shown. Routine
-    prompts (approvals, push and merge notices, status checks) aren't counted.
+    prompts (approvals, push and merge notices, status checks) and general requests (prompts
+    that matched no use) aren't counted.
   - Prompts are quoted exactly. Pasted text, screenshots, email addresses and secrets are replaced
     with placeholders.
 - **Key responses.** The start of Claude's last message in each quoted turn.
@@ -76,17 +77,18 @@ format: the time, the use, the exact prompt in a `text` block, and the key respo
 
 ### Key prompts
 
-20 key prompts, picked by Jonus from the 359 Claude Code prompts counted below, between 7 Sep 2026
-and 8 Nov 2026.
+20 key prompts, picked by Jonus from the 380 Claude Code prompts counted below, between 7 Sep 2026
+and 8 Nov 2026. Three prompts the keyword tagger put under requirements were moved to their actual
+use: a deploy failure (15 Oct), a slides link (3 Nov) and a question about code backlog (5 Nov).
 
-| 359 prompts, by use (tagged by keyword) | Prompts |
+| 335 prompts, by use (tagged by keyword) | Prompts |
 | --------------------------------------- | ------- |
-| Documentation and slides                | 94      |
-| Implementation                          | 86      |
-| Debugging                               | 45      |
+| Documentation and slides                | 50      |
+| Implementation                          | 87      |
+| Debugging                               | 46      |
 | Review and verification                 | 41      |
-| Requirements and planning (topic)       | 15      |
 | Learning / explanation                  | 35      |
+| Requirements and planning (topic)       | 33      |
 | Release and PR workflow                 | 31      |
 | Design and decisions (topic)            | 7       |
 | Testing                                 | 5       |
@@ -302,13 +304,12 @@ okay im done stop the running stuff also found this frotnend error
 - **AI-assisted commits on `main`:** 91 of 105.
 - **Prompts:** Anselm's surviving Claude Code transcripts start on 13 Oct 2026, so the counts below cover 13 Oct to 9 Nov only; earlier sessions (including the September User Service work) are no longer available.
 
-20 key prompts, picked by Anselm from the 68 Claude Code prompts counted below, between 13 Oct 2026 and 9 Nov 2026. Exported with `ai/export-claude-code-log.py`. Times are SGT. Models: `claude-opus-5-5`.
+20 key prompts, picked by Anselm from the 56 Claude Code prompts counted below, between 13 Oct 2026 and 9 Nov 2026. Exported with `ai/export-claude-code-log.py`. Times are SGT. Models: `claude-opus-5-5`.
 
-| 68 prompts, by use (tagged by keyword) | Prompts |
+| 56 prompts, by use (tagged by keyword) | Prompts |
 | -------------------------------------- | ------- |
 | Learning / explanation                 | 28      |
 | Implementation                         | 15      |
-| General request                        | 12      |
 | Review and verification                | 3       |
 | Debugging                              | 3       |
 | Release and PR workflow                | 2       |
@@ -536,22 +537,20 @@ how can my friends modify the server and stuff?
 
 ### Key prompts
 
-20 key prompts, picked by Isaac Chua from their 70 prompts on this project: 31 in Claude Code (10 Sep to 10 Nov 2026) and 39 in OpenAI Codex (30 Sep to 28 Oct 2026). Claude Code prompts were exported with `ai/export-claude-code-log.py`. Codex prompts were taken from the Codex desktop app's local history (`~/.codex`) with the same rules: quoted exactly, attachments and pasted text replaced by a note, Codex's own injected instructions removed, and the same redaction and use tags. Codex's Goal Mode goals are quoted as `/goal` prompts. Times are SGT.
+20 key prompts, picked by Isaac Chua from their 70 prompts on this project: 31 in Claude Code (10 Sep to 10 Nov 2026) and 39 in OpenAI Codex (30 Sep to 28 Oct 2026). Claude Code prompts were exported with `ai/export-claude-code-log.py`. Codex prompts were taken from the Codex desktop app's local history (`~/.codex`) with the same rules: quoted exactly, attachments and pasted text replaced by a note, Codex's own injected instructions removed, and the same redaction and use tags. Codex's Goal Mode goals are quoted as `/goal` prompts. Times are SGT. The table counts 34 of the 70.
 
 Two Codex prompts from 16 Oct, which drafted answers to the course peer evaluation, are counted but not quoted: one of those answers is confidential to the instructor.
 
-| All 70 prompts, by use (tagged by keyword)                | Prompts |
-| --------------------------------------------------------- | ------- |
-| General request                                           | 33      |
-| Documentation and slides                                  | 9       |
-| Requirements and planning (topic)                         | 7       |
-| Release and PR workflow                                   | 6       |
-| Learning / explanation                                    | 5       |
-| Implementation                                            | 4       |
-| Routine: approvals, push and merge notices, status checks | 3       |
-| Testing                                                   | 1       |
-| Debugging                                                 | 1       |
-| Design and decisions (topic)                              | 1       |
+| 34 prompts, by use (tagged by keyword) | Prompts |
+| -------------------------------------- | ------- |
+| Documentation and slides               | 9       |
+| Requirements and planning (topic)      | 7       |
+| Release and PR workflow                | 6       |
+| Learning / explanation                 | 5       |
+| Implementation                         | 4       |
+| Testing                                | 1       |
+| Debugging                              | 1       |
+| Design and decisions (topic)           | 1       |
 
 #### Wed 30 Sep 2026
 
@@ -958,11 +957,10 @@ outstanding
 
 ### Key prompts
 
-20 key prompts, picked by Patrick Thomas from the 88 Claude Code prompts counted below, between 13 Oct 2026 and 9 Nov 2026. Exported with `ai/export-claude-code-log.py`. Times are SGT. Models: `claude-opus-5-5`.
+20 key prompts, picked by Patrick Thomas from the 68 Claude Code prompts counted below, between 13 Oct 2026 and 9 Nov 2026. Exported with `ai/export-claude-code-log.py`. Times are SGT. Models: `claude-opus-5-5`.
 
-| 88 prompts, by use (tagged by keyword) | Prompts |
+| 68 prompts, by use (tagged by keyword) | Prompts |
 | -------------------------------------- | ------- |
-| General request                        | 20      |
 | Review and verification                | 15      |
 | Debugging                              | 13      |
 | Release and PR workflow                | 12      |
@@ -1283,15 +1281,14 @@ do up the scripts
 
 ### Key prompts
 
-20 key prompts, picked by Zhang Yuan from the 203 Claude Code prompts counted below, between 12 Oct 2026 and 7 Nov 2026.
+20 key prompts, picked by Zhang Yuan from the 177 Claude Code prompts counted below, between 12 Oct 2026 and 7 Nov 2026.
 
-| 203 prompts, by use (tagged by keyword) | Prompts |
+| 177 prompts, by use (tagged by keyword) | Prompts |
 | --------------------------------------- | ------- |
 | Implementation                          | 42      |
 | Review and verification                 | 41      |
 | Learning / explanation                  | 35      |
 | Documentation and slides                | 26      |
-| General request                         | 26      |
 | Release and PR workflow                 | 15      |
 | Debugging                               | 8       |
 | Design and decisions (topic)            | 6       |
