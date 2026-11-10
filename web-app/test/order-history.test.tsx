@@ -303,6 +303,30 @@ describe("order history (WEB-03)", () => {
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
+  it("keeps the last mode's screen up while the new mode loads, with no skeleton in between", async () => {
+    serve([errand("mine", "OPEN"), errand("delivery", "ACCEPTED", { myRole: "COURIER" })]);
+    await render();
+    const answer = globalThis.fetch;
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    globalThis.fetch = (async (request: Request) => {
+      await held;
+      return answer(request);
+    }) as typeof fetch;
+
+    auth.user.profile.preferredMode = "COURIER";
+    await act(async () => root.render(<StoreProvider><OrderHistoryPage /></StoreProvider>));
+    await settle();
+    expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(section("Active")?.textContent).toContain("Supplier mine");
+    expect(section("Active deliveries")).toBeUndefined();
+
+    await act(async () => release());
+    await settle();
+    expect(section("Active deliveries")?.textContent).toContain("Supplier delivery");
+    expect(section("Requests you placed")?.textContent).toContain("Supplier mine");
+  });
+
   it("polls quickly while credits move, slowly while errands are active, and not once all are past", async () => {
     serve([errand("pending", "COMPLETION_PENDING_CREDIT"), errand("open", "OPEN")]);
     await render();

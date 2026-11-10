@@ -23,7 +23,7 @@ import { ORDER_ACTIONS } from "@/lib/order-actions";
 import { PENDING_POLL_MS, statusWording, waitsOnCredit } from "@/lib/order-status";
 import { useNowAfter } from "@/lib/use-now";
 import { useOrderAction } from "@/lib/use-order-action";
-import { usePagedPoll } from "@/lib/use-paged-poll";
+import { useKeptWhileLoading, usePagedPoll } from "@/lib/use-paged-poll";
 import { useUrlFlag } from "@/lib/use-query-param";
 import type { PreferredMode } from "@/lib/user-api";
 import styles from "./feed.module.css";
@@ -108,14 +108,11 @@ function nextChange(listings: Listing[] | null, now: number): number | null {
 export default function FeedPage() {
   const router = useRouter();
   const { user } = useAuth();
-  const mode = user?.profile.preferredMode;
   const [pickupBuilding, setPickupBuilding] = useState("");
   const [minimumReward, setMinimumReward] = useState("");
-  const { result, problem, moreProblem, loadingMore, loadMore, remove, reload } = useFeed(
-    mode,
-    pickupBuilding,
-    minimumReward,
-  );
+  const feed = useFeed(user?.profile.preferredMode, pickupBuilding, minimumReward);
+  const { problem, moreProblem, loadingMore, loadMore, remove, reload } = feed;
+  const { mode, result, stale } = useKeptWhileLoading(user?.profile.preferredMode, feed.result, problem);
   const [notice, setNotice] = useState<string | null>(null);
   const filtersRef = useRef<HTMLDivElement>(null);
   const showWithdrawn = useCallback(() => setNotice(WITHDRAWN), []);
@@ -208,7 +205,7 @@ export default function FeedPage() {
         <LoadingState label={`Loading ${title.toLowerCase()}…`} />
       )
     ) : (
-      <>
+      <div key={mode} className="settle arrive" aria-busy={stale || undefined}>
         <FormAlert tone="info" takeFocus>{notice}</FormAlert>
         <FormAlert>{problem ? `Could not refresh the list. ${problem}` : null}</FormAlert>
         {cards.length === 0 && filtered ? (
@@ -239,11 +236,11 @@ export default function FeedPage() {
         )}
         <FormAlert>{moreProblem ? `Could not load more errands. ${moreProblem.message}` : null}</FormAlert>
         {result.page.nextCursor && (
-          <Button variant="outline" onClick={() => loadMore("page")} disabled={!!loadingMore}>
+          <Button variant="outline" onClick={() => loadMore("page")} disabled={stale || !!loadingMore}>
             {loadingMore ? "Loading…" : "Load more"}
           </Button>
         )}
-      </>
+      </div>
     );
   const content = <>{filterFields}{stateContent}</>;
 

@@ -115,3 +115,15 @@ export function usePagedPoll<N extends string, T extends { orderId: string }>(
     remove,
   };
 }
+
+/**
+ * The lists to show and the mode they were read for. While another mode's (or filter's) lists are
+ * loading, the last loaded screen stays up whole, title and all, so a switch never flashes a
+ * skeleton; `stale` says it is being replaced. A failed first read for the new mode shows as such.
+ */
+export function useKeptWhileLoading<M, R>(mode: M, result: R | null, problem: string | null) {
+  const [kept, setKept] = useState<{ mode: M; result: R } | null>(null);
+  if (result !== null && (kept?.result !== result || kept.mode !== mode)) setKept({ mode, result });
+  if (result !== null || problem !== null || kept === null) return { mode, result, stale: false };
+  return { mode: kept.mode, result: kept.result as R | null, stale: true };
+}
