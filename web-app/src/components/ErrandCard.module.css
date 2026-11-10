@@ -8,6 +8,15 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  transition:
+    border-color var(--motion-base) ease,
+    box-shadow var(--motion-base) ease;
+}
+
+/* The card is mostly one link: pointing at it lifts the whole card, not just its text. */
+.card:has(.link:hover) {
+  border-color: var(--color-control-border);
+  box-shadow: var(--shadow-sm);
 }
 
 .link {
@@ -38,6 +47,7 @@
 
 .title {
   font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
   color: var(--color-text);
 }
 

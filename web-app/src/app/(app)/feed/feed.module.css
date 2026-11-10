@@ -1,7 +1,8 @@
+/* Phone: the two filters share the row, edge to edge with the cards below. */
 .filters {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
-  gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  gap: var(--space-3);
   align-items: end;
 }
 
@@ -11,9 +12,10 @@
   font-weight: var(--weight-semibold);
 }
 
-/* From 768 px the page's main column is a block, not a flex column with gaps. */
+/* Wider: sized to what is typed in them (a building code, a number), not stretched across the page. */
 @media (min-width: 768px) {
   .filters {
-    margin-bottom: var(--space-5);
+    grid-template-columns: repeat(auto-fill, minmax(13rem, 16rem));
+    gap: var(--space-4);
   }
 }

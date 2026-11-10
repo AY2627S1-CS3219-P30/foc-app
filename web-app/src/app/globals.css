@@ -73,3 +73,44 @@ textarea {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+::selection {
+  background: var(--color-info-surface);
+  color: var(--color-primary);
+}
+
+/* Reduced motion keeps the fades that say something changed and drops the travel. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-distance: 0px;
+  }
+}
+
+/* Something new arriving: it fades in from slightly below. Content stays visible without CSS. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-distance));
+  }
+}
+
+/*
+ * A list that is being replaced (a mode switch, a new filter) stays up dimmed rather than flashing a
+ * skeleton. The dimming waits a beat, so a quick answer swaps the list with no dip at all.
+ */
+.settle {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  transition: opacity var(--motion-base) var(--motion-ease-in-out) 150ms;
+}
+
+.settle[aria-busy="true"] {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* A screen's content once it has loaded: it arrives together, not item by item. */
+.arrive {
+  animation: rise-in var(--motion-slow) var(--motion-ease-out) both;
+}

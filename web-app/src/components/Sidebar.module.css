@@ -18,6 +18,9 @@
   font-weight: var(--weight-medium);
   color: var(--color-text-muted);
   white-space: nowrap;
+  transition:
+    background-color var(--motion-base) ease,
+    color var(--motion-base) ease;
 }
 
 .item:hover {

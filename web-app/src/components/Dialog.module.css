@@ -8,11 +8,23 @@
   border-radius: var(--radius-md);
   background: var(--color-surface);
   color: var(--color-text);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-lg);
+}
+
+/* It opens from where attention already is: a fade with a slight rise, the page dimming behind. */
+.dialog[open] {
+  animation: rise-in var(--motion-base) var(--motion-ease-out);
 }
 
 .dialog::backdrop {
   background: var(--color-overlay);
+  animation: backdrop-in var(--motion-base) ease;
+}
+
+@keyframes backdrop-in {
+  from {
+    background: transparent;
+  }
 }
 
 .title {

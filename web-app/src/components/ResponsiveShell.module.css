@@ -77,17 +77,26 @@
     display: flex;
   }
 
+  /* The column's gap spaces whatever a page puts here, so no screen relies on its own margins. */
   .main {
-    display: block;
     padding: var(--space-5);
     max-width: var(--size-content);
+    gap: var(--space-4);
   }
 
+  /* A lone button keeps its own width beside the page's text, as it did in block flow. */
+  .main > :where(button, a),
+  .main :global(.settle) > :where(button, a) {
+    align-self: flex-start;
+  }
+
+  /* As tall as a control whether or not it holds one, so the heading sits level with the
+     sidebar's first item on every screen, with or without a primary action. */
   .header {
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    margin-bottom: var(--space-4);
+    min-height: var(--size-control);
   }
 
   /* The negative margins keep the 44 px target from making the row taller than the heading. */
