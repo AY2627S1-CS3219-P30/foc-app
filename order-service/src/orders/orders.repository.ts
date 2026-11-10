@@ -82,6 +82,14 @@ const nullableIso = (value: Date | string | null): string | null => (value ? iso
 const exactTime = (column: string) =>
   `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 
+/**
+ * A contradiction still open, in a query that names a reconciliation attempt `a` and its order `o`:
+ * Credit was found contradicting the order at its current version, so the order has not changed
+ * since. Credit's side of every contradiction is final, so checking the order again before it
+ * changes would only find the same thing.
+ */
+const STILL_CONTRADICTING = `a.action = 'ALERTED' AND a.order_version = o.version`;
+
 const mapOrder = (row: StoredOrder): OrderRow => ({
   orderId: row.order_id,
   requesterId: row.requester_id,
@@ -536,7 +544,8 @@ export class OrdersRepository {
   /**
    * Orders waiting on Credit since before `staleBefore` that no run has attempted since
    * `retryAfter`, and whose original request has already left the outbox (otherwise the relay,
-   * not reconciliation, is what they are waiting for).
+   * not reconciliation, is what they are waiting for). An order still contradicting Credit is left
+   * out until it changes.
    */
   async findReconciliationCandidates(staleAfterMs: number, retryAfterMs: number, limit = 100) {
     const result = await this.db.query<
@@ -552,7 +561,7 @@ export class OrdersRepository {
           AND NOT EXISTS (
             SELECT 1 FROM order_reconciliation_attempts a
              WHERE a.order_id = o.order_id
-               AND a.attempted_at > now() - $2 * interval '1 millisecond')
+               AND (a.attempted_at > now() - $2 * interval '1 millisecond' OR ${STILL_CONTRADICTING}))
           AND NOT EXISTS (
             SELECT 1 FROM outbox_events e
              WHERE e.aggregate_id = o.order_id::text AND e.published_at IS NULL
@@ -577,8 +586,9 @@ export class OrdersRepository {
 
   /**
    * Records one reconciliation decision under the order's row lock. Returns null — and changes
-   * nothing — if another run holds the order, the order moved on since it was read, or another run
-   * already attempted it within the retry window; so overlapping runs repair an order once.
+   * nothing — if another run holds the order, the order moved on since it was read, another run
+   * already attempted it within the retry window, or it is still contradicting Credit; so
+   * overlapping runs repair an order once and find a contradiction once.
    */
   async recordReconciliation(input: {
     orderId: string;
@@ -605,8 +615,9 @@ export class OrdersRepository {
         return null;
       }
       const recent = await tx.query(
-        `SELECT 1 FROM order_reconciliation_attempts
-          WHERE order_id = $1 AND attempted_at > now() - $2 * interval '1 millisecond'`,
+        `SELECT 1 FROM order_reconciliation_attempts a JOIN orders o ON o.order_id = a.order_id
+          WHERE a.order_id = $1
+            AND (a.attempted_at > now() - $2 * interval '1 millisecond' OR ${STILL_CONTRADICTING})`,
         [input.orderId, input.retryAfterMs],
       );
       if (recent.rows.length > 0) return null;
@@ -684,6 +695,16 @@ export class OrdersRepository {
       reissuedEventId: row.reissued_event_id,
       attemptedAt: iso(row.attempted_at),
     }));
+  }
+
+  /** Errands found contradicting Credit that have not changed since. */
+  async countOpenContradictions(): Promise<number> {
+    const result = await this.db.query<{ n: number } & Row>(
+      `SELECT count(DISTINCT a.order_id)::int AS n
+         FROM order_reconciliation_attempts a JOIN orders o ON o.order_id = a.order_id
+        WHERE ${STILL_CONTRADICTING}`,
+    );
+    return Number(result.rows[0]?.n ?? 0);
   }
 
   /** Durable discovery boundary for #150; it never changes or rejects the order itself. */

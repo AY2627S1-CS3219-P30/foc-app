@@ -432,7 +432,11 @@ export class OrdersService {
   }
 
   async reconciliationAttempts() {
-    return { items: await this.orders.listReconciliationAttempts() };
+    const [items, openContradictions] = await Promise.all([
+      this.orders.listReconciliationAttempts(),
+      this.orders.countOpenContradictions(),
+    ]);
+    return { items, openContradictions };
   }
 
   /** Orders waiting for Credit beyond the configured period, for operators (OS-FR1.1.3). */

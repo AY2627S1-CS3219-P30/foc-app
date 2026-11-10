@@ -341,8 +341,9 @@ export interface paths {
          * Operator view of recent credit reconciliation decisions (CRD-07).
          * @description The 100 most recent decisions, newest first. Each records what Order and Credit each held
          *     and what the job did: REISSUED (the same idempotent request written to the outbox again),
-         *     ALERTED (a contradiction raised as CREDIT_STATE_CONFLICT) or CREDIT_UNAVAILABLE.
-         *     Administrators only.
+         *     ALERTED (a contradiction raised as CREDIT_STATE_CONFLICT) or CREDIT_UNAVAILABLE. An errand
+         *     found contradicting Credit is not checked again until it changes; openContradictions counts
+         *     the errands that have not changed since. Administrators only.
          */
         get: operations["listReconciliationAttempts"];
         put?: never;
@@ -853,6 +854,7 @@ export interface components {
             }[];
         };
         ReconciliationAttempts: {
+            openContradictions: number;
             items: {
                 /** Format: uuid */
                 attemptId: string;

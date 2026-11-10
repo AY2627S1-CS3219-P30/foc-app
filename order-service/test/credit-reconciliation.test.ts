@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EVENTS } from '@foc/platform';
-import { CreditReconciler } from '../src/orders/credit-reconciler.js';
+import { CreditReconciler, type CreditReconcilerOptions } from '../src/orders/credit-reconciler.js';
 import {
   CreditStatusClient,
   CreditUnavailableError,
@@ -18,12 +18,16 @@ import {
   type TestApp,
 } from './helpers/app.js';
 import {
+  RELEASE_RESULTS_QUEUE,
   SEEDED_ORDER,
   advance,
   createPending,
+  deliver,
   failAt,
   footprint,
   outboxOf,
+  released,
+  reservationReply,
 } from './support/lifecycle.js';
 
 const MINUTE = 60_000;
@@ -38,12 +42,19 @@ const credit = (status: Status | 'DOWN', detail: CreditStatus['detail'] = null) 
     return { orderId, status, detail };
   },
 });
-const reconciler = (t: TestApp, reader: ReturnType<typeof credit>) =>
+const reconciler = (
+  t: TestApp,
+  reader: ReturnType<typeof credit>,
+  options: Partial<CreditReconcilerOptions> = {},
+) =>
   new CreditReconciler(t.orders, reader, {
     staleAfterMs: 5 * MINUTE,
     retryAfterMs: 5 * MINUTE,
     intervalMs: 60_000,
+    ...options,
   });
+/** No retry window, so only an earlier finding can keep an errand out of the next run. */
+const NO_RETRY_WINDOW = { retryAfterMs: 0 };
 
 /** Ages an order's wait and marks its requests as relayed, so only reconciliation can help it. */
 async function stale(t: TestApp, orderId: string) {
@@ -57,10 +68,28 @@ async function stale(t: TestApp, orderId: string) {
   await t.db.query(`UPDATE outbox_events SET published_at = now() WHERE published_at IS NULL`);
 }
 
+/** Cancels the seeded errand (version 3) and ages it, so it waits on Credit to return its reward. */
+async function cancelSeeded(t: TestApp) {
+  await http(t)
+    .post(`/orders/${SEEDED_ORDER}/cancel`)
+    .set('Authorization', asRequester)
+    .send({ expectedVersion: 2 })
+    .expect(200);
+  await stale(t, SEEDED_ORDER);
+}
+
+const openContradictions = async (t: TestApp) =>
+  (
+    await http(t)
+      .get('/admin/orders/reconciliation-attempts')
+      .set('Authorization', asAdmin)
+      .expect(200)
+  ).body.openContradictions;
+
 const attempts = (t: TestApp, orderId: string) =>
   t.db
     .query<{ action: string; credit_status: string | null; reissued_event_id: string | null }>(
-      `SELECT action, credit_status, reissued_event_id FROM order_reconciliation_attempts WHERE order_id = $1`,
+      `SELECT action, credit_status, reissued_event_id FROM order_reconciliation_attempts WHERE order_id = $1 ORDER BY attempted_at`,
       [orderId],
     )
     .then((result) => result.rows);
@@ -126,12 +155,7 @@ describe('credit reconciliation job (CRD-07)', () => {
 
     await t.close();
     t = await createTestApp();
-    await http(t)
-      .post(`/orders/${SEEDED_ORDER}/cancel`)
-      .set('Authorization', asRequester)
-      .send({ expectedVersion: 2 })
-      .expect(200);
-    await stale(t, SEEDED_ORDER);
+    await cancelSeeded(t);
     const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
     const before = await footprint(t);
     const run = await reconciler(t, credit('TRANSFERRED')).run();
@@ -151,6 +175,59 @@ describe('credit reconciliation job (CRD-07)', () => {
       },
     ]);
     expect((await footprint(t)).order).toEqual(before.order);
+  });
+
+  it('finds a contradiction once, and counts it open until the errand changes', async () => {
+    t = await createTestApp();
+    await cancelSeeded(t);
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const reader = credit('TRANSFERRED');
+    const job = reconciler(t, reader, NO_RETRY_WINDOW);
+
+    expect(await job.run()).toMatchObject({ candidates: 1, alerted: 1 });
+    expect(await job.run()).toMatchObject({ candidates: 0, alerted: 0 });
+    // A run that read the errand before the first one saved is refused under the row lock too.
+    expect(
+      await t.orders.recordReconciliation({
+        orderId: SEEDED_ORDER,
+        observed: { status: 'RELEASE_PENDING_CREDIT', version: 3 },
+        runId: randomUUID(),
+        retryAfterMs: 0,
+        credit: { status: 'TRANSFERRED', detail: null },
+        action: 'ALERT',
+        correlationId: 'reconcile-overlap',
+      }),
+    ).toBeNull();
+    expect(reader.calls).toEqual([SEEDED_ORDER]);
+    expect(await attempts(t, SEEDED_ORDER)).toHaveLength(1);
+    expect(await openContradictions(t)).toBe(1);
+
+    await deliver(t, RELEASE_RESULTS_QUEUE, released());
+    expect(await openContradictions(t)).toBe(0);
+    expect(await attempts(t, SEEDED_ORDER)).toHaveLength(1);
+  });
+
+  it('checks an errand again once it changes, and finds a new contradiction', async () => {
+    t = await createTestApp();
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const orderId = await createPending(t);
+    await stale(t, orderId);
+    expect(await reconciler(t, credit('TRANSFERRED'), NO_RETRY_WINDOW).run()).toMatchObject({
+      alerted: 1,
+    });
+
+    await reservationReply(t, orderId);
+    await advance(t, 'COMPLETION_PENDING_CREDIT', orderId);
+    await stale(t, orderId);
+    expect(await reconciler(t, credit('RELEASED'), NO_RETRY_WINDOW).run()).toMatchObject({
+      candidates: 1,
+      alerted: 1,
+    });
+    expect(await attempts(t, orderId)).toEqual([
+      expect.objectContaining({ action: 'ALERTED', credit_status: 'TRANSFERRED' }),
+      expect.objectContaining({ action: 'ALERTED', credit_status: 'RELEASED' }),
+    ]);
+    expect(await openContradictions(t)).toBe(1);
   });
 
   it('repairs nothing when Credit is unavailable, and records that it tried', async () => {
@@ -225,6 +302,7 @@ describe('credit reconciliation job (CRD-07)', () => {
         orderStatus: 'PENDING_CREDIT',
       }),
     ]);
+    expect(view.body.openContradictions).toBe(0);
     await http(t)
       .get('/admin/orders/reconciliation-attempts')
       .set('Authorization', asStranger)

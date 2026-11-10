@@ -336,6 +336,14 @@ describe('order-service honours its published contract', () => {
     contract.assert('get', view, await http(app).get(view));
   });
 
+  it('GET /admin/orders/reconciliation-attempts (200, 401, 403)', async () => {
+    const view = '/admin/orders/reconciliation-attempts';
+    const get = () => http(app).get(view);
+    contract.assert('get', view, await get().set('Authorization', asAdmin).expect(200));
+    contract.assert('get', view, await get().set('Authorization', asStranger).expect(403));
+    contract.assert('get', view, await get().expect(401));
+  });
+
   it('dispute referral, decision and decision log (200, 400, 401, 403, 404, 409, 422)', async () => {
     const lifecycle = await createTestApp();
     try {
