@@ -21,6 +21,14 @@
   animation: backdrop-in var(--motion-base) ease;
 }
 
+/* Its own copy: a module's keyframe names are scoped, so the global rise-in isn't reachable here. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-distance));
+  }
+}
+
 @keyframes backdrop-in {
   from {
     background: transparent;

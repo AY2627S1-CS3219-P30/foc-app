@@ -320,11 +320,14 @@ describe("order history (WEB-03)", () => {
     expect(container.querySelector('[role="status"]')).toBeNull();
     expect(section("Active")?.textContent).toContain("Supplier mine");
     expect(section("Active deliveries")).toBeUndefined();
+    // Neither a click nor the keyboard reaches the screen being replaced.
+    expect(container.querySelector(".settle")?.hasAttribute("inert")).toBe(true);
 
     await act(async () => release());
     await settle();
     expect(section("Active deliveries")?.textContent).toContain("Supplier delivery");
     expect(section("Requests you placed")?.textContent).toContain("Supplier mine");
+    expect(container.querySelector(".settle")?.hasAttribute("inert")).toBe(false);
   });
 
   it("polls quickly while credits move, slowly while errands are active, and not once all are past", async () => {

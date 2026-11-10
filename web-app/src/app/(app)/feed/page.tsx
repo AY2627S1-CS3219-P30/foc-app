@@ -205,7 +205,7 @@ export default function FeedPage() {
         <LoadingState label={`Loading ${title.toLowerCase()}…`} />
       )
     ) : (
-      <div key={mode} className="settle arrive" aria-busy={stale || undefined}>
+      <div key={mode} className="settle arrive" aria-busy={stale || undefined} inert={stale}>
         <FormAlert tone="info" takeFocus>{notice}</FormAlert>
         <FormAlert>{problem ? `Could not refresh the list. ${problem}` : null}</FormAlert>
         {cards.length === 0 && filtered ? (

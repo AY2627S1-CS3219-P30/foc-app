@@ -127,7 +127,7 @@ export default function OrderHistoryPage() {
       <LoadingState label="Loading your errands…" />
     )
   ) : (
-    <div key={mode} className="settle arrive" aria-busy={stale || undefined}>
+    <div key={mode} className="settle arrive" aria-busy={stale || undefined} inert={stale}>
       {problem && (
         <ErrorState title="Could not refresh your errands" onRetry={reload}>
           Showing the last loaded history. {problem}

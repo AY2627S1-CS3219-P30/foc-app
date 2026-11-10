@@ -105,9 +105,9 @@ textarea {
   transition: opacity var(--motion-base) var(--motion-ease-in-out) 150ms;
 }
 
+/* The page also makes it inert, so neither a click nor the keyboard reaches a card being replaced. */
 .settle[aria-busy="true"] {
   opacity: 0.55;
-  pointer-events: none;
 }
 
 /* A screen's content once it has loaded: it arrives together, not item by item. */
