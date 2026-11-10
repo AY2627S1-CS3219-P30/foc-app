@@ -1,4 +1,4 @@
-# D4 local demonstration: 17-minute rehearsal runbook (REL-01, #167)
+# D4 demonstration: 17-minute rehearsal runbook (REL-01, #167)
 
 Status: preparation, **not signed-off rehearsal evidence**. The 30-minute slot is about 12 minutes
 of slides, 17 of this demo and 1 spare, followed by 10 minutes of questions. The deck hands over to
@@ -7,12 +7,12 @@ journeys (#160) merged in #325: 42 cases at 360/768/1440 px passed twice from cl
 and in CI run 40651088404. Two non-owners must actually execute this runbook and record their
 results below before #167 closes.
 
-A script walked the story below once in a browser, on a fresh seed of commit `fa392df` (5 Nov), to
-check its errands, chat, dispute, role approval, broker stop and audit. It runs far faster than a
-person, so it says nothing about timing, and it is not a rehearsal. Do not present planned work as
-live: the AWS deployment is not part of this demo. Chat's notify-only WebSocket is: the panel holds
-it from #399 on, so `rc3-d4` and `v1.0-d4` have it and `rc2-d4` does not. This runbook does not
-change the D3 runbook.
+A script walked the story below once in a browser, on a fresh local seed of commit `fa392df`
+(5 Nov), to check its errands, chat, dispute, role approval, broker stop and audit. It runs far
+faster than a person, so it says nothing about timing, and it is not a rehearsal. Do not present
+planned work as live. The demo runs on the AWS deployment (next section); the local stack is the
+fallback. Chat's notify-only WebSocket is live: the panel holds it from #399 on, so `rc3-d4` and
+`v1.0-d4` have it and `rc2-d4` does not. This runbook does not change the D3 runbook.
 
 The permanent conservation evidence is `docs/reports/credit-conservation-2026-10-01.md`
 (generated report and accompanying JSON); recovery evidence is
@@ -24,7 +24,122 @@ to the requester stream's nudge under 200 open streams, not end-to-end browser r
 isn't measured. Page-load and input figures are in
 `docs/reports/accessibility-and-web-vitals-2026-11-03.md`.
 
-## Start from zero
+## The demo runs on AWS
+
+The demo uses the deployment at https://foc.anselmlong.com (PLT-14, #357), running `v1.0-d4`.
+Open with “This is the deployed system at foc.anselmlong.com, running release v1.0-d4”: the D4
+brief asks the team to declare which mode it demonstrates. Every browser, on any computer, uses that
+one address. If the site fails on the day, switch to the local fallback below and say so.
+
+### Freeze the site on `v1.0-d4`
+
+Auto-deploy is on (`AWS_AUTO_DEPLOY`), so every merge to `main` redeploys the site. As soon as
+`v1.0-d4` is tagged, turn it off and deploy the tag by hand:
+
+```bash
+gh variable set AWS_AUTO_DEPLOY --body false --repo AY2627S1-CS3219-P30/foc-app
+gh workflow run deploy.yml -f tag=v1.0-d4 --repo AY2627S1-CS3219-P30/foc-app
+```
+
+If the site already runs the tag's commit, the deploy reports that it already includes it and
+changes nothing. That is still the release: a release retags the same images. On the host, the
+last line of `~/foc-app/.deploy-history` names the commit that is running.
+[Deploying to AWS](../runbooks/aws-deploy.md) covers deploys and rollback.
+
+### Accounts: real people, not the seed
+
+`scripts-seed-demo.sh` refuses any address but a local one and reads activation links from the
+local Mailpit. On AWS the email really goes out, so every persona is a real account with a real
+inbox in an allowed domain (by default `u.nus.edu` or `nus.edu.sg`). The persona names below are
+roles; record whose account plays each one.
+
+| Role | Whose account | How it is made |
+| --- | --- | --- |
+| Requester (“Alyssa”) | UNRESOLVED | registers at `/register` and activates from the email, before the demo |
+| Courier (“Ben”) | UNRESOLVED | the same |
+| Race courier (“Chloe”) | UNRESOLVED | the same |
+| Admin A (“Dina”) | UNRESOLVED | a seeded administrator (below) |
+| Admin B (“Evan”) | UNRESOLVED | a seeded administrator |
+| The 00:00 sign-up | UNRESOLVED | an inbox that has never signed up, kept for the demo |
+
+The User Service creates the administrators listed in `ADMIN_SEED_EMAILS`, in the host's `.env`,
+when it starts. It skips an address that already has an account and never promotes it, so both
+admin addresses must be ones nobody has signed up with. To add one, edit that line and recreate the
+User Service on the host (“Operator access on AWS” below):
+
+```bash
+docker compose up -d --no-build user-service
+```
+
+Each admin then signs in with the bootstrap password, `ADMIN_SEED_PASSWORD` in the same `.env`, and
+must replace it straight away. Anselm gives it to each admin privately.
+
+The 00:00 sign-up needs an inbox that has never signed up. Never type a made-up address: the email
+really goes out, and bounces count against the site's mail sender. Each address registers once, so
+a rehearsal of that step needs a different unused inbox. If there is none, rehearse that step on the
+local stack. In the first rehearsal, check that the email's link opens
+`https://foc.anselmlong.com/activate`. If it opens `localhost`, the host's Compose override doesn't
+set the User Service's `ACTIVATION_URL`. `compose.yaml` points it at `localhost`, and `.env`
+can't change that.
+
+### Before the timer
+
+About 30 minutes before the slot:
+
+1. Open one Chrome profile per account (profile icon → **Add**) at
+   `https://foc.anselmlong.com/login`, and let each owner sign in with their own password. Nobody
+   shares a password or a session. The profiles can be on one presenting laptop or on their owners'
+   own computers. Either way, the graders must see both sides of the side-by-side steps (01:30,
+   03:30, 04:30 and 05:00), so put those windows on the screen being shown.
+2. Ben and Chloe pick **Courier** in the menu's switch, as the local seed does. It only changes
+   their lists.
+3. Note each student's available and reserved credits on **Wallet**: rehearsals change them. Alyssa
+   needs at least 5 available. A new account starts with the host's initial allocation, 10 by
+   default.
+4. Alyssa posts the three ready errands in the composer: pickup **Printer @ Com 2**, zone
+   **PGP House 7**, instructions “Meet at the PGP House 7 lobby counter.” They are “CS3219 project
+   prints from SoC to PGP” (reward 2), “Project reading notes — cancellation example” (reward 1)
+   and “Project poster — two couriers, one acceptance” (reward 1). An errand stays open for an hour
+   (`ORDER_ACCEPTANCE_WINDOW_MS`), so post them no earlier than 30 minutes before the slot. If one
+   expires, post it again.
+5. `curl -s https://foc.anselmlong.com/edge/ready` answers `"status":"ok"` with nothing in `down`.
+
+### Operator access on AWS
+
+Only the web app is public. There is no Mailpit, because SES sends the activation emails.
+Prometheus, Grafana and RabbitMQ management listen only on the host. A shell on the host comes from
+the AWS console: EC2 → the instance → **Connect** → **Session Manager**. It needs no SSH key and no
+open port 22. Then:
+
+```bash
+sudo -iu ubuntu
+cd ~/foc-app
+docker compose config --images | grep -c ghcr.io
+```
+
+The last line should print 6. If it prints 0, the host's `.env` doesn't name the Compose files.
+Then prefix each `docker compose` command with `COMPOSE_FILE=compose.yaml:compose.images.yaml`,
+adding `:compose.aws.yaml` if that file exists, which is what the deploy uses. `--no-build` makes
+a mistake fail instead of building on the host.
+
+Anselm has this access, so he runs the broker step at 13:00 while Isaac and Jonus narrate. The
+Prometheus, Grafana and RabbitMQ tabs are for questions only. To show one, forward its port to your
+laptop. Grafana, for example, needs the AWS CLI and its Session Manager plugin:
+
+```bash
+aws ssm start-session --target <instance id> --document-name AWS-StartPortForwardingSession \
+  --parameters '{"portNumber":["3005"],"localPortNumber":["3005"]}'
+```
+
+Then open `http://localhost:3005`. That is also where the admin console's Grafana link points, so
+it works while the forward is open. The port is `GRAFANA_PORT` in the host's `.env`, 3005 by
+default. The report and CI tabs, the last four `open` lines under “Operator tabs and commands”, work
+from anywhere.
+
+## Local fallback: start from zero
+
+Use this if the AWS site fails on the day, and say that the demo has moved to local containers. It
+is also the quickest clean rehearsal of everything except the AWS steps.
 
 Prerequisites: Docker Desktop running; Git, Python 3 and npm installed; the current repository
 checked out. All services run as **local Compose containers**, behind the edge (PLT-11 #286).
@@ -107,7 +222,8 @@ allocation of 5 can fund this story plus one live 1-credit composer example.
 
 ## Operator tabs and commands
 
-Before any operator command against this demo, select its context:
+These are for the local stack; on AWS, see “Operator access on AWS”. Before any operator command
+against the local demo, select its context:
 
 ```bash
 . ./.demo-state/foc-d4-demo/ports.sh
@@ -133,8 +249,8 @@ in the repository root with the demo context selected.
 
 ## N1.4 browser arrangement — before the timer
 
-Use the existing persona profiles from `scripts-demo-tabs.py`; no extra account or service is
-needed. Put Alyssa's window and Ben's window side by side, with both pages visible. A background
+Use the persona profiles: on AWS, the ones from “Before the timer”; locally, the ones
+`scripts-demo-tabs.py` opens. No extra account or service is needed. Put Alyssa's window and Ben's window side by side, with both pages visible. A background
 tab closes its stream and catches up when shown again, so switching between hidden tabs alone
 does not demonstrate delivery to an already-visible page.
 
@@ -170,17 +286,17 @@ claim that a failed live action succeeded.
 
 | Time | Presenter | Action and words to say | Evidence / fallback |
 | --- | --- | --- | --- |
-| 00:00–01:30 | Anselm | Register one clearly fictional extra address, open its message in Mailpit at `http://localhost:${MAILPIT_PORT}` and click the activation link, choose a password and press **Activate account**: **Your account is active**. “Only the inbox owner can activate, and chooses the password there, so whoever signed the address up never does. Activation creates the wallet through an event; the browser never sets a balance.” Alyssa opens `/admin`: **This area is for administrators**. | If the email is delayed, or the link is over 30 minutes old, use **Send a new link** once on `/activate`, then search Mailpit. Do not register repeatedly or display passwords. If the wallet is delayed, show Credit's dead letters and audit evidence. |
+| 00:00–01:30 | Anselm | Register an address that has never signed up. On AWS it is the real inbox kept for this step: open the email there, on screen. Locally, use a clearly fictional address and open its message in Mailpit at `http://localhost:${MAILPIT_PORT}`. Click the activation link, choose a password and press **Activate account**: **Your account is active**. “Only the inbox owner can activate, and chooses the password there, so whoever signed the address up never does. Activation creates the wallet through an event; the browser never sets a balance.” Alyssa opens `/admin`: **This area is for administrators**. | If the email is delayed, or the link is over 30 minutes old, use **Send a new link** once on `/activate`, then check the inbox again (locally, search Mailpit). Do not register repeatedly or display passwords. If the wallet is delayed, show Credit's dead letters and audit evidence. |
 | 01:30–03:30 | Patrick, Jonus | “Alyssa's prints errand is already up. She has a second errand to post.” Alyssa: Suppliers → search **Printer** to show the catalogue. Then **Active requests** → **New request** → pick **Printer @ Com 2** → item “D4 dispute example”, zone PGP House 7, reward **1**. Review the available balance and its projection, then post. **N1.4:** Ben's feed is visible with **Live**; the new card appears without a reload. Leave it unaccepted. | If the composer fails, keep the refusal and use the preseeded prints errand for the core flow. The composer is covered by the release suite (`release-journeys.e2e.ts`); do not mark a live failure passed from a seed API call. |
 | 03:30–04:30 | Zhang Yuan | Ben and Chloe open **Accept** on the card “Project poster — two couriers, one acceptance” in their own feeds. Ben confirms, then Chloe: **Another courier accepted this errand first, or it closed.** “One conditional update in the database decides the winner, so the app can't have two.” Ben withdraws: the errand is **Open** again and the reward stays reserved. | If the timing is missed, show the CI contention test (1 of 100 simultaneous accepts wins) and its 409. If a step fails, refresh to get the current version; never force a status back. |
 | 04:30–05:00 | Jonus | Alyssa's and Ben's prints pages side by side, both **Live**. Ben accepts. Alyssa's page goes **Open** → **Accepted** with no one touching it. Use the words under “N1.4 browser arrangement”. | If the label shows polling, disclose it and show the 29 Oct report and `live-journey.e2e.ts`. |
-| 05:00–06:30 | Patrick, Zhang Yuan, Anselm | **N1.2 chat.** Alyssa: “Please leave them at the PGP House 7 lobby counter.” Ben sees it at once, because his panel holds the Chat Service's notify-only socket, which tells it to read, and he replies. Chloe opens the same errand: its public details, no chat panel and no delivery instructions. “Chat asks Order who the participants are on every request, so there is no copy to fall behind, and a courier who withdraws loses access at once.” Say, without demonstrating: 20 messages a minute, kept 90 days after the errand ends. | “Could not verify your identity” means an old `.env`: see “Start from zero”. Otherwise show `chat-journey.e2e.ts` in CI. If a message takes about 2 s, the socket is down and the panel is polling: say so, as nothing is missed. On a release before `rc3-d4` the panel always polls. |
+| 05:00–06:30 | Patrick, Zhang Yuan, Anselm | **N1.2 chat.** Alyssa: “Please leave them at the PGP House 7 lobby counter.” Ben sees it at once, because his panel holds the Chat Service's notify-only socket, which tells it to read, and he replies. Chloe opens the same errand: its public details, no chat panel and no delivery instructions. “Chat asks Order who the participants are on every request, so there is no copy to fall behind, and a courier who withdraws loses access at once.” Say, without demonstrating: 20 messages a minute, kept 90 days after the errand ends. | Locally, “Could not verify your identity” means an old `.env`: see “Local fallback: start from zero”. Otherwise show `chat-journey.e2e.ts` in CI. If a message takes about 2 s, the socket is down and the panel is polling: say so, as nothing is missed. On a release before `rc3-d4` the panel always polls. |
 | 06:30–08:00 | Isaac | Ben records pickup and delivery. Alyssa's page shows **Delivered, confirm receipt**; she confirms, and it reaches **Complete**. Open the receipt and follow **See it in your wallet**. Show both ledgers: Alyssa's total −2, Ben's +2. Back on the errand, chat's history stays readable and sending is off. “Credits only moved when Credit confirmed it, once.” | If the transfer is slow, wait for the actual reply and show the errand's history. No SQL credit edits. |
 | 08:00–09:00 | Isaac | Alyssa cancels the **cancel** errand, then the reopened **race** errand. Both reach **Cancelled**, and the wallet shows the credits released. “Withdrawing removed a courier; cancelling returned the reward.” | If a release is delayed, show the errand's history and wait. Restart only the named demo dependency. |
 | 09:00–11:30 | Zhang Yuan, Jonus | Ben accepts the “D4 dispute example”, records pickup and delivery. Alyssa, in chat: “It wasn't at the counter when I came down.”, then **I didn't receive it** → **Report**: **With an administrator**. Within about 10 s the sweep refers it to one admin: open Admin → Errands → the errand in both profiles, and the one who sees **Decide for the requester** is the one referred. They read the conversation (read-only, and the read is recorded), give a reason and decide. Alyssa's errand reaches **Cancelled**, with the decision in its history. “A dispute is decided through the same state machine, so an admin can't edit a balance.” | If the composer errand is absent, say the dispute is unavailable and show `dispute-outcome.e2e.ts` in CI. Do not fake a referral or a second person's action. |
 | 11:30–13:00 | Anselm, Jonus | Dina: Users → Chloe → **Make administrator**, with a reason and her password: **Requested. Nothing changes until another administrator approves it.** Evan: Role requests → **Approve**, with a reason and his own password. Show the audit trail naming both, and read-only Wallets. “Two people for a role change, and no API edits a balance.” | If an approval fails, leave the request pending and say so. Never share one admin's session. |
-| 13:00–15:30 | Isaac, Jonus | On this disposable demo only: `docker compose stop rabbitmq`. Alyssa posts another **1-credit** request, “D4 broker example”: it stays **Waiting for credits**, because its event waits in the outbox. `docker compose start rabbitmq`. Within about 15 s the same errand reaches **Open**, and the wallet shows one reservation. “Nothing was lost and nothing happened twice.” | If it is too slow, bring RabbitMQ back at once and show the `scripts-demo-failures.sh` CI evidence. This is the outbox retrying, not the reconciler: do not claim every fast recovery was the scheduled job. |
-| 15:30–16:30 | Isaac | Run `npm run audit:credits`, then Admin → Operations: **PASS**, 0 mismatches. Open the conservation report: no credit created or lost across 804 generated errands, with messages dropped and duplicated. “N3.2 compares pending errands with Credit's records and resends the same command.” | A failed audit is not zero mismatches: keep its run ID and investigate with the runbook. Do not demonstrate corruption on this database. |
+| 13:00–15:30 | Isaac, Jonus | `docker compose stop rabbitmq`: on AWS, Anselm runs it in the host shell (“Operator access on AWS”), where it stops the live site's broker, so nobody else should be using the site; locally, in the demo context. Alyssa posts another **1-credit** request, “D4 broker example”: it stays **Waiting for credits**, because its event waits in the outbox. `docker compose start rabbitmq`. Within about 15 s the same errand reaches **Open**, and the wallet shows one reservation. “Nothing was lost and nothing happened twice.” | If it is too slow, bring RabbitMQ back at once and show the `scripts-demo-failures.sh` CI evidence. This is the outbox retrying, not the reconciler: do not claim every fast recovery was the scheduled job. |
+| 15:30–16:30 | Isaac | Admin → Operations → **Run ledger audit**: **PASS**, 0 mismatches. (Locally, `npm run audit:credits` runs the same audit from the terminal.) Open the conservation report: no credit created or lost across 804 generated errands, with messages dropped and duplicated. “N3.2 compares pending errands with Credit's records and resends the same command.” | A failed audit is not zero mismatches: keep its run ID and investigate with the runbook. Do not demonstrate corruption on this database. |
 | 16:30–17:00 | Jonus | Show the latest green `main` run in CI. Name what is still reserved: the broker example. “No administrator edited a balance; every change has a normal transaction and ledger history.” Back to the slides. | Give the actual remaining issue instead of claiming everything is clean. |
 
 **If you are running late,** drop these, in this order: the second cancellation (the race errand then
@@ -192,10 +308,16 @@ the Deployment strategy slide gives its figure, and its report tab is ready for 
 The completed prints payment changes Alyssa's total by −2 and Ben's by +2. Cancellation and release
 do not change a wallet's total. All three students together retain `3 × A`, and held or reserved
 credits still count. With `A` = 10, the script ends at Alyssa 7 available and 1 reserved (the broker
-example), Ben 12 and Chloe 10. The daily financial audit checks the complete database, beyond these
-three wallets. Cancel the broker example afterwards if a zero-reserved ending is wanted.
+example), Ben 12 and Chloe 10. On AWS, start from the balances noted before the timer; the changes
+are the same. The daily financial audit checks the complete database, beyond these three wallets.
+Cancel the broker example afterwards if a zero-reserved ending is wanted.
 
 ## Reproduce the evidence and recover a failed rehearsal
+
+On AWS there is no reseed: data stays between runs. If an errand expired or was used up, Alyssa
+posts it again. Chloe becomes an administrator in the 11:30 step and stays one, so a second run
+needs another student account in that role. If the site itself fails, follow [Deploying to AWS](../runbooks/aws-deploy.md), or
+move to the local fallback and say so. The commands below are for the local stack.
 
 ```bash
 # Keep the same demo instance / story progress:
@@ -230,12 +352,13 @@ the seed does not reset a persisted deadline or undo a terminal transition.
 
 ## Rehearsal acceptance — actual non-owners only
 
-| Run | Non-owner | Commit / clean seed | Date / duration | Result and evidence |
+| Run | Non-owner | Where and what ran | Date / duration | Result and evidence |
 | --- | --- | --- | --- | --- |
-| 1 | UNRESOLVED | `rc3-d4`, `--fresh` | UNRESOLVED | Pending actual rehearsal |
-| 2 | UNRESOLVED | `rc3-d4` or `v1.0-d4`, `--fresh` | UNRESOLVED | Pending actual rehearsal |
+| 1 | UNRESOLVED | AWS, the deployed commit from `.deploy-history` | UNRESOLVED | Pending actual rehearsal |
+| 2 | UNRESOLVED | AWS, `v1.0-d4` | UNRESOLVED | Pending actual rehearsal |
 
-Record who actually performed the steps, the commit and clean-start command, which segments ran
+Record who actually performed the steps, where it ran and the commit (on AWS, the last line of
+`.deploy-history`; locally, the tag and clean-start command), which segments ran
 live, the timed result, failures/fallbacks and evidence links. An agent run, CI personas or an
 owner's solo rehearsal are not two non-owner rehearsals. #160 is closed (#325); #167 stays open until
 both real rehearsals are recorded, including their timing. #288 coordinates the release-candidate
