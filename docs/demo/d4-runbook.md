@@ -114,13 +114,14 @@ open port 22. Then:
 ```bash
 sudo -iu ubuntu
 cd ~/foc-app
-docker compose config --images | grep -c ghcr.io
+docker compose config --images | sort -u | grep -c ghcr.io
 ```
 
-The last line should print 6. If it prints 0, the host's `.env` doesn't name the Compose files.
-Then prefix each `docker compose` command with `COMPOSE_FILE=compose.yaml:compose.images.yaml`,
-adding `:compose.aws.yaml` if that file exists, which is what the deploy uses. `--no-build` makes
-a mistake fail instead of building on the host.
+The last line should print 6, one per application image. Each `*-migrate` service reuses its
+service's image, so without `sort -u` it would print 11. If it prints 0, the host's `.env` doesn't
+name the Compose files. Then prefix each `docker compose` command with
+`COMPOSE_FILE=compose.yaml:compose.images.yaml`, adding `:compose.aws.yaml` if that file exists,
+which is what the deploy uses. `--no-build` makes a mistake fail instead of building on the host.
 
 Anselm has this access, so he runs the broker step at 13:00 while Isaac and Jonus narrate. The
 Prometheus, Grafana and RabbitMQ tabs are for questions only. To show one, forward its port to your
