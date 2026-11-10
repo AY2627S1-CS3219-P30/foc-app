@@ -677,10 +677,6 @@ Run these from the repository root.
 | `npm run typecheck -w @foc/order-service` | Type-check without emitting   |
 | `npm run lint`                            | Lint every service            |
 
-To try the API by hand, bring the stack up with `docker compose up --build` and send
-[`requests.http`](requests.http) top to bottom (VS Code REST Client or the IntelliJ HTTP Client): one
-errand from creation to payment, one cancelled, and the refused cases between.
-
 ### Required environment
 
 | Variable       | Example         | Notes                                   |
