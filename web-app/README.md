@@ -35,12 +35,17 @@ other.
 
 ## Design system
 
-**Tokens.** `src/styles/tokens.ts` is the single source for colour, spacing, type, radius, shadow and
-size. `bun run generate` writes them to `src/styles/tokens.css` as variables (`--color-primary`,
+**Tokens.** `src/styles/tokens.ts` is the single source for colour, spacing, type, radius, shadow,
+size and motion. `bun run generate` writes them to `src/styles/tokens.css` as variables (`--color-primary`,
 `--space-4`, `--text-md`, …). Use `var(--…)` in CSS modules and `vars.*` from `@/styles/tokens` in inline
 styles. `bun test` fails on a literal colour, font size or weight, a breakpoint other than the two
 below, a token pair under 4.5:1 contrast (text) or 3:1 (non-text), or a `<ul>`/`<ol>` without a class
 or style.
+
+**Motion.** `motion.*` holds the durations (`fast` 120 ms, `base` 200 ms, `slow` 320 ms), the
+easings and the travel distance: routine changes are quick, arrivals ease out, and exits are faster
+than entrances. Under `prefers-reduced-motion`, `globals.css` sets the distance to 0, so motion keeps
+its fades and drops its travel. Nothing that takes focus fades in from invisible.
 
 **Breakpoints.** Mobile first. Base styles hold from **360 px**; `@media (min-width: 768px)` switches to
 the top bar and sidebar; `@media (min-width: 1440px)` widens the gutters. Nothing scrolls sideways at
@@ -54,7 +59,8 @@ the top bar and sidebar; `@media (min-width: 1440px)` widens the gutters. Nothin
 | `Input`, `Select`, `Textarea`, `Slider` | Native controls with the shared focus, disabled and invalid looks. Work inside or outside a `Field` |
 | `FormField` | Shorthand for `<Field><Input /></Field>` |
 | `FormAlert` | Form-level live message (`error`, `info`, `success`) |
-| `Button`, `buttonClass` | `primary`, `accent`, `outline`, `subtle`; `buttonClass()` styles a `<Link>` as a button |
+| `Button`, `buttonClass` | `primary`, `accent`, `outline`, `subtle`; `buttonClass()` styles a `<Link>` as a button. A press state, off under reduced motion; `outline` uses the 3:1 control border |
+| `Icon` | The app's drawn SVG icons (`menu`, `back`, `plus`), in one stroke and `currentColor`. Always decorative: the control that holds one carries the name |
 | `LoadingState`, `Skeleton` | Skeleton rows announced as a status |
 | `EmptyState` | Title, explanation and an optional action |
 | `ErrorState` | `role="alert"` with a retry button |
@@ -275,14 +281,21 @@ reserved its reward once.
   requester mode every 5 seconds while any errand is waiting on credits), on returning to the tab
   and on reconnecting. A failed refresh keeps the cards on screen and tries again in 30 seconds. In courier mode it is narrowed by pickup building and
   minimum reward; in requester mode the feed is *Active requests*,
-  `GET /orders/mine?role=REQUESTER&active=true`.
+  `GET /orders/mine?role=REQUESTER&active=true`. A card with 5 minutes or less left shows its time
+  in the warning colour. When the filters hide every errand, the feed says so and offers **Clear
+  filters**, which empties them and puts focus back on the first one; an invalid minimum reward is
+  not sent, so it does not count as a filter.
 - **History** (`/order-history`): `GET /orders/mine`, split into active and past. Each card shows the
   status, what it means for the student's part, their role, when it was posted, and until when it is
   open, when it last changed or when it ended. A complete errand links to its receipt. The list is
   read every 5 seconds while any errand is in a `*_PENDING_CREDIT` state, every 30 seconds while any
   is otherwise active, and on returning or reconnecting; it stops once every errand is final. *Load
   more requests* and *Load more errands* page each list, one at a time, and a mode change cancels a
-  page still loading. Feed and history share this in `src/lib/use-paged-poll.ts` (#269).
+  page still loading. Feed and history share this in `src/lib/use-paged-poll.ts` (#269). Switching
+  mode, or changing a courier filter, keeps the last loaded screen up, as read for its mode, until the
+  new lists arrive (`useKeptWhileLoading`), so no skeleton flashes between them; the kept screen
+  dims, takes no input, and its *Load more* is off. A failed first read for the new mode still shows
+  its error.
 - **Receipt** (`/request/{orderId}/receipt`): `GET /orders/{orderId}/receipt`, readable by the
   requester and courier once the courier is paid. It shows the supplier, reward, both parties, every
   timestamp (`deliveredAt` is null when an administrator decided the errand for the courier) and links
@@ -300,6 +313,14 @@ reserved its reward once.
   reads the errand until it is final: on the backing-off schedule while the Credit Service has it,
   every 30 seconds otherwise, pausing after 10 minutes without a change, and at once on returning or
   reconnecting.
+- **Progress track** (`ErrandProgress`, on the errand page): the requester and courier see five
+  stops, Posted, Accepted, In transit, Delivered and Complete, up to the one the errand has reached.
+  An errand off that route (cancelled, expired, not placed, with an administrator, returning
+  credits) has no track; its status wording says what happened. When a live update moves the errand
+  on, the rail fills to the new stop, and an errand that completes while the page is open lands on
+  the last stop once, showing the courier `+N`. It is an `<ol>` with `aria-current="step"` and
+  screen-reader "done" and "not yet" text on each stop; reduced motion keeps the colour change and
+  drops the movement.
 - **Actions** come from one table, `actionsFor(order, role, now)` in `src/lib/order-actions.ts`,
   which follows the Order Service's transition table:
 
@@ -427,7 +448,7 @@ else registered gets a link either way (#309).
 
 `bun test` runs the unit tests in `test/`: validation, error-envelope parsing, redirect safety, nav
 ordering, the generated API client, `Field`'s accessibility wiring, generated files being current, the
-design-token rules, and the session rules above (single-flight refresh, retry after `401`, which failures
+design-token rules, the errand progress track's stops and states, and the session rules above (single-flight refresh, retry after `401`, which failures
 sign out, pending sign-out, cross-tab sign-out) against a fake `fetch`, fake locks and a fake tab
 channel. They use Bun's built-in runner, so `test/` is excluded from the Next typecheck. CI runs them
 in the `web-app` job.

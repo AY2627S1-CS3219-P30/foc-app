@@ -2,7 +2,7 @@
 # AI Assistance Disclosure:
 # Tool: Claude Code (Claude Opus 5.5), date: 2026-11-09
 # Scope: Generated the deploy script for the AWS host (PLT-14, #357).
-# Author review: TODO, to be filled in by the reviewing author before merge.
+# Author review: Jonus Ho reviewed it in #401 and fixed what the review found, before merge.
 
 # Moves the hosted stack (PLT-14, #357) to the images CI published for a commit on main. Run it on
 # the host, from its clone of the repository. The deploy workflow (.github/workflows/deploy.yml)

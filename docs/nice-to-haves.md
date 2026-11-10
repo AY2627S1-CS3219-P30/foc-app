@@ -311,8 +311,8 @@ Every member owns part of at least one feature. Two points for the team to settl
 
 The scope above is final; live errand updates (N1.4) joined it on 28 Oct, built by one member
 without taking anyone off chat. These were considered for D1 and set aside, so that the mandatory
-product and the features above are finished rather than more being started
-([execution plan](EXECUTION-PLAN.md), "Deferred"):
+product and the features above are finished rather than more being started (the D1 plan's
+"Deferred" list):
 
 | Considered                                             | Why not                                                          |
 | ------------------------------------------------------ | ---------------------------------------------------------------- |

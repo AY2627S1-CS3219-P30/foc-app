@@ -4,9 +4,6 @@ info:
   version: 1.0.0-draft.1
   summary: The campus supplier catalogue for Friend on Campus.
   description: |
-    **DRAFT — proposal for FND-03 (#117). Not frozen until the producer (Patrick) and one consumer
-    owner approve the PR.**
-
     Conventions follow `contracts/README.md` and `user-service.openapi.yaml`: UUID ids, RFC 3339 UTC
     timestamps, the shared `Error` envelope, `X-Correlation-Id` echoed on every response, and
     `page` / `pageSize` pagination returning `{ items, page, pageSize, total }`.

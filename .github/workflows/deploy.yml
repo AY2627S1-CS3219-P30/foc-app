@@ -1,7 +1,7 @@
 # AI Assistance Disclosure:
 # Tool: Claude Code (Claude Opus 5.5), date: 2026-11-09
 # Scope: Generated the deploy workflow for the AWS host (PLT-14, #357).
-# Author review: TODO, to be filled in by the reviewing author before merge.
+# Author review: Jonus Ho reviewed it in #401 and fixed what the review found, before merge.
 
 # Deploys published images to the AWS host (PLT-14, #357). CI calls it after every publish from
 # main while the repository variable AWS_AUTO_DEPLOY is `true`; run it by hand from the Actions tab

@@ -12,8 +12,13 @@ its database is mocked.
 | `test/fault-matrix.test.ts`          | A crash at every write boundary of either service (inbox, operation, wallet, transaction, ledger, order, history, receipt, outbox insert, relay mark) converges with one effect per operation |
 | `test/broker-replay.test.ts`         | Over a real RabbitMQ: every event published twice, a crashed consumer retried through the broker, then the whole run replayed — one effect each                                               |
 | `test/reconciliation.test.ts`        | Each lost request or reply is repaired by reconciliation with exactly one Credit transaction                                                                                                  |
+| `test/reward-bounds.test.ts`         | Order's largest reward is exactly the largest reservation Credit accepts, and every allowed starting allocation can fund it. Needs no database                                                |
 
-## Invariants (`src/invariants.ts`)
+## Invariants
+
+The credit-side checks are stated once, in `credit-service/src/credits/invariants.ts`. This suite,
+the Credit Service's unit tests and its live `check-invariants` command all run those same
+functions, so no copy can drift. `src/invariants.ts` adds the cross-service check, the last one below.
 
 - No wallet is negative or fractional.
 - Every ledger transaction balances.

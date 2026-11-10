@@ -9,9 +9,9 @@
 
 ## Context
 
-The execution plan chose a thin gateway in front of the services ("API edge",
-`docs/EXECUTION-PLAN.md`), but what was built until now is the browser calling each service on its
-own port. Four problems followed from that, all found when the requirements were checked on 22 Oct:
+The D1 plan chose a thin gateway in front of the services (an "API edge"), but what was built
+until now is the browser calling each service on its own port. Four problems followed from that,
+all found when the requirements were checked on 22 Oct:
 
 - ports 3000–3004 were published on every interface, so anyone on the same network could reach
   every API over plain HTTP (PL-NFR2.1.2, least exposure);
