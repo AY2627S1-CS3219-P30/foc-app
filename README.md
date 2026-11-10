@@ -646,10 +646,10 @@ a test fails if either is missing.
 The supplier catalogue the stack starts with is partly the course's and partly ours. The Supplier
 Service loads both files at start-up ([its README](supplier-service/README.md)).
 
-| File                                                                             | Where it comes from                                                                                                                                                                                | Licence                |
-| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| `data/csv/supplier-seed-data.csv` (21 suppliers) and `data/images/` (six photos) | The course's template, [`CS3219-AY2627S1/FoC-Template`](https://github.com/CS3219-AY2627S1/FoC-Template), copied byte for byte. The CSV's photo links point at the template's own copies on GitHub | MIT, the template's    |
-| `data/csv/supplier-seed-additions.csv` (12 suppliers)                            | Written by this team for SUP-01 (#187), adding the landmark pickup points the template lacks                                                                                                       | MIT, this repository's |
+| File                                                  | Where it comes from                                                                                                                                                                          | Licence                |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| `data/csv/supplier-seed-data.csv` (21 suppliers)      | The course's template, [`CS3219-AY2627S1/FoC-Template`](https://github.com/CS3219-AY2627S1/FoC-Template), copied byte for byte. Its photo links point at the template's own copies on GitHub | MIT, the template's    |
+| `data/csv/supplier-seed-additions.csv` (12 suppliers) | Written by this team for SUP-01 (#187), adding the landmark pickup points the template lacks                                                                                                 | MIT, this repository's |
 
 The named D4 demo's people and errands (`./scripts-seed-demo.sh`) are invented for the demo.
 
