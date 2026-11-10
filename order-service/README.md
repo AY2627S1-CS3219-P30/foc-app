@@ -547,7 +547,10 @@ The first migration includes a deterministic demonstration errand at
 `00000000-0000-4000-8000-000000000129`; after Compose is healthy, an authenticated caller can retrieve
 its projection from `/orders/00000000-0000-4000-8000-000000000129`. It is `OPEN` only for the hour
 after the migration ran. Then the sweep starts its expiry, but Credit holds no reservation for it,
-so it stays in `RELEASE_PENDING_CREDIT` and raises an operator alert.
+so it stays in `RELEASE_PENDING_CREDIT` and raises an operator alert on every reconciliation run.
+Migration `0023` closes it as `REJECTED` on a database where that has already happened, such as
+the AWS host, and removes the reconciliation decisions and alerts about it. It leaves a database
+where the errand is still `OPEN` alone, so on a fresh stack the alert returns once the hour passes.
 
 # UML Diagram
 ```mermaid
