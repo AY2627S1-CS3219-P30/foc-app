@@ -10,7 +10,9 @@ import type { OrderStatus } from "@/lib/order-api";
 import type { Role } from "@/lib/order-actions";
 import styles from "./ErrandProgress.module.css";
 
-const STOPS = ["Posted", "Accepted", "Picked up", "Delivered", "Complete"] as const;
+// The badge's words where a stop is one state. "Posted" stays: a request still waiting for credits
+// sits there too, and it is not open yet.
+const STOPS = ["Posted", "Accepted", "In transit", "Delivered", "Complete"] as const;
 
 /**
  * How far along the usual route an errand is: the last stop it has reached. The states that leave
@@ -44,6 +46,8 @@ export function ErrandProgress({ status, reward, role }: { status: OrderStatus; 
 
   return (
     <ol
+      // Safari drops list semantics from a list with `list-style: none`; the role keeps them.
+      role="list"
       className={styles.track}
       aria-label="Errand progress"
       data-complete={complete || undefined}

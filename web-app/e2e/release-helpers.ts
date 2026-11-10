@@ -62,7 +62,13 @@ export async function reason(page: Page, label: string, confirm: string, explana
   await expect(page.getByRole("dialog")).toBeHidden();
 }
 export async function badge(page: Page, label: string) {
-  await expect(page.getByText(label, { exact: true }).filter({ visible: true })).toBeVisible({
+  await expect(
+    page
+      .getByText(label, { exact: true })
+      .filter({ visible: true })
+      // The progress track names the current stop too; the badge is the one outside it.
+      .and(page.locator(':not([aria-label="Errand progress"] *)')),
+  ).toBeVisible({
     timeout: 30_000,
   });
 }

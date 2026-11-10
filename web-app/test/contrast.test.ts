@@ -55,6 +55,8 @@ const TEXT: [Color, Color][] = [
   ["warning", "warningSurface"],
   ["danger", "dangerSurface"],
   ["danger", "surface"],
+  ["warning", "surface"],
+  ["success", "surface"],
 ];
 
 describe("design token contrast", () => {

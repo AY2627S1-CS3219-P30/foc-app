@@ -412,6 +412,37 @@ describe('feed', () => {
     expect(service.queries.filter((query) => query.startsWith('/orders')).at(-1)).toContain('minReward=4');
   });
 
+  it('says when no errand matches the filters, and clears them back to the first one', async () => {
+    const service = fakeOrderService();
+    service.open = [listing(OTHER_ID, 'First cafe')];
+    service.feed = () => {
+      const query = new URL(`http://example.test${service.queries.at(-1)}`).searchParams;
+      return json(200, query.has('pickupBuilding') || query.has('minReward') ? [] : service.open);
+    };
+    const container = await render(<FeedPage />, service);
+    const building = container.querySelector('input[placeholder="e.g. COM2"]') as HTMLInputElement;
+    const reward = container.querySelector('input[type="number"]') as HTMLInputElement;
+    const type = async (input: HTMLInputElement, value: string) => {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')!.set!.call(input, value);
+        input.dispatchEvent(new window.Event('input', { bubbles: true }));
+      });
+      await flush();
+    };
+    await type(building, 'UTown');
+    await type(reward, '9');
+    expect(container.textContent).toContain('No open errands match these filters');
+    expect(container.textContent).not.toContain('No open errands right now');
+
+    await act(async () => button(container, 'Clear filters').click());
+    await flush();
+    expect(building.value).toBe('');
+    expect(reward.value).toBe('');
+    expect(window.document.activeElement).toBe(building as unknown as typeof window.document.activeElement);
+    expect(container.textContent).toContain('First cafe');
+    expect(container.textContent).not.toContain('No open errands match these filters');
+  });
+
   it('names the page the same at every width, with nothing to post, in courier mode', async () => {
     await render(<FeedPage />, fakeOrderService());
     expect(shell.title).toBe('Open errands');
