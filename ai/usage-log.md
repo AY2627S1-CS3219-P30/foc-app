@@ -15,7 +15,8 @@ document). The summary is the last section of the [README](../README.md#ai-use-s
 - **Key prompts.** Exported key decision prompts and learning so each member quotes about 20 key
   prompts, exported from their own Claude Code transcripts with
   [`export-claude-code-log.py`](export-claude-code-log.py).
-  - Each section also counts all of that member's prompts by use, so the scale is still shown.
+  - Each section also counts that member's prompts by use, so the scale is still shown. Routine
+    prompts (approvals, push and merge notices, status checks) aren't counted.
   - Prompts are quoted exactly. Pasted text, screenshots, email addresses and secrets are replaced
     with placeholders.
 - **Key responses.** The start of Claude's last message in each quoted turn.
@@ -71,21 +72,20 @@ format: the time, the use, the exact prompt in a `text` block, and the key respo
 
 ### Key prompts
 
-20 key prompts, picked by Jonus from their 619 Claude Code prompts between 7 Sep 2026 and 8 Nov 2026.
+20 key prompts, picked by Jonus from the 359 Claude Code prompts counted below, between 7 Sep 2026
+and 8 Nov 2026.
 
-| All 619 prompts, by use (tagged by keyword)               | Prompts |
-| --------------------------------------------------------- | ------- |
-| Routine: approvals, push and merge notices, status checks | 212     |
-| Documentation and slides                                  | 94      |
-| Implementation                                            | 86      |
-| Debugging                                                 | 45      |
-| Review and verification                                   | 41      |
-| Requirements and planning (topic)                         | 36      |
-| Learning / explanation                                    | 35      |
-| Release and PR workflow                                   | 31      |
-| General request                                           | 27      |
-| Design and decisions (topic)                              | 7       |
-| Testing                                                   | 5       |
+| 359 prompts, by use (tagged by keyword) | Prompts |
+| --------------------------------------- | ------- |
+| Documentation and slides                | 94      |
+| Implementation                          | 86      |
+| Debugging                               | 45      |
+| Review and verification                 | 41      |
+| Requirements and planning (topic)       | 15      |
+| Learning / explanation                  | 35      |
+| Release and PR workflow                 | 31      |
+| Design and decisions (topic)            | 7       |
+| Testing                                 | 5       |
 
 #### Tue 8 Sep 2026
 
@@ -298,21 +298,20 @@ okay im done stop the running stuff also found this frotnend error
 - **AI-assisted commits on `main`:** 91 of 105.
 - **Prompts:** Anselm's surviving Claude Code transcripts start on 13 Oct 2026, so the counts below cover 13 Oct to 9 Nov only; earlier sessions (including the September User Service work) are no longer available.
 
-20 key prompts, picked by Anselm from their 69 Claude Code prompts between 13 Oct 2026 and 9 Nov 2026. Exported with `ai/export-claude-code-log.py`. Times are SGT. Models: `claude-opus-5-5`.
+20 key prompts, picked by Anselm from the 68 Claude Code prompts counted below, between 13 Oct 2026 and 9 Nov 2026. Exported with `ai/export-claude-code-log.py`. Times are SGT. Models: `claude-opus-5-5`.
 
-| All 69 prompts, by use (tagged by keyword)                | Prompts |
-| --------------------------------------------------------- | ------- |
-| Learning / explanation                                    | 28      |
-| Implementation                                            | 15      |
-| General request                                           | 12      |
-| Review and verification                                   | 3       |
-| Debugging                                                 | 3       |
-| Release and PR workflow                                   | 2       |
-| Requirements and planning (topic)                         | 2       |
-| Design and decisions (topic)                              | 1       |
-| Routine: approvals, push and merge notices, status checks | 1       |
-| Documentation and slides                                  | 1       |
-| Testing                                                   | 1       |
+| 68 prompts, by use (tagged by keyword) | Prompts |
+| -------------------------------------- | ------- |
+| Learning / explanation                 | 28      |
+| Implementation                         | 15      |
+| General request                        | 12      |
+| Review and verification                | 3       |
+| Debugging                              | 3       |
+| Release and PR workflow                | 2       |
+| Requirements and planning (topic)      | 2       |
+| Design and decisions (topic)           | 1       |
+| Documentation and slides               | 1       |
+| Testing                                | 1       |
 
 #### Tue 13 Oct 2026
 
@@ -549,20 +548,19 @@ how can my friends modify the server and stuff?
 
 ### Key prompts
 
-20 key prompts, picked by Patrick Thomas from their 89 Claude Code prompts between 13 Oct 2026 and 9 Nov 2026. Exported with `ai/export-claude-code-log.py`. Times are SGT. Models: `claude-opus-5-5`.
+20 key prompts, picked by Patrick Thomas from the 88 Claude Code prompts counted below, between 13 Oct 2026 and 9 Nov 2026. Exported with `ai/export-claude-code-log.py`. Times are SGT. Models: `claude-opus-5-5`.
 
-| All 89 prompts, by use (tagged by keyword)                | Prompts |
-| --------------------------------------------------------- | ------- |
-| General request                                           | 20      |
-| Review and verification                                   | 15      |
-| Debugging                                                 | 13      |
-| Release and PR workflow                                   | 12      |
-| Documentation and slides                                  | 10      |
-| Learning / explanation                                    | 9       |
-| Design and decisions (topic)                              | 6       |
-| Requirements and planning (topic)                         | 2       |
-| Routine: approvals, push and merge notices, status checks | 1       |
-| Implementation                                            | 1       |
+| 88 prompts, by use (tagged by keyword) | Prompts |
+| -------------------------------------- | ------- |
+| General request                        | 20      |
+| Review and verification                | 15      |
+| Debugging                              | 13      |
+| Release and PR workflow                | 12      |
+| Documentation and slides               | 10      |
+| Learning / explanation                 | 9       |
+| Design and decisions (topic)           | 6       |
+| Requirements and planning (topic)      | 2       |
+| Implementation                         | 1       |
 
 #### Tue 13 Oct 2026
 
@@ -875,21 +873,20 @@ do up the scripts
 
 ### Key prompts
 
-20 key prompts, picked by Zhang Yuan from their 249 Claude Code prompts between 12 Oct 2026 and 7 Nov 2026.
+20 key prompts, picked by Zhang Yuan from the 203 Claude Code prompts counted below, between 12 Oct 2026 and 7 Nov 2026.
 
-| All 249 prompts, by use (tagged by keyword)               | Prompts |
-| --------------------------------------------------------- | ------- |
-| Routine: approvals, push and merge notices, status checks | 46      |
-| Implementation                                            | 42      |
-| Review and verification                                   | 41      |
-| Learning / explanation                                    | 35      |
-| Documentation and slides                                  | 26      |
-| General request                                           | 26      |
-| Release and PR workflow                                   | 15      |
-| Debugging                                                 | 8       |
-| Design and decisions (topic)                              | 6       |
-| Testing                                                   | 2       |
-| Requirements and planning (topic)                         | 2       |
+| 203 prompts, by use (tagged by keyword) | Prompts |
+| --------------------------------------- | ------- |
+| Implementation                          | 42      |
+| Review and verification                 | 41      |
+| Learning / explanation                  | 35      |
+| Documentation and slides                | 26      |
+| General request                         | 26      |
+| Release and PR workflow                 | 15      |
+| Debugging                               | 8       |
+| Design and decisions (topic)            | 6       |
+| Testing                                 | 2       |
+| Requirements and planning (topic)       | 2       |
 
 #### Wed 14 Oct 2026
 
