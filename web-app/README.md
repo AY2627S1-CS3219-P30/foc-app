@@ -35,12 +35,17 @@ other.
 
 ## Design system
 
-**Tokens.** `src/styles/tokens.ts` is the single source for colour, spacing, type, radius, shadow and
-size. `bun run generate` writes them to `src/styles/tokens.css` as variables (`--color-primary`,
+**Tokens.** `src/styles/tokens.ts` is the single source for colour, spacing, type, radius, shadow,
+size and motion. `bun run generate` writes them to `src/styles/tokens.css` as variables (`--color-primary`,
 `--space-4`, `--text-md`, …). Use `var(--…)` in CSS modules and `vars.*` from `@/styles/tokens` in inline
 styles. `bun test` fails on a literal colour, font size or weight, a breakpoint other than the two
 below, a token pair under 4.5:1 contrast (text) or 3:1 (non-text), or a `<ul>`/`<ol>` without a class
 or style.
+
+**Motion.** `motion.*` holds the durations (`fast` 120 ms, `base` 200 ms, `slow` 320 ms), the
+easings and the travel distance: routine changes are quick, arrivals ease out, and exits are faster
+than entrances. Under `prefers-reduced-motion`, `globals.css` sets the distance to 0, so motion keeps
+its fades and drops its travel. Nothing that takes focus fades in from invisible.
 
 **Breakpoints.** Mobile first. Base styles hold from **360 px**; `@media (min-width: 768px)` switches to
 the top bar and sidebar; `@media (min-width: 1440px)` widens the gutters. Nothing scrolls sideways at
@@ -286,7 +291,11 @@ reserved its reward once.
   read every 5 seconds while any errand is in a `*_PENDING_CREDIT` state, every 30 seconds while any
   is otherwise active, and on returning or reconnecting; it stops once every errand is final. *Load
   more requests* and *Load more errands* page each list, one at a time, and a mode change cancels a
-  page still loading. Feed and history share this in `src/lib/use-paged-poll.ts` (#269).
+  page still loading. Feed and history share this in `src/lib/use-paged-poll.ts` (#269). Switching
+  mode, or changing a courier filter, keeps the last loaded screen up, as read for its mode, until the
+  new lists arrive (`useKeptWhileLoading`), so no skeleton flashes between them; the kept screen
+  dims, takes no input, and its *Load more* is off. A failed first read for the new mode still shows
+  its error.
 - **Receipt** (`/request/{orderId}/receipt`): `GET /orders/{orderId}/receipt`, readable by the
   requester and courier once the courier is paid. It shows the supplier, reward, both parties, every
   timestamp (`deliveredAt` is null when an administrator decided the errand for the courier) and links
