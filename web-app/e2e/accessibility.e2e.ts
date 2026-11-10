@@ -15,6 +15,16 @@ const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "best-practice"];
 type Finding = { screen: string; impact: string; id: string; targets: string[] };
 
 async function scan(page: Page, testInfo: TestInfo, screen: string, findings: Finding[]) {
+  // Content fades in as it arrives; scanned mid-fade, its text reads as low contrast. Let one-off
+  // animations settle first (endless ones, such as a skeleton's shimmer, never finish).
+  await page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((a) => a.effect?.getTiming().iterations !== Infinity)
+        .map((a) => a.finished.catch(() => undefined)),
+    ),
+  );
   const { violations } = await new AxeBuilder({ page }).withTags(TAGS).analyze();
   const counts: Record<string, number> = {};
   for (const v of violations) {
