@@ -72,10 +72,20 @@ export function ProfileForm({ user }: { user: Me }) {
         {/* One mounted region per tone, so each message is announced. */}
         <FormAlert>{alert?.tone === "error" && alert.text}</FormAlert>
         <FormAlert tone="success">{alert?.tone === "success" && alert.text}</FormAlert>
-        <dl style={{ display: "grid", gap: vars.space[1], fontSize: vars.text.md }}>
-          <dt style={{ color: vars.color.textSubtle, fontSize: vars.text.xs }}>Email</dt>
+        {/* Label beside value, so each pair reads as one line rather than four equal rows. */}
+        <dl
+          style={{
+            display: "grid",
+            gridTemplateColumns: "max-content minmax(0, 1fr)",
+            alignItems: "baseline",
+            gap: `${vars.space[2]} ${vars.space[4]}`,
+            fontSize: vars.text.md,
+            overflowWrap: "anywhere",
+          }}
+        >
+          <dt style={{ color: vars.color.textSubtle, fontSize: vars.text.sm }}>Email</dt>
           <dd>{user.email}</dd>
-          <dt style={{ color: vars.color.textSubtle, fontSize: vars.text.xs }}>Account</dt>
+          <dt style={{ color: vars.color.textSubtle, fontSize: vars.text.sm }}>Account</dt>
           <dd>{user.roles.includes("ADMIN") ? "Student · Administrator" : "Student"}</dd>
         </dl>
         <FormField
@@ -98,7 +108,7 @@ export function ProfileForm({ user }: { user: Me }) {
           error={errors.faculty}
         />
         <fieldset style={{ border: "none", padding: 0, margin: 0 }}>
-          <legend className="field-label">How should we contact you?</legend>
+          <legend className="field-label" style={{ marginBottom: 0 }}>How should we contact you?</legend>
           <div style={{ display: "flex", gap: vars.space[4], fontSize: vars.text.md }}>
             {(
               [

@@ -20,7 +20,7 @@ import { STUDENT_NAV } from "@/lib/nav";
 import { listMyOrders, type MyOrder } from "@/lib/order-api";
 import { isFinal, PENDING_POLL_MS, statusWording, waitsOnCredit } from "@/lib/order-status";
 import { useLive } from "@/lib/live/live";
-import { usePagedPoll } from "@/lib/use-paged-poll";
+import { useKeptWhileLoading, usePagedPoll } from "@/lib/use-paged-poll";
 import { vars } from "@/styles/tokens";
 
 /** Only while some errand is still active: past ones no longer change. */
@@ -81,38 +81,36 @@ function Section({ title, orders }: { title: string; orders: MyOrder[] }) {
 
 export default function OrderHistoryPage() {
   const { authed, user } = useAuth();
-  const mode = user?.profile.preferredMode;
+  const chosen = user?.profile.preferredMode;
   const read = useCallback(
     async (signal: AbortSignal) => {
-      if (!mode) return null;
+      if (!chosen) return null;
       const [deliveries, requests] = await authed((token) =>
         Promise.all([
-          listMyOrders(token, { role: mode }, signal),
-          mode === "COURIER"
+          listMyOrders(token, { role: chosen }, signal),
+          chosen === "COURIER"
             ? listMyOrders(token, { role: "REQUESTER", active: true }, signal)
             : Promise.resolve(NO_REQUESTS),
         ]),
       );
       return { lists: { deliveries, requests }, delay: nextRead([...deliveries.items, ...requests.items]) };
     },
-    [authed, mode],
+    [authed, chosen],
   );
   const readMore = useCallback(
     (cursor: string, signal: AbortSignal, list: List) =>
       authed((token) =>
         listMyOrders(
           token,
-          list === "deliveries" ? { role: mode, cursor } : { role: "REQUESTER", active: true, cursor },
+          list === "deliveries" ? { role: chosen, cursor } : { role: "REQUESTER", active: true, cursor },
           signal,
         ),
       ),
-    [authed, mode],
+    [authed, chosen],
   );
-  const { result: mine, problem, reload, loadMore, moreProblem, loadingMore } = usePagedPoll(
-    mode ?? "",
-    read,
-    readMore,
-  );
+  const history = usePagedPoll(chosen ?? "", read, readMore);
+  const { problem, reload, loadMore, moreProblem, loadingMore } = history;
+  const { mode, result: mine, stale } = useKeptWhileLoading(chosen, history.result, problem);
   // N1.4: any errand nudge may have changed what this lists.
   useLive((nudge) => {
     if (nudge.kind !== "board") reload();
@@ -129,7 +127,7 @@ export default function OrderHistoryPage() {
       <LoadingState label="Loading your errands…" />
     )
   ) : (
-    <>
+    <div key={mode} className="settle arrive" aria-busy={stale || undefined} inert={stale}>
       {problem && (
         <ErrorState title="Could not refresh your errands" onRetry={reload}>
           Showing the last loaded history. {problem}
@@ -145,14 +143,14 @@ export default function OrderHistoryPage() {
         <>
           {mode === "COURIER" && <Section title="Requests you placed" orders={activeRequests} />}
           {mine.requests.nextCursor && (
-            <Button variant="outline" disabled={!!loadingMore} onClick={() => loadMore("requests")}>
+            <Button variant="outline" disabled={stale || !!loadingMore} onClick={() => loadMore("requests")}>
               {loadingMore === "requests" ? "Loading…" : "Load more requests"}
             </Button>
           )}
           <Section title={mode === "COURIER" ? "Active deliveries" : "Active"} orders={items.filter((o) => !isFinal(o.status))} />
           <Section title={mode === "COURIER" ? "Past deliveries" : "Past"} orders={items.filter((o) => isFinal(o.status))} />
           {mine.deliveries.nextCursor && (
-            <Button variant="outline" disabled={!!loadingMore} onClick={() => loadMore("deliveries")}>
+            <Button variant="outline" disabled={stale || !!loadingMore} onClick={() => loadMore("deliveries")}>
               {loadingMore === "deliveries" ? "Loading…" : "Load more errands"}
             </Button>
           )}
@@ -161,7 +159,7 @@ export default function OrderHistoryPage() {
           )}
         </>
       )}
-    </>
+    </div>
   );
 
   return (

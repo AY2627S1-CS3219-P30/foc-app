@@ -153,7 +153,9 @@ export default function WalletPage() {
         </Button>
       )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: vars.space[5], alignItems: "flex-start" }}>
-        <div style={{ ...column, flex: "1 1 280px", maxWidth: 400 }}>
+        <section style={{ ...column, flex: "1 1 280px", maxWidth: 400 }}>
+          {/* Headed like Activity beside it, so the two columns start level. */}
+          <h2 style={{ fontSize: vars.text.lg, fontWeight: vars.weight.semibold }}>Balance</h2>
           <WalletBalance wallet={wallet} />
           {wallet.available === 0 && (
             <p style={{ fontSize: vars.text.sm, color: vars.color.textMuted }}>
@@ -164,7 +166,7 @@ export default function WalletPage() {
               .
             </p>
           )}
-        </div>
+        </section>
         <section style={{ ...column, flex: "1 1 320px", maxWidth: 520 }}>
           <h2 style={{ fontSize: vars.text.lg, fontWeight: vars.weight.semibold }}>Activity</h2>
           {target && !found && !ledger.nextCursor && (

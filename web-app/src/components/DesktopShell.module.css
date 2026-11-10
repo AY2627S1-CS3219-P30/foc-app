@@ -16,13 +16,19 @@
   min-width: 0;
   padding: var(--space-4);
   max-width: var(--size-content);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
 }
 
+/* As in ResponsiveShell: control-tall, so headings line up across the console's screens. */
 .headingRow {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: var(--space-4);
+  gap: var(--space-3);
+  min-height: var(--size-control);
 }
 
 .heading {

@@ -5,6 +5,21 @@
   z-index: 100;
   display: flex;
   justify-content: center;
+  animation: dim-in var(--motion-base) ease both;
+}
+
+/* Only the backdrop fades: the panel takes focus at once, so it is never transparent. */
+@keyframes dim-in {
+  from {
+    background: transparent;
+  }
+}
+
+/* The drawer comes down from the app bar that opened it. Reduced motion: it simply appears. */
+@keyframes drop-in {
+  from {
+    transform: translateY(calc(var(--motion-distance) * -3));
+  }
 }
 
 .panel {
@@ -17,6 +32,8 @@
   gap: var(--space-1);
   height: fit-content;
   border-radius: 0 0 var(--radius-md) var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  animation: drop-in var(--motion-slow) var(--motion-ease-out) both;
 }
 
 .item {
@@ -29,6 +46,7 @@
   font-weight: var(--weight-medium);
   border-radius: var(--radius-sm);
   color: var(--color-text);
+  transition: background-color var(--motion-base) ease;
 }
 
 .item:hover {

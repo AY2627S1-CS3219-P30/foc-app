@@ -74,6 +74,18 @@ export const values = {
   shadow: {
     sm: "0 1px 2px rgb(15 23 42 / 0.12)",
     md: "0 1px 3px rgb(15 23 42 / 0.08)",
+    // Something above the page: the phone menu, a dialog.
+    lg: "0 12px 32px rgb(15 23 42 / 0.18)",
+  },
+  // Routine changes are quick, arrivals ease out and exits are faster than entrances. Under
+  // prefers-reduced-motion, globals.css sets the distance to 0, so motion keeps only its fades.
+  motion: {
+    fast: "120ms",
+    base: "200ms",
+    slow: "320ms",
+    easeOut: "cubic-bezier(0.16, 1, 0.3, 1)",
+    easeInOut: "cubic-bezier(0.65, 0, 0.35, 1)",
+    distance: "8px",
   },
   size: {
     control: "44px",
